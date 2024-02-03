@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "create-tauri-ui": "^0.3.3"
+  }
+}
