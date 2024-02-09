@@ -4,20 +4,25 @@ use std::{
     process::{Command, Output},
 };
 
-enum Device {
-    CPU,
-    CUDA,
-    OPTIX,
-    HIP,
-    ONEAPI,
-    METAL,
-}
+// enum Device {
+//     CPU,
+//     CUDA,
+//     OPTIX,
+//     HIP,
+//     ONEAPI,
+//     METAL,
+// }
 // append +CPU to gpu to include CPU into render cycle.
 
 // how can I detect what device is allowed on this current machine farm?
 
 #[derive(Default)]
 pub struct Blender {}
+
+const OS_LINUX64: &str = "linux64";
+const OS_WINDOWS64: &str = "window64";
+const OS_MACOS: &str = "macOS";
+const OS_MACOSARM64: &str = "macOS-arm64";
 
 impl Blender {
     pub fn render(
@@ -29,7 +34,16 @@ impl Blender {
         let frame = frame.to_string();
         // in the original program, the command used to launch blender doesn't invoke to render - it execute a python script using -P "script.py" with argument passed to python instead.
         // see "render.py" for the python script used in blendfarm - ignored by repo
-        Command::new("blender")
+        // who knew, macOS is special!
+        let mut command = if cfg!(target_os = "macos") {
+            println!("Running macOS version");
+            Command::new("/Applications/Blender.app/Contents/MacOS/blender")
+        } else {
+            println!("Running Unix/Posix version");
+            Command::new("blender")
+        };
+
+        command
             .args([
                 "--factory-startup", // skip startup.blend
                 "-noaudio",          // no sound
