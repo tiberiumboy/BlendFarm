@@ -3,22 +3,26 @@
 
 use local_ip_address::local_ip;
 use server_settings::ServerSettings;
-// use std::{
-//     fs::File,
-//     io,
-//     net::{IpAddr}, };
 use std::{
     env,
-    io::{Read, Write},
+    io::Read,
     net::{TcpListener, TcpStream},
     // result,
     thread,
     // time::Duration,
 };
+use tauri::{
+    api::dialog::{self, confirm, FileDialogBuilder, MessageDialogButtons, MessageDialogKind},
+    window,
+};
 
-use blender::Blender;
+// use context::Context;
+
+// use blender::Blender;
 
 pub mod blender;
+pub mod context;
+mod render_client;
 pub mod server_settings;
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -26,11 +30,25 @@ pub mod server_settings;
 // question is, how do I access objects? E.g. If I want to update server settings
 // or send command from a specific node?
 #[tauri::command]
-fn load_blend_file(name: &str) -> String {
-    // we could try? Why not?
+fn load_blend_file() {
+    FileDialogBuilder::new().pick_file(|file_path| {
+        if let Some(path) = file_path {
+            // begin adding the project to queue
+            println!("{path:?}"); // with this path - I need to get the file name
+                                  // move to this directory temp path
+            let mut dir = env::temp_dir();
+            dir.push(path.file_name().unwrap());
+            let _ = std::fs::copy(path, &dir);
+            // now we could do something fancy like appending a new record or entry?
+            // showing that we have a project loaded for this!
 
-    name.to_owned()
+            println!("{}", dir.display());
+        }
+    });
 }
+// fn load_blend_file(name: &str) -> String {
+//     name.to_owned()
+// }
 
 // from the node we can reference to?
 
@@ -56,15 +74,15 @@ fn client() {
 fn server(server_settings: &ServerSettings) {
     let ip = local_ip().unwrap();
 
-    println!(
-        "IP Addresses of this Server:{:?}:{}",
-        ip, &server_settings.port
-    );
-
     let listener = TcpListener::bind((ip, server_settings.port))
         .expect("Could not bind! Could there be a port in use?");
 
-    // the problem with this is that I need this node to be locked to one host/server.
+    println!(
+        "IP Addresses of this Server:{:?}",
+        listener.local_addr().unwrap()
+    );
+
+    // the pwroblem with this is that I need this node to be locked to one host/server.
     // if the host/server connects to this, this node needs to respect that.
     // currently accepts any and all connections whatsoever.
     for result in listener.incoming() {
@@ -72,6 +90,7 @@ fn server(server_settings: &ServerSettings) {
             Err(e) => {
                 eprintln!("Failed: {}", e)
             }
+            // need to check the documentation on this one - I don't know if we're blocking main thread or this is running in parallel?
             Ok(stream) => thread::scope(|_| {
                 println!("{:?}", handle_client(stream));
             }),
@@ -85,7 +104,7 @@ fn handle_client(mut stream: TcpStream) -> std::io::Result<()> {
     }
     let mut buf = [0u8; 4096];
     loop {
-        if let Ok(len) = stream.read(&mut buf) {
+        if let Ok(_) = stream.read(&mut buf) {
             // here we write back the response?
             // let _ = stream.write(b"Received!"); // returns the length writing back?
         } else {
@@ -105,7 +124,9 @@ fn main() -> std::io::Result<()> {
 
     // obtain configurations
 
-    // cleanup old sessions ?
+    // cleanup old sessions ? Assuming temp file(s) get deleted anyway - should we need to worry about this?
+    // we could use this as an opportunity to clean cache files in case a client request it?
+    // could provide computer spec info? - feature request?
     // println!("Cleaing up old session...");
     // cleanup_old_sessions();
 
@@ -118,15 +139,15 @@ fn main() -> std::io::Result<()> {
     // for this month, I want to focus on having the ability to launch blender and send a render job, if possible
     // here we will ask for the user's blender file - we will use the scene file as a rendering present. Do not worry about gpu/cpu stuff. Just make this work.
 
-    let mut path = env::current_dir()?;
-    path.push("test.blend");
+    // let mut path = env::current_dir()?;
+    // path.push("test.blend");
 
-    let output = env::current_dir()?;
-    let blend = Blender::default();
-    match Blender::render(&blend, path, output, 1) {
-        Ok(result) => println!("{result:?}"),
-        Err(e) => println!("Failed to render: {e:?}"),
-    };
+    // let output = env::current_dir()?;
+    // let blend = Blender::default();
+    // match Blender::render(&blend, path, output, 1) {
+    //     Ok(result) => println!("{result:?}"),
+    //   https://www.youtube.com/watch?v=zlthUnIW7wI  Err(e) => println!("Failed to render: {e:?}"),
+    // };
 
     client();
 

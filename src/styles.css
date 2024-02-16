@@ -14,8 +14,18 @@
   -webkit-text-size-adjust: 100%;
 }
 
-.container {
+html,
+body {
   margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  height: 100%;
+}
+
+.container {
+  min-height: 100%;
+  height: 100%;
+  margin-top: 0;
   padding-top: 10vh;
   display: flex;
   flex-direction: column;
@@ -74,6 +84,7 @@ button {
 button:hover {
   border-color: #396cd8;
 }
+
 button:active {
   border-color: #396cd8;
   background-color: #e8e8e8;
@@ -86,6 +97,81 @@ button {
 
 #greet-input {
   margin-right: 5px;
+}
+
+/* Sidebar */
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 210px;
+  resize: horizontal;
+  overflow: auto;
+  min-width: 60px;
+}
+
+.sidebar .logo-details {
+  height: 60px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.sidebar .nav-links {
+  height: 100%;
+  padding: 30px 0 150px 0;
+  overflow: auto;
+}
+
+.sidebar .nav-links::-webkit-scrollbar {
+  display: none;
+}
+
+.sidebar .nav-links li {
+  position: relative;
+  list-style: none;
+}
+
+.sidebar .nav-links li:hover {
+  background: black;
+}
+
+.sidebar .nav-links li i {
+  height: 50px;
+  min-width: 78px;
+  text-align: center;
+  line-height: 50px;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.sidebar .nav-links li a {
+  color: white
+}
+
+.sidebar .nav-links li a.active {
+  background: blue;
+  border-radius: 4px;
+}
+
+/* progress bar style */
+#progressbar {
+  padding: 3px;
+  border: 1px solid black;
+}
+
+#progressbar>div {
+  background-color: green;
+  height: 20px;
+}
+
+div.content {
+  margin-left: 210px;
+  padding: 1px 16px;
+  height: auto;
+  overflow: auto;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -103,6 +189,7 @@ button {
     color: #ffffff;
     background-color: #0f0f0f98;
   }
+
   button:active {
     background-color: #0f0f0f69;
   }

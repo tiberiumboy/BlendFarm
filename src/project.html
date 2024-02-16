@@ -1,0 +1,53 @@
+<h3>Load Blender</h3>
+<div class="group">
+    <button id="load_project" type="submit">Load Blend file</button>
+
+    <p id="msg-log"></p>
+</div>
+
+<!-- Show the list of project available here -->
+<div class="group" id="project-list">
+    <table>
+        <tr>
+            <th>Node Name</th>
+            <th>Status</th>
+            <th>Progress</th>
+            <th>Action</th>
+        </tr>
+        <tr>
+            <td>Localhost</td>
+            <td>Idle</td>
+            <!-- progress barr -->
+            <td>
+                <div id="progressbar">
+                    <div style="width:35%">35%</div>
+                </div>
+            </td>
+            <!-- context menu -->
+            <td></td>
+        </tr>
+    </table>
+</div>
+
+<script>
+    const { invoke } = window.__TAURI__.tauri;
+
+    let input;
+    let logs;
+
+    async function loadBlendFile() {
+        // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
+        await invoke("load_blend_file");
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+        logs = document.querySelector("#msg-log");
+        document.querySelector("#load_project").addEventListener("click", (e) => {
+            e.preventDefault();
+            document.querySelector(".active").removeClass("active");
+            this.addClass("active");
+            loadBlendFile();
+        });
+    })
+
+</script>

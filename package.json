@@ -1,5 +1,7 @@
 {
   "dependencies": {
+    "@tauri-apps/api": "^1.5.3",
+    "@tauri-apps/cli": "^1.5.9",
     "create-tauri-ui": "^0.3.3"
   }
 }

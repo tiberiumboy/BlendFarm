@@ -1,25 +1,25 @@
-const { invoke } = window.__TAURI__.tauri;
-
-let input;
-let logs;
-
-async function loadBlendFile() {
-  // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-  let fReader = new FileReader();
-  fReader.readAsDataURL(input.files[0]);
-  fReader.onloadend = function (event) {
-    logs.textContent = event.target.result;
+function loadPage(url) {
+  let xhr = new XMLHttpRequest();
+  let content = document.getElementById("content");
+  xhr.onreadystatechange = function () {
+    if (xhr.readyState == 4 && xhr.status == 200) {
+      content.innerHTML = xhr.responseText;
+    }
   }
 
-  // logs.textContent = 
-  await invoke("load_blend_file", { name: input.value });
+  xhr.open("GET", url, true);
+  xhr.send(null);
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  input = document.getElementById("file-input");
-  logs = document.querySelector("#msg-log");
-  document.querySelector("#file-form").addEventListener("submit", (e) => {
+  $("ul.nav-links li > a").click(function (e) {
     e.preventDefault();
-    loadBlendFile();
+    var url = $(this).attr("href");
+    console.log(url);
+    loadPage(url);
+    return false;
+    // loadPage(url);
   });
+
+  loadPage("./project.html");
 });

@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, io, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -7,7 +7,7 @@ const RENDER_DATA: &str = "RenderData";
 const SETTINGS_PATH: &str = "ServerSettings";
 const BLENDER_FILES: &str = "BlenderFiles";
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ServerSettings {
     pub port: u16,
     pub broadcast_port: u16,
@@ -42,5 +42,19 @@ impl ServerSettings {
         let server_settings: ServerSettings =
             serde_json::from_str(&data).expect("Unable to parse settings!");
         server_settings
+    }
+
+    pub fn get_blender_data() -> io::Result<PathBuf> {
+        let mut tmp = std::env::temp_dir();
+        tmp.push(format!("/{}/", BLENDER_DATA));
+        std::fs::create_dir_all(&tmp)?;
+        Ok(tmp)
+    }
+
+    pub fn get_render_data() -> io::Result<PathBuf> {
+        let mut tmp = std::env::temp_dir();
+        tmp.push(format!("/{}/", RENDER_DATA));
+        std::fs::create_dir(&tmp)?;
+        Ok(tmp)
     }
 }

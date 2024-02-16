@@ -16,7 +16,8 @@ struct RenderNode {
     // do I need to care about logs? They're printed on the console anyway...?
     // currentLog : Vec<String>,
     pub name: String,
-    pub address: IpAddr,
+    pub stream: TcpStream,
+    //
     pub status: RenderNodeStatus, // could make this as an enum?
     // do I care about the os?
     pub os: String,

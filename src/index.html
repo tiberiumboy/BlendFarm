@@ -1,41 +1,43 @@
 <!doctype html>
 <html lang="en">
 
-<head>
+<head class="main-head">
   <meta charset="UTF-8" />
   <link rel="stylesheet" href="styles.css" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tauri App</title>
+  <title>BlendFarm</title>
   <script type="module" src="/main.js" defer></script>
-  <style>
-    .logo.vanilla:hover {
-      filter: drop-shadow(0 0 2em #ffe21c);
-    }
-  </style>
+  <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
 </head>
 
 <body>
-  <div class="container">
-    <h1>BlendFarm</h1>
 
-    <!-- <div class="row">
-      <a href="https://tauri.app" target="_blank">
-        <img src="/assets/tauri.svg" class="logo tauri" alt="Tauri logo" />
-      </a>
-      <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript" target="_blank">
-        <img src="/assets/javascript.svg" class="logo vanilla" alt="JavaScript logo" />
-      </a>
-    </div>
-
-    <p>Click on the Tauri logo to learn more about the framework</p> -->
-
-    <form class="row" id="file-form">
-      <input type="file" id="file-input" placeholder="Select a blender file" />
-      <button type="submit">Submit</button>
-    </form>
-
-    <p id="msg-log"></p>
+  <div class="sidebar">
+    <ul class="nav-links">
+      <li>
+        <a href="./project.html">
+          <i class="bx bx-grid-alt"></i>
+          <span class="link_name">Projects</span>
+        </a>
+      </li>
+      <li>
+        <a href="./connection.html">
+          <i class="bx bx-grid-alt"></i>
+          <span class="link_name">Connection</span>
+        </a>
+      </li>
+      <li>
+        <a href="./setting.html">
+          <i class="bx bx-grid-alt"></i>
+          <span class="link_name">Settings</span>
+        </a>
+      </li>
+    </ul>
   </div>
+
+  <div id="content" class="content">
+  </div>
+
 </body>
 
 </html>

@@ -1,9 +1,20 @@
 // use std::io::{self, Read, Result};
-use std::net::Ipv4Addr; //, SocketAddr, TcpStream, ToSocketAddrs};
+use local_ip_address::local_ip;
+use std::net::IpAddr; //, SocketAddr, TcpStream, ToSocketAddrs};
 
-struct RenderClient {
-    pub ip: Ipv4Addr,
+pub(crate) struct RenderClient {
+    pub ip: IpAddr,
     pub port: u16,
+}
+
+impl Default for RenderClient {
+    fn default() -> Self {
+        let ip = local_ip();
+        Self {
+            ip: ip.unwrap().to_owned(),
+            port: 15000,
+        }
+    }
 }
 
 impl RenderClient {
@@ -16,7 +27,7 @@ impl RenderClient {
     //         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid utf8"))
     // }
 
-    fn new(ip: Ipv4Addr, port: u16) -> Self {
+    fn new(ip: IpAddr, port: u16) -> Self {
         RenderClient { ip, port }
     }
 
