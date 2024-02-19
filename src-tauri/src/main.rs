@@ -21,6 +21,7 @@ use tauri::{
 // use blender::Blender;
 
 pub mod blender;
+mod cmd;
 pub mod context;
 mod render_client;
 pub mod server_settings;
@@ -30,7 +31,7 @@ pub mod server_settings;
 // question is, how do I access objects? E.g. If I want to update server settings
 // or send command from a specific node?
 #[tauri::command]
-fn load_blend_file() {
+fn add_project() {
     FileDialogBuilder::new().pick_file(|file_path| {
         if let Some(path) = file_path {
             // begin adding the project to queue
@@ -46,9 +47,17 @@ fn load_blend_file() {
         }
     });
 }
+
+#[tauri::command]
+fn edit_project() {}
 // fn load_blend_file(name: &str) -> String {
 //     name.to_owned()
 // }
+
+#[tauri::command]
+fn load_project_list() -> String {
+    "Hello world!".to_owned()
+}
 
 // from the node we can reference to?
 
@@ -60,7 +69,12 @@ fn client() {
             println!("{}", app.package_info().version);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![load_blend_file])
+        // Hmm find a way to load multiple of handlers?
+        .invoke_handler(tauri::generate_handler![
+            add_project,
+            edit_project,
+            load_project_list
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

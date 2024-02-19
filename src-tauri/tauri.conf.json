@@ -1,13 +1,13 @@
 {
   "build": {
-    "beforeDevCommand": "",
-    "beforeBuildCommand": "",
-    "devPath": "../src",
-    "distDir": "../src",
-    "withGlobalTauri": true
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devPath": "http://localhost:1420/",
+    "distDir": "../dist",
+    "withGlobalTauri": false
   },
   "package": {
-    "productName": "BlendFarm",
+    "productName": "BlenderFarm",
     "version": "0.0.0"
   },
   "tauri": {
@@ -37,7 +37,7 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "blendfarm",
+        "title": "Blender Farm",
         "width": 800,
         "height": 600
       }
