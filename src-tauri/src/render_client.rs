@@ -1,12 +1,14 @@
-use std::net::IpAddr;
+// use std::net::IpAddr;
 
 use local_ip_address::local_ip;
 
-use crate::page::project::ProjectFile;
+// use crate::page::project::ProjectFile;
 
 pub(crate) struct RenderClient {
     pub ip: String,
+    pub ip: String,
     pub port: u16,
+    pub name: Option<String>,
     pub name: Option<String>,
 }
 
@@ -14,7 +16,7 @@ impl Default for RenderClient {
     fn default() -> Self {
         let ip = local_ip();
         Self {
-            ip: ip.unwrap_or("0.0.0.0".to_owned()),
+            ip: ip.unwrap().to_string(),
             port: 15000,
             name: None,
         }

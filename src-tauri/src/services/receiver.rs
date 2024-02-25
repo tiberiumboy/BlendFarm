@@ -1,3 +1,9 @@
+use crate::models::sender_msg::SenderMsg;
+use message_io::network::{Endpoint, NetEvent, Transport};
+use message_io::node::{self};
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::Write;
 
 pub struct Transfer {
     file: File,
@@ -7,17 +13,19 @@ pub struct Transfer {
 }
 
 pub fn run() {
-    let (handler, listener) = node::split<()>();
-
-    let listen_addr = local_ip().ip();
-    handler.network().listen(Transport::FramedTcp, listen_addr).unwrap();
-    println!("Receiver running by TCP at {}", listen_addr);
+    let (handler, listener) = node::split::<()>();
+    let server = "localhost:15000";
+    handler
+        .network()
+        .listen(Transport::FramedTcp, server)
+        .unwrap();
+    println!("Receiver running by TCP at {}", server);
 
     let mut transfers: HashMap<Endpoint, Transfer> = HashMap::new();
 
     listener.for_each(move |event| match event.network() {
-        NetEvent::Connected(_,_) => unreachable!(),
-        NetEvent::Accepted(_,_) => (),
+        NetEvent::Connected(_, _) => unreachable!(),
+        NetEvent::Accepted(_, _) => (),
         NetEvent::Message(endpoint, input_data) => {
             let message: SenderMsg = bincode::deserialize(&input_data).unwrap();
             match message {
@@ -25,7 +33,12 @@ pub fn run() {
                     let able = match File::create(format!("{}.blend", name)) {
                         Ok(file) => {
                             println!("Accept file: '{}' with {} bytes", name, size);
-                            let transfer = Transfer{ file, name, current_size: 0, expected_size: size };
+                            let transfer = Transfer {
+                                file,
+                                name,
+                                current_size: 0,
+                                expected_size: size,
+                            };
                             transfers.insert(endpoint, transfer);
                             true
                         }
@@ -42,7 +55,7 @@ pub fn run() {
 
                     let current = transfer.current_size as f32;
                     let expected = transfer.expected_size as f32;
-                    let percentage = ((current/expected) * 100.0) as usize;
+                    let percentage = ((current / expected) * 100.0) as usize;
                     print!("\rReceiving '{}': {}%", transfer.name, percentage);
 
                     if transfer.expected_size == transfer.current_size {

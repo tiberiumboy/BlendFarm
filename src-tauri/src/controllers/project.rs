@@ -1,8 +1,8 @@
-use std::{env, io::Error, path::PathBuf};
+use std::{env, path::PathBuf};
 use tauri::api::dialog::FileDialogBuilder;
 
 use serde::{Deserialize, Serialize};
-use uuid::{uuid, Uuid};
+use uuid::Uuid;
 
 pub struct ProjectContext<'a> {
     pub col: &'a mut Vec<ProjectFile>,

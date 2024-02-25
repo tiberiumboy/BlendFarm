@@ -1,28 +1,20 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use libc::if_data;
-// use context::Context;
-use local_ip_address::local_ip;
 use message_io::{
     network::{Endpoint, NetEvent, Transport},
     node,
 };
-use page::project::{add_project, edit_project, load_project_list};
-// use server_settings::ServerSettings;
-use std::{
-    env,
-    io::Read,
-    net::{TcpListener, TcpStream},
-    // result,
-    thread,
-    // time::Duration,
-};
 
-pub mod context;
-pub mod page;
+// use server_settings::ServerSettings;
+use std::{env, thread};
+
+use crate::controllers::project::{add_project, edit_project, load_project_list};
+
+pub mod controllers;
+pub mod models;
 pub mod render_client;
-pub mod server_settings;
+pub mod services;
 
 // from the node we can reference to?
 
@@ -64,54 +56,12 @@ fn setup_listeners() {
         NetEvent::Accepted(endpoint, _listener) => {
             println!("Client connected {}", endpoint.addr().ip());
         }
-        NetEvent::Message(Endpointdata, data) => {
-            println!("Received: {}", String::from_utf8_lossy(data));
-            handler.network().send(endpoint, data);
-        }
-        NetEvent::Disconnected(endpoint) => {
-            println!("Disconnected {}", endpoint.addr().ip());
-        }
-    } );
-}
-
-fn handle_client(mut stream: TcpStream) -> std::io::Result<()> {
-    if let Ok(adr) = stream.peer_addr() {
-        println!("New client {:?}", adr);
-    }
-    let mut buf = [0u8; 4096];
-    loop {
-        if let Ok(_) = stream.read(&mut buf) {
-            // here we write back the response?
-            // let _ = stream.write(b"Received!"); // returns the length writing back?
-        } else {
-            break;
-        }
-    });
-}
-
-fn setup_listeners() {
-    let (handler, listener) = node::split::<()>();
-
-    handler
-        .network()
-        .listen(Transport::FramedTcp, "0.0.0.0:15000")
-        .unwrap();
-    handler
-        .network()
-        .listen(Transport::Udp, "0.0.0.0:15001")
-        .unwrap();
-
-    listener.for_each(move |event| match event.network() {
-        NetEvent::Connected(_, _) => unreachable!(),
-        NetEvent::Accepted(endpoint, _listener) => {
-            println!("Client connected {}", endpoint.addr().ip());
-        }
         NetEvent::Message(endpoint, data) => {
             println!("Received: {}", String::from_utf8_lossy(data));
             handler.network().send(endpoint, data);
         }
         NetEvent::Disconnected(endpoint) => {
-            println!("Client disconnected {}", endpoint.addr().ip())
+            println!("Disconnected {}", endpoint.addr().ip());
         }
     });
 }

@@ -20,5 +20,5 @@ struct RenderSettings {
     pub output_width: i32,
     pub output_height: i32,
     pub samples: i32,
-    pub engine: EngineType,
+    // pub engine: EngineType,
 }
