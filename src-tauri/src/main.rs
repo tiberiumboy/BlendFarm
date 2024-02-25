@@ -2,6 +2,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use local_ip_address::local_ip;
+use message_io::{
+    network::{NetEvent, Transport},
+    node,
+};
+use page::project::{add_project, edit_project, load_project_list};
 use server_settings::ServerSettings;
 use std::{
     env,
@@ -11,53 +16,11 @@ use std::{
     thread,
     // time::Duration,
 };
-use tauri::{
-    api::dialog::{self, confirm, FileDialogBuilder, MessageDialogButtons, MessageDialogKind},
-    window,
-};
 
-// use context::Context;
-
-// use blender::Blender;
-
-pub mod blender;
-mod cmd;
 pub mod context;
-mod render_client;
+pub mod page;
+pub mod render_client;
 pub mod server_settings;
-
-// Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-// in this case here, this is where I would setup configuration and start mapping things out?
-// question is, how do I access objects? E.g. If I want to update server settings
-// or send command from a specific node?
-#[tauri::command]
-fn add_project() {
-    FileDialogBuilder::new().pick_file(|file_path| {
-        if let Some(path) = file_path {
-            // begin adding the project to queue
-            println!("{path:?}"); // with this path - I need to get the file name
-                                  // move to this directory temp path
-            let mut dir = env::temp_dir();
-            dir.push(path.file_name().unwrap());
-            let _ = std::fs::copy(path, &dir);
-            // now we could do something fancy like appending a new record or entry?
-            // showing that we have a project loaded for this!
-
-            println!("{}", dir.display());
-        }
-    });
-}
-
-#[tauri::command]
-fn edit_project() {}
-// fn load_blend_file(name: &str) -> String {
-//     name.to_owned()
-// }
-
-#[tauri::command]
-fn load_project_list() -> String {
-    "Hello world!".to_owned()
-}
 
 // from the node we can reference to?
 
@@ -69,7 +32,8 @@ fn client() {
             println!("{}", app.package_info().version);
             Ok(())
         })
-        // Hmm find a way to load multiple of handlers?
+        // Hmm find a way to load multiple of handlers? from different page source?
+        // I feel like there should be a better way to manage this?
         .invoke_handler(tauri::generate_handler![
             add_project,
             edit_project,
@@ -128,13 +92,41 @@ fn handle_client(mut stream: TcpStream) -> std::io::Result<()> {
     Ok(())
 }
 
+fn setup_listeners() {
+    let (handler, listener) = node::split::<()>();
+
+    handler
+        .network()
+        .listen(Transport::FramedTcp, "0.0.0.0:15000")
+        .unwrap();
+    handler
+        .network()
+        .listen(Transport::Udp, "0.0.0.0:15001")
+        .unwrap();
+
+    listener.for_each(move |event| match event.network() {
+        NetEvent::Connected(_, _) => unreachable!(),
+        NetEvent::Accepted(endpoint, _listener) => {
+            println!("Client connected {}", endpoint.addr().ip());
+        }
+        NetEvent::Message(endpoint, data) => {
+            println!("Received: {}", String::from_utf8_lossy(data));
+            handler.network().send(endpoint, data);
+        }
+        NetEvent::Disconnected(endpoint) => {
+            println!("Client disconnected {}", endpoint.addr().ip())
+        }
+    });
+}
+
 fn main() -> std::io::Result<()> {
     // get the machine configuration here, and cache the result for poll request
     // we're making the assumption that the device card is available and ready when this app launches
 
     // parse argument input here
-    let args = std::env::args();
-    println!("{args:?}");
+    // let args = std::env::args();
+    // println!("{args:?}");
+    // let config = Config::load(); // Config::load();
 
     // obtain configurations
 
@@ -144,13 +136,15 @@ fn main() -> std::io::Result<()> {
     // println!("Cleaing up old session...");
     // cleanup_old_sessions();
 
+    setup_listeners();
     // initialize service listener
-    thread::spawn(|| {
-        let settings = ServerSettings::default();
-        server(&settings);
-    });
+    // thread::spawn(|| {
+    //     let settings = ServerSettings::default();
+    //     server(&settings);
+    // });
 
-    // for this month, I want to focus on having the ability to launch blender and send a render job, if possible
+    // for this month, I want to focus on having the ability to send a render job,
+    // I can render now! Mac is special
     // here we will ask for the user's blender file - we will use the scene file as a rendering present. Do not worry about gpu/cpu stuff. Just make this work.
 
     // let mut path = env::current_dir()?;
