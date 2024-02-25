@@ -14,10 +14,9 @@ function Connection() {
             <h3>Connection</h3>
             <form onSubmit={handleSubmit}>
                 <label>Internet Protocol Address</label>
-                <input type="text" id="ip" name="ip" />
+                <input type="text" placeholder="IP Address" id="ip" name="ip" />
                 <br></br>
-                <label>Port</label>
-                <input type="number" id="port" name="port" />
+                <input type="number" placeholder="Port" id="port" name="port" value={15000} />
                 <button type="submit">Connect</button>
             </form>
             <br></br>

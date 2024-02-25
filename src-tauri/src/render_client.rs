@@ -1,18 +1,22 @@
-// use std::io::{self, Read, Result};
+use std::net::IpAddr;
+
 use local_ip_address::local_ip;
-use std::net::IpAddr; //, SocketAddr, TcpStream, ToSocketAddrs};
+
+use crate::page::project::ProjectFile;
 
 pub(crate) struct RenderClient {
-    pub ip: IpAddr,
+    pub ip: String,
     pub port: u16,
+    pub name: Option<String>,
 }
 
 impl Default for RenderClient {
     fn default() -> Self {
         let ip = local_ip();
         Self {
-            ip: ip.unwrap().to_owned(),
+            ip: ip.unwrap_or("0.0.0.0".to_owned()),
             port: 15000,
+            name: None,
         }
     }
 }
@@ -27,10 +31,19 @@ impl RenderClient {
     //         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid utf8"))
     // }
 
-    fn new(ip: IpAddr, port: u16) -> Self {
-        RenderClient { ip, port }
+    pub fn new(ip: String, port: u16) -> Self {
+        Self {
+            ip,
+            port,
+            name: None,
+        }
     }
 
+    pub fn set_name(&mut self, name: Option<String>) {
+        self.name = name;
+    }
+
+    pub fn send(&self, project: ProjectFile) {}
     // fn send(&self, message: Packet) -> io::Result<()> {
     //     let mut stream = TcpStream::connect((self.ip, self.port))?;
 

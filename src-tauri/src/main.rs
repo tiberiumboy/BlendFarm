@@ -1,13 +1,15 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use libc::if_data;
+// use context::Context;
 use local_ip_address::local_ip;
 use message_io::{
-    network::{NetEvent, Transport},
+    network::{Endpoint, NetEvent, Transport},
     node,
 };
 use page::project::{add_project, edit_project, load_project_list};
-use server_settings::ServerSettings;
+// use server_settings::ServerSettings;
 use std::{
     env,
     io::Read,
@@ -49,31 +51,27 @@ fn client() {
 // check and see if blender exist
 //      download and install matching blender configuration from the blender settings
 
-fn server(server_settings: &ServerSettings) {
-    let ip = local_ip().unwrap();
+fn setup_listeners() {
+    let (handler, listener) = node::split::<()>();
 
-    let listener = TcpListener::bind((ip, server_settings.port))
-        .expect("Could not bind! Could there be a port in use?");
+    handler
+        .network()
+        .listen(Transport::FramedTcp, "0.0.0.0:15000")
+        .unwrap();
 
-    println!(
-        "IP Addresses of this Server:{:?}",
-        listener.local_addr().unwrap()
-    );
-
-    // the pwroblem with this is that I need this node to be locked to one host/server.
-    // if the host/server connects to this, this node needs to respect that.
-    // currently accepts any and all connections whatsoever.
-    for result in listener.incoming() {
-        match result {
-            Err(e) => {
-                eprintln!("Failed: {}", e)
-            }
-            // need to check the documentation on this one - I don't know if we're blocking main thread or this is running in parallel?
-            Ok(stream) => thread::scope(|_| {
-                println!("{:?}", handle_client(stream));
-            }),
+    listener.for_each(move |event| match event.network() {
+        NetEvent::Connected(_, _) => unreachable!(),
+        NetEvent::Accepted(endpoint, _listener) => {
+            println!("Client connected {}", endpoint.addr().ip());
         }
-    }
+        NetEvent::Message(Endpointdata, data) => {
+            println!("Received: {}", String::from_utf8_lossy(data));
+            handler.network().send(endpoint, data);
+        }
+        NetEvent::Disconnected(endpoint) => {
+            println!("Disconnected {}", endpoint.addr().ip());
+        }
+    } );
 }
 
 fn handle_client(mut stream: TcpStream) -> std::io::Result<()> {
@@ -88,8 +86,7 @@ fn handle_client(mut stream: TcpStream) -> std::io::Result<()> {
         } else {
             break;
         }
-    }
-    Ok(())
+    });
 }
 
 fn setup_listeners() {
@@ -127,6 +124,9 @@ fn main() -> std::io::Result<()> {
     // let args = std::env::args();
     // println!("{args:?}");
     // let config = Config::load(); // Config::load();
+    // let args = std::env::args();
+    // println!("{args:?}");
+    // let config = Config::load(); // Config::load();
 
     // obtain configurations
 
@@ -136,12 +136,12 @@ fn main() -> std::io::Result<()> {
     // println!("Cleaing up old session...");
     // cleanup_old_sessions();
 
-    setup_listeners();
     // initialize service listener
-    // thread::spawn(|| {
-    //     let settings = ServerSettings::default();
-    //     server(&settings);
-    // });
+    thread::spawn(|| {
+        setup_listeners();
+        // let settings = ServerSettings::default();
+        // server(&settings);
+    });
 
     // for this month, I want to focus on having the ability to send a render job,
     // I can render now! Mac is special
