@@ -1,5 +1,3 @@
-import Section from "../section";
-
 import * as GoIcons from "react-icons/go";
 import * as CgIcons from "react-icons/cg";
 import * as Hi2Icon from "react-icons/hi2";

@@ -1,21 +1,21 @@
-import { invoke } from "@tauri-apps/api/tauri";
-import { listen } from "@tauri-apps/api/event";
+// import { invoke } from "@tauri-apps/api/tauri";
+// import { listen } from "@tauri-apps/api/event";
 import { useState } from "react";
 
-async function Connection() {
+function Connection() {
     const [ip, setIp] = useState("");
 
 
-    async function handleSubmit(e: any) {
+    function handleSubmit(e: any) {
         e.preventDefault();
-        let result = await invoke("create_node");
-        console.log(result);
+        // let result = await invoke("create_node");
+        // console.log(result);
         return false;
     }
 
-    const unlisten = await listen('list_node', (event) => {
-        console.log(event);
-    })
+    // const unlisten = await listen('list_node', (event) => {
+    //     console.log(event);
+    // })
 
     return (
         <div className="content">
