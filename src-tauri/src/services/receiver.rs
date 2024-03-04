@@ -30,7 +30,7 @@ pub fn run() {
             let message: SenderMsg = bincode::deserialize(&input_data).unwrap();
             match message {
                 SenderMsg::FileRequest(name, size) => {
-                    let able = match File::create(format!("{}.blend", name)) {
+                    let _able = match File::create(format!("{}.blend", name)) {
                         Ok(file) => {
                             println!("Accept file: '{}' with {} bytes", name, size);
                             let transfer = Transfer {

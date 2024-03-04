@@ -1,7 +1,8 @@
-use crate::{page::project::ProjectFile, render_client::RenderClient};
+use crate::models::project_file::ProjectFile;
+use crate::models::render_node::RenderNode;
 
 pub struct Context {
     pub id: Option<String>,
-    pub render_nodes: Vec<RenderClient>,
+    pub render_nodes: Vec<RenderNode>,
     pub project_files: Vec<ProjectFile>,
 }

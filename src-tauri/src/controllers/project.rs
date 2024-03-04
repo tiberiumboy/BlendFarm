@@ -1,36 +1,9 @@
-use std::{env, path::PathBuf};
+use crate::models::project_file::ProjectFile;
 use tauri::api::dialog::FileDialogBuilder;
 
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
-pub struct ProjectContext<'a> {
-    pub col: &'a mut Vec<ProjectFile>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ProjectFile {
-    id: String,
-    title: String,
-    src: PathBuf,
-    tmp: PathBuf,
-}
-
-impl ProjectFile {
-    fn create(src: PathBuf) -> Self {
-        let mut dir = env::temp_dir();
-        let file_name = src.file_name().unwrap();
-        dir.push(&file_name);
-        let _ = std::fs::copy(&src, &dir);
-
-        Self {
-            id: Uuid::new_v4().to_string(),
-            title: file_name.to_str().unwrap().to_owned(),
-            src: src.to_owned(),
-            tmp: dir,
-        }
-    }
-}
+// pub struct ProjectContext<'a> {
+//     pub col: &'a mut Vec<ProjectFile>,
+// }
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 // in this case here, this is where I would setup configuration and start mapping things out?

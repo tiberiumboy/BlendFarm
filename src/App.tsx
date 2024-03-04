@@ -6,17 +6,18 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Project from "./pages/project";
 import Connection from "./pages/connection";
 import Setting from "./pages/setting";
+import LiveView from "./pages/live_view";
 
 function App() {
   return (
     <div>
       <Router>
         <Sidebar />
-        {/* Why switch doesn't exist? */}
         <Routes>
           <Route path='/' Component={Project} />
           <Route path='/project' Component={Project} />
           <Route path='/connection' Component={Connection} />
+          <Route path='/liveview' Component={LiveView} />
           <Route path='/setting' Component={Setting} />
         </Routes>
       </Router>

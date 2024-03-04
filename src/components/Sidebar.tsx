@@ -3,7 +3,7 @@ import Section from "../section";
 import * as GoIcons from "react-icons/go";
 import * as CgIcons from "react-icons/cg";
 import * as Hi2Icon from "react-icons/hi2";
-
+import * as MdIcon from "react-icons/md";
 import { Link } from "react-router-dom";
 
 export const SidebarData = [
@@ -21,6 +21,11 @@ export const SidebarData = [
         title: 'Setting',
         path: './setting',
         icon: <Hi2Icon.HiOutlineCog8Tooth />
+    },
+    {
+        title: 'LiveView',
+        path: './liveview',
+        icon: <MdIcon.MdOutlinePreview />
     }
 ]
 

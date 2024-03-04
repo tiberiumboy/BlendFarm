@@ -1,2 +1,2 @@
-mod Receiver;
-mod Sender;
+mod receiver;
+mod sender;

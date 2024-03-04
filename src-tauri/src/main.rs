@@ -2,9 +2,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use message_io::{
-    network::{Endpoint, NetEvent, Transport},
+    network::{NetEvent, Transport},
     node,
 };
+<<<<<<< HEAD
 
 // use server_settings::ServerSettings;
 use std::{env, thread};
@@ -14,6 +15,19 @@ use crate::controllers::project::{add_project, edit_project, load_project_list};
 pub mod controllers;
 pub mod models;
 pub mod render_client;
+=======
+
+// use server_settings::ServerSettings;
+use std::{env, thread};
+
+use crate::controllers::{
+    connection::{create_node, list_node},
+    project::{add_project, edit_project, load_project_list},
+};
+
+pub mod controllers;
+pub mod models;
+>>>>>>> f121e47 (Added liveview)
 pub mod services;
 
 // from the node we can reference to?
@@ -31,7 +45,9 @@ fn client() {
         .invoke_handler(tauri::generate_handler![
             add_project,
             edit_project,
-            load_project_list
+            load_project_list,
+            create_node,
+            list_node,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -48,7 +64,11 @@ fn setup_listeners() {
 
     handler
         .network()
+<<<<<<< HEAD
         .listen(Transport::FramedTcp, "0.0.0.0:15000")
+=======
+        .listen(Transport::FramedTcp, "localhost:15000")
+>>>>>>> f121e47 (Added liveview)
         .unwrap();
 
     listener.for_each(move |event| match event.network() {
