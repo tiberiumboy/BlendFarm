@@ -14,7 +14,7 @@ function Section(props: SectionProps) {
     }
 
     return (
-        
+        <div></div>
     );
 }
 

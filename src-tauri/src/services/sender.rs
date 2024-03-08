@@ -12,13 +12,13 @@ enum Signal {
 
 const CHUNK_SIZE: usize = 65536;
 
-pub fn run(file_path: PathBuf, target: &RenderNode) {
+pub fn run(file_path: &PathBuf, target: &RenderNode) {
     let (handler, listener) = node::split();
     let server_addr = format!("{}:{}", target.ip, target.port);
 
     let (server_id, _) = handler
         .network()
-        .connect(Transport::FramedTcp, server_addr)
+        .connect(Transport::Udp, server_addr)
         .unwrap();
     let file_size = fs::metadata(&file_path).unwrap().len() as usize;
     let mut file = File::open(&file_path).unwrap();

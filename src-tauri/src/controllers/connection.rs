@@ -1,31 +1,40 @@
-use crate::models::render_node::RenderNode;
-use crate::models::render_node_collection::RenderNodeCollection;
-use std::io::Error;
+use crate::models::{context::Context, error::Error, render_node::RenderNode};
 use std::sync::Mutex;
-use tauri::{window, Manager, Window};
+use tauri::{command, Manager, Window};
+
+// someday I would like to be able to pass on the argument for this. Should it load handler on the fly or allow it to be defined at compile time.
+// pub fn connection() -> FnOnce<T> {
+//     [create_node, list_node, edit_node, delete_node]
+// }
 
 // soon I want to return the client node it established to
-#[tauri::command]
-pub fn create_node(app: tauri::AppHandle, ip: String, port: u16) -> Result<RenderNode, Error> {
+#[command]
+pub fn create_node(app: tauri::AppHandle, ip: &str, port: u16) -> Result<(), Error> {
     let node = RenderNode::new(ip, port);
-    let node_mutex = app.state::<Mutex<RenderNodeCollection>>();
-    let mut col = node_mutex.lock()?;
-    col.push(node);
-    Ok(node);
+    let node_mutex = app.state::<Mutex<Context>>();
+    let mut col = node_mutex.lock().unwrap();
+    col.render_nodes.push(node);
+    Ok(())
 }
 
-#[tauri::command]
+#[command]
 pub fn list_node(app: tauri::AppHandle, window: Window) {
-    let node_mutex = app.state::<Mutex<RenderNodeCollection>>();
-    let mut col = node_mutex.lock()?;
-    window.emit("list_node", col);
+    let node_mutex = app.state::<Mutex<Context>>();
+    let col = node_mutex.lock().unwrap();
+    let data = serde_json::to_string(&col.render_nodes).unwrap();
+    let _ = window.emit("list_node", data);
+    // Ok(data)
     // list out the node that is available on the network here
 }
 
 #[tauri::command]
-pub fn edit_node(_app: tauri::AppHandle, _update_node: RenderNode) {}
+pub fn edit_node(app: tauri::AppHandle, _update_node: RenderNode) {}
 
 #[tauri::command]
-pub fn delete_node(_app: tauri::AppHandle, _id: String) {
+pub fn delete_node(app: tauri::AppHandle, _window: Window, id: String) {
     // delete node from list and refresh the app?
+    let node_mutex = &app.state::<Mutex<Context>>();
+    let mut node = node_mutex.lock().unwrap();
+    node.render_nodes.retain(|x| x.id != id);
+    // list_node(app, window);
 }
