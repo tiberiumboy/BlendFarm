@@ -8,6 +8,10 @@ export default function Project() {
   // this is where we will store our data state
   // and information across the tools we expose.
 
+  window.addEventListener("project_list", (msg) => {
+    console.log("project_list", msg);
+  });
+
   async function addtoProjectList() {
     // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
     await invoke("add_project");
@@ -17,14 +21,15 @@ export default function Project() {
   }
 
   // TODO: replace any to strongly typed value
-  async function editProject(id: any) {
-    // todo - find a way to pass argument here and what kind of details do we need? Can we parse an object?
-    await invoke("edit_project", id);
-  }
+  // async function editProject(id: any) {
+  //   // todo - find a way to pass argument here and what kind of details do we need? Can we parse an object?
+  //   await invoke("edit_project", id);
+  // }
 
   // Todo find a way to load previous project settings here!
   async function loadProjectList() {
     let message = await invoke("load_project_list");
+    console.log("load_project_list", message);
   }
 
   loadProjectList();
@@ -47,7 +52,7 @@ export default function Project() {
           <ProjectFile
             id={file.id}
             title={file.title}
-          // edit={editProject}
+            // edit={editProject}
           />
         ))}
       </div>

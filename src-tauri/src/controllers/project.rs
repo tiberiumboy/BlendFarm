@@ -10,7 +10,7 @@ use tauri::{command, Error, Manager};
 // in this case here, this is where I would setup configuration and start mapping things out?
 // question is, how do I access objects? E.g. If I want to update server settings
 // or send command from a specific node?
-#[command]
+#[tauri::command]
 pub fn add_project(app: tauri::AppHandle) {
     // app crashed when api block thread. Do not use tauri::api::dialog::blocking::* apis.
     // could we not access tauri api side from react for filedialogbuilder?
