@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use crate::controllers::{
-    connection::{create_node, edit_node, list_node},
+    connection::{create_node, delete_node, edit_node, list_node},
     project::{add_project, edit_project, load_project_list},
 };
 use crate::models::context::Context;

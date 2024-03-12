@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/tauri";
+import ProjectFileProps from "./project_file";
 import ProjectFile from "./project_file";
 import { useState } from "react";
 
 export default function Project() {
-  const [collection, setCollection] = useState([ProjectFile]);
+  const [collection, setCollection] = useState([ProjectFileProps]);
   // here we will hold the application context and inforamtion to make modification
   // this is where we will store our data state
   // and information across the tools we expose.
@@ -15,9 +16,7 @@ export default function Project() {
   async function addtoProjectList() {
     // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
     await invoke("add_project");
-    // let _col = collection;
-    // _col.push(_newFile);
-    // setCollection(_col);
+    loadProjectList();
   }
 
   // TODO: replace any to strongly typed value
@@ -29,7 +28,9 @@ export default function Project() {
   // Todo find a way to load previous project settings here!
   async function loadProjectList() {
     let message = await invoke("load_project_list");
+    setCollection(new ProjectCollection(message));
     console.log("load_project_list", message);
+    // from here we can setCollection()
   }
 
   loadProjectList();
@@ -42,12 +43,8 @@ export default function Project() {
       </button>
 
       {/* Show the list of project available here */}
+
       <div className="group" id="project-list">
-        {/* <ProjectFile
-          title="nuke_scene"
-          src="/Users/jbejar/Shared/nuke_scene.blend"
-          tmp="/var/folders/n6/71jhxnt54vlfx73_jypx3dvh0000gn/T/nuke_scene.blend"
-        /> */}
         {collection.map((file) => (
           <ProjectFile
             id={file.id}

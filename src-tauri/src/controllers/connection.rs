@@ -28,7 +28,7 @@ pub fn list_node(app: tauri::AppHandle, window: Window) {
 }
 
 #[tauri::command]
-pub fn edit_node(app: tauri::AppHandle, _update_node: RenderNode) {}
+pub fn edit_node(_app: tauri::AppHandle, _update_node: RenderNode) {}
 
 #[tauri::command]
 pub fn delete_node(app: tauri::AppHandle, _window: Window, id: String) {

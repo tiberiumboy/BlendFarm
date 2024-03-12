@@ -1,9 +1,11 @@
 use crate::models::{context::Context, project_file::ProjectFile};
-use std::{string::String, sync::Mutex};
+use std::io::Error;
+use std::sync::Mutex;
 use tauri::api::dialog::FileDialogBuilder;
-use tauri::{command, Error, Manager};
-// pub struct ProjectContext<'a> {
-//     pub col: &'a mut Vec<ProjectFile>,
+use tauri::{command, generate_handler, Manager};
+
+// pub fn project() -> FnOnce<T> {
+//     generate_handler![add_project, edit_project, load_project_list]
 // }
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -17,11 +19,10 @@ pub fn add_project(app: tauri::AppHandle) {
     FileDialogBuilder::new().pick_file(move |path| match path {
         Some(file_path) => {
             let project_file = ProjectFile::new(file_path);
-            let msg = serde_json::to_string(&project_file).unwrap();
-            println!("{msg}");
             let ctx_mutex = app.state::<Mutex<Context>>();
             let mut ctx = ctx_mutex.lock().unwrap();
             ctx.project_files.push(project_file);
+            println!("{:?}", ctx);
         }
         None => {
             println!("Operatin aborted - user exit the dialog");
@@ -39,10 +40,12 @@ pub fn edit_project() {}
 // }
 
 #[command]
-pub fn load_project_list(app: tauri::AppHandle) {
+pub fn load_project_list(app: tauri::AppHandle) -> String {
     // generate a list of ProjectList to show on the forum
     let ctx_mutex = app.state::<Mutex<Context>>();
     let ctx = ctx_mutex.lock().unwrap();
     let data = serde_json::to_string(&ctx.project_files).unwrap();
-    let _ = app.emit_all("project_list", data);
+    // println!("{data}");
+    // let _ = app.emit_all("project_list", data);
+    data
 }
