@@ -7,23 +7,29 @@ const unlisten = await listen("list_node", (event) => {
 });
 
 function Connection() {
-  const [ip, setIp] = useState("");
   // const [node,setNode] = useState([String]);
 
-  function handleSubmit(e: any) {
+  async function handleSubmit(e: any) {
     e.preventDefault();
-    // let result = await invoke("create_node");
-    // console.log(result);
+    console.log(e);
+    let data = {
+      ip: e.target.ip.value,
+      port: e.target.port.value,
+    };
+    console.log(data);
+    let result = await invoke("create_node", data);
+    console.log(result);
     return false;
   }
 
-  function list_node() {
+  function listNode() {
     invoke("list_node").then((res) => {
       console.log(res);
     });
   }
 
-  // list_node();
+  listNode();
+
   return (
     <div className="content">
       <h3>Connection</h3>
@@ -31,13 +37,7 @@ function Connection() {
         <label>Internet Protocol Address</label>
         <input type="text" placeholder="IP Address" id="ip" name="ip" />
         <br></br>
-        <input
-          type="number"
-          placeholder="Port"
-          id="port"
-          name="port"
-          value={15000}
-        />
+        <input type="number" placeholder="Port" id="port" name="port" />
         <button type="submit">Connect</button>
       </form>
       <br></br>

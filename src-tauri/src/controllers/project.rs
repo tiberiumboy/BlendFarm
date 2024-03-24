@@ -1,8 +1,7 @@
-use crate::models::{context::Context, project_file::ProjectFile};
-use std::io::Error;
+use crate::models::{data::Data, project_file::ProjectFile};
 use std::sync::Mutex;
 use tauri::api::dialog::FileDialogBuilder;
-use tauri::{command, generate_handler, Manager};
+use tauri::{command, Manager};
 
 // pub fn project() -> FnOnce<T> {
 //     generate_handler![add_project, edit_project, load_project_list]
@@ -19,7 +18,7 @@ pub fn add_project(app: tauri::AppHandle) {
     FileDialogBuilder::new().pick_file(move |path| match path {
         Some(file_path) => {
             let project_file = ProjectFile::new(file_path);
-            let ctx_mutex = app.state::<Mutex<Context>>();
+            let ctx_mutex = app.state::<Mutex<Data>>();
             let mut ctx = ctx_mutex.lock().unwrap();
             ctx.project_files.push(project_file);
             println!("{:?}", ctx);
@@ -42,7 +41,7 @@ pub fn edit_project() {}
 #[command]
 pub fn load_project_list(app: tauri::AppHandle) -> String {
     // generate a list of ProjectList to show on the forum
-    let ctx_mutex = app.state::<Mutex<Context>>();
+    let ctx_mutex = app.state::<Mutex<Data>>();
     let ctx = ctx_mutex.lock().unwrap();
     let data = serde_json::to_string(&ctx.project_files).unwrap();
     // println!("{data}");

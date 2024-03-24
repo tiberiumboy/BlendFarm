@@ -1,12 +1,13 @@
-export type ProjectFileProps = {
+export interface ProjectFileProps {
   id?: string;
   title: string;
+  tmp?: string;
   edit?: Function;
-};
+}
 
 // todo: expose function controls here. props event handler?
-export default function ProjectFile(props: ProjectFileProps) {
-  const handleClick = (e) => {
+export default function ProjectFile(props: ProjectFileProps, key: Number = 0) {
+  const handleClick = (e: any) => {
     if (props.edit) {
       props.edit();
     }
@@ -15,7 +16,7 @@ export default function ProjectFile(props: ProjectFileProps) {
   };
 
   return (
-    <div className="item" id={props.id} onClick={handleClick}>
+    <div className="item" key={key} id={props.id} onClick={handleClick}>
       {props.title}
     </div>
   );

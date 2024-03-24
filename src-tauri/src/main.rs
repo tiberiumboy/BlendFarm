@@ -5,7 +5,7 @@ use crate::controllers::{
     connection::{create_node, delete_node, edit_node, list_node},
     project::{add_project, edit_project, load_project_list},
 };
-use crate::models::context::Context;
+use crate::models::data::Data;
 use message_io::{
     network::{NetEvent, Transport},
     node,
@@ -19,7 +19,7 @@ pub mod services;
 
 // globabally
 fn client() {
-    let ctx = Mutex::new(Context::default());
+    let ctx = Mutex::new(Data::default());
     tauri::Builder::default()
         .manage(ctx)
         // .setup(|app| {

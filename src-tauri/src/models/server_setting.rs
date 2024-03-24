@@ -8,7 +8,7 @@ const SETTINGS_PATH: &str = "ServerSettings";
 const BLENDER_FILES: &str = "BlenderFiles";
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ServerSettings {
+pub struct ServerSetting {
     pub port: u16,
     pub broadcast_port: u16,
     pub blender_data: String,
@@ -16,7 +16,7 @@ pub struct ServerSettings {
     pub blender_files: String,
 }
 
-impl Default for ServerSettings {
+impl Default for ServerSetting {
     fn default() -> Self {
         Self {
             port: 15000,
@@ -28,18 +28,18 @@ impl Default for ServerSettings {
     }
 }
 
-impl ServerSettings {
+impl ServerSetting {
     pub fn save(&self) {
         // save this data to...?
         let data = serde_json::to_string(&self).expect("Unable to parse ServerSettings into json!");
         fs::write(SETTINGS_PATH, data).expect("Unable to write file! Permission issue?");
     }
 
-    pub fn load() -> ServerSettings {
+    pub fn load() -> ServerSetting {
         // load server settings from config?
         let path = SETTINGS_PATH; // SystemInfo.RelativeToApplicationDirectory(SETTINGS_PATH)???
         let data = fs::read_to_string(path).expect("Unable to read file!");
-        let server_settings: ServerSettings =
+        let server_settings: ServerSetting =
             serde_json::from_str(&data).expect("Unable to parse settings!");
         server_settings
     }

@@ -10,7 +10,7 @@ enum TaskOrder {
     Center,
 }
 
-struct RenderSettings {
+struct RenderSetting {
     pub strategy: RenderStrategy,
     pub order: TaskOrder,
     pub frame: i32,

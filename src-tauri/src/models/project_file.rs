@@ -7,16 +7,20 @@ use super::render_node::RenderNode;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectFile {
+    context: String,
     id: String,
     title: String,
     #[serde(skip_serializing)]
     src: PathBuf,
     tmp: Option<PathBuf>,
+    // #[serde(default)]
+    // args: Map<String,String>,
 }
 
 impl ProjectFile {
     pub fn new(src: PathBuf) -> Self {
         Self {
+            context: "".to_owned(),
             id: Uuid::new_v4().to_string(),
             title: src.to_str().unwrap().to_owned(),
             src: src.to_owned(),

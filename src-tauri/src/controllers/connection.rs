@@ -1,4 +1,4 @@
-use crate::models::{context::Context, error::Error, render_node::RenderNode};
+use crate::models::{data::Data, error::Error, render_node::RenderNode};
 use std::sync::Mutex;
 use tauri::{command, Manager, Window};
 
@@ -11,15 +11,16 @@ use tauri::{command, Manager, Window};
 #[command]
 pub fn create_node(app: tauri::AppHandle, ip: &str, port: u16) -> Result<(), Error> {
     let node = RenderNode::new(ip, port);
-    let node_mutex = app.state::<Mutex<Context>>();
+    let node_mutex = app.state::<Mutex<Data>>();
     let mut col = node_mutex.lock().unwrap();
     col.render_nodes.push(node);
     Ok(())
 }
 
-#[command]
+#[command] // could be dangerous if we have exact function name on front end?
+           // which direction are we calling the function from? The front or the end?
 pub fn list_node(app: tauri::AppHandle, window: Window) {
-    let node_mutex = app.state::<Mutex<Context>>();
+    let node_mutex = app.state::<Mutex<Data>>();
     let col = node_mutex.lock().unwrap();
     let data = serde_json::to_string(&col.render_nodes).unwrap();
     let _ = window.emit("list_node", data);
@@ -33,7 +34,7 @@ pub fn edit_node(_app: tauri::AppHandle, _update_node: RenderNode) {}
 #[tauri::command]
 pub fn delete_node(app: tauri::AppHandle, _window: Window, id: String) {
     // delete node from list and refresh the app?
-    let node_mutex = &app.state::<Mutex<Context>>();
+    let node_mutex = &app.state::<Mutex<Data>>();
     let mut node = node_mutex.lock().unwrap();
     node.render_nodes.retain(|x| x.id != id);
     // list_node(app, window);

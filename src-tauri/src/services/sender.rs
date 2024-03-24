@@ -1,4 +1,8 @@
-use crate::models::{receive_msg::ReceiveMsg, render_node::RenderNode, sender_msg::SenderMsg};
+use crate::models::{
+    receive_msg::ReceiveMsg,
+    render_node::RenderNode,
+    sender_msg::SenderMsg
+};
 use message_io::network::{NetEvent, Transport};
 use message_io::node::{self, NodeEvent};
 use std::ffi::OsStr;
