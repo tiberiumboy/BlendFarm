@@ -1,13 +1,14 @@
 import { invoke } from "@tauri-apps/api/tauri";
 import { ProjectFileProps } from "./project_file";
 import ProjectFile from "./project_file";
-import { useState, ReactNode } from "react";
+import { useState, useEffect } from "react";
 
 export default function Project() {
   const [collection, setCollection] = useState([]);
   // here we will hold the application context and inforamtion to make modification
   // this is where we will store our data state
   // and information across the tools we expose.
+  // Look into using useState to call LoadProjectList once instead of every update refreshes
 
   window.addEventListener("project_list", (msg) => {
     console.log("project_list", msg);
@@ -18,6 +19,10 @@ export default function Project() {
     await invoke("add_pqroject");
     loadProjectList();
   }
+
+  useEffect(() => {
+    loadProjectList();
+  }, []);
 
   // TODO: replace any to strongly typed value
   // async function editProject(id: any) {
@@ -41,7 +46,7 @@ export default function Project() {
     return collection.map(drawProjectFileItem);
   }
 
-  loadProjectList();
+  // loadProjectList();
 
   return (
     <div className="content">

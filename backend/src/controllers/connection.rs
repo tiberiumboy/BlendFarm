@@ -23,6 +23,7 @@ pub fn list_node(app: tauri::AppHandle, window: Window) {
     let node_mutex = app.state::<Mutex<Data>>();
     let col = node_mutex.lock().unwrap();
     let data = serde_json::to_string(&col.render_nodes).unwrap();
+    println!("{}", data);
     let _ = window.emit("list_node", data);
     // Ok(data)
     // list out the node that is available on the network here

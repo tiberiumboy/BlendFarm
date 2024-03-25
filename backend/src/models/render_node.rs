@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct RenderNode {
-    #[serde(skip_serializing)]
     pub id: String,
     // this should be private
     #[serde(skip_serializing)]
@@ -21,7 +20,7 @@ impl RenderNode {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             ip: ip.to_owned(),
-            port: port,
+            port,
             name: None,
         }
     }

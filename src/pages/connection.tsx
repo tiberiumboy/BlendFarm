@@ -1,34 +1,34 @@
 import { invoke } from "@tauri-apps/api/tauri";
 import { listen } from "@tauri-apps/api/event";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const unlisten = await listen("list_node", (event) => {
-  console.log(event);
+  var data = JSON.parse(event.payload);
+  console.log(data);
+  setNode(data);
 });
 
 function Connection() {
-  // const [node,setNode] = useState([String]);
+  const [node, setNode] = useState([]);
+
+  useEffect(() => {
+    listNode();
+  }, []);
 
   async function handleSubmit(e: any) {
     e.preventDefault();
-    console.log(e);
     let data = {
       ip: e.target.ip.value,
-      port: e.target.port.value,
+      port: Number(e.target.port.value),
     };
-    console.log(data);
-    let result = await invoke("create_node", data);
-    console.log(result);
+    await invoke("create_node", data);
+    listNode();
     return false;
   }
 
   function listNode() {
-    invoke("list_node").then((res) => {
-      console.log(res);
-    });
+    invoke("list_node");
   }
-
-  listNode();
 
   return (
     <div className="content">
