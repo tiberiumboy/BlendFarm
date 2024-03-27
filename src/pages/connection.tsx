@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/tauri";
 import { useEffect, useState } from "react";
 import RenderNode, { RenderNodeProps } from "../components/render_node";
+import { Context } from "vm";
 
 function Connection() {
   const [collection, setCollection] = useState([]);
@@ -9,22 +10,18 @@ function Connection() {
     listNode();
   }, []);
 
-  async function handleSubmit(e: any) {
+  function handleSubmit(e: any) {
     e.preventDefault();
     let data = {
-      ip: e.target.ip.value,
-      port: Number(e.target.port.value),
+      name: e.target.name.value,
+      host: e.target.ip.value + ":" + e.target.port.value
     };
-    invoke("create_node", data).then((ctx) => {
-      listNode();
-    });
-
-    return false;
+    invoke("create_node", data).then(listNode);
   }
 
   function listNode() {
     invoke("list_node").then((ctx) => {
-      let data = JSON.parse(ctx!);
+      let data = JSON.parse(ctx + "");
       setCollection(data);
     });
   }
@@ -40,6 +37,8 @@ function Connection() {
     <div className="content">
       <h3>Connection</h3>
       <form onSubmit={handleSubmit}>
+        <label>Computer Name:</label>
+        <input type="text" placeholder="Name" id="name" name="name" />
         <label>Internet Protocol Address</label>
         <input type="text" placeholder="IP Address" id="ip" name="ip" />
         <br></br>

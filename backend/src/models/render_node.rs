@@ -1,39 +1,30 @@
+use serde::{Deserialize, Serialize};
+use std::net::{ SocketAddr. ToSocketAddrs};
 use std::str::FromStr;
 
-use local_ip_address::local_ip;
-use serde::{Deserialize, Serialize};
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct RenderNode {
+pub struct RenderNode {
     pub id: String,
-    // this should be private
     #[serde(skip_serializing)]
-    pub ip: String,
-    // this should be private
-    #[serde(skip_serializing)]
-    pub port: u16,
+    pub host: SocketAddr,
     pub name: Option<String>,
 }
 
 impl RenderNode {
-    pub(crate) fn new(ip: &str, port: u16) -> Self {
-        Self {
-            id: uuid::Uuid::new_v4().to_string(),
-            ip: ip.to_owned(),
-            port,
-            name: None,
+    pub fn parse(name: String, host: String) -> Result<RenderNode, std::io::Error> {
+        match host.to_socket_addrs() {
+            Ok(host) => Ok(RenderNode {
+                id: uuid::Uuid::new_v4().to_string(),
+                host: host.next().unwrap(),
+                name: Some(name),
+            }),
+            Err(e) => return Err(e),
         }
     }
-}
 
-impl Default for RenderNode {
-    fn default() -> Self {
-        Self {
-            id: uuid::Uuid::new_v4().to_string(),
-            ip: local_ip().unwrap().to_string(),
-            port: 15000,
-            name: Some("localhost".to_owned()),
-        }
+    pub fn connect() -> Result<String, std::io::Error> {
+        // connect to the host
+        Ok("Connected".to_owned())
     }
 }
 

@@ -1,8 +1,4 @@
-use crate::models::{
-    receive_msg::ReceiveMsg,
-    render_node::RenderNode,
-    sender_msg::SenderMsg
-};
+use crate::models::{receive_msg::ReceiveMsg, render_node::RenderNode, sender_msg::SenderMsg};
 use message_io::network::{NetEvent, Transport};
 use message_io::node::{self, NodeEvent};
 use std::ffi::OsStr;
@@ -18,11 +14,10 @@ const CHUNK_SIZE: usize = 65536;
 
 pub fn run(file_path: &PathBuf, target: &RenderNode) {
     let (handler, listener) = node::split();
-    let server_addr = format!("{}:{}", target.ip, target.port);
 
     let (server_id, _) = handler
         .network()
-        .connect(Transport::Udp, server_addr)
+        .connect(Transport::Udp, target.host)
         .unwrap();
     let file_size = fs::metadata(&file_path).unwrap().len() as usize;
     let mut file = File::open(&file_path).unwrap();

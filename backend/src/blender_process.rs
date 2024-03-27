@@ -1,8 +1,6 @@
-struct Status {
-    pub time: i32,
-    pub time_remaining: i32,
-    pub tiles_finished: i32,
-    pub tiles_total: i32,
+enum Status {
+    Time(i32),
+    Completed,
 }
 
 struct BlenderProcess {
