@@ -1,15 +1,9 @@
 import { invoke } from "@tauri-apps/api/tauri";
-import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
-
-const unlisten = await listen("list_node", (event) => {
-  var data = JSON.parse(event.payload);
-  console.log(data);
-  setNode(data);
-});
+import RenderNode, { RenderNodeProps } from "../components/render_node";
 
 function Connection() {
-  const [node, setNode] = useState([]);
+  const [collection, setCollection] = useState([]);
 
   useEffect(() => {
     listNode();
@@ -21,13 +15,25 @@ function Connection() {
       ip: e.target.ip.value,
       port: Number(e.target.port.value),
     };
-    await invoke("create_node", data);
-    listNode();
+    invoke("create_node", data).then((ctx) => {
+      listNode();
+    });
+
     return false;
   }
 
   function listNode() {
-    invoke("list_node");
+    invoke("list_node").then((ctx) => {
+      let data = JSON.parse(ctx!);
+      setCollection(data);
+    });
+  }
+
+  function deleteNode(id: any) {
+    invoke("delete_node", { id }).then(() => {
+      let col = collection.filter((node: any) => node.id != id);
+      setCollection(col);
+    });
   }
 
   return (
@@ -42,8 +48,12 @@ function Connection() {
       </form>
       <br></br>
       <h4>
-        Here we will show all of the render client we have previously connected
-        to
+        <div className="group" id="RenderNodes">
+          {collection.map((node: RenderNodeProps) => (
+            // A bit far fetch here, but can we rename nodes? Or edit it?
+            <RenderNode key={node.id} node={node} onDataChanged={listNode} />
+          ))}
+        </div>
       </h4>
       <h5>We can also add new render node to this entry.</h5>
     </div>

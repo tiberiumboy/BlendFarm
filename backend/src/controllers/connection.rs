@@ -9,34 +9,33 @@ use tauri::{command, Manager, Window};
 
 // soon I want to return the client node it established to
 #[command]
-pub fn create_node(app: tauri::AppHandle, ip: &str, port: u16) -> Result<(), Error> {
+pub fn create_node(app: tauri::AppHandle, ip: &str, port: u16) -> Result<String, Error> {
     let node = RenderNode::new(ip, port);
     let node_mutex = app.state::<Mutex<Data>>();
     let mut col = node_mutex.lock().unwrap();
+    let data = serde_json::to_string(&node).unwrap();
     col.render_nodes.push(node);
-    Ok(())
+    Ok(data)
 }
 
 #[command] // could be dangerous if we have exact function name on front end?
            // which direction are we calling the function from? The front or the end?
-pub fn list_node(app: tauri::AppHandle, window: Window) {
+pub fn list_node(app: tauri::AppHandle) -> Result<String, Error> {
     let node_mutex = app.state::<Mutex<Data>>();
     let col = node_mutex.lock().unwrap();
     let data = serde_json::to_string(&col.render_nodes).unwrap();
-    println!("{}", data);
-    let _ = window.emit("list_node", data);
-    // Ok(data)
-    // list out the node that is available on the network here
+    Ok(data)
 }
 
 #[tauri::command]
 pub fn edit_node(_app: tauri::AppHandle, _update_node: RenderNode) {}
 
 #[tauri::command]
-pub fn delete_node(app: tauri::AppHandle, _window: Window, id: String) {
+pub fn delete_node(app: tauri::AppHandle, id: String) -> Result<(), Error> {
     // delete node from list and refresh the app?
     let node_mutex = &app.state::<Mutex<Data>>();
     let mut node = node_mutex.lock().unwrap();
     node.render_nodes.retain(|x| x.id != id);
+    Ok(())
     // list_node(app, window);
 }
