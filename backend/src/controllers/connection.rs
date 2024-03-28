@@ -1,5 +1,6 @@
-use crate::models::{data::Data, error::Error, render_node::RenderNode};
+use crate::models::{data::Data, render_node::RenderNode};
 use std::sync::Mutex;
+use tauri::Error;
 use tauri::{command, Manager};
 
 // someday I would like to be able to pass on the argument for this. Should it load handler on the fly or allow it to be defined at compile time.
@@ -9,26 +10,21 @@ use tauri::{command, Manager};
 
 // soon I want to return the client node it established to
 #[command]
-pub fn create_node(
-    app: tauri::AppHandle,
-    name: &str,
-    ip: &str,
-    port: u16,
-) -> Result<String, Error> {
-    match RenderNode::parse(name: String, host: String) {
+pub fn create_node(app: tauri::AppHandle, name: &str, host: &str) -> Result<String, Error> {
+    match RenderNode::parse(name.to_owned(), host.to_owned()) {
         Ok(node) => {
             let node_mutex = app.state::<Mutex<Data>>();
             let mut col = node_mutex.lock().unwrap();
             let data = serde_json::to_string(&node).unwrap();
-            match node.connect() {
+            match &node.connect() {
                 Ok(_) => {
                     col.render_nodes.push(node);
                     Ok(data)
-                },
-                Err(e) => Err(Error::Io::new("Failed to connect to host")),
+                }
+                Err(e) => return Err(Error::from(e)),
             }
-        },
-        Err(e) => Err(Error::Io::new("Failed to parse host")),
+        }
+        Err(e) => Err(Error::from(e)),
     }
 }
 
@@ -41,10 +37,10 @@ pub fn list_node(app: tauri::AppHandle) -> Result<String, Error> {
     Ok(data)
 }
 
-#[tauri::command]
+#[command]
 pub fn edit_node(_app: tauri::AppHandle, _update_node: RenderNode) {}
 
-#[tauri::command]
+#[command]
 pub fn delete_node(app: tauri::AppHandle, id: String) -> Result<(), Error> {
     // delete node from list and refresh the app?
     let node_mutex = &app.state::<Mutex<Data>>();
