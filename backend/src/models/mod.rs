@@ -1,6 +1,6 @@
 mod blender;
 pub(crate) mod data;
-pub(crate) mod error;
+pub mod error;
 pub(crate) mod project_file;
 pub(crate) mod receive_msg;
 pub(crate) mod render_node;

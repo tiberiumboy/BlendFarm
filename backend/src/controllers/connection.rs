@@ -11,21 +11,13 @@ use tauri::{command, Manager};
 // soon I want to return the client node it established to
 #[command]
 pub fn create_node(app: tauri::AppHandle, name: &str, host: &str) -> Result<String, Error> {
-    match RenderNode::parse(name.to_owned(), host.to_owned()) {
-        Ok(node) => {
-            let node_mutex = app.state::<Mutex<Data>>();
-            let mut col = node_mutex.lock().unwrap();
-            let data = serde_json::to_string(&node).unwrap();
-            match &node.connect() {
-                Ok(_) => {
-                    col.render_nodes.push(node);
-                    Ok(data)
-                }
-                Err(e) => return Err(Error::from(e)),
-            }
-        }
-        Err(e) => Err(Error::from(e)),
-    }
+    let node = RenderNode::parse(name, host).unwrap();
+    let node_mutex = app.state::<Mutex<Data>>();
+    let mut col = node_mutex.lock().unwrap();
+    let data = serde_json::to_string(&node).unwrap();
+    &node.connect().unwrap();
+    col.render_nodes.push(node);
+    Ok(data)
 }
 
 #[command] // could be dangerous if we have exact function name on front end?
