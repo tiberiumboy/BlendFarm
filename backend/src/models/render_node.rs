@@ -1,5 +1,5 @@
+use crate::models::error::Error;
 use serde::{Deserialize, Serialize};
-use std::io::Error;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
@@ -12,12 +12,14 @@ pub struct RenderNode {
 
 impl RenderNode {
     pub fn parse(name: &str, host: &str) -> Result<RenderNode, Error> {
-        let socket = host.parse::<SocketAddr>().unwrap();
-        Ok(RenderNode {
-            id: uuid::Uuid::new_v4().to_string(),
-            name: Some(name.to_owned()),
-            host: socket,
-        })
+        match host.parse::<SocketAddr>() {
+            Ok(socket) => Ok(RenderNode {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: Some(name.to_owned()),
+                host: socket,
+            }),
+            Err(e) => Err(Error::PoisonError(e.to_string())),
+        }
     }
 
     pub fn connect(&self) -> Result<String, Error> {
@@ -29,8 +31,7 @@ impl RenderNode {
 impl FromStr for RenderNode {
     type Err = std::num::ParseIntError;
 
-    fn from_str(s: &str) -> Result<Self, Error> {
-        let obj: RenderNode = serde_json::from_str(s).unwrap();
-        Ok(obj)
+    fn from_str(s: &str) -> Result<Self, std::num::ParseIntError> {
+        Ok(serde_json::from_str::<RenderNode>(s))
     }
 }
