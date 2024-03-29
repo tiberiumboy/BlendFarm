@@ -1,7 +1,7 @@
 use core::fmt;
 
 #[derive(Debug, thiserror::Error)]
-enum Error {
+pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
     PoisonError(String),

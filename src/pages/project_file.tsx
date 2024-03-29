@@ -1,23 +1,22 @@
 export interface ProjectFileProps {
-  id?: string;
-  title: string;
-  tmp?: string;
+  id: string;
+  src: string;
   edit?: Function;
 }
 
 // todo: expose function controls here. props event handler?
-export default function ProjectFile(props: ProjectFileProps, key: Number = 0) {
+export default function ProjectFile(props: ProjectFileProps) {
   const handleClick = (e: any) => {
+    e.preventDefault();
     if (props.edit) {
       props.edit();
     }
-    alert("Editing!");
-    return e;
+    return false;
   };
 
   return (
-    <div className="item" key={key} id={props.id} onClick={handleClick}>
-      {props.title}
+    <div className="item" key={props.id} id={props.id} onClick={handleClick}>
+      {props.src}
     </div>
   );
 }

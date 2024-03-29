@@ -15,7 +15,7 @@ pub fn create_node(app: tauri::AppHandle, name: &str, host: &str) -> Result<Stri
     let node_mutex = app.state::<Mutex<Data>>();
     let mut col = node_mutex.lock().unwrap();
     let data = serde_json::to_string(&node).unwrap();
-    &node.connect().unwrap();
+    let _ = &node.connect().unwrap();
     col.render_nodes.push(node);
     Ok(data)
 }

@@ -7,25 +7,24 @@ use super::render_node::RenderNode;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectFile {
-    context: String,
     id: String,
-    title: String,
-    #[serde(skip_serializing)]
     src: PathBuf,
+    #[serde(skip_serializing)]
     tmp: Option<PathBuf>,
-    // #[serde(default)]
-    // args: Map<String,String>,
 }
 
 impl ProjectFile {
-    pub fn new(src: PathBuf) -> Self {
+    pub fn new(path: &PathBuf) -> Self {
         Self {
-            context: "".to_owned(),
             id: Uuid::new_v4().to_string(),
-            title: src.to_str().unwrap().to_owned(),
-            src: src.to_owned(),
+            src: path.to_owned(),
             tmp: None,
         }
+    }
+
+    pub fn parse(src: &str) -> Result<ProjectFile, std::io::Error> {
+        let path = PathBuf::from(src);
+        Ok(ProjectFile::new(&path))
     }
 
     pub(crate) fn move_to_temp(&mut self) {

@@ -16,8 +16,7 @@ export default function Project() {
 
   async function addtoProjectList() {
     // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-    await invoke("add_pqroject");
-    loadProjectList();
+    invoke("add_project").then(loadProjectList);
   }
 
   useEffect(() => {
@@ -33,8 +32,8 @@ export default function Project() {
   // Todo find a way to load previous project settings here!
   async function loadProjectList() {
     let message: string = await invoke("load_project_list");
-    setCollection(JSON.parse(message));
-    console.log("load_project_list", collection);
+    let col: ProjectFileProps[] = JSON.parse(message);
+    setCollection(col);
     // from here we can setCollection()
   }
 
@@ -56,6 +55,9 @@ export default function Project() {
       </button>
 
       {/* Show the list of project available here */}
+      {collection.map((file: ProjectFileProps) => {
+        <ProjectFile key={file.id} id={file.id} src={file.src} />;
+      })}
 
       <div className="group" id="project-list">
         {loadList()}

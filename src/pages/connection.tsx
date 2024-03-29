@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/tauri";
 import { useEffect, useState } from "react";
 import RenderNode, { RenderNodeProps } from "../components/render_node";
-import { Context } from "vm";
 
 function Connection() {
   const [collection, setCollection] = useState([]);
@@ -14,9 +13,10 @@ function Connection() {
     e.preventDefault();
     let data = {
       name: e.target.name.value,
-      host: e.target.ip.value + ":" + e.target.port.value
+      host: e.target.ip.value + ":" + e.target.port.value,
     };
     invoke("create_node", data).then(listNode);
+    closeCreateNew();
   }
 
   function listNode() {
@@ -33,28 +33,53 @@ function Connection() {
     });
   }
 
+  function showCreateNew() {
+    let dialog = document.getElementById("create_new");
+    dialog.showModal();
+  }
+
+  function closeCreateNew() {
+    let dialog = document.getElementById("create_new");
+    dialog.close();
+  }
+
   return (
     <div className="content">
+      {/* Will be moving this form inside the dialog soon */}
       <h3>Connection</h3>
-      <form onSubmit={handleSubmit}>
-        <label>Computer Name:</label>
-        <input type="text" placeholder="Name" id="name" name="name" />
-        <label>Internet Protocol Address</label>
-        <input type="text" placeholder="IP Address" id="ip" name="ip" />
-        <br></br>
-        <input type="number" placeholder="Port" id="port" name="port" />
-        <button type="submit">Connect</button>
-      </form>
+
+      <button onClick={showCreateNew}>Create New</button>
       <br></br>
       <h4>
         <div className="group" id="RenderNodes">
           {collection.map((node: RenderNodeProps) => (
             // A bit far fetch here, but can we rename nodes? Or edit it?
-            <RenderNode key={node.id} node={node} onDataChanged={listNode} />
+            <RenderNode
+              id={node.id}
+              key={node.id}
+              name={node.name}
+              onDataChanged={listNode}
+            />
           ))}
         </div>
       </h4>
-      <h5>We can also add new render node to this entry.</h5>
+
+      <dialog id="create_new">
+        <form method="dialog" onSubmit={handleSubmit}>
+          <h1>Dialog</h1>
+          <label>Computer Name:</label>
+          <input type="text" placeholder="Name" id="name" name="name" />
+          <label>Internet Protocol Address</label>
+          <input type="text" placeholder="IP Address" id="ip" name="ip" />
+          <br></br>
+          <input type="number" placeholder="Port" id="port" name="port" />
+
+          <menu>
+            <button value="cancel">Cancel</button>
+            <button type="submit">Ok</button>
+          </menu>
+        </form>
+      </dialog>
     </div>
   );
 }

@@ -5,46 +5,46 @@ import * as MdIcon from "react-icons/md";
 import { Link } from "react-router-dom";
 
 export const SidebarData = [
-    {
-        title: 'Project',
-        path: './project',
-        icon: <GoIcons.GoProject />
-    },
-    {
-        title: 'Connection',
-        path: './connection',
-        icon: <CgIcons.CgEthernet />
-    },
-    {
-        title: 'Setting',
-        path: './setting',
-        icon: <Hi2Icon.HiOutlineCog8Tooth />
-    },
-    {
-        title: 'LiveView',
-        path: './liveview',
-        icon: <MdIcon.MdOutlinePreview />
-    }
-]
+  {
+    title: "Project",
+    path: "./project",
+    icon: <GoIcons.GoProject />,
+  },
+  {
+    title: "Connection",
+    path: "./connection",
+    icon: <CgIcons.CgEthernet />,
+  },
+  {
+    title: "Setting",
+    path: "./setting",
+    icon: <Hi2Icon.HiOutlineCog8Tooth />,
+  },
+  {
+    title: "LiveView",
+    path: "./liveview",
+    icon: <MdIcon.MdOutlinePreview />,
+  },
+];
 
 function Sidebar() {
-    return (
-        <nav className={'sidebar'}>
-            {/* Would like to be able to filter the list below with a search box somehow? */}
-            <ul className="nav-menu-items">
-                {SidebarData.map((item, index) => {
-                    return (
-                        <li key={index} className={'nav-bar'}>
-                            <Link to={item.path}>
-                                <span>{item.icon}</span>
-                                <span>{item.title}</span>
-                            </Link>
-                        </li>
-                    )
-                })}
-            </ul>
-        </nav>
-    );
+  return (
+    <nav className={"sidebar"}>
+      {/* Would like to be able to filter the list below with a search box somehow? */}
+      <ul className="nav-menu-items">
+        {SidebarData.map((item, index) => {
+          return (
+            <li key={index} className={"nav-bar"}>
+              <Link to={item.path}>
+                <span>{item.icon}</span>
+                <span>{item.title}</span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
 }
 
 export default Sidebar;

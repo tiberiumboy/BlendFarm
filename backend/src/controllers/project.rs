@@ -15,18 +15,23 @@ use tauri::{command, Manager};
 pub fn add_project(app: tauri::AppHandle) {
     // app crashed when api block thread. Do not use tauri::api::dialog::blocking::* apis.
     // could we not access tauri api side from react for filedialogbuilder?
-    FileDialogBuilder::new().pick_file(move |path| match path {
-        Some(file_path) => {
-            let project_file = ProjectFile::new(file_path);
-            let ctx_mutex = app.state::<Mutex<Data>>();
-            let mut ctx = ctx_mutex.lock().unwrap();
-            ctx.project_files.push(project_file);
-            println!("{:?}", ctx);
-        }
-        None => {
-            println!("Operatin aborted - user exit the dialog");
-        }
-    });
+    // How can I block js from invoking next when I need to wait for this dialog to complete?
+    let dlg = FileDialogBuilder::new();
+    let result = dlg.pick_files(move |f| match f {
+        Some()
+    })
+    //     move |path| match path {
+    //     Some(file_path) => {
+    //         let project_file = ProjectFile::new(&file_path);
+    //         let ctx_mutex = app.state::<Mutex<Data>>();
+    //         let mut ctx = ctx_mutex.lock().unwrap();
+    //         ctx.project_files.push(project_file);
+    //         println!("{:?}", ctx);
+    //     }
+    //     None => {
+    //         println!("Operatin aborted - user exit the dialog");
+    //     }
+    // });
     // can we have some sort of mechanism to hold data collection as long as this program is alive?
     // something we can append this list to the collections and reveal?
 }

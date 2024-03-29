@@ -28,10 +28,13 @@ impl RenderNode {
     }
 }
 
-impl FromStr for RenderNode {
-    type Err = std::num::ParseIntError;
+#[derive(Debug, PartialEq, Eq)]
+struct ParseIntError;
 
-    fn from_str(s: &str) -> Result<Self, std::num::ParseIntError> {
-        Ok(serde_json::from_str::<RenderNode>(s))
+impl FromStr for RenderNode {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str::<RenderNode>(s)
     }
 }
