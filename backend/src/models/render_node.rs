@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::str::FromStr;
 
+use super::project_file::ProjectFile;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RenderNode {
     pub id: String,
@@ -25,6 +27,11 @@ impl RenderNode {
     pub fn connect(&self) -> Result<String, Error> {
         // connect to the host
         Ok("Connected".to_owned())
+    }
+
+    pub fn send(&self, file: ProjectFile) -> Result<String, Error> {
+        // send file to the host
+        Ok("Sent".to_owned())
     }
 }
 

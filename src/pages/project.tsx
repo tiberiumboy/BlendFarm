@@ -37,8 +37,8 @@ export default function Project() {
     // from here we can setCollection()
   }
 
-  function drawProjectFileItem(file: ProjectFileProps, key: Number) {
-    return ProjectFile(file, key);
+  function drawProjectFileItem(file: ProjectFileProps) {
+    return ProjectFile(file);
   }
 
   function loadList() {
@@ -54,10 +54,9 @@ export default function Project() {
         Load Blend file
       </button>
 
-      {/* Show the list of project available here */}
-      {collection.map((file: ProjectFileProps) => {
+      {/* {collection.map((file: ProjectFileProps) => {
         <ProjectFile key={file.id} id={file.id} src={file.src} />;
-      })}
+      })} */}
 
       <div className="group" id="project-list">
         {loadList()}
