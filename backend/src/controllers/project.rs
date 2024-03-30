@@ -1,10 +1,20 @@
-use crate::models::{data::Data, project_file::ProjectFile};
 use std::sync::Mutex;
+
+use crate::models::{data::Data, project_file::ProjectFile};
 use tauri::api::dialog::FileDialogBuilder;
 use tauri::{command, Manager};
+// use thiserror::Error;
 
 // pub fn project() -> FnOnce<T> {
 //     generate_handler![add_project, edit_project, load_project_list]
+// }
+
+// #[derive(Error, Debug)]
+// pub enum ProjectError {
+//     #[error("Project not found")]
+//     NotFound,
+//     #[error("Project already exists")]
+//     AlreadyExists,
 // }
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -16,22 +26,18 @@ pub fn add_project(app: tauri::AppHandle) {
     // app crashed when api block thread. Do not use tauri::api::dialog::blocking::* apis.
     // could we not access tauri api side from react for filedialogbuilder?
     // How can I block js from invoking next when I need to wait for this dialog to complete?
-    let dlg = FileDialogBuilder::new();
-    let result = dlg.pick_files(move |f| match f {
-        Some()
-    })
-    //     move |path| match path {
-    //     Some(file_path) => {
-    //         let project_file = ProjectFile::new(&file_path);
-    //         let ctx_mutex = app.state::<Mutex<Data>>();
-    //         let mut ctx = ctx_mutex.lock().unwrap();
-    //         ctx.project_files.push(project_file);
-    //         println!("{:?}", ctx);
-    //     }
-    //     None => {
-    //         println!("Operatin aborted - user exit the dialog");
-    //     }
-    // });
+    FileDialogBuilder::new().pick_files(move |path| match path {
+        Some(file_paths) => {
+            let ctx_mutex = app.state::<Mutex<Data>>();
+            let mut ctx = ctx_mutex.lock().unwrap();
+            for file_path in file_paths.iter() {
+                ctx.project_files.push(ProjectFile::new(file_path));
+            }
+        }
+        None => {
+            // do nothing
+        }
+    });
     // can we have some sort of mechanism to hold data collection as long as this program is alive?
     // something we can append this list to the collections and reveal?
 }
@@ -48,8 +54,6 @@ pub fn load_project_list(app: tauri::AppHandle) -> String {
     // generate a list of ProjectList to show on the forum
     let ctx_mutex = app.state::<Mutex<Data>>();
     let ctx = ctx_mutex.lock().unwrap();
-    let data = serde_json::to_string(&ctx.project_files).unwrap();
-    // println!("{data}");
+    serde_json::to_string(&ctx.project_files).unwrap()
     // let _ = app.emit_all("project_list", data);
-    data
 }

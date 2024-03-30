@@ -28,9 +28,6 @@ impl RenderNode {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-struct ParseIntError;
-
 impl FromStr for RenderNode {
     type Err = serde_json::Error;
 
