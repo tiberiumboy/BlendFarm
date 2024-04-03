@@ -50,13 +50,11 @@ pub fn add_project(app: tauri::AppHandle) {
 pub fn delete_project(app: tauri::AppHandle, id: &str) {
     let ctx_mutex = app.state::<Mutex<Data>>();
     let mut ctx = ctx_mutex.lock().unwrap();
-    if ctx.project_files.contains(|x: ProjectFile| x.id == id) {
-        let file = ctx.project_files.iter().find(|x| x.id == id).unwrap();
-        if let Some(tmp) = &file.tmp {
-            let _ = std::fs::remove_file(tmp);
-        }
-        ctx.project_files.retain(|x| x.id != id);
-    }
+    let result = ctx.project_files.iter().find(|x| x.id == id);
+    if let Some(project) = result {
+        let _ = std::fs::remove_file(project.tmp.as_ref().unwrap());
+    };
+    ctx.project_files.retain(|x| x.id != id);
 }
 
 #[command]
