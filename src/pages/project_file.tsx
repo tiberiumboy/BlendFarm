@@ -1,22 +1,43 @@
+import * as ciIcon from "react-icons/ci";
+import * as mdIcon from "react-icons/md";
+
 export interface ProjectFileProps {
   id: string;
   src: string;
-  edit?: Function;
+  delete?: Function;
 }
 
 // todo: expose function controls here. props event handler?
-export default function ProjectFile(props: ProjectFileProps) {
-  const handleClick = (e: any) => {
+export default function (props: ProjectFileProps) {
+  const getFileName = () => {
+    return props.src?.split("/").pop()?.split("\\").pop();
+  };
+
+  const deleteProject = (e: any) => {
     e.preventDefault();
-    if (props.edit) {
-      props.edit();
+    if (props.delete) {
+      props.delete(props.id);
     }
-    return false;
   };
 
   return (
-    <div className="item" key={props.id} id={props.id} onClick={handleClick}>
-      {props.src}
+    <div className="item" key={props.id} id={props.id}>
+      <table>
+        <tr>
+          <td style={{ width: "100%" }}>
+            <p>{getFileName()}</p>
+            <p>{props.src}</p>
+          </td>
+
+          {/* <td>
+            <mdIcon.MdEdit onClick={editProject} />
+          </td> */}
+
+          <td>
+            <ciIcon.CiTrash onClick={deleteProject} />
+          </td>
+        </tr>
+      </table>
     </div>
   );
 }

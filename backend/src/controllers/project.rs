@@ -26,28 +26,38 @@ pub fn add_project(app: tauri::AppHandle) {
     // app crashed when api block thread. Do not use tauri::api::dialog::blocking::* apis.
     // could we not access tauri api side from react for filedialogbuilder?
     // How can I block js from invoking next when I need to wait for this dialog to complete?
-    FileDialogBuilder::new().pick_files(move |path| match path {
-        Some(file_paths) => {
-            let ctx_mutex = app.state::<Mutex<Data>>();
-            let mut ctx = ctx_mutex.lock().unwrap();
-            for file_path in file_paths.iter() {
-                ctx.project_files.push(ProjectFile::new(file_path));
+    // how can I only filter .blend extension format?
+    FileDialogBuilder::new()
+        .add_filter("Blender Files", &["blend"])
+        .pick_files(move |path| match path {
+            Some(file_paths) => {
+                let ctx_mutex = app.state::<Mutex<Data>>();
+                let mut ctx = ctx_mutex.lock().unwrap();
+                for file_path in file_paths.iter() {
+                    ctx.project_files.push(ProjectFile::new(file_path));
+                }
             }
-        }
-        None => {
-            // do nothing
-        }
-    });
+            None => {
+                // do nothing
+            }
+        });
     // can we have some sort of mechanism to hold data collection as long as this program is alive?
     // something we can append this list to the collections and reveal?
 }
 
+// Delete project file from the list. if tmp is defined, delete that as well.
 #[command]
-pub fn edit_project() {}
-
-// fn load_blend_file(name: &str) -> String {
-//     name.to_owned()
-// }
+pub fn delete_project(app: tauri::AppHandle, id: &str) {
+    let ctx_mutex = app.state::<Mutex<Data>>();
+    let mut ctx = ctx_mutex.lock().unwrap();
+    if ctx.project_files.contains(|x: ProjectFile| x.id == id) {
+        let file = ctx.project_files.iter().find(|x| x.id == id).unwrap();
+        if let Some(tmp) = &file.tmp {
+            let _ = std::fs::remove_file(tmp);
+        }
+        ctx.project_files.retain(|x| x.id != id);
+    }
+}
 
 #[command]
 pub fn load_project_list(app: tauri::AppHandle) -> String {

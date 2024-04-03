@@ -16,7 +16,8 @@ export default function Project() {
 
   async function addtoProjectList() {
     // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-    invoke("add_project").then(loadProjectList);
+    // because we're not expecting anything return, dialog will continue to run in the backgrund async. Exit early before completion
+    invoke("add_project"); //.then(loadProjectList);
   }
 
   useEffect(() => {
@@ -37,12 +38,21 @@ export default function Project() {
     // from here we can setCollection()
   }
 
-  function drawProjectFileItem(file: ProjectFileProps) {
-    return ProjectFile(file);
+  function handleProjectDelete(id: String) {
+    invoke("delete_project", { id }).then(loadProjectList);
   }
 
-  function loadList() {
-    return collection.map(drawProjectFileItem);
+  function handleProjectEdit(file: ProjectFileProps) {}
+
+  function drawProjectFileItem(file: ProjectFileProps) {
+    return (
+      <ProjectFile
+        key={file.id}
+        id={file.id}
+        src={file.src}
+        delete={handleProjectDelete}
+      />
+    );
   }
 
   // loadProjectList();
@@ -54,12 +64,8 @@ export default function Project() {
         Load Blend file
       </button>
 
-      {/* {collection.map((file: ProjectFileProps) => {
-        <ProjectFile key={file.id} id={file.id} src={file.src} />;
-      })} */}
-
       <div className="group" id="project-list">
-        {loadList()}
+        {collection.map(drawProjectFileItem)}
       </div>
     </div>
   );

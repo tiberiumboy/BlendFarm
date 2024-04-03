@@ -3,7 +3,7 @@
 
 use crate::controllers::{
     connection::{create_node, delete_node, edit_node, list_node},
-    project::{add_project, edit_project, load_project_list},
+    project::{add_project, delete_project, load_project_list},
 };
 use crate::models::data::Data;
 use message_io::{
@@ -31,7 +31,7 @@ fn client() {
         // I feel like there should be a better way to manage this?
         .invoke_handler(generate_handler![
             add_project,
-            edit_project,
+            delete_project,
             load_project_list,
             create_node,
             list_node,

@@ -5,12 +5,12 @@ use uuid::Uuid;
 
 use super::render_node::RenderNode;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Eq, Clone)]
 pub struct ProjectFile {
-    id: String,
+    pub id: String,
     src: PathBuf,
     #[serde(skip_serializing)]
-    tmp: Option<PathBuf>,
+    pub tmp: Option<PathBuf>,
 }
 
 impl ProjectFile {
@@ -56,5 +56,11 @@ impl FromStr for ProjectFile {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let obj: ProjectFile = serde_json::from_str(s).unwrap();
         Ok(obj)
+    }
+}
+
+impl PartialEq for ProjectFile {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
     }
 }
