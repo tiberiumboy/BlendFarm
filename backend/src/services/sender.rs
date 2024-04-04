@@ -20,8 +20,8 @@ pub fn run(file_path: &PathBuf, target: &RenderNode) {
         .network()
         .connect(Transport::Udp, target.host)
         .unwrap();
-    let file_size = fs::metadata(&file_path).unwrap().len() as usize;
-    let mut file = File::open(&file_path).unwrap();
+    let file_size = fs::metadata(file_path).unwrap().len() as usize;
+    let mut file = File::open(file_path).unwrap();
     let file_name: &OsStr = file_path.file_name().expect("Missing file!");
 
     let mut file_bytes_sent = 0;
@@ -45,7 +45,7 @@ pub fn run(file_path: &PathBuf, target: &RenderNode) {
             }
             NetEvent::Accepted(_, _) => unreachable!(),
             NetEvent::Message(_, input_data) => {
-                let message: ReceiveMsg = bincode::deserialize(&input_data).unwrap();
+                let message: ReceiveMsg = bincode::deserialize(input_data).unwrap();
                 match message {
                     ReceiveMsg::CanReceive(can) => match can {
                         true => handler.signals().send(Signal::SendChunk),

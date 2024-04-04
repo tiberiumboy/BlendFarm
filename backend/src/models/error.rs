@@ -21,7 +21,7 @@ impl serde::Serialize for Error {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string().as_ref())
+        serializer.serialize_str(&self.to_string())
     }
 }
 
