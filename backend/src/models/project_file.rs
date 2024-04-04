@@ -13,6 +13,7 @@ pub struct ProjectFile {
     pub tmp: Option<PathBuf>,
 }
 
+#[allow(dead_code)]
 impl ProjectFile {
     pub fn new(path: &PathBuf) -> Self {
         Self {
@@ -30,7 +31,7 @@ impl ProjectFile {
     pub(crate) fn move_to_temp(&mut self) {
         let mut dir = env::temp_dir();
         let file_name = self.src.file_name().unwrap();
-        dir.push(&file_name);
+        dir.push(file_name);
         let _ = std::fs::copy(&self.src, &dir);
         self.tmp = Some(dir);
     }

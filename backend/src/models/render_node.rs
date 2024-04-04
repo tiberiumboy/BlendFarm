@@ -29,7 +29,8 @@ impl RenderNode {
         Ok("Connected".to_owned())
     }
 
-    pub fn send(&self, file: ProjectFile) -> Result<String, Error> {
+    #[allow(dead_code)]
+    pub fn send(&self, _file: ProjectFile) -> Result<String, Error> {
         // send file to the host
         Ok("Sent".to_owned())
     }

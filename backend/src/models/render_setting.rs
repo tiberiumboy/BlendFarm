@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 enum RenderStrategy {
     SplitHorizontal,
     SplitVertical,
@@ -5,11 +6,13 @@ enum RenderStrategy {
     SplitChunekd,
 }
 
+#[allow(dead_code)]
 enum TaskOrder {
     Default,
     Center,
 }
 
+#[allow(dead_code)]
 struct RenderSetting {
     pub strategy: RenderStrategy,
     pub order: TaskOrder,

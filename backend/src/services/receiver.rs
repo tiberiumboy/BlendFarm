@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 
+#[allow(dead_code)]
 pub struct Transfer {
     file: File,
     name: String,
@@ -12,6 +13,7 @@ pub struct Transfer {
     expected_size: usize,
 }
 
+#[allow(dead_code)]
 pub fn run() {
     let (handler, listener) = node::split::<()>();
     let server = "localhost:15000";
@@ -27,7 +29,7 @@ pub fn run() {
         NetEvent::Connected(_, _) => unreachable!(),
         NetEvent::Accepted(_, _) => (),
         NetEvent::Message(endpoint, input_data) => {
-            let message: SenderMsg = bincode::deserialize(&input_data).unwrap();
+            let message: SenderMsg = bincode::deserialize(input_data).unwrap();
             match message {
                 SenderMsg::FileRequest(name, size) => {
                     let _able = match File::create(format!("{}.blend", name)) {
@@ -50,7 +52,7 @@ pub fn run() {
                 }
                 SenderMsg::Chunk(data) => {
                     let transfer = transfers.get_mut(&endpoint).unwrap();
-                    transfer.file.write(&data).unwrap();
+                    transfer.file.write_all(&data).unwrap();
                     transfer.current_size += data.len();
 
                     let current = transfer.current_size as f32;

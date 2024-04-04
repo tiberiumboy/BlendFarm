@@ -28,6 +28,7 @@ impl Default for ServerSetting {
     }
 }
 
+#[allow(dead_code)]
 impl ServerSetting {
     pub fn save(&self) {
         // save this data to...?

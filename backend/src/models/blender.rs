@@ -4,6 +4,7 @@ use std::{
     process::{Command, Output},
 };
 
+// TODO: Once I figure out about getting blender configuration from the hardware, use this to return back to the host about this machine configuration
 // enum Device {
 //     CPU,
 //     CUDA,
@@ -26,6 +27,8 @@ pub struct Blender {}
 // const OS_MACOSARM64: &str = "macOS-arm64";
 
 impl Blender {
+    // pretty soon we will invoke this method!
+    #[allow(dead_code)]
     pub fn render(
         &self,
         path: impl AsRef<Path>,
@@ -60,4 +63,8 @@ impl Blender {
             ])
             .output()
     }
+
+    // TODO: implement a method to download blender from source
+
+    // TOOD: fetch blender configurations?
 }
