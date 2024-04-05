@@ -1,9 +1,8 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use crate::controllers::{
-    connection::{create_node, delete_node, edit_node, list_node},
-    project::{add_project, delete_project, load_project_list},
+use crate::controllers::remote_render::{
+    create_job, create_node, delete_node, edit_node, list_node,
 };
 use crate::models::data::Data;
 use message_io::{
@@ -30,9 +29,7 @@ fn client() {
         // Hmm find a way to load multiple of handlers? from different page source?
         // I feel like there should be a better way to manage this?
         .invoke_handler(generate_handler![
-            add_project,
-            delete_project,
-            load_project_list,
+            create_job,
             create_node,
             list_node,
             edit_node,

@@ -6,14 +6,9 @@ import { Link } from "react-router-dom";
 
 export const SidebarData = [
   {
-    title: "Project",
-    path: "./project",
+    title: "Remote Render",
+    path: "./remote_render",
     icon: <GoIcons.GoProject />,
-  },
-  {
-    title: "Connection",
-    path: "./connection",
-    icon: <CgIcons.CgEthernet />,
   },
   {
     title: "Setting",

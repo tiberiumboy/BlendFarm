@@ -386,10 +386,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf4b9d6a944f767f8e5e0db018570623c85f3d925ac718db4e06d0187adb21c1"
 
 [[package]]
+name = "blend"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56036f5e6c7ce6edb901e7a75ec34d6da2472ad3a2cbcd00df60a518b071a5b2"
+dependencies = [
+ "linked-hash-map",
+ "nom",
+]
+
+[[package]]
 name = "blendfarm"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "blend",
  "chrono",
  "clap",
  "libc",
@@ -2141,6 +2152,12 @@ name = "line-wrap"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd1bc4d24ad230d21fb898d1116b1801d7adfc449d42026475862ab48b11e70e"
+
+[[package]]
+name = "linked-hash-map"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
 
 [[package]]
 name = "linux-raw-sys"

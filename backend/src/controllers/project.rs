@@ -5,22 +5,12 @@ use tauri::api::dialog::FileDialogBuilder;
 use tauri::{command, Manager};
 // use thiserror::Error;
 
-// pub fn project() -> FnOnce<T> {
-//     generate_handler![add_project, edit_project, load_project_list]
-// }
-
-// #[derive(Error, Debug)]
-// pub enum ProjectError {
-//     #[error("Project not found")]
-//     NotFound,
-//     #[error("Project already exists")]
-//     AlreadyExists,
+// pub fn project<T>() -> Vec<Fn<T>> {
+//     vec![add_project, edit_project, load_project_list]
 // }
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 // in this case here, this is where I would setup configuration and start mapping things out?
-// question is, how do I access objects? E.g. If I want to update server settings
-// or send command from a specific node?
 #[tauri::command]
 pub fn add_project(app: tauri::AppHandle) {
     // app crashed when api block thread. Do not use tauri::api::dialog::blocking::* apis.
