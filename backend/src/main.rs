@@ -5,10 +5,7 @@ use crate::controllers::remote_render::{
     create_job, create_node, delete_job, delete_node, edit_job, edit_node, list_job, list_node,
 };
 use crate::models::data::Data;
-use message_io::{
-    network::{NetEvent, Transport},
-    node,
-};
+use services::receiver::receive;
 use std::{env, sync::Mutex, thread};
 use tauri::generate_handler;
 
@@ -42,50 +39,13 @@ fn client() {
         .expect("error while running tauri application");
 }
 
-// as a server role, you are responsible to do the following requirement:
-// open TcpListener and await for connection from client
-// Once connection received, with information containing blender file and render settings
-// check and see if blender exist
-//      download and install matching blender configuration from the blender settings
-
-fn setup_listeners() {
-    let (handler, listener) = node::split::<()>();
-
-    handler
-        .network()
-        .listen(Transport::FramedTcp, "localhost:15000")
-        .unwrap();
-
-    listener.for_each(move |event| match event.network() {
-        NetEvent::Connected(_, _) => unreachable!(),
-        NetEvent::Accepted(endpoint, _listener) => {
-            println!("Client connected {}", endpoint.addr().ip());
-        }
-        NetEvent::Message(endpoint, data) => {
-            println!("Received: {}", String::from_utf8_lossy(data));
-            handler.network().send(endpoint, data);
-        }
-        NetEvent::Disconnected(endpoint) => {
-            println!("Disconnected {}", endpoint.addr().ip());
-        }
-    });
-}
-
 fn main() -> std::io::Result<()> {
     // get the machine configuration here, and cache the result for poll request
     // we're making the assumption that the device card is available and ready when this app launches
 
-    // let input: &str = "indivisibility";
-
-    // let chars = input.chars().collect();
-    // char
-
     // parse argument input here
-    // let args = std::env::args();
-    // println!("{args:?}");
-    // let config = Config::load(); // Config::load();
-    // let args = std::env::args();
-    // println!("{args:?}");
+    let args = std::env::args();
+    println!("{args:?}");
     // let config = Config::load(); // Config::load();
 
     // obtain configurations
@@ -98,7 +58,7 @@ fn main() -> std::io::Result<()> {
 
     // initialize service listener
     thread::spawn(|| {
-        setup_listeners();
+        receive();
     });
 
     // for this month, I want to focus on having the ability to send a render job,
@@ -107,12 +67,11 @@ fn main() -> std::io::Result<()> {
     // let mut path = env::current_dir()?;
     // path.push("test.blend");
 
-    // let output = env::current_dir()?;
-    // let blend = Blender::default();
-    // match Blender::render(&blend, path, output, 1) {
-    //     Ok(result) => println!("{result:?}"),
-    //   https://www.youtube.com/watch?v=zlthUnIW7wI  Err(e) => println!("Failed to render: {e:?}"),
-    // };
+    let output = env::current_dir()?;
+    match render(&blend, path, output, 1) {
+        Ok(result) => println!("{result:?}"),
+        // Err(e) => println!("Failed to render: {e:?}"),
+    };
 
     client();
 

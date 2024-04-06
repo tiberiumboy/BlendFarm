@@ -39,10 +39,8 @@ impl Job {
 
         self.project_file.move_to_temp();
 
-        if let Some(tmp) = &self.project_file.tmp {
-            let _output = render(&self, 0).unwrap();
-            // if we're the nodes, we need to send the image back to the host.
-        }
+        let _output = render(&self, 0).unwrap();
+        // if we're the nodes, we need to send the image back to the host.
 
         self.project_file.clear_temp();
 
@@ -50,12 +48,11 @@ impl Job {
         self.status = JobStatus::Done;
     }
 
-    pub fn source(&self) -> &str {
-        self.project_file
-            .tmp
-            .or_else(|| Some(self.project_file.src))
-            .expect("Missing path!")
-            .to_str()
-            .unwrap()
+    pub fn source(&self) -> &PathBuf {
+        if let Some(path) = &self.project_file.tmp {
+            path
+        } else {
+            &self.project_file.src
+        }
     }
 }

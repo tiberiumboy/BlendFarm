@@ -1,5 +1,8 @@
 use chrono::prelude::*;
-// use serde::{Deserializer, Serializer};
+use chrono::Duration;
+use semver::Version;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::{env, os};
 
 // find a way to obtain the operating system information
@@ -12,12 +15,11 @@ const VERSIONS_URL: &str = "https://download.blender.org/release/";
 
 const CACHE_DAYS: u8 = 3;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BlenderVersion {
-    name: String,
-    path: PathBuf,
-    version: Version,
-    utc: DateTime<Utc>,
+    url: String,      // URL to download
+    path: PathBuf,    // path to the blender executable
+    version: Version, // version of blender
 }
 
 // impl Default for BlenderVersion {
@@ -37,6 +39,6 @@ impl BlenderVersion {
         let ext = "tar.xy";
         // todo - correct arch labeling, e.g. x86_64 -> x64, arm -> arm64, etc
         let arch = env::consts::ARCH;
-        let archive = format!("blender-{}-{os}-{arch}.{ext}",);
+        let archive = format!("blender-{}-{os}-{arch}.{ext}", self.version);
     }
 }

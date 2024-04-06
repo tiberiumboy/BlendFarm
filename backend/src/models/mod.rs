@@ -1,3 +1,4 @@
+pub(crate) mod blender_version;
 pub(crate) mod data;
 pub mod error;
 pub(crate) mod job;

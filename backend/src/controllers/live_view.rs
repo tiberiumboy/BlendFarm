@@ -5,7 +5,7 @@ pub struct LiveView {
 }
 
 #[tauri::command]
-pub fn load_file(app: tauri::AppHandle) {
+pub fn load_file(_app: tauri::AppHandle) {
     // load the project file
     // spin up render_node to send the files over
     // then have it prepare to render section of it

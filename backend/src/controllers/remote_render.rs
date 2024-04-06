@@ -72,7 +72,7 @@ pub fn create_job(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
-pub fn edit_job(app: tauri::AppHandle, _update_job: Job) {
+pub fn edit_job(_app: tauri::AppHandle, _update_job: Job) {
     // let job_mutex = app.state::<Mutex<Data>>();
     // let mut job = job_mutex.lock().unwrap();
     // job.jobs.push(update_job);

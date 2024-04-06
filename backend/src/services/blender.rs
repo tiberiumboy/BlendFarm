@@ -1,5 +1,8 @@
-use crate::models::job::Job;
-use std::io;
+use crate::models::blender_version::BlenderVersion;
+use crate::models::project_file::ProjectFile;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::{io, process::Command};
 use tauri::command;
 
 // TODO: Once I figure out about getting blender configuration from the hardware, use this to return back to the host about this machine configuration
@@ -19,34 +22,49 @@ use tauri::command;
 // const OS_WINDOWS64: &str = "window64";
 // const OS_MACOS: &str = "macOS";
 // const OS_MACOSARM64: &str = "macOS-arm64";
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Blender {
+    version: BlenderVersion, // version of blender
+    path: PathBuf,           // path to blender executable
+}
 
 // pretty soon we will invoke this method!
-#[allow(dead_code)]
-pub fn render(job: &Job, frame: i32) -> io::Result<()> {
-    let path = job
-        .project_file
+pub fn render(project: &ProjectFile, frame: i32) -> io::Result<()> {
+    let path = project
         .tmp
-        .or_else(|| Some(job.project_file.src))
-        .unwrap()
-        .as_os_str()
-        .to_str()
-        .unwrap();
+        .unwrap_or_else(|| project.src)
+        .map(PathBuf::into_os_string)
+        .and_then(|p| p.into_string().ok());
 
     let output = job.output.as_os_str().to_str().unwrap();
 
-    command
-        .args([
-            "--factory-startup", // skip startup.blend
-            "-noaudio",          // no sound
-            "-b",                // background
-            path,
-            "-o", // output
-            output,
-            // --log "*" to log everything
-            "-f", // frame (must be last!)
-            &frame.to_string(),
-        ])
-        .output();
+    /*
+    "--factory-startup", // skip startup.blend
+    "-noaudio",          // no sound
+    "-b",                // background
+    path,
+    "-o", // output
+    output,
+    // --log "*" to log everything
+    "-f", // frame (must be last!)
+
+    */
+    let cmd = format!(
+        "--factory-startup -noaudio -b {} -o {} -f {}",
+        path, output, frame
+    );
+
+    let output = if cfg!(target_os = "windows") {
+        Command::new("cmd")
+            .args(cmd.split(" "))
+            .output()
+            .expect("Fail to launch blender!")
+    } else {
+        Command::new("sh")
+            .args(["-c", cmd.as_str()])
+            .output()
+            .expect("Fail to launch blender!")
+    };
 
     Ok(())
 }

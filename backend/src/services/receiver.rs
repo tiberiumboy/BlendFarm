@@ -13,8 +13,7 @@ pub struct Transfer {
     expected_size: usize,
 }
 
-#[allow(dead_code)]
-pub fn run() {
+pub fn receive() {
     let (handler, listener) = node::split::<()>();
     let server = "localhost:15000";
     handler
