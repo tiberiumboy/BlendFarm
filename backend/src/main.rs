@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use crate::controllers::remote_render::{
-    create_job, create_node, delete_node, edit_node, list_node,
+    create_job, create_node, delete_job, delete_node, edit_job, edit_node, list_job, list_node,
 };
 use crate::models::data::Data;
 use message_io::{
@@ -31,9 +31,12 @@ fn client() {
         .invoke_handler(generate_handler![
             create_job,
             create_node,
-            list_node,
+            delete_job,
+            delete_node,
+            edit_job,
             edit_node,
-            delete_node
+            list_job,
+            list_node,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -96,12 +99,9 @@ fn main() -> std::io::Result<()> {
     // initialize service listener
     thread::spawn(|| {
         setup_listeners();
-        // let settings = ServerSettings::default();
-        // server(&settings);
     });
 
     // for this month, I want to focus on having the ability to send a render job,
-    // I can render now! Mac is special
     // here we will ask for the user's blender file - we will use the scene file as a rendering present. Do not worry about gpu/cpu stuff. Just make this work.
 
     // let mut path = env::current_dir()?;

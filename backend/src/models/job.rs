@@ -43,6 +43,8 @@ impl Job {
             // if we're the nodes, we need to send the image back to the host.
         }
 
+        self.project_file.clear_temp();
+
         // Run the job
         self.status = JobStatus::Done;
     }

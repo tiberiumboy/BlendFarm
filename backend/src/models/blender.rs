@@ -17,7 +17,6 @@ use std::{
 
 // how can I detect what device is allowed on this current machine farm?
 
-// maybe?
 // const OS_LINUX64: &str = "linux64";
 // const OS_WINDOWS64: &str = "window64";
 // const OS_MACOS: &str = "macOS";
