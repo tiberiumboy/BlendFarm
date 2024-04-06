@@ -68,7 +68,8 @@ fn main() -> std::io::Result<()> {
     // path.push("test.blend");
 
     let output = env::current_dir()?;
-    match render(&blend, path, output, 1) {
+    let blend = Blender::default();
+    match Blender::render(&blend, path, output, 1) {
         Ok(result) => println!("{result:?}"),
         // Err(e) => println!("Failed to render: {e:?}"),
     };
