@@ -1,4 +1,7 @@
 enum Status {
+    Idle,
+    Download(BlenderVersion),
+    Transfer(Job), // Would like to be able to transfer file?
     Time(i32),
     Completed,
 }

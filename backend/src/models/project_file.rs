@@ -8,7 +8,7 @@ use super::render_node::RenderNode;
 #[derive(Debug, Serialize, Deserialize, Eq, Clone)]
 pub struct ProjectFile {
     pub id: String,
-    src: PathBuf,
+    pub src: PathBuf,
     #[serde(skip_serializing)]
     pub tmp: Option<PathBuf>,
 }

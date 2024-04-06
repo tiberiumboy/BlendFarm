@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use super::{blender::render, project_file::ProjectFile};
+use super::project_file::ProjectFile;
+use crate::services::blender::render;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -39,7 +40,7 @@ impl Job {
         self.project_file.move_to_temp();
 
         if let Some(tmp) = &self.project_file.tmp {
-            let _output = render(tmp, &self.output, 0).unwrap();
+            let _output = render(&self, 0).unwrap();
             // if we're the nodes, we need to send the image back to the host.
         }
 
@@ -47,5 +48,14 @@ impl Job {
 
         // Run the job
         self.status = JobStatus::Done;
+    }
+
+    pub fn source(&self) -> &str {
+        self.project_file
+            .tmp
+            .or_else(|| Some(self.project_file.src))
+            .expect("Missing path!")
+            .to_str()
+            .unwrap()
     }
 }

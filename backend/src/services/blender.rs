@@ -1,8 +1,6 @@
-use std::{
-    io,
-    path::Path,
-    process::{Command, Output},
-};
+use crate::models::job::Job;
+use std::io;
+use tauri::command;
 
 // TODO: Once I figure out about getting blender configuration from the hardware, use this to return back to the host about this machine configuration
 // enum Device {
@@ -24,34 +22,33 @@ use std::{
 
 // pretty soon we will invoke this method!
 #[allow(dead_code)]
-pub fn render(path: impl AsRef<Path>, output: impl AsRef<Path>, frame: i32) -> io::Result<Output> {
-    let frame = frame.to_string();
+pub fn render(job: &Job, frame: i32) -> io::Result<()> {
+    let path = job
+        .project_file
+        .tmp
+        .or_else(|| Some(job.project_file.src))
+        .unwrap()
+        .as_os_str()
+        .to_str()
+        .unwrap();
 
-    // in the original program, the command used to launch blender doesn't invoke to render - it execute a python script using -P "script.py" with argument passed to python instead.
-    // see "render.py" for the python script used in blendfarm - ignored by repo
-    // who knew, macOS is special!
-    let mut command = if cfg!(target_os = "macos") {
-        Command::new("/Applications/Blender.app/Contents/MacOS/blender")
-    } else {
-        Command::new("blender")
-    };
+    let output = job.output.as_os_str().to_str().unwrap();
 
     command
         .args([
             "--factory-startup", // skip startup.blend
             "-noaudio",          // no sound
             "-b",                // background
-            path.as_ref().to_str().expect("Missing path!"),
+            path,
             "-o", // output
-            output
-                .as_ref()
-                .to_str()
-                .expect("Missing output destination!"),
+            output,
             // --log "*" to log everything
             "-f", // frame (must be last!)
-            &frame,
+            &frame.to_string(),
         ])
-        .output()
+        .output();
+
+    Ok(())
 }
 
 // TODO: implement a method to download blender from source

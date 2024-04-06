@@ -12,23 +12,24 @@ const VERSIONS_URL: &str = "https://download.blender.org/release/";
 
 const CACHE_DAYS: u8 = 3;
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct BlenderVersion {
-    is_custom: bool,
     name: String,
+    path: PathBuf,
+    version: Version,
     utc: DateTime<Utc>,
-    url: String,
 }
 
-impl Default for BlenderVersion {
-    fn default() -> Self {
-        Self {
-            is_custom: false,
-            name: "Blender".to_owned(),
-            utc: Utc::now(),
-            url: "localhost".to_owned(),
-        }
-    }
-}
+// impl Default for BlenderVersion {
+//     fn default() -> Self {
+//         Self {
+//             name: "Blender".to_owned(),
+//             path: PathBuf,
+//             version: Version,
+//             utc: Utc::now(),
+//         }
+//     }
+// }
 
 impl BlenderVersion {
     fn download(&self) {
@@ -36,6 +37,6 @@ impl BlenderVersion {
         let ext = "tar.xy";
         // todo - correct arch labeling, e.g. x86_64 -> x64, arm -> arm64, etc
         let arch = env::consts::ARCH;
-        let archive = "blender-{}-{os}-{arch}.{ext}";
+        let archive = format!("blender-{}-{os}-{arch}.{ext}",);
     }
 }
