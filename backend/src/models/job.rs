@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use super::project_file::ProjectFile;
-use crate::services::blender::render;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -23,6 +22,7 @@ pub struct Job {
     pub created_at: String,
 }
 
+#[allow(dead_code)]
 impl Job {
     pub fn new(project_file: ProjectFile) -> Job {
         Job {
@@ -31,28 +31,6 @@ impl Job {
             output: PathBuf::new(),
             status: JobStatus::Idle,
             created_at: chrono::Utc::now().to_rfc3339(),
-        }
-    }
-
-    pub fn run(&mut self) {
-        self.status = JobStatus::Running;
-
-        self.project_file.move_to_temp();
-
-        let _output = render(&self, 0).unwrap();
-        // if we're the nodes, we need to send the image back to the host.
-
-        self.project_file.clear_temp();
-
-        // Run the job
-        self.status = JobStatus::Done;
-    }
-
-    pub fn source(&self) -> &PathBuf {
-        if let Some(path) = &self.project_file.tmp {
-            path
-        } else {
-            &self.project_file.src
         }
     }
 }

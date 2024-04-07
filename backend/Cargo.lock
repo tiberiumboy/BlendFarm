@@ -406,12 +406,14 @@ dependencies = [
  "libc",
  "local-ip-address",
  "message-io",
+ "semver",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "thiserror",
  "tokio",
+ "url",
  "uuid",
 ]
 

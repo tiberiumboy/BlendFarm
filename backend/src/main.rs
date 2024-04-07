@@ -4,11 +4,14 @@
 use crate::controllers::remote_render::{
     create_job, create_node, delete_job, delete_node, edit_job, edit_node, list_job, list_node,
 };
-use crate::models::data::Data;
-use services::receiver::receive;
-use std::{env, sync::Mutex, thread};
+use crate::models::{data::Data, project_file::ProjectFile};
+// use services::receiver::receive;
+use crate::blender::version::Blender;
+use std::path::PathBuf;
+use std::{env, sync::Mutex /* , thread*/};
 use tauri::generate_handler;
 
+pub mod blender;
 pub mod controllers;
 pub mod models;
 pub mod services;
@@ -44,37 +47,36 @@ fn main() -> std::io::Result<()> {
     // we're making the assumption that the device card is available and ready when this app launches
 
     // parse argument input here
-    let args = std::env::args();
-    println!("{args:?}");
-    // let config = Config::load(); // Config::load();
-
+    // let args = std::env::args();
+    // println!("{args:?}");
     // obtain configurations
 
-    // cleanup old sessions ? Assuming temp file(s) get deleted anyway - should we need to worry about this?
-    // we could use this as an opportunity to clean cache files in case a client request it?
-    // could provide computer spec info? - feature request?
-    // println!("Cleaing up old session...");
-    // cleanup_old_sessions();
-
     // initialize service listener
-    thread::spawn(|| {
-        receive();
-    });
+    // thread::spawn(|| {
+    //     receive();
+    // });
 
     // for this month, I want to focus on having the ability to send a render job,
     // here we will ask for the user's blender file - we will use the scene file as a rendering present. Do not worry about gpu/cpu stuff. Just make this work.
 
-    // let mut path = env::current_dir()?;
-    // path.push("test.blend");
+    let mut path = env::current_dir()?;
+    path.push("test.blend");
 
-    let output = env::current_dir()?;
-    let blend = Blender::default();
-    match Blender::render(&blend, path, output, 1) {
+    let project = ProjectFile::new(&path);
+
+    // can we assume that we have a default present loaded?
+    let path = PathBuf::from("~/Downloads/blender/blender");
+    let blender = Blender::from_executable(path).unwrap(); // TODO: handle unwrap
+
+    // great this still works! fantastic!
+    match blender.render(&project, 1) {
         Ok(result) => println!("{result:?}"),
-        // Err(e) => println!("Failed to render: {e:?}"),
+        Err(e) => println!("{e:?}"),
     };
 
-    client();
+    // client();
 
     Ok(())
 }
+
+// /home/jordan/Documents/src/rust/BlendFarm/backend/test.blend

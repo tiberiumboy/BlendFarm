@@ -1,6 +1,5 @@
-use std::{fs, io, path::PathBuf};
-
 use serde::{Deserialize, Serialize};
+use std::{fs, io, path::PathBuf};
 
 const BLENDER_DATA: &str = "BlenderData";
 const RENDER_DATA: &str = "RenderData";
@@ -11,19 +10,31 @@ const BLENDER_FILES: &str = "BlenderFiles";
 pub struct ServerSetting {
     pub port: u16,
     pub broadcast_port: u16,
-    pub blender_data: String,
-    pub render_data: String,
-    pub blender_files: String,
+    pub blender_data: PathBuf,
+    pub render_data: PathBuf,
+    pub blender_files: PathBuf,
+}
+
+fn create_tmp_dir(name: &str) -> PathBuf {
+    let mut tmp = std::env::temp_dir();
+    tmp.push(format!("/{}/", BLENDER_DATA));
+    std::fs::create_dir(&tmp).expect("Unable to create directory!");
+    tmp
 }
 
 impl Default for ServerSetting {
     fn default() -> Self {
+        // repeated code here :(
+        let blend_data = create_tmp_dir(BLENDER_DATA);
+        let blend_files = create_tmp_dir(BLENDER_FILES);
+        let render_data = create_tmp_dir(RENDER_DATA);
+
         Self {
             port: 15000,
             broadcast_port: 16342,
-            blender_data: BLENDER_DATA.to_owned(),
-            render_data: RENDER_DATA.to_owned(),
-            blender_files: BLENDER_FILES.to_owned(),
+            blender_data: PathBuf::from(blend_data),
+            render_data: PathBuf::from(render_data),
+            blender_files: PathBuf::from(blend_files),
         }
     }
 }

@@ -1,25 +1,34 @@
-use crate::services::sender::run as send;
+// use crate::blender::version::Blender;
+use crate::{blender::version::Blender, services::sender::send};
+use blend::Blend;
 use serde::{Deserialize, Serialize};
 use std::{env, path::PathBuf, str::FromStr};
 use uuid::Uuid;
 
 use super::render_node::RenderNode;
 
-#[derive(Debug, Serialize, Deserialize, Eq, Clone)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectFile {
     pub id: String,
+    pub file_name: String,
     pub src: PathBuf,
     #[serde(skip_serializing)]
     pub tmp: Option<PathBuf>,
+    pub blender_version: Blender,
 }
 
 #[allow(dead_code)]
 impl ProjectFile {
     pub fn new(path: &PathBuf) -> Self {
+        let blend = Blend::from_path(path).expect("Unable to read blend file!");
+        let version = blend.version().unwrap();
         Self {
             id: Uuid::new_v4().to_string(),
+            // TODO: Ok wtf is this?? Wow. Clean this up afterward but do not commit this!!!
+            file_name: path.file_name().unwrap().to_str().unwrap().to_owned(),
             src: path.to_owned(),
             tmp: None,
+            blender_version: Blender::from_version(),
         }
     }
 
@@ -48,6 +57,19 @@ impl ProjectFile {
             // send file to node
             send(&self.src, &node);
         }
+    }
+
+    pub(crate) fn file_path(&self) -> &PathBuf {
+        self.tmp.as_ref().unwrap_or(&self.src)
+    }
+
+    #[allow(dead_code)]
+    pub fn run(&mut self, frame: i32) {
+        // self.move_to_temp();
+        // let blender = Blender::default();
+
+        // let _output = blender.render(&self, frame).unwrap();
+        // self.clear_temp();
     }
 }
 

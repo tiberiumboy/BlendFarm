@@ -41,9 +41,9 @@ pub fn delete_node(app: tauri::AppHandle, id: String) -> Result<(), Error> {
 #[tauri::command]
 pub fn create_job(app: tauri::AppHandle) {
     // app crashed when api block thread. Do not use tauri::api::dialog::blocking::* apis.
-    // could we not access tauri api side from react for filedialogbuilder?
+    // Problem here - I need to find a way to ask the user about the blender file,
+    // how do I know which blender version should I use to render?
     // How can I block js from invoking next when I need to wait for this dialog to complete?
-    // how can I only filter .blend extension format?
     FileDialogBuilder::new()
         .add_filter("Blender Files", &["blend"])
         .pick_files(move |path| match path {
@@ -56,10 +56,9 @@ pub fn create_job(app: tauri::AppHandle) {
 
                     for node in ctx.render_nodes.iter() {
                         // send the job to the node then invoke to run it?
-                        let _ = node.send(job.project_file.clone()).unwrap();
+                        // node.send(job.project_file.file_path());
                     }
 
-                    job.run();
                     ctx.jobs.push(job);
                 }
             }

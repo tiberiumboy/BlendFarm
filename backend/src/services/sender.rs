@@ -12,8 +12,7 @@ enum Signal {
 
 const CHUNK_SIZE: usize = 65536;
 
-#[allow(dead_code)]
-pub fn run(file_path: &PathBuf, target: &RenderNode) {
+pub fn send(file_path: &PathBuf, target: &RenderNode) {
     let (handler, listener) = node::split();
 
     let (server_id, _) = handler
