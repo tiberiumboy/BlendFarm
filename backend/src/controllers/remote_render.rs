@@ -52,12 +52,12 @@ pub fn create_job(app: tauri::AppHandle) {
                 let mut ctx = ctx_mutex.lock().unwrap();
                 for file_path in file_paths.iter() {
                     let project_file = ProjectFile::new(file_path);
-                    let mut job = Job::new(project_file);
+                    let job = Job::new(project_file);
 
-                    for node in ctx.render_nodes.iter() {
-                        // send the job to the node then invoke to run it?
-                        // node.send(job.project_file.file_path());
-                    }
+                    //for node in ctx.render_nodes.iter() {
+                    // send the job to the node then invoke to run it?
+                    // node.send(job.project_file.file_path());
+                    //}
 
                     ctx.jobs.push(job);
                 }

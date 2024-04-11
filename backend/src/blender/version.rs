@@ -1,4 +1,4 @@
-use crate::ProjectFile;
+use crate::models::{project_file::ProjectFile, server_setting::ServerSetting};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -41,44 +41,42 @@ pub struct Blender {
 // url to download repository
 const VERSIONS_URL: &str = "https://download.blender.org/release/";
 
-// find a way to obtain the operating system information
-const OS_UNKNOWN: &str = "unknown";
-const OS_LINUX64: &str = "linux64";
-const OS_WINDOWS64: &str = "windows64";
-const OS_MACOS: &str = "macOS";
-
-fn exec(args: &str) -> io::Result<Output> {
-    let cmd = if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .arg("/C")
-            .arg(args)
-            .output()
-            .expect("Fail to launch blender!")
-    } else {
-        Command::new("sh")
-            .arg("-c")
-            .arg(args)
-            .output()
-            .expect("Fail to launch blender!")
-    };
-
-    dbg!(&cmd);
-
-    Ok(cmd)
+fn get_os() -> String {
+    match env::consts::OS {
+        "linux" => "linux64".to_owned(),
+        "windows" => "windows64".to_owned(),
+        "macos" => "macOS".to_owned(),
+        _ => "unknown".to_owned(),
+    }
 }
 
-#[allow(dead_code)]
+fn get_ext() -> String {
+    match env::consts::OS {
+        "linux" => "tar.xz".to_owned(),
+        "windows" => "zip".to_owned(),
+        "macos" => "dmg".to_owned(),
+        _ => "unknown".to_owned(),
+    }
+}
+
 impl Blender {
     pub fn from_executable(executable: PathBuf) -> std::io::Result<Self> {
         // this should return the version number
-        let args = format!("{} -v", executable.to_str().unwrap());
-        let output = match exec(&args) {
+        // macos
+        let exec = executable.to_str().unwrap();
+        let output = match Self::exec_command(&exec, "-v") {
             Ok(output) => {
-                let stdout = String::from_utf8(output.stdout).unwrap();
+                let stdout = String::from_utf8(output.stdout.clone()).unwrap();
                 let parts = stdout.split("\n\t");
                 let collection = &parts.collect::<Vec<&str>>();
                 let first = collection.first().unwrap();
-                Version::parse(&first[8..]).unwrap() // still sketchy, but it'll do for now
+                dbg!(&collection);
+                // if first.contains("Blender") {
+                //     Version::parse(&first[8..]).unwrap()
+                // } else {
+                Version::new(2, 93, 0)
+                // }
+                // still sketchy, but it'll do for now
             }
             _ => Version::new(2, 93, 0), // TODO: Find a better way to handle this
         };
@@ -91,6 +89,22 @@ impl Blender {
             engine: Engine::Cycles,
             device: Device::CPU,
         })
+    }
+
+    fn exec_command(executable: &str, args: &str) -> Result<Output, std::io::Error> {
+        if cfg!(target_os = "windows") {
+            Command::new("cmd")
+                .arg("/C")
+                .arg(executable)
+                .arg(args)
+                .output()
+        } else {
+            Command::new("sh")
+                .arg("-c")
+                .arg(executable)
+                .arg(args)
+                .output()
+        }
     }
 
     pub fn from_url(url: Url) -> Self {
@@ -146,23 +160,25 @@ impl Blender {
         self.dl_content.is_some()
     }
 
-    fn download(&self) -> Result<(), io::Error> {
+    fn download(&mut self) -> Result<(), io::Error> {
         if self.is_cached() {
             return Ok(());
         }
 
+        let config = ServerSetting::default();
+        let archive_name = format!("{}-{}.{}", self.version, get_os(), get_ext());
+        let archive_path = PathBuf::from(&config.blender_data.path).join(&archive_name);
+
+        dbg!(&archive_path);
+
+        self.dl_content = Some(archive_path);
+
         // download the file
+
         Ok(())
     }
 
     fn parse(base_url: &Url, version: &Version) -> Self {
-        // let os = env::consts::OS;
-        // let os = match os {
-        //     "linux" => OS_LINUX64.to_owned(),
-        //     "windows" => OS_WINDOWS64.to_owned(),
-        //     "macos" => OS_MACOS.to_owned(),
-        //     _ => OS_UNKNOWN.to_owned(),
-        // };
         let dir = format!("Blender{}/", version);
         let result = base_url.join(&dir);
         dbg!(&result);
@@ -190,23 +206,14 @@ impl Blender {
         // format!(args)
     }
 
-    fn get_os() -> String {
-        match env::consts::OS {
-            "linux" => OS_LINUX64.to_owned(),
-            "windows" => OS_WINDOWS64.to_owned(),
-            "macos" => OS_MACOS.to_owned(),
-            _ => OS_UNKNOWN.to_owned(),
-        }
-    }
-
     fn get_executable(&self) -> &str {
         // we'll find a way to get the executable if all else fails
         self.executable.as_ref().unwrap().to_str().unwrap()
     }
 
-    pub fn render(&self, project: &ProjectFile, frame: i32) -> io::Result<PathBuf> {
+    pub fn render(&mut self, project: &ProjectFile, frame: i32) -> io::Result<PathBuf> {
         if !self.is_installed() {
-            self.download()?;
+            let _ = &self.download().expect("Fail to download blender!");
         }
 
         let path = project
@@ -214,12 +221,8 @@ impl Blender {
             .to_str()
             .unwrap();
 
-        let mut tmp = std::env::temp_dir();
-        tmp.push("BlenderData/");
-        if !tmp.exists() {
-            std::fs::create_dir(&tmp).expect("Unable to create directory!");
-        }
-
+        let config = ServerSetting::default();
+        let mut tmp = config.blender_data.path.clone();
         tmp.push(format!("{}_{}.png", project.file_name, frame));
         dbg!(&tmp);
 
@@ -237,18 +240,18 @@ impl Blender {
         "-f", // frame (must be last!)
         */
         let cmd = format!(
-            "{} --factory-startup -noaudio -b {} -o {} -f {}",
-            self.get_executable(),
-            path,
-            output,
-            frame
+            "--factory-startup -noaudio -b {} -o {} -f {}",
+            path, output, frame
         );
 
         dbg!(&cmd);
 
         // we'll figure out what to do with this output...
-        let _output = exec(&cmd);
+        let exec_path = self.executable.as_ref().unwrap().clone();
+        let path_as_str = exec_path.to_str().unwrap();
+        let _output = Self::exec_command(path_as_str, &cmd).unwrap();
 
+        // display the output and see what result we'll get
         dbg!(_output);
 
         Ok(tmp)

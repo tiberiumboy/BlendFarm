@@ -65,8 +65,9 @@ fn main() -> std::io::Result<()> {
     let project = ProjectFile::new(&path);
 
     // can we assume that we have a default present loaded?
-    let path = PathBuf::from("~/Downloads/blender/blender");
-    let blender = Blender::from_executable(path).unwrap(); // TODO: handle unwrap
+    // let path = PathBuf::from("~/Downloads/blender/blender");    // linux
+    let path = PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender"); // macOS // why mac?
+    let mut blender = Blender::from_executable(path).unwrap(); // TODO: handle unwrap
 
     // great this still works! fantastic!
     match blender.render(&project, 1) {
