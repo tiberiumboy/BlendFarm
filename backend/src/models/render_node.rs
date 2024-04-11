@@ -5,44 +5,58 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum NodeStatus {
-    Idle,
-    Running(u8),
-    Error(String),
-}
+struct Idle;
+struct Running;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct RenderNode {
+pub struct RenderNode<State = Idle> {
     pub id: String,
-    pub status: NodeStatus,
     pub name: Option<String>,
     pub host: SocketAddr,
+    state: std::marker::PhantomData<State>,
 }
 
 #[allow(dead_code)]
-impl RenderNode {
+impl RenderNode<Idle> {
     pub fn parse(name: &str, host: &str) -> Result<RenderNode, Error> {
         match host.parse::<SocketAddr>() {
             Ok(socket) => Ok(RenderNode {
                 id: uuid::Uuid::new_v4().to_string(),
                 name: Some(name.to_owned()),
-                status: NodeStatus::Idle,
+                state: std::marker::PhantomData::<Idle>,
                 host: socket,
             }),
             Err(e) => Err(Error::PoisonError(e.to_string())),
         }
     }
 
-    pub fn connect(&self) -> Result<String, Error> {
-        // connect to the host
-        Ok("Connected".to_owned())
+    pub fn connect(&self) -> RenderNode<Idle> {
+        RenderNode {
+            id: self.id,
+            name: self.name,
+            host: self.host,
+            state: std::marker::PhantomData::<Idle>,
+        }
     }
 
     #[allow(dead_code)]
-    pub fn send(&self, file: &PathBuf) {
+    pub fn send(&self, file: &PathBuf) -> RenderNode<Running> {
         sender::send(file, self);
+        RenderNode {
+            id: self.id,
+            name: self.name,
+            host: self.host,
+            state: std::marker::PhantomData::<Running>,
+        }
     }
+}
+
+impl RenderNode<Running> {
+    pub fn abort() -> RenderNode<Idle> {
+        RenderNode {
+            id: "".to_owned(),
+            name: None,
+            host:
 }
 
 impl FromStr for RenderNode {
