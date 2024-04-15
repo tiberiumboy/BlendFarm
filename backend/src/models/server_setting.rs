@@ -18,10 +18,10 @@ pub struct ServerSetting {
     pub blenders: Vec<Blender>, // list of installed blender versions on this machine.
 }
 
-pub trait TempDirectory {
-    fn get_tmp_dir() -> PathBuf;
-    // TODO find a way to implement generic function that can be shared across all other directory like structure.
-}
+// pub trait TempDirectory {
+//     fn get_tmp_dir() -> PathBuf;
+//     // TODO find a way to implement generic function that can be shared across all other directory like structure.
+// }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BlenderData {

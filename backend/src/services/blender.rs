@@ -34,6 +34,7 @@ pub struct Installed;
 //     METAL,
 // }
 // append +CPU to gpu to include CPU into render cycle.
+//
 
 // const CACHE_DAYS: u8 = 3;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,24 +48,6 @@ pub struct Blender<State = NotInstalled> {
 
 // url to download repository
 const VERSIONS_URL: &str = "https://download.blender.org/release/";
-
-fn get_os() -> String {
-    match env::consts::OS {
-        "linux" => "linux64".to_owned(),
-        "windows" => "windows64".to_owned(),
-        "macos" => "macOS".to_owned(),
-        _ => "unknown".to_owned(),
-    }
-}
-
-pub fn get_ext() -> String {
-    match env::consts::OS {
-        "linux" => "tar.xz".to_owned(),
-        "windows" => "zip".to_owned(),
-        "macos" => "dmg".to_owned(),
-        _ => "unknown".to_owned(),
-    }
-}
 
 impl Blender {
     pub fn from_executable(executable: PathBuf) -> Result<Blender<Installed>> {
@@ -153,30 +136,8 @@ impl Blender {
 }
 
 impl<State> Blender<State> {
-    fn is_installed(&self) -> bool {
-        self.executable.is_some()
-    }
-
     fn is_cached(&self) -> bool {
         self.dl_content.is_some()
-    }
-
-    fn get_file_name(&self) -> String {
-        let os = env::consts::OS;
-        let ext = match env::consts::OS {
-            "linux" => "tar.xz".to_owned(),
-            "windows" => "zip".to_owned(),
-            "macos" => "dmg".to_owned(),
-            _ => "unknown".to_owned(),
-        };
-        // todo - correct arch labeling, e.g. x86_64 -> x64, arm -> arm64, etc
-        let arch = env::consts::ARCH;
-        let archive = format!("blender-{}-{os}-{arch}.{ext}", self.version);
-
-        dbg!(archive);
-
-        "Testing something here".to_owned()
-        // format!(args)
     }
 }
 
@@ -186,61 +147,93 @@ impl Blender<Installed> {
         self.executable.as_ref().unwrap().to_str().unwrap()
     }
 
-    fn exec_command(&self, args: &str) -> Output {
-        let exec = self.get_executable();
-        dbg!(&exec);
-        Command::new(exec)
-            .arg(args)
-            .output()
-            .expect("Failed to execute command!")
-    }
-
+    // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#argument-order
     pub fn render(&mut self, project: &ProjectFile, frame: i32) -> Result<PathBuf> {
         let path = project.file_path().to_str().unwrap();
 
-        let mut tmp = ServerSetting::default().blender_data.path.clone();
-        tmp.push(format!("{}_{}.png", project.file_name, frame));
-
-        let output = tmp.as_os_str().to_str().unwrap();
+        let tmp = ServerSetting::default().render_data.path.clone();
+        let output = format!("{}/", tmp.as_os_str().to_str().unwrap()); // needs a directory ending - otherwise it will use directory name as file name instead.
 
         /*
         "--factory-startup", // skip startup.blend
         "-noaudio",          // no sound
-        "-b",                // background
         path,
-        "-o", // output
         output,
         // --log "*" to log everything
-        "-f", // frame (must be last!)
+        "-f",
+        "-F" // format Valid options are: TGA RAWTGA JPEG IRIS AVIRAW AVIJPEG PNG BMP HDR TIFF.
+        "-E", // specify which engine to use
+        # is substitute to 0 pad, none will add to suffix four pounds (####)
         */
-        let cmd = format!(" -b {} -o {} -f {}", path, output, frame);
-        // we'll figure out what to do with this output...
-        let _output = Self::exec_command(self, &cmd);
+        // -F PNG -x
+        // let output = Self::exec_command(self, &cmd);
+        let output = Command::new(self.get_executable())
+            .args(["-b", path, "-o", &output, "-f", &frame.to_string()])
+            .output()
+            .expect("Failed to execute command!");
 
         // display the output and see what result we'll get
-        dbg!(_output);
-
-        Ok(tmp)
+        let stdout = String::from_utf8(output.stdout.clone()).unwrap();
+        let col = stdout.split("\n").collect::<Vec<&str>>();
+        let location = col
+            .iter()
+            .filter(|&x| x.contains("Saved"))
+            .collect::<Vec<_>>();
+        let location = location.first().unwrap().split("'").collect::<Vec<&str>>();
+        Ok(PathBuf::from(location[1]))
     }
 }
 
 impl Blender<NotInstalled> {
-    #[allow(dead_code)]
-    fn download(&mut self) -> Result<()> {
-        if self.is_cached() {
-            return Ok(());
-        }
+    // fn get_archive_name(&self) -> String {
+    //     let env = env::consts::OS;
+    //     let os = match env {
+    //         "linux" => "linux64".to_owned(),
+    //         "windows" => "windows64".to_owned(),
+    //         "macos" => "macOS".to_owned(),
+    //         _ => "unknown".to_owned(),
+    //     };
 
-        let config = ServerSetting::default();
-        let archive_name = format!("{}-{}.{}", self.version, get_os(), get_ext());
-        let archive_path = PathBuf::from(&config.blender_data.path).join(&archive_name);
+    //     let ext = match env {
+    //         "linux" => "tar.xz".to_owned(),
+    //         "windows" => "zip".to_owned(),
+    //         "macos" => "dmg".to_owned(),
+    //         _ => "unknown".to_owned(), // would it be nice if blender could run on arm?
+    //     };
 
-        dbg!(&archive_path);
+    //     // todo - correct arch labeling, e.g. x86_64 -> x64, arm -> arm64, etc
+    //     let arch = env::consts::ARCH;
+    //     let archive = format!("blender-{}-{}-{}.{}", self.version, os, arch, ext);
 
-        self.dl_content = Some(archive_path);
+    //     dbg!(&archive);
 
-        // download the file
+    //     archive
+    // }
 
-        Ok(())
-    }
+    // #[allow(dead_code)]
+    // fn download(&mut self) -> Result<()> {
+    //     if self.is_cached() {
+    //         return Ok(());
+    //     }
+
+    //     let config = ServerSetting::default();
+    //     let archive_name = self.get_archive_name();
+    //     let archive_path = PathBuf::from(&config.blender_data.path).join(&archive_name);
+
+    //     dbg!(&archive_path);
+
+    //     // download the file first then set the dl_content afterward once the file has completed the download.
+    //     self.dl_content = Some(archive_path);
+
+    //     Ok(())
+    // }
+
+    // fn install(&mut self) -> Blender<Installed> {
+    //     // todo - install the downloaded file
+    //     if !self.is_cached() {
+    //         self.download();
+    //     }
+
+    //     let archive = self.dl_content.unwrap();
+    // }
 }

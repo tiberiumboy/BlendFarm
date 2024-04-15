@@ -8,7 +8,7 @@ use crate::models::{data::Data, project_file::ProjectFile};
 // use services::receiver::receive;
 use crate::services::blender::Blender;
 use std::path::PathBuf;
-use std::{env, sync::Mutex /* , thread*/};
+use std::{env, io::Result /* , thread*/, sync::Mutex};
 use tauri::generate_handler;
 
 pub mod controllers;
@@ -41,23 +41,7 @@ fn client() {
         .expect("error while running tauri application");
 }
 
-fn main() -> std::io::Result<()> {
-    // get the machine configuration here, and cache the result for poll request
-    // we're making the assumption that the device card is available and ready when this app launches
-
-    // parse argument input here
-    // let args = std::env::args();
-    // println!("{args:?}");
-    // obtain configurations
-
-    // initialize service listener
-    // thread::spawn(|| {
-    //     receive();
-    // });
-
-    // for this month, I want to focus on having the ability to send a render job,
-    // here we will ask for the user's blender file - we will use the scene file as a rendering present. Do not worry about gpu/cpu stuff. Just make this work.
-
+fn test_render() -> Result<()> {
     let mut path = env::current_dir()?;
     path.push("test.blend");
 
@@ -74,7 +58,30 @@ fn main() -> std::io::Result<()> {
         Err(e) => println!("{e:?}"),
     };
 
-    // client();
+    Ok(())
+}
+
+fn main() -> std::io::Result<()> {
+    // get the machine configuration here, and cache the result for poll request
+    // we're making the assumption that the device card is available and ready when this app launches
+
+    // parse argument input here
+    // let args = std::env::args();
+    // println!("{args:?}");
+    // obtain configurations
+
+    // initialize service listener
+    // thread::spawn(|| {
+    //     receive();
+    // });
+    //
+    // here we will ask for the user's blender file
+
+    // now that we have a unit test to cover whether we can actually run blender from the desire machine, we should now
+    // work on getting network stuff working together! yay!
+    // let _ = test_render();
+
+    client();
 
     Ok(())
 }

@@ -22,11 +22,21 @@ pub struct ProjectFile {
 impl ProjectFile {
     pub fn new(path: &PathBuf) -> Self {
         //let blend = Blend::from_path(path).expect("Unable to read blend file!");
+        // todo find a way to detect what version this blend file was opened in
         let version = Version::new(2, 93, 0); //blend.version().unwrap();
+
+        // in the path, I need to remove .blend from the path.
+
         Self {
             id: Uuid::new_v4().to_string(),
             // TODO: Clean this up afterward!
-            file_name: path.file_name().unwrap().to_str().unwrap().to_owned(),
+            file_name: path
+                .file_stem()
+                // .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned(),
             src: path.to_owned(),
             tmp: None,
             blender_version: Blender::from_version(version),
