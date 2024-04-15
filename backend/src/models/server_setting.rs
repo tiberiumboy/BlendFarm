@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, io, path::PathBuf};
 
+use crate::services::blender::Blender;
+
 const SETTINGS_PATH: &str = "ServerSettings";
 const BLENDER_DATA: &str = "BlenderData";
 const RENDER_DATA: &str = "RenderData";
@@ -12,7 +14,8 @@ pub struct ServerSetting {
     pub broadcast_port: u16,
     pub blender_data: BlenderData,
     pub render_data: RenderData,
-    pub blender_files: BlenderFiles,
+    // TODO: Find out how rust program load and read configurations and compare before running a new blender job.
+    pub blenders: Vec<Blender>, // list of installed blender versions on this machine.
 }
 
 pub trait TempDirectory {
@@ -27,11 +30,6 @@ pub struct BlenderData {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RenderData {
-    pub path: PathBuf,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BlenderFiles {
     pub path: PathBuf,
 }
 
@@ -60,14 +58,6 @@ impl Default for RenderData {
     }
 }
 
-impl Default for BlenderFiles {
-    fn default() -> Self {
-        Self {
-            path: create_tmp_dir(BLENDER_FILES),
-        }
-    }
-}
-
 impl Default for ServerSetting {
     fn default() -> Self {
         Self {
@@ -75,7 +65,7 @@ impl Default for ServerSetting {
             broadcast_port: 16342,
             blender_data: BlenderData::default(),
             render_data: RenderData::default(),
-            blender_files: BlenderFiles::default(),
+            blenders: vec![],
         }
     }
 }

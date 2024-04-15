@@ -1,62 +1,73 @@
 use crate::models::error::Error;
 use crate::services::sender;
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::str::FromStr;
+use std::{marker::PhantomData, net::SocketAddr, path::PathBuf, str::FromStr};
 
-struct Idle;
-struct Running;
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Idle;
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Running;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RenderNode<State = Idle> {
     pub id: String,
     pub name: Option<String>,
     pub host: SocketAddr,
-    state: std::marker::PhantomData<State>,
+    pub os: String,
+    state: PhantomData<State>,
 }
 
-#[allow(dead_code)]
 impl RenderNode<Idle> {
-    pub fn parse(name: &str, host: &str) -> Result<RenderNode, Error> {
-        match host.parse::<SocketAddr>() {
-            Ok(socket) => Ok(RenderNode {
-                id: uuid::Uuid::new_v4().to_string(),
-                name: Some(name.to_owned()),
-                state: std::marker::PhantomData::<Idle>,
-                host: socket,
-            }),
-            Err(e) => Err(Error::PoisonError(e.to_string())),
-        }
-    }
-
-    pub fn connect(&self) -> RenderNode<Idle> {
+    pub fn connect(self) -> RenderNode<Idle> {
         RenderNode {
             id: self.id,
             name: self.name,
             host: self.host,
-            state: std::marker::PhantomData::<Idle>,
+            os: self.os,
+            state: PhantomData::<Idle>,
         }
     }
 
     #[allow(dead_code)]
-    pub fn send(&self, file: &PathBuf) -> RenderNode<Running> {
-        sender::send(file, self);
+    pub fn send(self, file: &PathBuf) -> RenderNode<Running> {
+        sender::send(file, &self);
         RenderNode {
             id: self.id,
             name: self.name,
             host: self.host,
-            state: std::marker::PhantomData::<Running>,
+            os: self.os,
+            state: PhantomData::<Running>,
         }
     }
 }
 
 impl RenderNode<Running> {
-    pub fn abort() -> RenderNode<Idle> {
+    pub fn abort(self) -> RenderNode<Idle> {
         RenderNode {
-            id: "".to_owned(),
-            name: None,
-            host:
+            id: self.id,
+            name: self.name,
+            host: self.host,
+            os: self.os,
+            state: PhantomData::<Idle>,
+        }
+    }
+}
+
+impl RenderNode {
+    pub fn parse(name: &str, host: &str) -> Result<RenderNode<Idle>, Error> {
+        match host.parse::<SocketAddr>() {
+            Ok(socket) => Ok(RenderNode {
+                // connect to host, and retrieve their system info:
+                // get their OS as well
+                id: uuid::Uuid::new_v4().to_string(),
+                name: Some(name.to_owned()),
+                state: PhantomData::<Idle>,
+                os: "unknown".to_owned(),
+                host: socket,
+            }),
+            Err(e) => Err(Error::PoisonError(e.to_string())),
+        }
+    }
 }
 
 impl FromStr for RenderNode {

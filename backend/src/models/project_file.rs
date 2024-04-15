@@ -1,5 +1,5 @@
 // use crate::blender::version::Blender;
-use crate::{blender::version::Blender, services::sender::send};
+use crate::services::{blender::Blender, sender::send};
 // use blend::Blend;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -25,7 +25,7 @@ impl ProjectFile {
         let version = Version::new(2, 93, 0); //blend.version().unwrap();
         Self {
             id: Uuid::new_v4().to_string(),
-            // TODO: Ok wtf is this?? Wow. Clean this up afterward but do not commit this!!!
+            // TODO: Clean this up afterward!
             file_name: path.file_name().unwrap().to_str().unwrap().to_owned(),
             src: path.to_owned(),
             tmp: None,

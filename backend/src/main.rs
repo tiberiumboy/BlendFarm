@@ -6,12 +6,11 @@ use crate::controllers::remote_render::{
 };
 use crate::models::{data::Data, project_file::ProjectFile};
 // use services::receiver::receive;
-use crate::blender::version::Blender;
+use crate::services::blender::Blender;
 use std::path::PathBuf;
 use std::{env, sync::Mutex /* , thread*/};
 use tauri::generate_handler;
 
-pub mod blender;
 pub mod controllers;
 pub mod models;
 pub mod services;
