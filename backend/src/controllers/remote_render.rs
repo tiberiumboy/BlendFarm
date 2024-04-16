@@ -5,6 +5,7 @@ use tauri::api::dialog::FileDialogBuilder;
 use tauri::Error;
 use tauri::{command, Manager};
 
+#[allow(dead_code)]
 // soon I want to return the client node it established to
 #[command]
 pub fn create_node(app: tauri::AppHandle, name: &str, host: &str) -> Result<String, Error> {
@@ -17,6 +18,7 @@ pub fn create_node(app: tauri::AppHandle, name: &str, host: &str) -> Result<Stri
     Ok(data)
 }
 
+#[allow(dead_code)]
 #[command] // could be dangerous if we have exact function name on front end?
            // which direction are we calling the function from? The front or the end?
 pub fn list_node(app: tauri::AppHandle) -> Result<String, Error> {
@@ -26,9 +28,11 @@ pub fn list_node(app: tauri::AppHandle) -> Result<String, Error> {
     Ok(data)
 }
 
+#[allow(dead_code)]
 #[command]
 pub fn edit_node(_app: tauri::AppHandle, _update_node: RenderNode) {}
 
+#[allow(dead_code)]
 #[command]
 pub fn delete_node(app: tauri::AppHandle, id: String) -> Result<(), Error> {
     // delete node from list and refresh the app?
@@ -38,6 +42,7 @@ pub fn delete_node(app: tauri::AppHandle, id: String) -> Result<(), Error> {
     Ok(())
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub fn create_job(app: tauri::AppHandle) {
     // app crashed when api block thread. Do not use tauri::api::dialog::blocking::* apis.
@@ -70,6 +75,7 @@ pub fn create_job(app: tauri::AppHandle) {
     // something we can append this list to the collections and reveal?
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub fn edit_job(_app: tauri::AppHandle, _update_job: Job) {
     // let job_mutex = app.state::<Mutex<Data>>();
@@ -77,6 +83,7 @@ pub fn edit_job(_app: tauri::AppHandle, _update_job: Job) {
     // job.jobs.push(update_job);
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub fn delete_job(app: tauri::AppHandle, id: String) {
     let job_mutex = app.state::<Mutex<Data>>();
@@ -84,6 +91,7 @@ pub fn delete_job(app: tauri::AppHandle, id: String) {
     job.jobs.retain(|x| x.id != id);
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub fn list_job(app: tauri::AppHandle) -> Result<String, Error> {
     let job_mutex = app.state::<Mutex<Data>>();
