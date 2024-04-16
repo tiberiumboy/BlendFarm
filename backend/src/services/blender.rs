@@ -167,20 +167,26 @@ impl Blender<Installed> {
         */
         // -F PNG -x
         // let output = Self::exec_command(self, &cmd);
+        let output = format!("-o {}", &output);
+        let frame = format!("-f {}", &frame.to_string());
         let output = Command::new(self.get_executable())
-            .args(["-b", path, "-o", &output, "-f", &frame.to_string()])
+            .args(["-b", path, &output, &frame])
             .output()
             .expect("Failed to execute command!");
 
         // display the output and see what result we'll get
         let stdout = String::from_utf8(output.stdout.clone()).unwrap();
-        let col = stdout.split("\n").collect::<Vec<&str>>();
-        let location = col
+        dbg!(&stdout);
+        let col = stdout.split('\n').collect::<Vec<&str>>();
+        let location = &col
             .iter()
             .filter(|&x| x.contains("Saved"))
             .collect::<Vec<_>>();
-        let location = location.first().unwrap().split("'").collect::<Vec<&str>>();
-        Ok(PathBuf::from(location[1]))
+
+        let _location = location.first().unwrap().split('\'').collect::<Vec<&str>>();
+
+        Ok(PathBuf::from("test"))
+        // Ok(PathBuf::from(location[1]))
     }
 }
 

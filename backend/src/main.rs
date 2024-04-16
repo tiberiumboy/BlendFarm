@@ -47,12 +47,12 @@ fn test_render() -> Result<()> {
 
     let project = ProjectFile::new(&path);
 
-    // can we assume that we have a default present loaded?
-    // let path = PathBuf::from("~/Downloads/blender/blender");    // linux
-    let path = PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender"); // macOS // why mac?
-    let mut blender = Blender::from_executable(path).unwrap(); // TODO: handle unwrap
+    // linux
+    let path = PathBuf::from("/home/jordan/Downloads/blender/blender");
+    // macOS
+    // let path = PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender");
+    let mut blender = Blender::from_executable(path).unwrap();
 
-    // great this still works! fantastic!
     match blender.render(&project, 1) {
         Ok(result) => println!("{result:?}"),
         Err(e) => println!("{e:?}"),
@@ -79,9 +79,9 @@ fn main() -> std::io::Result<()> {
 
     // now that we have a unit test to cover whether we can actually run blender from the desire machine, we should now
     // work on getting network stuff working together! yay!
-    // let _ = test_render();
+    let _ = test_render();
 
-    client();
+    // client();
 
     Ok(())
 }

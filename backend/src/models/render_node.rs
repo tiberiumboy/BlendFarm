@@ -44,18 +44,6 @@ impl RenderNode<Inactive> {
 
 impl RenderNode<Idle> {
     #[allow(dead_code)]
-    pub fn send(self, file: &PathBuf) -> RenderNode<Running> {
-        sender::send(file, &self);
-        RenderNode {
-            id: self.id,
-            name: self.name,
-            host: self.host,
-            os: self.os,
-            state: PhantomData::<Running>,
-        }
-    }
-
-    #[allow(dead_code)]
     pub fn disconnected(self) -> RenderNode<Inactive> {
         RenderNode {
             id: self.id,
@@ -66,8 +54,8 @@ impl RenderNode<Idle> {
     }
 
     #[allow(dead_code)]
-    pub fn send(&self, file: &PathBuf) -> RenderNode<Running> {
-        sender::send(file, self);
+    pub fn send(self, file: &PathBuf) -> RenderNode<Running> {
+        sender::send(file, &self);
         RenderNode {
             id: self.id,
             name: self.name,
