@@ -1,13 +1,7 @@
 use crate::models::{project_file::ProjectFile, server_setting::ServerSetting};
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{
-    env,
-    io::Result,
-    marker::PhantomData,
-    path::PathBuf,
-    process::{Command, Output},
-};
+use std::{io::Result, marker::PhantomData, path::PathBuf, process::Command};
 use url::Url;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -147,28 +141,23 @@ impl Blender<Installed> {
         self.executable.as_ref().unwrap().to_str().unwrap()
     }
 
-    // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#argument-order
     pub fn render(&mut self, project: &ProjectFile, frame: i32) -> Result<PathBuf> {
+        // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#argument-order
         let path = project.file_path().to_str().unwrap();
 
         let tmp = ServerSetting::default().render_data.path.clone();
         let output = format!("{}/", tmp.as_os_str().to_str().unwrap()); // needs a directory ending - otherwise it will use directory name as file name instead.
 
         /*
-        "--factory-startup", // skip startup.blend
-        "-noaudio",          // no sound
-        path,
-        output,
-        // --log "*" to log everything
-        "-f",
-        "-F" // format Valid options are: TGA RAWTGA JPEG IRIS AVIRAW AVIJPEG PNG BMP HDR TIFF.
-        "-E", // specify which engine to use
+        --log "*" to log everything
+        -F :format::Format
+        -E ::Engine,
+        -x // use extension
         # is substitute to 0 pad, none will add to suffix four pounds (####)
         */
-        // -F PNG -x
         // let output = Self::exec_command(self, &cmd);
-        let output = format!("-o {}", &output);
-        let frame = format!("-f {}", &frame.to_string());
+        let output = format!("-o {}", &output); // output path
+        let frame = format!("-f {}", &frame.to_string()); // Frame number
         let output = Command::new(self.get_executable())
             .args(["-b", path, &output, &frame])
             .output()
