@@ -57,7 +57,7 @@ impl Blender {
         let collection = stdout.split("\n\t").collect::<Vec<&str>>();
         let first = collection.first().unwrap();
         let version = if first.contains("Blender") {
-            Version::parse(&first[8..]).unwrap()
+            Version::parse(&first[8..]).unwrap() // this looks sketchy...
         } else {
             Version::new(4, 1, 0)
         };
@@ -72,6 +72,21 @@ impl Blender {
         })
     }
 
+    pub fn from_version(version: Version) -> Blender<NotInstalled> {
+        let url = Url::parse(VERSIONS_URL).unwrap();
+        let dl_content = None;
+
+        Blender {
+            url: Some(url),
+            version,
+            dl_content,
+            executable: None,
+            state: PhantomData::<NotInstalled>,
+        }
+    }
+
+    // going to ignore this for now and figure out what I need to get this working again.
+    /*
     #[allow(dead_code)]
     pub fn from_url(url: Url) -> Blender<NotInstalled> {
         let version = Version::new(2, 93, 0);
@@ -100,19 +115,6 @@ impl Blender {
         }
     }
 
-    pub fn from_version(version: Version) -> Blender<NotInstalled> {
-        let url = Url::parse(VERSIONS_URL).unwrap();
-        let dl_content = None;
-
-        Blender {
-            url: Some(url),
-            version,
-            dl_content,
-            executable: None,
-            state: PhantomData::<NotInstalled>,
-        }
-    }
-
     #[allow(dead_code)]
     fn parse(base_url: &Url, version: &Version) -> Blender<NotInstalled> {
         let dir = format!("Blender{}/", version);
@@ -127,12 +129,8 @@ impl Blender {
             state: PhantomData::<NotInstalled>,
         }
     }
-}
 
-impl<State> Blender<State> {
-    fn is_cached(&self) -> bool {
-        self.dl_content.is_some()
-    }
+    */
 }
 
 impl Blender<Installed> {
@@ -158,8 +156,13 @@ impl Blender<Installed> {
         // let output = Self::exec_command(self, &cmd);
         let output = format!("-o {}", &output); // output path
         let frame = format!("-f {}", &frame.to_string()); // Frame number
-        let output = Command::new(self.get_executable())
-            .args(["-b", path, &output, &frame])
+        let exec = self.get_executable();
+        dbg!(&exec);
+        let output = Command::new(exec)
+            .arg("-b")
+            .arg(path)
+            .arg(&output)
+            .arg(&frame)
             .output()
             .expect("Failed to execute command!");
 
@@ -172,7 +175,9 @@ impl Blender<Installed> {
             .filter(|&x| x.contains("Saved"))
             .collect::<Vec<_>>();
 
-        let _location = location.first().unwrap().split('\'').collect::<Vec<&str>>();
+        let location = location.first().unwrap().split('\'').collect::<Vec<&str>>();
+
+        dbg!(location);
 
         Ok(PathBuf::from("test"))
         // Ok(PathBuf::from(location[1]))

@@ -16,6 +16,7 @@ pub mod models;
 pub mod services;
 
 // globabally
+#[allow(dead_code)]
 fn client() {
     let ctx = Mutex::new(Data::default());
     tauri::Builder::default()
