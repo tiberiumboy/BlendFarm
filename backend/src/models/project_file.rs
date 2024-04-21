@@ -1,5 +1,5 @@
 // use crate::blender::version::Blender;
-use crate::services::{blender::Blender, sender::send};
+use crate::services::sender::send;
 // use blend::Blend;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ pub struct ProjectFile {
     pub src: PathBuf,
     #[serde(skip_serializing)]
     pub tmp: Option<PathBuf>,
-    pub blender_version: Blender,
+    pub version: Version,
 }
 
 #[allow(dead_code)]
@@ -39,7 +39,7 @@ impl ProjectFile {
                 .to_owned(),
             src: path.to_owned(),
             tmp: None,
-            blender_version: Blender::from_version(version),
+            version,
         }
     }
 

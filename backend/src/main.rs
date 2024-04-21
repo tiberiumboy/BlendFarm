@@ -42,22 +42,28 @@ fn client() {
         .expect("error while running tauri application");
 }
 
+// eventually, I want to get to a point where I could use blender to render an image or return an error.
+// it would be nice to provide some kind of user interface to keep user entertained on the GUI side - e.g. percentage?
 fn test_render() -> Result<()> {
+    // load blend file. A simple scene with cube and plane. Ideally used for debugging purposes only.
     let mut path = env::current_dir()?;
-    path.push("test.blend");
-
+    path.push("test");
+    path.set_extension("blend");
     let project = ProjectFile::new(&path);
 
     // linux
     let path = PathBuf::from("/home/jordan/Downloads/blender/blender");
     // macOS
     // let path = PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender");
+
+    // here we reference blender from given test path.
     let mut blender = Blender::from_executable(path).unwrap();
 
-    match blender.render(&project, 1) {
-        Ok(result) => println!("{result:?}"),
-        Err(e) => println!("{e:?}"),
-    };
+    // I now call render to invoke blender - returns file path of rendered output.
+    let output = blender.render(&project, 1).unwrap();
+
+    // let's see what the output does for now.
+    dbg!(&output);
 
     Ok(())
 }
