@@ -6,7 +6,7 @@ use crate::services::blender::Blender;
 const SETTINGS_PATH: &str = "ServerSettings";
 const BLENDER_DATA: &str = "BlenderData";
 const RENDER_DATA: &str = "RenderData";
-const BLENDER_FILES: &str = "BlenderFiles";
+// const BLENDER_FILES: &str = "BlenderFiles";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerSetting {

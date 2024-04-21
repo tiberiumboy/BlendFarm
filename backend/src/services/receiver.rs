@@ -1,4 +1,5 @@
-use crate::models::sender_msg::SenderMsg;
+use crate::models::common::SenderMsg;
+
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self};
 use std::collections::HashMap;
@@ -16,7 +17,7 @@ pub struct Transfer {
 #[allow(dead_code)]
 pub fn receive() {
     let (handler, listener) = node::split::<()>();
-    let server = "localhost:15000";
+    let server = "0.0.0.0:15000";
     handler
         .network()
         .listen(Transport::FramedTcp, server)

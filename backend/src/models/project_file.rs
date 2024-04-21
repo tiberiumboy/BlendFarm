@@ -1,12 +1,7 @@
-// use crate::blender::version::Blender;
-use crate::services::sender::send;
-// use blend::Blend;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{env, path::PathBuf, str::FromStr};
 use uuid::Uuid;
-
-use super::render_node::RenderNode;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectFile {
@@ -61,13 +56,6 @@ impl ProjectFile {
             let _ = std::fs::remove_file(tmp);
         }
         self.tmp = None;
-    }
-
-    pub(crate) fn upload(&self, render_nodes: Vec<RenderNode>) {
-        for node in render_nodes {
-            // send file to node
-            send(&self.src, &node);
-        }
     }
 
     pub(crate) fn file_path(&self) -> &PathBuf {

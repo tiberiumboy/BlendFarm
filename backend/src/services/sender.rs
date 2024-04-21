@@ -1,10 +1,14 @@
-use crate::models::{receive_msg::ReceiveMsg, render_node::RenderNode, sender_msg::SenderMsg};
+use crate::models::{
+    common::{ReceiverMsg, SenderMsg},
+    render_node::RenderNode,
+};
 use message_io::network::{NetEvent, Transport};
 use message_io::node::{self, NodeEvent};
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::PathBuf;
+use std::time::Duration;
 
 enum Signal {
     SendChunk,
@@ -14,11 +18,11 @@ const CHUNK_SIZE: usize = 65536;
 
 pub fn send(file_path: &PathBuf, target: &RenderNode) {
     let (handler, listener) = node::split();
-
     let (server_id, _) = handler
         .network()
-        .connect(Transport::Udp, target.host)
+        .connect(Transport::FramedTcp, target.host)
         .unwrap();
+
     let file_size = fs::metadata(file_path).unwrap().len() as usize;
     let mut file = File::open(file_path).unwrap();
     let file_name: &OsStr = file_path.file_name().expect("Missing file!");
@@ -34,7 +38,7 @@ pub fn send(file_path: &PathBuf, target: &RenderNode) {
                         file_size,
                     );
                     let output_data = bincode::serialize(&request).unwrap();
-                    handler.network().send(server_id, &output_data);
+                    handler.network().send(endpoint, &output_data);
                 } else {
                     println!(
                         "Can not connect to the receiver by TCP to {}",
@@ -44,9 +48,9 @@ pub fn send(file_path: &PathBuf, target: &RenderNode) {
             }
             NetEvent::Accepted(_, _) => unreachable!(),
             NetEvent::Message(_, input_data) => {
-                let message: ReceiveMsg = bincode::deserialize(input_data).unwrap();
+                let message: ReceiverMsg = bincode::deserialize(input_data).unwrap();
                 match message {
-                    ReceiveMsg::CanReceive(can) => match can {
+                    ReceiverMsg::CanReceive(can) => match can {
                         true => handler.signals().send(Signal::SendChunk),
                         false => {
                             handler.stop();
@@ -73,9 +77,9 @@ pub fn send(file_path: &PathBuf, target: &RenderNode) {
                     let percentage = ((file_bytes_sent as f32 / file_size as f32) * 100.0) as usize;
                     println!("\rSending {:?}: {}%", file_name, percentage);
 
-                    // handler
-                    //     .signals()
-                    //     .send_with_timer(Signal::SendChunk, Duration::from_miicros(10));
+                    handler
+                        .signals()
+                        .send_with_timer(Signal::SendChunk, Duration::from_micros(10));
                 } else {
                     println!("\nFile sent!");
                     handler.stop();

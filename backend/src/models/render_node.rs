@@ -54,14 +54,14 @@ impl RenderNode<Idle> {
     }
 
     #[allow(dead_code)]
-    pub fn send(self, file: &PathBuf) -> RenderNode<Running> {
+    pub fn send(self, file: &PathBuf) {
         sender::send(file, &self);
-        RenderNode {
-            id: self.id,
-            name: self.name,
-            host: self.host,
-            state: std::marker::PhantomData::<Running>,
-        }
+        // RenderNode {
+        //     id: self.id,
+        //     name: self.name,
+        //     host: self.host,
+        //     state: std::marker::PhantomData::<Running>,
+        // }
     }
 }
 

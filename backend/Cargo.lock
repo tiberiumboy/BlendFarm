@@ -406,6 +406,7 @@ dependencies = [
  "libc",
  "local-ip-address",
  "message-io",
+ "regex",
  "semver",
  "serde",
  "serde_json",
