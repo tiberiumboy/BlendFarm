@@ -1,6 +1,6 @@
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{env, path::PathBuf, str::FromStr};
+use std::{env, io::Error, path::PathBuf, str::FromStr};
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -18,10 +18,9 @@ impl ProjectFile {
     pub fn new(path: &PathBuf) -> Self {
         //let blend = Blend::from_path(path).expect("Unable to read blend file!");
         // todo find a way to detect what version this blend file was opened in
-        let version = Version::new(2, 93, 0); //blend.version().unwrap();
+        let version = Version::new(4, 1, 0); //blend.version().unwrap();
 
         // in the path, I need to remove .blend from the path.
-
         Self {
             id: Uuid::new_v4().to_string(),
             // TODO: Clean this up afterward!
@@ -38,7 +37,7 @@ impl ProjectFile {
         }
     }
 
-    pub fn parse(src: &str) -> Result<ProjectFile, std::io::Error> {
+    pub fn parse(src: &str) -> Result<ProjectFile, Error> {
         let path = PathBuf::from(src);
         Ok(ProjectFile::new(&path))
     }

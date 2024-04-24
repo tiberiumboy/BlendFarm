@@ -1,6 +1,8 @@
+use std::io::Result;
+
 // TODO: Provide file format explicitly define by user
 // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#format-options
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub enum Format {
     TGA,
     RAWTGA,

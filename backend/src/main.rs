@@ -5,10 +5,15 @@ use crate::controllers::remote_render::{
     create_job, create_node, delete_job, delete_node, edit_job, edit_node, list_job, list_node,
 };
 use crate::models::{data::Data, project_file::ProjectFile};
-// use services::receiver::receive;
-use crate::services::blender::Blender;
+use blender::args::Args;
+use blender::blender::Blender;
+use blender::mode::Mode;
+use services::receiver::receive;
+
+use regex::Regex;
+use std::fs;
 use std::path::PathBuf;
-use std::{env, io::Result /* , thread*/, sync::Mutex};
+use std::{env, io::Result, sync::Mutex, thread};
 use tauri::generate_handler;
 
 pub mod controllers;
@@ -44,31 +49,44 @@ fn client() {
 
 // eventually, I want to get to a point where I could use blender to render an image or return an error.
 // it would be nice to provide some kind of user interface to keep user entertained on the GUI side - e.g. percentage?
+#[allow(dead_code)]
 fn test_render() -> Result<()> {
     // load blend file. A simple scene with cube and plane. Ideally used for debugging purposes only.
-    let mut path = env::current_dir()?;
+    let mut path = PathBuf::from("./backend/");
+    let output = path.clone();
     path.push("test");
     path.set_extension("blend");
-    let project = ProjectFile::new(&path);
+
+    // let project = ProjectFile::new(&path);
+    let args = Args::new(path, output, Mode::Frame(1));
 
     // linux
-    let path = PathBuf::from("/home/jordan/Downloads/blender/blender");
+    // let path = PathBuf::from("/home/jordan/Downloads/blender/blender");
     // macOS
-    // let path = PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender");
-
-    // here we reference blender from given test path.
-    let mut blender = Blender::from_executable(path).unwrap();
+    let path = PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender");
+    let blender = Blender::from_executable(path).unwrap();
 
     // I now call render to invoke blender - returns file path of rendered output.
-    let output = blender.render(&project, 1).unwrap();
+    let output = blender.render(&args).unwrap();
 
     // let's see what the output does for now.
     dbg!(&output);
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn test_reading_blender_files() -> Result<()> {
+    // will need to find a place for this.
+    let re = Regex::new(r#"<a href="(?<url>.*?)">(?<name>.*?)</a>\s*(?<date>.*?)\s\s\s"#).unwrap();
+    let content = fs::read_to_string("./src/examples/blender.net").unwrap();
+    for (_, [url, name, date]) in re.captures_iter(&content).map(|c| c.extract()) {
+        println!("url: {}, name: {}, date: {}", url, name, date);
+    }
 
     Ok(())
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<()> {
     // get the machine configuration here, and cache the result for poll request
     // we're making the assumption that the device card is available and ready when this app launches
 
@@ -78,17 +96,18 @@ fn main() -> std::io::Result<()> {
     // obtain configurations
 
     // initialize service listener
-    // thread::spawn(|| {
-    //     receive();
-    // });
+    thread::spawn(|| {
+        receive();
+    });
     //
     // here we will ask for the user's blender file
 
     // now that we have a unit test to cover whether we can actually run blender from the desire machine, we should now
     // work on getting network stuff working together! yay!
-    let _ = test_render();
+    // let _ = test_render();
+    // let _ = test_reading_blender_files();
 
-    // client();
+    client();
 
     Ok(())
 }

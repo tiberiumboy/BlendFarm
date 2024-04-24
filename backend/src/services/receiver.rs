@@ -66,6 +66,11 @@ pub fn receive() {
                         transfers.remove(&endpoint).unwrap();
                     }
                 }
+                SenderMsg::Render(path, frame) => {
+                    // how do I translate path to this server local path? Are we assuming it'd be in BlenderFiles?
+
+                    println!("Render '{:?}' frame {}", path, frame);
+                }
             }
         }
         NetEvent::Disconnected(endpoint) => {

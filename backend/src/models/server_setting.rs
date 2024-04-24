@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, io, path::PathBuf};
 
-use crate::services::blender::Blender;
+use blender::blender::Blender;
 
 const SETTINGS_PATH: &str = "ServerSettings";
 const BLENDER_DATA: &str = "BlenderData";
