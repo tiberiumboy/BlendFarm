@@ -1,5 +1,6 @@
 use message_io::network::{NetEvent, Transport};
 use message_io::node::{self};
+use tauri::AppHandle;
 
 #[allow(dead_code)]
 pub fn multicast() {

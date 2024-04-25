@@ -5,12 +5,22 @@ use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectFile {
-    pub id: String,
+    pub id: String, // is there a way we can store uuid instead string?
     pub file_name: String,
     pub src: PathBuf,
     #[serde(skip_serializing)]
     pub tmp: Option<PathBuf>,
     pub version: Version,
+}
+
+impl PartialEq for ProjectFile {
+    fn eq(&self, other: &Self) -> bool {
+        self.id.eq(&other.id)
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        !self.eq(other)
+    }
 }
 
 #[allow(dead_code)]
@@ -77,11 +87,5 @@ impl FromStr for ProjectFile {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let obj: ProjectFile = serde_json::from_str(s).unwrap();
         Ok(obj)
-    }
-}
-
-impl PartialEq for ProjectFile {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
     }
 }

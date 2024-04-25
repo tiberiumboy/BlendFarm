@@ -3,6 +3,7 @@ import * as mdIcon from "react-icons/md";
 
 export interface ProjectFileProps {
   id: string;
+  file_name: string;
   src: string;
   delete?: Function;
 }

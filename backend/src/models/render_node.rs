@@ -25,7 +25,7 @@ impl RenderNode<Inactive> {
             Ok(socket) => Ok(RenderNode {
                 id: uuid::Uuid::new_v4().to_string(),
                 name: Some(name.to_owned()),
-                state: std::marker::PhantomData::<Inactive>,
+                state: PhantomData::<Inactive>,
                 host: socket,
             }),
             Err(e) => Err(Error::PoisonError(e.to_string())),
@@ -37,19 +37,29 @@ impl RenderNode<Inactive> {
             id: self.id,
             name: self.name,
             host: self.host,
-            state: std::marker::PhantomData::<Idle>,
+            state: PhantomData::<Idle>,
         }
     }
 }
 
 impl RenderNode<Idle> {
+    pub fn create_localhost() -> Self {
+        let host = SocketAddr::from_str("127.0.0.1:15000").unwrap();
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: Some("localhost".to_owned()),
+            host,
+            state: PhantomData::<Idle>,
+        }
+    }
+
     #[allow(dead_code)]
     pub fn disconnected(self) -> RenderNode<Inactive> {
         RenderNode {
             id: self.id,
             name: self.name,
             host: self.host,
-            state: std::marker::PhantomData::<Inactive>,
+            state: PhantomData::<Inactive>,
         }
     }
 

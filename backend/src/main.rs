@@ -4,11 +4,12 @@
 use crate::controllers::remote_render::{
     create_job, create_node, delete_job, delete_node, edit_job, edit_node, list_job, list_node,
 };
-use crate::models::{data::Data, project_file::ProjectFile};
+use crate::models::{data::Data, render_node::RenderNode};
 use blender::args::Args;
 use blender::blender::Blender;
 use blender::mode::Mode;
-use services::receiver::receive;
+// use services::multicast::multicast;
+// use services::receiver::receive;
 
 use regex::Regex;
 use std::fs;
@@ -23,7 +24,11 @@ pub mod services;
 // globabally
 #[allow(dead_code)]
 fn client() {
-    let ctx = Mutex::new(Data::default());
+    let localhost = RenderNode::create_localhost();
+    let mut data = Data::default();
+    data.render_nodes.push(localhost);
+    let ctx = Mutex::new(data);
+
     tauri::Builder::default()
         .manage(ctx)
         // .setup(|app| {
@@ -96,9 +101,10 @@ fn main() -> Result<()> {
     // obtain configurations
 
     // initialize service listener
-    thread::spawn(|| {
-        receive();
-    });
+    // thread::spawn(|| {
+    //     // receive();
+    //     multicast();
+    // });
     //
     // here we will ask for the user's blender file
 

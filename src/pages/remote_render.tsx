@@ -1,22 +1,53 @@
 import { invoke } from "@tauri-apps/api/tauri";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { open } from "@tauri-apps/api/dialog";
 import RenderNode, { RenderNodeProps } from "../components/render_node";
+import RenderJob, { RenderJobProps } from "../components/render_job";
 
 export default function RemoteRender() {
-  
   const [nodes, setNodes] = useState([]);
+  const [jobs, setJobs] = useState([]);
+  useEffect(() => {
+    listNode();
+    listJob();
+  }, []);
 
-  function CreateNewJob(e:any) {
+  function CreateNewJob(e: any) {
     e.preventDefault();
-    invoke("create_job");
+    open({
+      multiple: true,
+      filters: [
+        {
+          name: "Blender",
+          extensions: ["blend"],
+        },
+      ],
+    }).then((selected) => {
+      console.log(selected);
+      if (Array.isArray(selected)) {
+        // user selected multiple of files
+        selected.forEach((entry) => {
+          invoke("create_job", { path: entry });
+        });
+      } else if (selected != null) {
+        invoke("create_job", { path: selected });
+        // user selected single file
+      }
+      listJob();
+    });
+
+    // Problem here, backend is invoked via async, and will execute file launcher.
+    // Find a way to invoke file launcher on javascript side instead, and then rely on using the backend to handle the path obtained from front end.
+    // then we can delegate invoking proper event to handle project file creation.
     return false;
   }
 
+  // TODO: See if we can refactor this? I don't like the fact that we hardcode port value here.'
   function handleSubmit(e: any) {
     e.preventDefault();
     let data = {
       name: e.target.name.value,
-      host: e.target.ip.value + ":15000"
+      host: e.target.ip.value + ":15000",
     };
     invoke("create_node", data).then(listNode);
     closeCreateNew("create_node");
@@ -26,6 +57,13 @@ export default function RemoteRender() {
     invoke("list_node").then((ctx) => {
       let data = JSON.parse(ctx + "");
       setNodes(data);
+    });
+  }
+
+  function listJob() {
+    invoke("list_job").then((ctx) => {
+      let data = JSON.parse(ctx + "");
+      setJobs(data);
     });
   }
 
@@ -62,22 +100,24 @@ export default function RemoteRender() {
               id={node.id}
               key={node.id}
               name={node.name}
-              onDataChanged={listNode}
+              onDataChanged={listNode} // wonder what this one was suppose to be?
             />
           ))}
         </div>
       </h4>
 
-      
-
       {/* Collection of active job list */}
       <h2>Job List</h2>
 
       <button onClick={CreateNewJob}>Create new Job</button>
-      <p>
-        This is a placeholder for the remote render page. This page will be used
-        to render a remote project in the browser.
-      </p>
+      <br></br>
+      <h4>
+        <div className="group">
+          {jobs.map((job: RenderJobProps) => (
+            <RenderJob id={job.id} project_file={job.project_file} />
+          ))}
+        </div>
+      </h4>
 
       <dialog id="create_job">
         <form method="dialog" onSubmit={handleSubmit}>
@@ -88,7 +128,13 @@ export default function RemoteRender() {
           <input type="text" placeholder="IP Address" id="ip" name="ip" />
 
           <menu>
-            <button type="button" value="cancel" onClick={() => closeCreateNew("create_job")}>Cancel</button>
+            <button
+              type="button"
+              value="cancel"
+              onClick={() => closeCreateNew("create_job")}
+            >
+              Cancel
+            </button>
             <button type="submit">Ok</button>
           </menu>
         </form>
@@ -103,7 +149,13 @@ export default function RemoteRender() {
           <input type="text" placeholder="IP Address" id="ip" name="ip" />
 
           <menu>
-            <button type="button" value="cancel" onClick={() => closeCreateNew("create_node")}>Cancel</button>
+            <button
+              type="button"
+              value="cancel"
+              onClick={() => closeCreateNew("create_node")}
+            >
+              Cancel
+            </button>
             <button type="submit">Ok</button>
           </menu>
         </form>
