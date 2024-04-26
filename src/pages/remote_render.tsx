@@ -1,18 +1,34 @@
+import { open } from "@tauri-apps/api/dialog";
 import { invoke } from "@tauri-apps/api/tauri";
 import { useEffect, useState } from "react";
-import { open } from "@tauri-apps/api/dialog";
-import RenderNode, { RenderNodeProps } from "../components/render_node";
 import RenderJob, { RenderJobProps } from "../components/render_job";
+import ProjectFile, { ProjectFileProps } from "../components/project_file";
+import RenderNode, { RenderNodeProps } from "../components/render_node";
 
 export default function RemoteRender() {
-  const [nodes, setNodes] = useState([]);
-  const [jobs, setJobs] = useState([]);
-  useEffect(() => {
-    listNode();
-    listJob();
-  }, []);
+  const [nodes, setNodes] = useState(fetchNodes);
+  const [projects, setProjects] = useState(fetchProjects);
+  const [jobs, setJobs] = useState(fetchJobs);
 
-  function CreateNewJob(e: any) {
+  function fetchProjects() {
+    const initialProjects: ProjectFileProps[] = [];
+    // listProjects();
+    return initialProjects;
+  }
+
+  function fetchNodes() {
+    const initialNodes: RenderNodeProps[] = [];
+    // listNodes();
+    return initialNodes;
+  }
+
+  function fetchJobs() {
+    const initialJobs: RenderJobProps[] = [];
+    // listJobs();
+    return initialJobs;
+  }
+
+  const importProject = (e: any) => {
     e.preventDefault();
     open({
       multiple: true,
@@ -23,24 +39,18 @@ export default function RemoteRender() {
         },
       ],
     }).then((selected) => {
-      console.log(selected);
       if (Array.isArray(selected)) {
         // user selected multiple of files
         selected.forEach((entry) => {
-          invoke("create_job", { path: entry });
+          invoke("import_project", { path: entry });
         });
       } else if (selected != null) {
-        invoke("create_job", { path: selected });
         // user selected single file
+        invoke("import_project", { path: selected });
       }
-      listJob();
+      listProjects();
     });
-
-    // Problem here, backend is invoked via async, and will execute file launcher.
-    // Find a way to invoke file launcher on javascript side instead, and then rely on using the backend to handle the path obtained from front end.
-    // then we can delegate invoking proper event to handle project file creation.
-    return false;
-  }
+  };
 
   // TODO: See if we can refactor this? I don't like the fact that we hardcode port value here.'
   function handleSubmit(e: any) {
@@ -49,33 +59,26 @@ export default function RemoteRender() {
       name: e.target.name.value,
       host: e.target.ip.value + ":15000",
     };
-    invoke("create_node", data).then(listNode);
+    invoke("create_node", data).then(listNodes);
     closeCreateNew("create_node");
   }
 
-  function listNode() {
-    invoke("list_node").then((ctx) => {
-      let data = JSON.parse(ctx + "");
-      setNodes(data);
-    });
+  // TODO: Find a better way than explicitly casting into string? How can I assign object type inside closure argument?
+  function listNodes() {
+    invoke("list_node").then((ctx) => setNodes(JSON.parse(ctx + "")));
   }
 
-  function listJob() {
-    invoke("list_job").then((ctx) => {
-      let data = JSON.parse(ctx + "");
-      setJobs(data);
-    });
+  function listProjects() {
+    invoke("list_projects").then((ctx) => setProjects(JSON.parse(ctx + "")));
   }
 
-  function deleteNode(id: any) {
-    invoke("delete_node", { id }).then(() => {
-      let col = nodes.filter((node: any) => node.id != id);
-      setNodes(col);
-    });
+  function listJobs() {
+    invoke("list_job").then((ctx) => setJobs(JSON.parse(ctx + "")));
   }
 
   function showCreateNew(id: string) {
     let dialog = document.getElementById(id);
+    // TODO: Find a better way to fix this?
     dialog.showModal();
   }
 
@@ -84,54 +87,97 @@ export default function RemoteRender() {
     dialog.close();
   }
 
+  const checkboxList = nodes.map((node: RenderNodeProps, index: Number) => {
+    return (
+      <div key={node.id}>
+        <label>{node.name}</label>
+        <input type="checkbox" id={node.id} name={node.name} value={node.id} />
+      </div>
+    );
+  });
+
+  // const handleMultipleCheckboxChange = (event) => {
+
+  // };
+
   return (
     <div className="content">
       <h1>Remote Render</h1>
 
       {/* Show the activity of the computer progress */}
       <h2>Computer Nodes</h2>
-      <button onClick={() => showCreateNew("create_node")}>Create New</button>
+      <button onClick={() => showCreateNew("create_node")}>Connect</button>
       <br></br>
-      <h4>
-        <div className="group" id="RenderNodes">
-          {nodes.map((node: RenderNodeProps) => (
-            // A bit far fetch here, but can we rename nodes? Or edit it?
-            <RenderNode
-              id={node.id}
-              key={node.id}
-              name={node.name}
-              onDataChanged={listNode} // wonder what this one was suppose to be?
-            />
-          ))}
-        </div>
-      </h4>
+      <div className="group" id="RenderNodes">
+        {nodes.map(
+          (node: RenderNodeProps) => (
+            (node.onDataChanged = listNodes), RenderNode(node)
+          ),
+        )}
+      </div>
+
+      {/*
+         The goal behind this is to let the user import the projects into their own temp collection,
+         which will be used to distribute across other nodes on the network.
+         In this transaction - we take a copy of the source file, and put it into blenderFiles directory.
+         Feature: This will be used as a cache to validate if the file has changed or not.
+
+         Next, if the user clicks on the collection entry, we display a pop up asking which render node would this project like to use.
+         Then any specific rendering configurations, E.g. Single frame or Animation
+         We could utilize segment renderings where for a single frame, we take chunks of render and assemble them together for
+         high resolution distribution job.
+         Lots of great feature idea here!
+         Let's do the basic first.
+          */}
+      <h2>Project List</h2>
+      <button onClick={importProject}>Import</button>
+      <div className="group">
+        {projects.map(
+          (project: ProjectFileProps) => (
+            (project.onDataChanged = listProjects), ProjectFile(project)
+          ),
+        )}
+      </div>
 
       {/* Collection of active job list */}
       <h2>Job List</h2>
+      <div className="group">
+        {jobs.map(
+          (job: RenderJobProps) => (
+            (job.onDataChanged = listJobs), RenderJob(job)
+          ),
+        )}
+      </div>
 
-      <button onClick={CreateNewJob}>Create new Job</button>
-      <br></br>
-      <h4>
-        <div className="group">
-          {jobs.map((job: RenderJobProps) => (
-            <RenderJob id={job.id} project_file={job.project_file} />
-          ))}
-        </div>
-      </h4>
-
-      <dialog id="create_job">
+      {/* I no longer need create-job, instead, I need dialog to start a new process
+          Display this window with a list of available nodes to select from,
+          then let the operator chooses which blender version.
+          once that is completed, it set forth a new queue instruction to all selected nodes.
+          Send the project file for each selected nodes.
+          Then, invoke blender with configurations (which frames) to the downloaded project file.
+          Once blender completed, transfer result image back to the server.
+          The host will display received image progress.
+          */}
+      <dialog id="create_process">
         <form method="dialog" onSubmit={handleSubmit}>
           <h1>Dialog</h1>
-          <label>Computer Name:</label>
+          <label>Choose Node</label>
+          <input
+            type="checkbox"
+            onChange={(event) => {
+              // handleMultipleCheckboxChange(event);
+            }}
+          >
+            Select all
+          </input>
+          {checkboxList}
           <input type="text" placeholder="Name" id="name" name="name" />
-          <label>Internet Protocol Address</label>
-          <input type="text" placeholder="IP Address" id="ip" name="ip" />
 
           <menu>
             <button
               type="button"
               value="cancel"
-              onClick={() => closeCreateNew("create_job")}
+              onClick={() => closeCreateNew("create_process")}
             >
               Cancel
             </button>

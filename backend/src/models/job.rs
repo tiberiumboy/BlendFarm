@@ -1,36 +1,63 @@
-use std::path::PathBuf;
+use std::{marker::PhantomData, path::PathBuf};
 
-use super::project_file::ProjectFile;
+use super::{project_file::ProjectFile, render_node::RenderNode};
+use crate::services::sender;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub trait JobStatus {}
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum JobStatus {
-    Idle,
-    Running,
-    Done,
-    Error,
-}
+pub struct Idle;
+pub struct Paused;
+// find a way to parse output data, and provide percentage of completion here
+pub struct Running(f32); // percentage of completion
+pub struct Completed;
+pub struct Error(String);
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Job {
+pub struct Job<JobStatus = Idle> {
     pub id: String,
+    pub output: PathBuf, // output path
+    pub nodes: Vec<RenderNode>,
     pub project_file: ProjectFile,
-    pub output: PathBuf,
-    pub status: JobStatus,
-    pub created_at: String,
+    pub state: PhantomData<JobStatus>,
 }
 
-#[allow(dead_code)]
-impl Job {
-    pub fn new(project_file: ProjectFile) -> Job {
+impl Job<Idle> {
+    pub fn new(project_file: &ProjectFile, output: &PathBuf, nodes: Vec<RenderNode>) -> Job {
         Job {
             id: Uuid::new_v4().to_string(),
-            project_file,
-            output: PathBuf::new(),
-            status: JobStatus::Idle,
-            created_at: chrono::Utc::now().to_rfc3339(),
+            nodes,
+            output: output.clone(),
+            project_file: project_file.clone(),
+            state: PhantomData::<Idle>,
+        }
+    }
+}
+
+impl Job<Running> {
+    pub fn pause(self) -> Job<Paused> {
+        Job {
+            id: self.id,
+            nodes: self.nodes,
+            output: self.output,
+            project_file: self.project_file,
+            state: PhantomData::<Paused>,
+        }
+    }
+}
+
+impl Job<Paused> {
+    pub fn resume(self) -> Job<Running> {
+        // need to send network packet to node to notify resuming job before sending notification out
+
+        // sender.send();
+        Job {
+            id: self.id,
+            nodes: self.nodes,
+            output: self.output,
+            project_file: self.project_file,
+            state: PhantomData::<Running>,
         }
     }
 }

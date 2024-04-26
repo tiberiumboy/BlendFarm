@@ -56,17 +56,12 @@ impl Blender {
         // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#argument-order
         let path = args.file.to_str().unwrap();
         let output = args.output.to_str().unwrap();
-
-        let mut col = Vec::new();
-        if args.background {
-            col.push("-b".to_owned())
-        }
-
-        col.append(&mut vec![
+        let mut col = vec![
+            "-b".to_owned(),
             path.to_string(),
             "-o".to_owned(),
             output.to_string(),
-        ]);
+        ];
 
         /*
         -F :format::Format

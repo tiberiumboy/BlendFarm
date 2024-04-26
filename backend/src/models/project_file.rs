@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{env, io::Error, path::PathBuf, str::FromStr};
 use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProjectFile {
     pub id: String, // is there a way we can store uuid instead string?
     pub file_name: String,

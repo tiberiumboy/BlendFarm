@@ -2,7 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use crate::controllers::remote_render::{
-    create_job, create_node, delete_job, delete_node, edit_job, edit_node, list_job, list_node,
+    create_job, create_node, delete_job, delete_node, delete_project, edit_node, import_project,
+    list_job, list_node, list_projects, sync_project,
 };
 use crate::models::{data::Data, render_node::RenderNode};
 use blender::args::Args;
@@ -39,14 +40,17 @@ fn client() {
         // Hmm find a way to load multiple of handlers? from different page source?
         // I feel like there should be a better way to manage this?
         .invoke_handler(generate_handler![
-            create_job,
+            import_project,
+            sync_project,
             create_node,
-            delete_job,
+            create_job,
             delete_node,
-            edit_job,
+            delete_project,
+            delete_job,
             edit_node,
-            list_job,
             list_node,
+            list_projects,
+            list_job,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

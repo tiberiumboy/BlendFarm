@@ -1,13 +1,12 @@
 use crate::models::project_file::ProjectFile;
 use crate::models::{data::Data, job::Job, render_node::RenderNode};
 use std::{path::PathBuf, sync::Mutex};
-use tauri::api::dialog::FileDialogBuilder;
-use tauri::Error;
 use tauri::{command, Manager};
+use tauri::{AppHandle, Error};
 
 // soon I want to return the client node it established to
 #[command]
-pub fn create_node(app: tauri::AppHandle, name: &str, host: &str) -> Result<String, Error> {
+pub fn create_node(app: AppHandle, name: &str, host: &str) -> Result<String, Error> {
     let node = RenderNode::parse(name, host).unwrap();
     let node_mutex = app.state::<Mutex<Data>>();
     let mut col = node_mutex.lock().unwrap();
@@ -19,7 +18,7 @@ pub fn create_node(app: tauri::AppHandle, name: &str, host: &str) -> Result<Stri
 
 #[command] // could be dangerous if we have exact function name on front end?
            // which direction are we calling the function from? The front or the end?
-pub fn list_node(app: tauri::AppHandle) -> Result<String, Error> {
+pub fn list_node(app: AppHandle) -> Result<String, Error> {
     let node_mutex = app.state::<Mutex<Data>>();
     let col = node_mutex.lock().unwrap();
     let data = serde_json::to_string(&col.render_nodes).unwrap();
@@ -27,10 +26,10 @@ pub fn list_node(app: tauri::AppHandle) -> Result<String, Error> {
 }
 
 #[command]
-pub fn edit_node(_app: tauri::AppHandle, _update_node: RenderNode) {}
+pub fn edit_node(_app: AppHandle, _update_node: RenderNode) {}
 
 #[command]
-pub fn delete_node(app: tauri::AppHandle, id: String) -> Result<(), Error> {
+pub fn delete_node(app: AppHandle, id: String) -> Result<(), Error> {
     // delete node from list and refresh the app?
     let node_mutex = &app.state::<Mutex<Data>>();
     let mut node = node_mutex.lock().unwrap();
@@ -39,47 +38,69 @@ pub fn delete_node(app: tauri::AppHandle, id: String) -> Result<(), Error> {
 }
 
 // TODO: Change this to handle string input of files for new project file.
-#[tauri::command]
-pub fn create_job(app: tauri::AppHandle, path: &str) {
-    // app crashed when api block thread. Do not use tauri::api::dialog::blocking::* apis.
-    // Problem here - I need to find a way to ask the user about the blender file,
-    // how do I know which blender version should I use to render?
-    // How can I block js from invoking next when I need to wait for this dialog to complete?
+#[command]
+pub fn import_project(app: AppHandle, path: &str) {
+    let file_path = PathBuf::from(path);
+    let mut project_file = ProjectFile::new(&file_path);
+
     let ctx_mutex = app.state::<Mutex<Data>>();
     let mut ctx = ctx_mutex.lock().unwrap();
-    let file_path = PathBuf::from(path);
-    let project_file = ProjectFile::new(&file_path);
-    let job = Job::new(project_file);
-
-    //for node in ctx.render_nodes.iter() {
-    // send the job to the node then invoke to run it?
-    // node.send(job.project_file.file_path());
-    //}
-
-    ctx.jobs.push(job);
-    // can we have some sort of mechanism to hold data collection as long as this program is alive?
-    // something we can append this list to the collections and reveal?
+    project_file.move_to_temp();
+    ctx.project_files.push(project_file);
 }
 
-#[tauri::command]
-pub fn edit_job(app: tauri::AppHandle, update_job: Job) {
-    let job_mutex = &app.state::<Mutex<Data>>();
-    let mut job = job_mutex.lock().unwrap();
-    job.jobs.retain(|x| x.id != update_job.id);
-    job.jobs.push(update_job); // I see a problem here, we're pushing modified job at the bottom of the list, Wish we could just update at position?
+#[command]
+pub fn sync_project(app: AppHandle, id: &str) {
+    // we find the project by the id, then we re-sync the files
+    let ctx = app.state::<Mutex<Data>>();
+    let mut data = ctx.lock().unwrap();
+    let project = data.project_files.iter_mut().find(|x| x.id == id).unwrap();
+    project.move_to_temp();
 }
 
-#[allow(dead_code)]
-#[tauri::command]
-pub fn delete_job(app: tauri::AppHandle, id: String) {
-    let job_mutex = app.state::<Mutex<Data>>();
-    let mut job = job_mutex.lock().unwrap();
-    job.jobs.retain(|x| x.id != id); // TODO: See if there's a deconstructor that I need to be consern about.
+#[command]
+pub fn delete_project(app: AppHandle, id: &str) {
+    // retain the project from the collection.
+    let ctx = app.state::<Mutex<Data>>();
+    let mut data = ctx.lock().unwrap();
+    // TODO: Find a way to clear BlenderFiles if someone decided to delete the project file.
+    // let mut project = data.project_files.iter().find(|x| x.id == id).unwrap();
+    // project.clear_temp();
+    data.project_files.retain(|x| x.id != id);
 }
 
-#[allow(dead_code)]
-#[tauri::command]
-pub fn list_job(app: tauri::AppHandle) -> Result<String, Error> {
+#[command]
+pub fn list_projects(app: AppHandle) -> Result<String, Error> {
+    let ctx_mutex = app.state::<Mutex<Data>>();
+    let ctx = ctx_mutex.lock().unwrap();
+    let data = serde_json::to_string(&ctx.project_files).unwrap();
+    Ok(data)
+}
+
+#[command]
+pub fn create_job(app: AppHandle, output: &str, project_id: &str, nodes: Vec<RenderNode>) {
+    let ctx = app.state::<Mutex<Data>>();
+    let mut data = ctx.lock().unwrap();
+    let project = data
+        .project_files
+        .iter()
+        .find(|x| x.id == project_id)
+        .unwrap();
+    let output = PathBuf::from(output);
+    let job = Job::new(&project.to_owned(), &output, nodes);
+    data.jobs.push(job);
+}
+
+#[command]
+pub fn delete_job(app: AppHandle, id: String) {
+    let ctx = app.state::<Mutex<Data>>();
+    let mut data = ctx.lock().unwrap();
+    // TODO: before I do this, I need to go through each of the nodes and stop this job.
+    data.jobs.retain(|x| x.id != id); // TODO: See if there's a deconstructor that I need to be consern about.
+}
+
+#[command]
+pub fn list_job(app: AppHandle) -> Result<String, Error> {
     let job_mutex = app.state::<Mutex<Data>>();
     let job = job_mutex.lock().unwrap();
     let data = serde_json::to_string(&job.jobs).unwrap();

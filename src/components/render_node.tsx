@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api";
-import * as ciIcon from "react-icons/ci";
+import { CiTrash } from "react-icons/ci";
+// import { FaRegPauseCircle, FaRegPlayCircle } from "react-icons/fa";
 
 export interface RenderNodeProps {
   id: string;
@@ -8,22 +9,16 @@ export interface RenderNodeProps {
 }
 
 export default function RenderNode(node: RenderNodeProps) {
-  function deleteNode() {
-    let params = {
-      id: node.id,
-    };
-    invoke("delete_node", params).then(node.onDataChanged); // then we should signal a refresh somehow?
-  }
+  const deleteNode = () =>
+    invoke("delete_node", { id: node.id }).then(node.onDataChanged); // then we should signal a refresh somehow?
 
-  function moreOption() {
-    let add_modal = document.getElementById("add_modal");
-    add_modal.showModal();
-  }
+  const pauseNode = () =>
+    // TODO: send a signal to that node to pause
+    invoke("pause_node", { id: node.id }).then(node.onDataChanged);
 
-  function closeOption() {
-    let add_modal = document.getElementById("add_modal");
-    add_modal.close();
-  }
+  const resumeNode = () =>
+    // TODO: Signal commands to resume job.
+    invoke("resume_node", { id: node.id }).then(node.onDataChanged);
 
   return (
     <div>
@@ -31,17 +26,17 @@ export default function RenderNode(node: RenderNodeProps) {
         <tr>
           <td style={{ width: "100%" }}>{node.name}</td>
           <td>
-            <ciIcon.CiTrash onClick={deleteNode} />
+            <CiTrash onClick={deleteNode} />
           </td>
-          <td>
-            <ciIcon.CiCircleMore onClick={moreOption} />
-          </td>
+          {/* <td>
+            Feature: We could have a halt button here? if the node is running,
+            we may want to let the user invoke pause or stop operation?
+
+            <FaRegPauseCircle onClick={pauseNode} />
+            <FaRegPlayCircle onClick={resumeNode} />
+          </td> */}
         </tr>
       </table>
-      <dialog id="add_modal">
-        <button onClick={deleteNode}>Delete</button>
-        <button onClick={closeOption}>Cancel</button>
-      </dialog>
     </div>
   );
 }

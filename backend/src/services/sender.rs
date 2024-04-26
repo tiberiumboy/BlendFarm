@@ -59,9 +59,13 @@ pub fn send(file_path: &PathBuf, target: &RenderNode) {
                     },
                 }
             }
+            // NetEvent::PauseJob(_) => {}
             NetEvent::Disconnected(_) => {
                 handler.stop();
                 println!("\nReceiver disconnected");
+            }
+            _ => {
+                println!("Received unhandled event delegation");
             }
         },
         NodeEvent::Signal(signal) => match signal {
