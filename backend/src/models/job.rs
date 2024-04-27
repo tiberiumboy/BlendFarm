@@ -33,6 +33,18 @@ impl Job<Idle> {
             state: PhantomData::<Idle>,
         }
     }
+
+    pub fn run(self) -> Job<Running> {
+        // need to send network packet to node to notify running job before sending notification out
+        // sender.send();
+        Job {
+            id: self.id,
+            nodes: self.nodes,
+            output: self.output,
+            project_file: self.project_file,
+            state: PhantomData::<Running>,
+        }
+    }
 }
 
 impl Job<Running> {
@@ -45,13 +57,21 @@ impl Job<Running> {
             state: PhantomData::<Paused>,
         }
     }
+
+    // cancel current job and provide error message "User abort the job."
+    pub fn abort(self, _msg: &str) -> Job<Error> {
+        Job {
+            id: self.id,
+            nodes: self.nodes,
+            output: self.output,
+            project_file: self.project_file,
+            state: PhantomData::<Error>,
+        }
+    }
 }
 
 impl Job<Paused> {
     pub fn resume(self) -> Job<Running> {
-        // need to send network packet to node to notify resuming job before sending notification out
-
-        // sender.send();
         Job {
             id: self.id,
             nodes: self.nodes,
