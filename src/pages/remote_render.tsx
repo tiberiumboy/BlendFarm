@@ -1,16 +1,17 @@
 import { open } from "@tauri-apps/api/dialog";
 import { invoke } from "@tauri-apps/api/tauri";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import RenderJob, { RenderJobProps } from "../components/render_job";
 import ProjectFile, { ProjectFileProps } from "../components/project_file";
 import RenderNode, { RenderNodeProps } from "../components/render_node";
+import Checkbox from "../components/Checkbox";
 
 export default function RemoteRender() {
   const [nodes, setNodes] = useState(fetchNodes);
   const [projects, setProjects] = useState(fetchProjects);
   const [jobs, setJobs] = useState(fetchJobs);
 
-  let selectedProject: ProjectFileProps;
+  const [selectedProject, setSelectedProject] = useState({});
 
   function fetchNodes() {
     const initialNodes: RenderNodeProps[] = [];
@@ -54,27 +55,6 @@ export default function RemoteRender() {
     });
   };
 
-  // TODO: See if we can refactor this? I don't like the fact that we hardcode port value here.'
-  function handleSubmit(e: any) {
-    e.preventDefault();
-    let data = {
-      name: e.target.name.value,
-      host: e.target.ip.value + ":15000",
-    };
-    invoke("create_node", data).then(listNodes);
-    closeCreateNew("create_node");
-  }
-
-  function handleSubmitJobForm(e: any) {
-    e.preventDefault();
-    let data = {
-      output: e.target.output.value,
-      project_id: selectedProject.id,
-      nodes: e.target.selectedNodes,
-    };
-    invoke("create_job", data).then(listJobs);
-  }
-
   // TODO: Find a better way than explicitly casting into string? How can I assign object type inside closure argument?
   function listNodes() {
     invoke("list_node").then((ctx) => setNodes(JSON.parse(ctx + "")));
@@ -88,63 +68,116 @@ export default function RemoteRender() {
     invoke("list_job").then((ctx) => setJobs(JSON.parse(ctx + "")));
   }
 
-  function showCreateNew(id: string) {
+  function showDialog(id: string) {
     let dialog = document.getElementById(id);
     // TODO: Find a better way to fix this?
     dialog.showModal();
   }
 
-  function closeCreateNew(id: string) {
+  function closeDialog(id: string) {
     let dialog = document.getElementById(id);
     dialog.close();
   }
 
+  function handleSubmitNodeForm(e: any) {
+    e.preventDefault();
+    let data = {
+      name: e.target.name.value,
+      // TODO: remove magic hardcoded port value
+      host: e.target.ip.value + ":15000",
+    };
+    invoke("create_node", data).then(listNodes);
+    closeDialog("create_node");
+  }
+
+  function handleSubmitJobForm(e: any) {
+    e.preventDefault();
+
+    let data = {
+      output: e.target.output.value,
+      projectId: selectedProject.id,
+      nodes: e.target.selectedNodes,
+    };
+    console.log(data);
+    // invoke("create_job", data).then(listJobs);
+    closeDialog("create_process");
+  }
+
+  async function showSaveDialog() {
+    const filePath = await open({
+      directory: true,
+      multiple: false,
+    });
+    if (filePath != null) {
+      document.getElementById("output").value = filePath;
+    }
+  }
+
   function openJobWindow(project: ProjectFileProps) {
-    selectedProject = project;
-    showCreateNew("create_process");
+    setSelectedProject(project);
+    showDialog("create_process");
   }
 
   // const handleMultipleCheckboxChange = (event) => {
 
   // };
 
+  // Components - trying to separate them to make it easy to read through this.
+  function nodeWindow() {
+    return (
+      <div>
+        <h1>Remote Render</h1>
+
+        {/* Show the activity of the computer progress */}
+        <h2>Computer Nodes</h2>
+        <button onClick={() => showDialog("create_node")}>Connect</button>
+        <div className="group" id="RenderNodes">
+          {nodes.map(
+            (node: RenderNodeProps, index: Number) => (
+              (node.onDataChanged = listNodes), RenderNode(index, node)
+            ),
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function projectWindow() {
+    /*
+     The goal behind this is to let the user import the projects into their own temp collection,
+     which will be used to distribute across other nodes on the network.
+     In this transaction - we take a copy of the source file, and put it into blenderFiles directory.
+     Feature: This will be used as a cache to validate if the file has changed or not.
+
+     Next, if the user clicks on the collection entry, we display a pop up asking which render node would this project like to use.
+     Then any specific rendering configurations, E.g. Single frame or Animation
+     We could utilize segment renderings where for a single frame, we take chunks of render and assemble them together for
+     high resolution distribution job.
+      */
+    return (
+      <div>
+        <h2>Project List</h2>
+        <button onClick={importProject}>Import</button>
+        <div className="group">
+          {projects.map(
+            (project: ProjectFileProps) => (
+              ((project.onDataChanged = listProjects),
+              (project.onRequestNewJob = openJobWindow)),
+              ProjectFile(project)
+            ),
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function jobWindow() {}
+
   return (
     <div className="content">
-      <h1>Remote Render</h1>
-
-      {/* Show the activity of the computer progress */}
-      <h2>Computer Nodes</h2>
-      <button onClick={() => showCreateNew("create_node")}>Connect</button>
-      <div className="group" id="RenderNodes">
-        {nodes.map(
-          (node: RenderNodeProps, index: Number) => (
-            (node.onDataChanged = listNodes), RenderNode(index, node)
-          ),
-        )}
-      </div>
-
-      {/*
-         The goal behind this is to let the user import the projects into their own temp collection,
-         which will be used to distribute across other nodes on the network.
-         In this transaction - we take a copy of the source file, and put it into blenderFiles directory.
-         Feature: This will be used as a cache to validate if the file has changed or not.
-
-         Next, if the user clicks on the collection entry, we display a pop up asking which render node would this project like to use.
-         Then any specific rendering configurations, E.g. Single frame or Animation
-         We could utilize segment renderings where for a single frame, we take chunks of render and assemble them together for
-         high resolution distribution job.
-         Lots of great feature idea here!
-         Let's do the basic first.
-          */}
-      <h2>Project List</h2>
-      <button onClick={importProject}>Import</button>
-      <div className="group">
-        {projects.map(
-          (project: ProjectFileProps) => (
-            (project.onDataChanged = listProjects, project.onRequestNewJob = openJobWindow), ProjectFile(project)
-          ),
-        )}
-      </div>
+      {nodeWindow()}
+      {projectWindow()}
+      {jobWindow()}
 
       {/* Collection of active job list */}
       <h2>Job List</h2>
@@ -177,19 +210,35 @@ export default function RemoteRender() {
           />
           {nodes.map((node: RenderNodeProps, index: Number) => {
             return (
-              <div key={index}>
+              <div key={"node_" + index}>
                 <label>{node.name}</label>
-                <input type="checkbox" id={node.id} name={node.name} value={node.id} />
+                <input
+                  type="checkbox"
+                  id={node.id}
+                  name={node.name}
+                  value={node.id}
+                />
               </div>
-            )
+            );
           })}
-          <input type="text" placeholder="Name" id="name" name="name" />
+
+          {/* find a way to open save dialog here? */}
+          <input
+            type="text"
+            placeholder="Output Path"
+            id="output"
+            name="output"
+            readOnly={true}
+            onClick={showSaveDialog}
+          />
+
+          {/* <input type="text" placeholder="Name" id="name" name="name" /> */}
 
           <menu>
             <button
               type="button"
               value="cancel"
-              onClick={() => closeCreateNew("create_process")}
+              onClick={() => closeDialog("create_process")}
             >
               Cancel
             </button>
@@ -199,7 +248,7 @@ export default function RemoteRender() {
       </dialog>
 
       <dialog id="create_node">
-        <form method="dialog" onSubmit={handleSubmit}>
+        <form method="dialog" onSubmit={handleSubmitNodeForm}>
           <h1>Dialog</h1>
           {/* <label>Computer Name:</label>
           <input type="text" placeholder="Name" id="name" name="name" />
@@ -210,7 +259,7 @@ export default function RemoteRender() {
             <button
               type="button"
               value="cancel"
-              onClick={() => closeCreateNew("create_node")}
+              onClick={() => closeDialog("create_node")}
             >
               Cancel
             </button>
