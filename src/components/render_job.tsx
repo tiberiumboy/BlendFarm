@@ -20,16 +20,18 @@ export default function RenderJob(job: RenderJobProps) {
   return (
     <div>
       <table>
-        <tr>
-          <td>{job.project_file.file_name}</td>
-          <td>{job.project_file.src}</td>
-          <td>
-            <CiTrash onClick={deleteJob} />
-          </td>
-          <td>
-            <CiCircleMore onClick={moreAction} />
-          </td>
-        </tr>
+        <tbody>
+          <tr>
+            <td>{job.project_file.file_name}</td>
+            <td>{job.project_file.src}</td>
+            <td>
+              <CiTrash onClick={deleteJob} />
+            </td>
+            <td>
+              <CiCircleMore onClick={moreAction} />
+            </td>
+          </tr>
+        </tbody>
       </table>
     </div>
   );

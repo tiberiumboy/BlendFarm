@@ -7,6 +7,7 @@ export interface ProjectFileProps {
   file_name: string;
   src: string;
   onDataChanged?: () => void;
+  onRequestNewJob: (project: ProjectFileProps) => void;
 }
 
 // todo: expose function controls here. props event handler?
@@ -20,28 +21,30 @@ export default function (props: ProjectFileProps) {
 
   // this should really open a new dialog and asking for which machine to use for this job...
   // but ok
-  const createNewJob = () =>
-    invoke("create_job", { id: props.id }).then(props.onDataChanged);
+  const createNewJob = () => props.onRequestNewJob(props);
+    
 
   return (
     <div className="item" key={props.id} id={props.id}>
       <table>
-        <tr>
-          <td style={{ width: "100%" }}>
-            <p>{getFileName()}</p>
-            <p>{props.src}</p>
-          </td>
+        <tbody>
+          <tr>
+            <td style={{ width: "100%" }}>
+              <p>{getFileName()}</p>
+              <p>{props.src}</p>
+            </td>
 
-          {/* <td>
-            <MdEdit onClick={editProject} />
-          </td> */}
-          <td>
-            <MdOutlineMovie onClick={createNewJob} />
-          </td>
-          <td>
-            <CiTrash onClick={deleteProject} />
-          </td>
-        </tr>
+            {/* <td>
+              <MdEdit onClick={editProject} />
+            </td> */}
+            <td>
+              <MdOutlineMovie onClick={createNewJob} />
+            </td>
+            <td>
+              <CiTrash onClick={deleteProject} />
+            </td>
+          </tr>
+        </tbody>
       </table>
     </div>
   );

@@ -10,21 +10,23 @@ export default function RemoteRender() {
   const [projects, setProjects] = useState(fetchProjects);
   const [jobs, setJobs] = useState(fetchJobs);
 
-  function fetchProjects() {
-    const initialProjects: ProjectFileProps[] = [];
-    // listProjects();
-    return initialProjects;
-  }
+  let selectedProject: ProjectFileProps;
 
   function fetchNodes() {
     const initialNodes: RenderNodeProps[] = [];
-    // listNodes();
+    listNodes();
     return initialNodes;
+  }
+
+  function fetchProjects() {
+    const initialProjects: ProjectFileProps[] = [];
+    listProjects();
+    return initialProjects;
   }
 
   function fetchJobs() {
     const initialJobs: RenderJobProps[] = [];
-    // listJobs();
+    listJobs();
     return initialJobs;
   }
 
@@ -63,6 +65,16 @@ export default function RemoteRender() {
     closeCreateNew("create_node");
   }
 
+  function handleSubmitJobForm(e: any) {
+    e.preventDefault();
+    let data = {
+      output: e.target.output.value,
+      project_id: selectedProject.id,
+      nodes: e.target.selectedNodes,
+    };
+    invoke("create_job", data).then(listJobs);
+  }
+
   // TODO: Find a better way than explicitly casting into string? How can I assign object type inside closure argument?
   function listNodes() {
     invoke("list_node").then((ctx) => setNodes(JSON.parse(ctx + "")));
@@ -87,14 +99,10 @@ export default function RemoteRender() {
     dialog.close();
   }
 
-  const checkboxList = nodes.map((node: RenderNodeProps, index: Number) => {
-    return (
-      <div key={node.id}>
-        <label>{node.name}</label>
-        <input type="checkbox" id={node.id} name={node.name} value={node.id} />
-      </div>
-    );
-  });
+  function openJobWindow(project: ProjectFileProps) {
+    selectedProject = project;
+    showCreateNew("create_process");
+  }
 
   // const handleMultipleCheckboxChange = (event) => {
 
@@ -107,11 +115,10 @@ export default function RemoteRender() {
       {/* Show the activity of the computer progress */}
       <h2>Computer Nodes</h2>
       <button onClick={() => showCreateNew("create_node")}>Connect</button>
-      <br></br>
       <div className="group" id="RenderNodes">
         {nodes.map(
-          (node: RenderNodeProps) => (
-            (node.onDataChanged = listNodes), RenderNode(node)
+          (node: RenderNodeProps, index: Number) => (
+            (node.onDataChanged = listNodes), RenderNode(index, node)
           ),
         )}
       </div>
@@ -134,7 +141,7 @@ export default function RemoteRender() {
       <div className="group">
         {projects.map(
           (project: ProjectFileProps) => (
-            (project.onDataChanged = listProjects), ProjectFile(project)
+            (project.onDataChanged = listProjects, project.onRequestNewJob = openJobWindow), ProjectFile(project)
           ),
         )}
       </div>
@@ -159,7 +166,7 @@ export default function RemoteRender() {
           The host will display received image progress.
           */}
       <dialog id="create_process">
-        <form method="dialog" onSubmit={handleSubmit}>
+        <form method="dialog" onSubmit={handleSubmitJobForm}>
           <h1>Dialog</h1>
           <label>Choose Node</label>
           <input
@@ -167,10 +174,15 @@ export default function RemoteRender() {
             onChange={(event) => {
               // handleMultipleCheckboxChange(event);
             }}
-          >
-            Select all
-          </input>
-          {checkboxList}
+          />
+          {nodes.map((node: RenderNodeProps, index: Number) => {
+            return (
+              <div key={index}>
+                <label>{node.name}</label>
+                <input type="checkbox" id={node.id} name={node.name} value={node.id} />
+              </div>
+            )
+          })}
           <input type="text" placeholder="Name" id="name" name="name" />
 
           <menu>
@@ -189,10 +201,10 @@ export default function RemoteRender() {
       <dialog id="create_node">
         <form method="dialog" onSubmit={handleSubmit}>
           <h1>Dialog</h1>
-          <label>Computer Name:</label>
+          {/* <label>Computer Name:</label>
           <input type="text" placeholder="Name" id="name" name="name" />
           <label>Internet Protocol Address</label>
-          <input type="text" placeholder="IP Address" id="ip" name="ip" />
+          <input type="text" placeholder="IP Address" id="ip" name="ip" /> */}
 
           <menu>
             <button
