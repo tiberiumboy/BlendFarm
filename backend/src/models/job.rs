@@ -24,7 +24,7 @@ pub struct Job<JobStatus = Idle> {
 }
 
 impl Job<Idle> {
-    pub fn new(project_file: &ProjectFile, output: &PathBuf, nodes: Vec<RenderNode>) -> Job {
+    pub fn new(project_file: &ProjectFile, output: &PathBuf, nodes: Vec<RenderNode>) -> Job<Idle> {
         Job {
             id: Uuid::new_v4().to_string(),
             nodes,

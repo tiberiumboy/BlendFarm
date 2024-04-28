@@ -16,8 +16,7 @@ pub fn create_node(app: AppHandle, name: &str, host: &str) -> Result<String, Err
     Ok(data)
 }
 
-#[command] // could be dangerous if we have exact function name on front end?
-           // which direction are we calling the function from? The front or the end?
+#[command]
 pub fn list_node(app: AppHandle) -> Result<String, Error> {
     let node_mutex = app.state::<Mutex<Data>>();
     let col = node_mutex.lock().unwrap();
@@ -25,8 +24,11 @@ pub fn list_node(app: AppHandle) -> Result<String, Error> {
     Ok(data)
 }
 
+// may not be in used?
 #[command]
-pub fn edit_node(_app: AppHandle, _update_node: RenderNode) {}
+pub fn edit_node(_app: AppHandle, _update_node: RenderNode) {
+    todo!();
+}
 
 #[command]
 pub fn delete_node(app: AppHandle, id: String) -> Result<(), Error> {
@@ -88,9 +90,8 @@ pub fn create_job(app: AppHandle, output: &str, project_id: &str, nodes: Vec<Ren
         .unwrap();
     let output = PathBuf::from(output);
     let job = Job::new(&project.to_owned(), &output, nodes);
-
+    let job = job.run();
     data.jobs.push(job);
-    job.run();
     // Ok cool now that we have a job up and running, we should send notification to start it?
 }
 

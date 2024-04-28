@@ -64,9 +64,6 @@ pub fn send(file_path: &PathBuf, target: &RenderNode) {
                 handler.stop();
                 println!("\nReceiver disconnected");
             }
-            _ => {
-                println!("Received unhandled event delegation");
-            }
         },
         NodeEvent::Signal(signal) => match signal {
             Signal::SendChunk => {

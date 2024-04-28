@@ -1,5 +1,6 @@
 use crate::models::{
-    project_file::ProjectFile, render_node::RenderNode, server_setting::ServerSetting,
+    job::JobStatus, project_file::ProjectFile, render_node::RenderNode,
+    server_setting::ServerSetting,
 };
 use serde::{Deserialize, Serialize};
 
