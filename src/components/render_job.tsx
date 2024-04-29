@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/tauri";
 export interface RenderJobProps {
   id: string;
   project_file: ProjectFileProps;
+  src?: string;
   onDataChanged?: () => void;
 }
 
@@ -15,6 +16,14 @@ export default function RenderJob(job: RenderJobProps) {
   const moreAction = () => {
     // should probably provide some context menu?
     console.log("more action was pressed | TODO: add impl.");
+  };
+
+  const showCompletedImage = () => {
+    if (job.src != null) {
+      return <img src={job.src} alt="completed" />;
+    } else {
+      return <div></div>;
+    }
   };
 
   return (
@@ -33,6 +42,7 @@ export default function RenderJob(job: RenderJobProps) {
           </tr>
         </tbody>
       </table>
+      {showCompletedImage()}
     </div>
   );
 }

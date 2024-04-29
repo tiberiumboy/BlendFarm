@@ -10,16 +10,6 @@ pub struct Blender {
     executable: PathBuf,
 }
 
-impl PartialEq for Blender {
-    fn eq(&self, other: &Self) -> bool {
-        self.version.eq(&other.version)
-    }
-
-    fn ne(&self, other: &Self) -> bool {
-        !self.eq(other)
-    }
-}
-
 impl Blender {
     #[allow(dead_code)]
     pub fn new(executable: PathBuf, version: Version) -> Self {
@@ -122,4 +112,14 @@ impl Blender {
     }
 
     */
+}
+
+impl PartialEq for Blender {
+    fn eq(&self, other: &Self) -> bool {
+        self.version.eq(&other.version)
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        !self.eq(other)
+    }
 }

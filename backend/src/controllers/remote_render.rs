@@ -90,8 +90,9 @@ pub fn create_job(app: AppHandle, output: &str, project_id: &str, nodes: Vec<Ren
         .unwrap();
     let output = PathBuf::from(output);
     let job = Job::new(&project.to_owned(), &output, nodes);
-    let job = job.run();
     data.jobs.push(job);
+    let path = &job.run();
+
     // Ok cool now that we have a job up and running, we should send notification to start it?
 }
 
