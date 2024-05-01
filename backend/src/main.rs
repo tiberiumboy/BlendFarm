@@ -73,13 +73,13 @@ fn test_render() -> Result<()> {
     // let path = PathBuf::from("/home/jordan/Downloads/blender/blender");
     // macOS
     let path = PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender");
-    let blender = Blender::from_executable(path).unwrap();
+    let mut blender = Blender::from_executable(path).unwrap();
 
     // I now call render to invoke blender - returns file path of rendered output.
     let output = blender.render(&args).unwrap();
 
     // let's see what the output does for now.
-    dbg!(&output);
+    // dbg!(&output);
     Ok(())
 }
 
@@ -114,10 +114,10 @@ fn main() -> Result<()> {
 
     // now that we have a unit test to cover whether we can actually run blender from the desire machine, we should now
     // work on getting network stuff working together! yay!
-    // let _ = test_render();
+    let _ = test_render();
     // let _ = test_reading_blender_files();
 
-    client();
+    // client();
 
     Ok(())
 }

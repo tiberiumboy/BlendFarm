@@ -90,8 +90,11 @@ pub fn create_job(app: AppHandle, output: &str, project_id: &str, nodes: Vec<Ren
         .unwrap();
     let output = PathBuf::from(output);
     let job = Job::new(&project.to_owned(), &output, nodes);
+    // I have some weird feeling about this. How can I make a method invocation if they receive certain event,
+    // e.g. progress bar?? I must read the stdoutput to gather blender's progress information.
+    // See commands for blender and sidecar from tauri.
+    &job.run();
     data.jobs.push(job);
-    let path = &job.run();
 
     // Ok cool now that we have a job up and running, we should send notification to start it?
 }

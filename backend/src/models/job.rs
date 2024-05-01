@@ -34,7 +34,7 @@ impl Job {
     }
 
     // find a way to deal with async future/task?
-    pub fn run(&self) -> Result<PathBuf> {
+    pub fn run(&self) {
         let args = Args::new(
             self.project_file.src.clone(),
             self.output.clone(),
@@ -54,8 +54,8 @@ impl Job {
         // TODO: Find a way to get correct blender version before running job
 
         let path = PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender");
-        let blender = Blender::from_executable(path).unwrap();
-        blender.render(&args)
+        let mut blender = Blender::from_executable(path).unwrap();
+        blender.render(&args);
     }
 
     #[allow(dead_code)]

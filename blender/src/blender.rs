@@ -1,7 +1,11 @@
 use crate::{args::Args, mode::Mode};
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{io::Result, path::PathBuf, process::Command};
+use std::{
+    io::{BufRead, BufReader, Result},
+    path::PathBuf,
+    process::{Child, Command, Stdio},
+};
 
 #[derive(Debug, Eq, Serialize, Deserialize)]
 pub struct Blender {
@@ -42,7 +46,7 @@ impl Blender {
     }
 
     // Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
-    pub fn render(&self, args: &Args) -> Result<PathBuf> {
+    pub fn render(&mut self, args: &Args) -> Result<()> {
         // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#argument-order
         let path = args.file.to_str().unwrap();
         let output = args.output.to_str().unwrap();
@@ -78,20 +82,52 @@ impl Blender {
 
         col.append(&mut additional_args);
 
-        let output = Command::new(&self.executable)
+        // seems conflicting, this api locks main thread. NOT GOOD!
+        // Instead I need to find a way to send signal back to the class that called this
+        // and invoke other behaviour once this render has been completed
+        // in this case, I shouldn't have to return anything other than mutate itself that it's in progress.
+        // modify this struct to include handler for process
+        let stdout = Command::new(&self.executable)
             .args(col)
-            .output()
-            .expect("Failed to execute command!");
+            .stdout(Stdio::piped())
+            .spawn()?
+            .stdout
+            .unwrap();
 
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let col = stdout.split('\n').collect::<Vec<&str>>();
-        let location = &col
-            .iter()
-            .filter(|&x| x.contains("Saved"))
-            .collect::<Vec<_>>();
-        dbg!(&col);
-        let location = location.first().unwrap().split('\'').collect::<Vec<&str>>();
-        Ok(PathBuf::from(location[1]))
+        let reader = BufReader::new(stdout);
+
+        reader.lines().for_each(|line| {
+            let line = line.unwrap();
+            // println!("{}", &line);
+            if line.contains("Fra:") {
+                // this is where I can send signal back to the caller
+                // that the render is in progress
+                // check for either Syncing or Rendering.
+                if line.contains("Syncing") {
+                    println!("Syncing..."); // find a way to stop sending more than once?
+                } else if line.contains("Rendering") {
+                    // now here we need to extract number before and after /
+                    let percentage = 0;
+                    println!("Rendering... {}", percentage)
+                }
+            } else if line.contains("Saved:") {
+                // this is where I can send signal back to the caller
+                // that the render is completed
+                println!("{}", line);
+            }
+        });
+
+        // self.status
+
+        // let stdout = String::from_utf8(output.stdout).unwrap();
+        // let col = stdout.split('\n').collect::<Vec<&str>>();
+        // let location = &col
+        //     .iter()
+        //     .filter(|&x| x.contains("Saved}"))
+        //     .collect::<Vec<_>>();
+        // let location = location.first().unwrap().split('\'').collect::<Vec<&str>>();
+        // Ok(PathBuf::from(location[1]))
+        Ok(())
     }
 
     // going to ignore this for now and figure out what I need to get this working again.
