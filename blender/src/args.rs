@@ -26,4 +26,42 @@ impl Args {
             mode,
         }
     }
+
+    pub fn create_arg_list(&self) -> Vec<String> {
+        // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#argument-order
+        /*
+        -F :format::Format
+        -x // use extension
+        # is substitute to 0 pad, none will add to suffix four pounds (####)
+        */
+
+        let path = self.file.to_str().unwrap();
+        let output = self.output.to_str().unwrap();
+        let mut col = vec![
+            "-b".to_owned(),
+            path.to_string(),
+            "-o".to_owned(),
+            output.to_string(),
+        ];
+
+        let mut additional_args = match self.mode {
+            Mode::Frame(f) => {
+                vec!["-f".to_owned(), f.to_string()]
+            }
+            // Render the whole animation using all the settings saved in the blend-file.
+            Mode::Animation => {
+                vec!["-a".to_owned()]
+            }
+            Mode::Section(start, end) => vec![
+                "-s".to_owned(),
+                start.to_string(),
+                "-e".to_owned(),
+                end.to_string(),
+            ],
+        };
+
+        col.append(&mut additional_args);
+
+        col
+    }
 }

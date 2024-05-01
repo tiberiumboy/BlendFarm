@@ -70,16 +70,16 @@ fn test_render() -> Result<()> {
     let args = Args::new(path, output, Mode::Frame(1));
 
     // linux
-    // let path = PathBuf::from("/home/jordan/Downloads/blender/blender");
-    // macOS
-    let path = PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender");
+    let path = match env::consts::OS {
+        "linux" => PathBuf::from("/home/jordan/Downloads/blender/blender"),
+        "macos" => PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender"),
+        _ => panic!("unsupported OS"),
+    };
     let mut blender = Blender::from_executable(path).unwrap();
 
     // I now call render to invoke blender - returns file path of rendered output.
-    let output = blender.render(&args).unwrap();
+    blender.render(&args).unwrap();
 
-    // let's see what the output does for now.
-    // dbg!(&output);
     Ok(())
 }
 

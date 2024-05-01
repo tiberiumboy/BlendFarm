@@ -47,40 +47,8 @@ impl Blender {
 
     // Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
     pub fn render(&mut self, args: &Args) -> Result<()> {
-        // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#argument-order
-        let path = args.file.to_str().unwrap();
-        let output = args.output.to_str().unwrap();
-        let mut col = vec![
-            "-b".to_owned(),
-            path.to_string(),
-            "-o".to_owned(),
-            output.to_string(),
-        ];
-
-        /*
-        -F :format::Format
-        -x // use extension
-        # is substitute to 0 pad, none will add to suffix four pounds (####)
-        */
-
         // this argument must be set at the very end
-        let mut additional_args = match args.mode {
-            Mode::Frame(f) => {
-                vec!["-f".to_owned(), f.to_string()]
-            }
-            // Render the whole animation using all the settings saved in the blend-file.
-            Mode::Animation => {
-                vec!["-a".to_owned()]
-            }
-            Mode::Section(start, end) => vec![
-                "-s".to_owned(),
-                start.to_string(),
-                "-e".to_owned(),
-                end.to_string(),
-            ],
-        };
-
-        col.append(&mut additional_args);
+        let col = args.create_arg_list();
 
         // seems conflicting, this api locks main thread. NOT GOOD!
         // Instead I need to find a way to send signal back to the class that called this
@@ -113,20 +81,14 @@ impl Blender {
             } else if line.contains("Saved:") {
                 // this is where I can send signal back to the caller
                 // that the render is completed
-                println!("{}", line);
+                let location = line.split('\'').collect::<Vec<&str>>();
+                // Ok(PathBuf::from())
+
+                println!("{}", location[1]);
             }
         });
 
         // self.status
-
-        // let stdout = String::from_utf8(output.stdout).unwrap();
-        // let col = stdout.split('\n').collect::<Vec<&str>>();
-        // let location = &col
-        //     .iter()
-        //     .filter(|&x| x.contains("Saved}"))
-        //     .collect::<Vec<_>>();
-        // let location = location.first().unwrap().split('\'').collect::<Vec<&str>>();
-        // Ok(PathBuf::from(location[1]))
         Ok(())
     }
 
