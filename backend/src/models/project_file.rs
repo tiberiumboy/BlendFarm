@@ -1,6 +1,6 @@
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{env, io::Error, path::PathBuf, str::FromStr};
+use std::{env, fs::remove_file, io::Error, path::PathBuf, str::FromStr};
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -62,23 +62,16 @@ impl ProjectFile {
 
     pub(crate) fn clear_temp(&mut self) {
         if let Some(tmp) = &self.tmp {
-            let _ = std::fs::remove_file(tmp);
+            match remove_file(tmp) {
+                Ok(_) => self.tmp = None,
+                Err(e) => eprintln!("Error: {}", e),
+            }
         }
-        self.tmp = None;
     }
 
     pub(crate) fn file_path(&self) -> &PathBuf {
         self.tmp.as_ref().unwrap_or(&self.src)
     }
-
-    //#[allow(dead_code)]
-    //pub fn run(&mut self, frame: i32) {
-    // self.move_to_temp();
-    // let blender = Blender::default();
-
-    // let _output = blender.render(&self, frame).unwrap();
-    // self.clear_temp();
-    //}
 }
 
 impl FromStr for ProjectFile {

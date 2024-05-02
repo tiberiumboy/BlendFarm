@@ -5,20 +5,26 @@ import { CiTrash } from "react-icons/ci";
 export interface RenderNodeProps {
   id: string;
   name?: string;
-  onDataChanged?: () => void;
+  onDataChanged?: (e: any, node: RenderNodeProps) => void;
 }
 
 export default function RenderNode(index: Number, node: RenderNodeProps) {
-  const deleteNode = () =>
-    invoke("delete_node", { id: node.id }).then(node.onDataChanged); // then we should signal a refresh somehow?
+  const deleteNode = (e: any) =>
+    invoke("delete_node", { id: node.id }).then(() => notifyDataChanged(e)); // then we should signal a refresh somehow?
 
-  const pauseNode = () =>
+  const pauseNode = (e: any) =>
     // TODO: send a signal to that node to pause
-    invoke("pause_node", { id: node.id }).then(node.onDataChanged);
+    invoke("pause_node", { id: node.id }).then(() => notifyDataChanged(e));
 
-  const resumeNode = () =>
+  const resumeNode = (e: any) =>
     // TODO: Signal commands to resume job.
-    invoke("resume_node", { id: node.id }).then(node.onDataChanged);
+    invoke("resume_node", { id: node.id }).then(() => notifyDataChanged(e));
+
+  const notifyDataChanged = (e: any) => {
+    if (node.onDataChanged != null) {
+      node.onDataChanged(e, node);
+    }
+  };
 
   return (
     <div key={index}>

@@ -34,16 +34,14 @@ impl Args {
         -x // use extension
         # is substitute to 0 pad, none will add to suffix four pounds (####)
         */
-
-        let path = self.file.to_str().unwrap();
-        let output = self.output.to_str().unwrap();
         let mut col = vec![
             "-b".to_owned(),
-            path.to_string(),
+            self.file.to_str().unwrap().to_string(),
             "-o".to_owned(),
-            output.to_string(),
+            self.output.to_str().unwrap().to_string(),
         ];
 
+        // this argument must be set at the very end
         let mut additional_args = match self.mode {
             Mode::Frame(f) => {
                 vec!["-f".to_owned(), f.to_string()]

@@ -6,6 +6,7 @@ export interface RenderJobProps {
   id: string;
   project_file: ProjectFileProps;
   src?: string;
+  picture?: string;
   onDataChanged?: () => void;
 }
 
@@ -26,6 +27,13 @@ export default function RenderJob(job: RenderJobProps) {
     }
   };
 
+  const showImage = () => {
+    if (job.picture != null) {
+      return <img src={job.picture} alt="completed" />;
+    }
+    return <div></div>;
+  };
+
   return (
     <div>
       <table>
@@ -33,7 +41,9 @@ export default function RenderJob(job: RenderJobProps) {
           <tr>
             <td>{job.project_file.file_name}</td>
             <td>{job.project_file.src}</td>
+            {showImage()}
             <td>
+              b
               <CiTrash onClick={deleteJob} />
             </td>
             <td>

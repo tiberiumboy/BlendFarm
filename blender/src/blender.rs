@@ -46,8 +46,7 @@ impl Blender {
     }
 
     // Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
-    pub fn render(&mut self, args: &Args) -> Result<()> {
-        // this argument must be set at the very end
+    pub fn render(&mut self, args: &Args) -> Result<String> {
         let col = args.create_arg_list();
 
         // seems conflicting, this api locks main thread. NOT GOOD!
@@ -63,7 +62,9 @@ impl Blender {
             .unwrap();
 
         let reader = BufReader::new(stdout);
+        let mut output: String = Default::default();
 
+        // parse stdout for human to read
         reader.lines().for_each(|line| {
             let line = line.unwrap();
             // println!("{}", &line);
@@ -72,8 +73,19 @@ impl Blender {
             // } else
             if line.contains("Fra:") {
                 let col = line.split('|').collect::<Vec<&str>>();
-                println!("{}", col.last().unwrap());
-
+                let last = col.last().unwrap().trim();
+                let slice = last.split(' ').collect::<Vec<&str>>();
+                match slice[0] {
+                    "Rendering" => {
+                        let current = slice[1].parse::<f32>().unwrap();
+                        let total = slice[3].parse::<f32>().unwrap();
+                        let percentage = current / total * 100.0;
+                        println!("Rendering {:.2}%", percentage);
+                    }
+                    _ => {
+                        println!("{}", last);
+                    }
+                }
                 // this is where I can send signal back to the caller
                 // that the render is in progress
                 // check for either Syncing or Rendering.
@@ -81,32 +93,14 @@ impl Blender {
                 // this is where I can send signal back to the caller
                 // that the render is completed
                 let location = line.split('\'').collect::<Vec<&str>>();
-                println!("{}", location[1]);
+                output = location[1].trim().to_string();
+                println!("Done! {}", output);
             }
         });
 
         // self.status
-        Ok(())
+        Ok(output)
     }
-
-    // going to ignore this for now and figure out what I need to get this working again.
-    /*
-    #[allow(dead_code)]
-    fn parse(base_url: &Url, version: &Version) -> Blender<NotInstalled> {
-        let dir = format!("Blender{}/", version);
-        let result = base_url.join(&dir);
-        dbg!(&result);
-
-        Blender {
-            url: result.ok(),
-            version: version.clone(),
-            dl_content: None,
-            executable: None,
-            state: PhantomData::<NotInstalled>,
-        }
-    }
-
-    */
 }
 
 impl PartialEq for Blender {

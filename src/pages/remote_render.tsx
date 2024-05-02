@@ -1,24 +1,32 @@
 import { open } from "@tauri-apps/api/dialog";
 import { invoke } from "@tauri-apps/api/tauri";
-import { useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { useEffect, useState } from "react";
 import RenderJob, { RenderJobProps } from "../components/render_job";
 import ProjectFile, { ProjectFileProps } from "../components/project_file";
 import RenderNode, { RenderNodeProps } from "../components/render_node";
 import Checkbox from "../components/Checkbox";
 
 export default function RemoteRender() {
-//#region Main data collection
+  //#region Main data collection
   const [nodes, setNodes] = useState(fetchNodes);
   const [projects, setProjects] = useState(fetchProjects);
   const [jobs, setJobs] = useState(fetchJobs);
-//#endregion
+  const [preview, setPreview] = useState("");
+  //#endregion
 
-//#region User selected data
-  const [selectedNodes, setSelectedNodes] = useState([]);
-  const [selectedProject, setSelectedProject] = useState({} as ProjectFileProps);
-//#endregion
+  //#region User selected data
+  const [selectedNodes, setSelectedNodes] = useState([] as RenderNodeProps[]);
+  const [selectedProject, setSelectedProject] = useState(
+    {} as ProjectFileProps,
+  );
+  //#endregion
 
-//#region Initialization
+  useEffect(() => {
+    listenImageUpdate();
+  }, []);
+
+  //#region Initialization
   function fetchNodes() {
     const initialNodes: RenderNodeProps[] = [];
     listNodes();
@@ -38,8 +46,8 @@ export default function RemoteRender() {
   }
 
   //#endregion
-  
-//#region API Calls to fetch Data
+
+  //#region API Calls to fetch Data
   function listNodes() {
     invoke("list_node").then((ctx) => setNodes(JSON.parse(ctx + "")));
   }
@@ -51,9 +59,14 @@ export default function RemoteRender() {
   function listJobs() {
     invoke("list_job").then((ctx) => setJobs(JSON.parse(ctx + "")));
   }
-//#endregion
 
-//#region Dialogs
+  const listenImageUpdate = async () =>
+    await listen("image_update", (event) => {
+      console.log(event);
+    });
+  //#endregion
+
+  //#region Dialogs
   function showDialog(id: string) {
     let dialog = document.getElementById(id);
     // TODO: Find a better way to fix this?
@@ -87,13 +100,24 @@ export default function RemoteRender() {
     closeDialog("create_process");
   }
 
+  const onCheckboxChanged = (e: any, props: RenderNodeProps) => {
+    let data = selectedNodes;
+
+    if (e.target.checked) {
+      data.push(props);
+    } else {
+      data = data.filter((node) => node.id !== props.id);
+    }
+    setSelectedNodes(data);
+  };
+
   function openJobWindow(project: ProjectFileProps) {
     setSelectedProject(project);
     showDialog("create_process");
   }
-//#endregion
+  //#endregion
 
-//#region Display Components
+  //#region Display Components
   function nodeWindow() {
     return (
       <div>
@@ -128,29 +152,32 @@ export default function RemoteRender() {
     return (
       <div>
         <h2>Project List</h2>
-        <button onClick={(e: any) => {
-          e.preventDefault();
-          open({
-            multiple: true,
-            filters: [
-              {
-                name: "Blender",
-                extensions: ["blend"],
-              },
-            ],
-          }).then((selected) => {
-            if (Array.isArray(selected)) {
-              // user selected multiple of files
-              selected.forEach((entry) => {
-                invoke("import_project", { path: entry });
-              });
-            } else if (selected != null) {
-              // user selected single file
-              invoke("import_project", { path: selected });
-            }
-            listProjects();
-          });
-        }}>Import
+        <button
+          onClick={(e: any) => {
+            e.preventDefault();
+            open({
+              multiple: true,
+              filters: [
+                {
+                  name: "Blender",
+                  extensions: ["blend"],
+                },
+              ],
+            }).then((selected) => {
+              if (Array.isArray(selected)) {
+                // user selected multiple of files
+                selected.forEach((entry) => {
+                  invoke("import_project", { path: entry });
+                });
+              } else if (selected != null) {
+                // user selected single file
+                invoke("import_project", { path: selected });
+              }
+              listProjects();
+            });
+          }}
+        >
+          Import
         </button>
         <div className="group">
           {projects.map(
@@ -173,19 +200,19 @@ export default function RemoteRender() {
         <div className="group">
           {jobs.map(
             (job: RenderJobProps) => (
-              (job.onDataChanged = listJobs), RenderJob(job)
+              ((job.onDataChanged = listJobs), (job.picture = preview)),
+              RenderJob(job)
             ),
           )}
         </div>
       </div>
-    )
+    );
   }
 
   function jobCreationDialog() {
-    /* 
+    /*
       Display this window with a list of available nodes to select from,
-      TODO: List blender version for the blender project we collected 
-      TODO: Ask user for output destination
+      TODO: List blender version for the blender project we collected
       TODO: Test argument passing to rust and verify all system working as intended.
 
       once that is completed, it set forth a new queue instruction to all selected nodes.
@@ -195,69 +222,62 @@ export default function RemoteRender() {
       The host will display received image progress.
     */
     return (
-          <dialog id="create_process">
-          <form method="dialog" onSubmit={handleSubmitJobForm}>
-            <h1>Dialog</h1>
-            <label>Choose Node</label>
-            {/* Toggle node checkboxes */}
-            <label/>Toggle nodes:
-            <input
-              id="toggleNodes"
-              type="checkbox"
-              onChange={(e: any) => {
-                // Still skeptical about what Copilot writes here, but verify it afterward
-                const checkboxes = document.querySelectorAll("input[type=checkbox]"); // TODO: dangerous wildcard here...
-                checkboxes.forEach((checkbox) => {
-                  checkbox.checked = e.target.checked;
-                });
-              }}
-            />
-
-            {/* Checklist list */}
-            {nodes.map((node: RenderNodeProps) => 
-              Checkbox({id: node.id, name: node.name, value: node, onDataChanged(e, props) {
-                  let data = selectedNodes;
-                  
-                  if( e.target.checked ) {
-                    data.push(props);
-                  } else {
-                    data = data.filter((node) => node.id !== props.id);
-                  }
-                  console.log(e, props, data);
-                  setSelectedNodes(data);
-              },})
-            )}
-
-            {/* Output field */}
-            <input
-              type="text"
-              placeholder="Output Path"
-              id="output"
-              name="output"
-              readOnly={true}
-              onClick={async (e: any) => {
-                const filePath = await open({
-                  directory: true,
-                  multiple: false,
-                });
-                if (filePath != null) {
-                  e.target.value = filePath;
-                }
-              }}
-            />  
-            <menu>
-              <button
-                type="button"
-                value="cancel"
-                onClick={() => closeDialog("create_process")}
-              >
-                Cancel
-              </button>
-              <button type="submit">Ok</button>
-            </menu>
-          </form>
-        </dialog>
-    )
+      <dialog id="create_process">
+        <form method="dialog" onSubmit={handleSubmitJobForm}>
+          <h1>Dialog</h1>
+          <label>Choose Node</label>
+          {/* Toggle node checkboxes */}
+          <label />
+          Toggle nodes:
+          <input
+            id="toggleNodes"
+            type="checkbox"
+            onChange={(e: any) => {
+              // Still skeptical about what Copilot writes here, but verify it afterward
+              const checkboxes = document.querySelectorAll(
+                "input[type=checkbox]",
+              ); // TODO: dangerous wildcard here...
+              checkboxes.forEach((checkbox) => {
+                checkbox.checked = e.target.checked;
+              });
+            }}
+          />
+          {/* Checklist list */}
+          {nodes.map(
+            (node: RenderNodeProps) => (
+              (node.onDataChanged = onCheckboxChanged), Checkbox(node)
+            ),
+          )}
+          {/* Output field */}
+          <input
+            type="text"
+            placeholder="Output Path"
+            id="output"
+            name="output"
+            readOnly={true}
+            onClick={async (e: any) => {
+              const filePath = await open({
+                directory: true,
+                multiple: false,
+              });
+              if (filePath != null) {
+                e.target.value = filePath;
+              }
+            }}
+          />
+          <menu>
+            <button
+              type="button"
+              value="cancel"
+              onClick={() => closeDialog("create_process")}
+            >
+              Cancel
+            </button>
+            <button type="submit">Ok</button>
+          </menu>
+        </form>
+      </dialog>
+    );
   }
 
   function nodeCreationDialog() {
@@ -282,10 +302,9 @@ export default function RemoteRender() {
           </menu>
         </form>
       </dialog>
-    )
+    );
   }
-
-//#endregion
+  //#endregion
 
   return (
     <div className="content">

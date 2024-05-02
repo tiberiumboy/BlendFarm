@@ -37,8 +37,6 @@ fn client() {
         //     println!("{}", app.package_info().version);
         //     Ok(())
         // })
-        // Hmm find a way to load multiple of handlers? from different page source?
-        // I feel like there should be a better way to manage this?
         .invoke_handler(generate_handler![
             import_project,
             sync_project,
@@ -112,10 +110,10 @@ fn main() -> Result<()> {
 
     // now that we have a unit test to cover whether we can actually run blender from the desire machine, we should now
     // work on getting network stuff working together! yay!
-    let _ = test_render();
+    // let _ = test_render();
     // let _ = test_reading_blender_files();
 
-    // client();
+    client();
 
     Ok(())
 }

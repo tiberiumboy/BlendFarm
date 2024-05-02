@@ -1,6 +1,6 @@
 use crate::models::project_file::ProjectFile;
 use crate::models::{data::Data, job::Job, render_node::RenderNode};
-use std::{path::PathBuf, sync::Mutex};
+use std::{path::PathBuf, sync::Mutex, thread};
 use tauri::{command, Manager};
 use tauri::{AppHandle, Error};
 
@@ -65,9 +65,8 @@ pub fn delete_project(app: AppHandle, id: &str) {
     // retain the project from the collection.
     let ctx = app.state::<Mutex<Data>>();
     let mut data = ctx.lock().unwrap();
-    // TODO: Find a way to clear BlenderFiles if someone decided to delete the project file.
-    // let mut project = data.project_files.iter().find(|x| x.id == id).unwrap();
-    // project.clear_temp();
+    let mut project = data.get_project_file(id).unwrap().to_owned();
+    project.clear_temp();
     data.project_files.retain(|x| x.id != id);
 }
 
@@ -83,20 +82,22 @@ pub fn list_projects(app: AppHandle) -> Result<String, Error> {
 pub fn create_job(app: AppHandle, output: &str, project_id: &str, nodes: Vec<RenderNode>) {
     let ctx = app.state::<Mutex<Data>>();
     let mut data = ctx.lock().unwrap();
-    let project = data
-        .project_files
-        .iter()
-        .find(|x| x.id == project_id)
-        .unwrap();
+    let project = data.get_project_file(project_id).unwrap();
+    dbg!(&output);
     let output = PathBuf::from(output);
     let job = Job::new(&project.to_owned(), &output, nodes);
     // I have some weird feeling about this. How can I make a method invocation if they receive certain event,
     // e.g. progress bar?? I must read the stdoutput to gather blender's progress information.
     // See commands for blender and sidecar from tauri.
-    &job.run();
-    data.jobs.push(job);
 
-    // Ok cool now that we have a job up and running, we should send notification to start it?
+    // Find a way to run this process in asyncronize thread task?
+    // currently this app will freeze when running blender from here.
+    // thread::spawn(move || {
+    // I would like to find a way to invoke event command to provide the user interface the image path to the final render job.
+    job.run();
+    // });
+    //
+    data.jobs.push(job);
 }
 
 #[command]
