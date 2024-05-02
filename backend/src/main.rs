@@ -58,15 +58,13 @@ fn client() {
 
 // eventually, I want to get to a point where I could use blender to render an image or return an error.
 // it would be nice to provide some kind of user interface to keep user entertained on the GUI side - e.g. percentage?
-#[allow(dead_code)]
 fn test_render() -> Result<()> {
     // load blend file. A simple scene with cube and plane. Ideally used for debugging purposes only.
-    let mut path = PathBuf::from("./backend/");
-    let output = path.clone();
+    let output = PathBuf::from("./backend/");
+    let mut path = output.clone();
     path.push("test");
     path.set_extension("blend");
 
-    // let project = ProjectFile::new(&path);
     let args = Args::new(path, output, Mode::Frame(1));
 
     // linux
@@ -78,7 +76,7 @@ fn test_render() -> Result<()> {
     let mut blender = Blender::from_executable(path).unwrap();
 
     // I now call render to invoke blender - returns file path of rendered output.
-    blender.render(&args).unwrap();
+    let _ = blender.render(&args).unwrap();
 
     Ok(())
 }

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     io::{BufRead, BufReader, Result},
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
 };
 
 #[derive(Debug, Eq, Serialize, Deserialize)]
@@ -67,23 +67,20 @@ impl Blender {
         reader.lines().for_each(|line| {
             let line = line.unwrap();
             // println!("{}", &line);
+            // if line.contains("Warning:") {
+            //     println!("{}", line);
+            // } else
             if line.contains("Fra:") {
+                let col = line.split('|').collect::<Vec<&str>>();
+                println!("{}", col.last().unwrap());
+
                 // this is where I can send signal back to the caller
                 // that the render is in progress
                 // check for either Syncing or Rendering.
-                if line.contains("Syncing") {
-                    println!("Syncing..."); // find a way to stop sending more than once?
-                } else if line.contains("Rendering") {
-                    // now here we need to extract number before and after /
-                    let percentage = 0;
-                    println!("Rendering... {}", percentage)
-                }
             } else if line.contains("Saved:") {
                 // this is where I can send signal back to the caller
                 // that the render is completed
                 let location = line.split('\'').collect::<Vec<&str>>();
-                // Ok(PathBuf::from())
-
                 println!("{}", location[1]);
             }
         });
