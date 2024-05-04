@@ -50,7 +50,7 @@ impl Args {
             Mode::Animation => {
                 vec!["-a".to_owned()]
             }
-            Mode::Section(start, end) => vec![
+            Mode::Section { start, end } => vec![
                 "-s".to_owned(),
                 start.to_string(),
                 "-e".to_owned(),

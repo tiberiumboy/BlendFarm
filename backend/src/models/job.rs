@@ -1,4 +1,4 @@
-use std::{io::Result, marker::PhantomData, path::PathBuf};
+use std::{env, io::Result, marker::PhantomData, path::PathBuf};
 
 use super::{project_file::ProjectFile, render_node::RenderNode};
 use crate::services::sender;
@@ -34,10 +34,11 @@ impl Job {
     }
 
     // find a way to deal with async future/task?
-    pub fn run(&self) {
+    pub fn run(&self) -> Result<PathBuf> {
         let args = Args::new(
             self.project_file.src.clone(),
             self.output.clone(),
+            // TODO find a way to obtain which mode to run. animation, frame, etc.
             Mode::Frame(1),
         );
 
@@ -53,9 +54,16 @@ impl Job {
         // }
         // TODO: Find a way to get correct blender version before running job
 
-        let path = PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender");
+        // TODO: Replace this to reference correct blender version.
+        let path = match env::consts::OS {
+            "linux" => PathBuf::from("/home/jordan/Downloads/blender/blender"),
+            "macos" => PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender"),
+            _ => panic!("unsupported OS"),
+        };
+
         let mut blender = Blender::from_executable(path).unwrap();
-        blender.render(&args);
+        let output = blender.render(&args).unwrap();
+        Ok(PathBuf::from(output))
     }
 
     #[allow(dead_code)]

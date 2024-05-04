@@ -261,7 +261,8 @@ export default function RemoteRender() {
                 multiple: false,
               });
               if (filePath != null) {
-                e.target.value = filePath;
+                // TODO: find a way to include the dash elsewhere
+                e.target.value = filePath + "/"; 
               }
             }}
           />

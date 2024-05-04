@@ -64,8 +64,6 @@ fn test_render() -> Result<()> {
     path.set_extension("blend");
 
     let args = Args::new(path, output, Mode::Frame(1));
-
-    // linux
     let path = match env::consts::OS {
         "linux" => PathBuf::from("/home/jordan/Downloads/blender/blender"),
         "macos" => PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender"),
