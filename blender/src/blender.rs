@@ -1,4 +1,4 @@
-use crate::{args::Args, mode::Mode};
+use crate::args::Args;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{

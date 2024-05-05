@@ -1,19 +1,19 @@
-use std::{env, io::Result, marker::PhantomData, path::PathBuf};
+use std::{env, io::Result, path::PathBuf};
 
 use super::{project_file::ProjectFile, render_node::RenderNode};
-use crate::services::sender;
+// use crate::services::sender;
 use blender::{args::Args, blender::Blender, mode::Mode};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub trait JobStatus {}
+// pub trait JobStatus {}
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Idle;
-pub struct Paused;
+// pub struct Paused;
 // find a way to parse output data, and provide percentage of completion here
-pub struct Running(f32); // percentage of completion
-pub struct Completed;
-pub struct Error(String);
+// pub struct Running(f32); // percentage of completion
+// pub struct Completed;
+// pub struct Error(String);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Job {
@@ -21,6 +21,7 @@ pub struct Job {
     pub output: PathBuf, // output path
     pub nodes: Vec<RenderNode>,
     pub project_file: ProjectFile,
+    pub image_pic: Option<String>,
 }
 
 impl Job {
@@ -30,11 +31,12 @@ impl Job {
             nodes,
             output: output.clone(),
             project_file: project_file.clone(),
+            image_pic: None,
         }
     }
 
     // find a way to deal with async future/task?
-    pub fn run(&self) -> Result<PathBuf> {
+    pub fn run(&self) -> Result<String> {
         let args = Args::new(
             self.project_file.src.clone(),
             self.output.clone(),
@@ -62,8 +64,7 @@ impl Job {
         };
 
         let mut blender = Blender::from_executable(path).unwrap();
-        let output = blender.render(&args).unwrap();
-        Ok(PathBuf::from(output))
+        blender.render(&args)
     }
 
     #[allow(dead_code)]

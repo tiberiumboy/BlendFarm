@@ -1,12 +1,12 @@
 import { ProjectFileProps } from "../components/project_file";
 import { CiCircleMore, CiTrash } from "react-icons/ci";
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke, convertFileSrc } from "@tauri-apps/api/tauri";
 
 export interface RenderJobProps {
   id: string;
   project_file: ProjectFileProps;
   src?: string;
-  picture?: string;
+  image_pic?: string;
   onDataChanged?: () => void;
 }
 
@@ -20,18 +20,17 @@ export default function RenderJob(job: RenderJobProps) {
   };
 
   const showCompletedImage = () => {
-    if (job.src != null) {
-      return <img src={job.src} alt="completed" />;
+    console.log(job);
+    if (job.image_pic != null) {
+      return (
+        <img
+          style={{ height: "100%", width: "100%", objectFit: "contain" }}
+          src={convertFileSrc(job.image_pic)}
+        />
+      );
     } else {
       return <div></div>;
     }
-  };
-
-  const showImage = () => {
-    if (job.picture != null) {
-      return <img src={job.picture} alt="completed" />;
-    }
-    return <div></div>;
   };
 
   return (
@@ -41,9 +40,7 @@ export default function RenderJob(job: RenderJobProps) {
           <tr>
             <td>{job.project_file.file_name}</td>
             <td>{job.project_file.src}</td>
-            {showImage()}
             <td>
-              b
               <CiTrash onClick={deleteJob} />
             </td>
             <td>

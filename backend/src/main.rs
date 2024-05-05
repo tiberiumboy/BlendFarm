@@ -15,7 +15,7 @@ use blender::mode::Mode;
 use regex::Regex;
 use std::fs;
 use std::path::PathBuf;
-use std::{env, io::Result, sync::Mutex, thread};
+use std::{env, io::Result, sync::Mutex /* thread */};
 use tauri::generate_handler;
 
 pub mod controllers;
@@ -56,6 +56,7 @@ fn client() {
 
 // eventually, I want to get to a point where I could use blender to render an image or return an error.
 // it would be nice to provide some kind of user interface to keep user entertained on the GUI side - e.g. percentage?
+#[allow(dead_code)]
 fn test_render() -> Result<()> {
     // load blend file. A simple scene with cube and plane. Ideally used for debugging purposes only.
     let output = PathBuf::from("./backend/");

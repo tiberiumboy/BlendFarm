@@ -1,6 +1,6 @@
 use crate::models::project_file::ProjectFile;
 use crate::models::{data::Data, job::Job, render_node::RenderNode};
-use std::{path::PathBuf, sync::Mutex, thread};
+use std::{path::PathBuf, sync::Mutex /* thread */};
 use tauri::{command, Manager};
 use tauri::{AppHandle, Error};
 
@@ -85,7 +85,7 @@ pub fn create_job(app: AppHandle, output: &str, project_id: &str, nodes: Vec<Ren
     let project = data.get_project_file(project_id).unwrap();
     dbg!(&output);
     let output = PathBuf::from(output);
-    let job = Job::new(&project.to_owned(), &output, nodes);
+    let mut job = Job::new(&project.to_owned(), &output, nodes);
     // I have some weird feeling about this. How can I make a method invocation if they receive certain event,
     // e.g. progress bar?? I must read the stdoutput to gather blender's progress information.
     // See commands for blender and sidecar from tauri.
@@ -94,7 +94,9 @@ pub fn create_job(app: AppHandle, output: &str, project_id: &str, nodes: Vec<Ren
     // currently this app will freeze when running blender from here.
     // thread::spawn(move || {
     // I would like to find a way to invoke event command to provide the user interface the image path to the final render job.
-    job.run();
+    let output = job.run().unwrap();
+    job.image_pic = Some(output);
+
     // });
     //
     data.jobs.push(job);

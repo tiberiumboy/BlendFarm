@@ -1,11 +1,20 @@
 import { open } from "@tauri-apps/api/dialog";
 import { invoke } from "@tauri-apps/api/tauri";
-import { listen } from "@tauri-apps/api/event";
+import { listen, once } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import RenderJob, { RenderJobProps } from "../components/render_job";
 import ProjectFile, { ProjectFileProps } from "../components/project_file";
 import RenderNode, { RenderNodeProps } from "../components/render_node";
 import Checkbox from "../components/Checkbox";
+
+interface RenderComposedPayload {
+  id: string;
+  src: string;
+}
+
+const unlisten = await once<RenderComposedPayload>("image_update", (event) => {
+  console.log(event);
+});
 
 export default function RemoteRender() {
   //#region Main data collection
@@ -23,10 +32,12 @@ export default function RemoteRender() {
   //#endregion
 
   useEffect(() => {
-    listenImageUpdate();
+    unlisten(); // hmm should this work?
   }, []);
 
   //#region Initialization
+
+  // TODO: Move nodes inside sidebar. Makes more sense to allow adding/removing nodes from there.
   function fetchNodes() {
     const initialNodes: RenderNodeProps[] = [];
     listNodes();
@@ -60,10 +71,6 @@ export default function RemoteRender() {
     invoke("list_job").then((ctx) => setJobs(JSON.parse(ctx + "")));
   }
 
-  const listenImageUpdate = async () =>
-    await listen("image_update", (event) => {
-      console.log(event);
-    });
   //#endregion
 
   //#region Dialogs
@@ -262,7 +269,7 @@ export default function RemoteRender() {
               });
               if (filePath != null) {
                 // TODO: find a way to include the dash elsewhere
-                e.target.value = filePath + "/"; 
+                e.target.value = filePath + "/";
               }
             }}
           />
