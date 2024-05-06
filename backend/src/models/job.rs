@@ -1,4 +1,8 @@
-use std::{env, io::Result, path::PathBuf};
+use std::{
+    env,
+    io::Result,
+    path::{Path, PathBuf},
+};
 
 use super::{project_file::ProjectFile, render_node::RenderNode};
 // use crate::services::sender;
@@ -25,11 +29,11 @@ pub struct Job {
 }
 
 impl Job {
-    pub fn new(project_file: &ProjectFile, output: &PathBuf, nodes: Vec<RenderNode>) -> Job {
+    pub fn new(project_file: &ProjectFile, output: &Path, nodes: Vec<RenderNode>) -> Job {
         Job {
             id: Uuid::new_v4().to_string(),
             nodes,
-            output: output.clone(),
+            output: output.to_path_buf().clone(),
             project_file: project_file.clone(),
             image_pic: None,
         }

@@ -18,17 +18,15 @@ const unlisten = await once<RenderComposedPayload>("image_update", (event) => {
 
 export default function RemoteRender() {
   //#region Main data collection
-  const [nodes, setNodes] = useState(fetchNodes);
   const [projects, setProjects] = useState(fetchProjects);
   const [jobs, setJobs] = useState(fetchJobs);
-  const [preview, setPreview] = useState("");
   //#endregion
 
   //#region User selected data
-  const [selectedNodes, setSelectedNodes] = useState([] as RenderNodeProps[]);
   const [selectedProject, setSelectedProject] = useState(
     {} as ProjectFileProps,
   );
+  const [selectedNodes, setSelectedNodes] = useState([] as RenderNodeProps[]);
   //#endregion
 
   useEffect(() => {
@@ -38,11 +36,7 @@ export default function RemoteRender() {
   //#region Initialization
 
   // TODO: Move nodes inside sidebar. Makes more sense to allow adding/removing nodes from there.
-  function fetchNodes() {
-    const initialNodes: RenderNodeProps[] = [];
-    listNodes();
-    return initialNodes;
-  }
+  
 
   function fetchProjects() {
     const initialProjects: ProjectFileProps[] = [];
@@ -59,10 +53,6 @@ export default function RemoteRender() {
   //#endregion
 
   //#region API Calls to fetch Data
-  function listNodes() {
-    invoke("list_node").then((ctx) => setNodes(JSON.parse(ctx + "")));
-  }
-
   function listProjects() {
     invoke("list_projects").then((ctx) => setProjects(JSON.parse(ctx + "")));
   }
@@ -74,27 +64,27 @@ export default function RemoteRender() {
   //#endregion
 
   //#region Dialogs
-  function showDialog(id: string) {
-    let dialog = document.getElementById(id);
+  function showDialog() {
+    let dialog = document.getElementById("create_process");
     // TODO: Find a better way to fix this?
     dialog.showModal();
   }
 
-  function closeDialog(id: string) {
-    let dialog = document.getElementById(id);
+  function closeDialog() {
+    let dialog = document.getElementById("create_process");
     dialog.close();
   }
 
-  function handleSubmitNodeForm(e: any) {
-    e.preventDefault();
-    let data = {
-      name: e.target.name.value,
-      // TODO: remove magic hardcoded port value
-      host: e.target.ip.value + ":15000",
-    };
-    invoke("create_node", data).then(listNodes);
-    closeDialog("create_node");
-  }
+  // const onCheckboxChanged = (e: any, props: RenderNodeProps) => {
+  //   let data = selectedNodes;
+
+  //   if (e.target.checked) {
+  //     data.push(props);
+  //   } else {
+  //     data = data.filter((node) => node.id !== props.id);
+  //   }
+  //   setSelectedNodes(data);
+  // };
 
   function handleSubmitJobForm(e: any) {
     e.preventDefault();
@@ -104,46 +94,17 @@ export default function RemoteRender() {
       nodes: selectedNodes,
     };
     invoke("create_job", data).then(listJobs);
-    closeDialog("create_process");
+    closeDialog();
   }
-
-  const onCheckboxChanged = (e: any, props: RenderNodeProps) => {
-    let data = selectedNodes;
-
-    if (e.target.checked) {
-      data.push(props);
-    } else {
-      data = data.filter((node) => node.id !== props.id);
-    }
-    setSelectedNodes(data);
-  };
 
   function openJobWindow(project: ProjectFileProps) {
     setSelectedProject(project);
-    showDialog("create_process");
+    showDialog();
   }
   //#endregion
 
   //#region Display Components
-  function nodeWindow() {
-    return (
-      <div>
-        <h1>Remote Render</h1>
-
-        {/* Show the activity of the computer progress */}
-        <h2>Computer Nodes</h2>
-        <button onClick={() => showDialog("create_node")}>Connect</button>
-        <div className="group" id="RenderNodes">
-          {nodes.map(
-            (node: RenderNodeProps, index: Number) => (
-              (node.onDataChanged = listNodes), RenderNode(index, node)
-            ),
-          )}
-        </div>
-      </div>
-    );
-  }
-
+  
   function projectWindow() {
     /*
      The goal behind this is to let the user import the projects into their own temp collection,
@@ -207,7 +168,7 @@ export default function RemoteRender() {
         <div className="group">
           {jobs.map(
             (job: RenderJobProps) => (
-              ((job.onDataChanged = listJobs), (job.picture = preview)),
+              (job.onDataChanged = listJobs),
               RenderJob(job)
             ),
           )}
@@ -249,12 +210,12 @@ export default function RemoteRender() {
               });
             }}
           />
-          {/* Checklist list */}
-          {nodes.map(
+          {/* Checklist list I need to find a way to fetch nodes from other component! How?*/}
+          {/* {nodes.map(
             (node: RenderNodeProps) => (
               (node.onDataChanged = onCheckboxChanged), Checkbox(node)
             ),
-          )}
+          )} */}
           {/* Output field */}
           <input
             type="text"
@@ -288,39 +249,15 @@ export default function RemoteRender() {
     );
   }
 
-  function nodeCreationDialog() {
-    return (
-      <dialog id="create_node">
-        <form method="dialog" onSubmit={handleSubmitNodeForm}>
-          <h1>Dialog</h1>
-          {/* <label>Computer Name:</label>
-          <input type="text" placeholder="Name" id="name" name="name" />
-          <label>Internet Protocol Address</label>
-          <input type="text" placeholder="IP Address" id="ip" name="ip" /> */}
-
-          <menu>
-            <button
-              type="button"
-              value="cancel"
-              onClick={() => closeDialog("create_node")}
-            >
-              Cancel
-            </button>
-            <button type="submit">Ok</button>
-          </menu>
-        </form>
-      </dialog>
-    );
-  }
+  
   //#endregion
 
   return (
     <div className="content">
-      {nodeWindow()}
+      <h1>Remote Render</h1>
       {projectWindow()}
       {jobWindow()}
       {jobCreationDialog()}
-      {nodeCreationDialog()}
     </div>
   );
 }
