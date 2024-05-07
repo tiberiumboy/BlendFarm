@@ -1,8 +1,9 @@
+use serde::{Deserialize, Serialize};
 use std::io::Result;
 
 // TODO: Provide file format explicitly define by user
 // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#format-options
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum Format {
     TGA,
     RAWTGA,
@@ -17,23 +18,6 @@ pub enum Format {
 }
 
 impl Format {
-    #[allow(dead_code)]
-    fn to_str(&self) -> String {
-        match self {
-            Format::TGA => "TARGA",
-            Format::RAWTGA => "RAW TARGA",
-            Format::JPEG => "JPEG",
-            Format::IRIS => "IRIS",
-            Format::AVIRAW => "AVI RAW",
-            Format::AVIJPEG => "AVI JPEG",
-            Format::PNG => "PNG",
-            Format::BMP => "BMP",
-            Format::HDR => "HDR",
-            Format::TIFF => "TIFF",
-        }
-        .to_string()
-    }
-
     #[allow(dead_code)]
     fn parse(format: String) -> Result<Format> {
         match format.to_uppercase().as_str() {
@@ -51,6 +35,23 @@ impl Format {
                 std::io::ErrorKind::InvalidInput,
                 "Invalid format",
             )),
+        }
+    }
+}
+
+impl ToString for Format {
+    fn to_string(&self) -> String {
+        match self {
+            Format::TGA => "TARGA".to_owned(),
+            Format::RAWTGA => "RAWTARGA".to_owned(),
+            Format::JPEG => "JPEG".to_owned(),
+            Format::IRIS => "IRIS".to_owned(),
+            Format::AVIRAW => "AVIRAW".to_owned(),
+            Format::AVIJPEG => "AVIJPEG".to_owned(),
+            Format::PNG => "PNG".to_owned(),
+            Format::BMP => "BMP".to_owned(),
+            Format::HDR => "HDR".to_owned(),
+            Format::TIFF => "TIFF".to_owned(),
         }
     }
 }

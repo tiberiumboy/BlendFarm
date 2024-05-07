@@ -3,8 +3,8 @@ import { RenderNodeProps } from "./render_node";
 import { useState } from "react";
 import RenderNode from "./render_node";
 
-
-export default function ProjectWindow() {
+// how do I extract nodes from this window?
+export default function NodeWindow() {
 
 	const [nodes, setNodes] = useState(fetchNodes);
   

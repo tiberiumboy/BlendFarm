@@ -3,7 +3,7 @@ import * as CgIcons from "react-icons/cg";
 import * as Hi2Icon from "react-icons/hi2";
 import * as MdIcon from "react-icons/md";
 import { Link } from "react-router-dom";
-import ProjectWindow from "./project_window";
+import NodeWindow from "./node_window";
 
 export const SidebarData = [
   {
@@ -40,7 +40,7 @@ function Sidebar() {
           })}
         </ul>
       </nav>
-      {ProjectWindow()}
+      {NodeWindow()}
     </div>
   );
 }
