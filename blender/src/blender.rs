@@ -9,13 +9,11 @@ use std::{
 
 #[derive(Debug, Eq, Serialize, Deserialize)]
 pub struct Blender {
-    #[allow(dead_code)]
     version: Version, // Use this to help indicate what version blender is installed.
     executable: PathBuf,
 }
 
 impl Blender {
-    #[allow(dead_code)]
     pub fn new(executable: PathBuf, version: Version) -> Self {
         Blender {
             executable,

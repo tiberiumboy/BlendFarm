@@ -36,7 +36,6 @@ export default function RemoteRender() {
   //#region Initialization
 
   // TODO: Move nodes inside sidebar. Makes more sense to allow adding/removing nodes from there.
-  
 
   function fetchProjects() {
     const initialProjects: ProjectFileProps[] = [];
@@ -90,7 +89,7 @@ export default function RemoteRender() {
     e.preventDefault();
     let data = {
       output: e.target.output.value,
-      projectId: selectedProject.id,
+      projectFile: selectedProject,
       nodes: selectedNodes,
     };
     invoke("create_job", data).then(listJobs);
@@ -104,7 +103,7 @@ export default function RemoteRender() {
   //#endregion
 
   //#region Display Components
-  
+
   function projectWindow() {
     /*
      The goal behind this is to let the user import the projects into their own temp collection,
@@ -168,8 +167,7 @@ export default function RemoteRender() {
         <div className="group">
           {jobs.map(
             (job: RenderJobProps) => (
-              (job.onDataChanged = listJobs),
-              RenderJob(job)
+              (job.onDataChanged = listJobs), RenderJob(job)
             ),
           )}
         </div>
@@ -249,7 +247,6 @@ export default function RemoteRender() {
     );
   }
 
-  
   //#endregion
 
   return (

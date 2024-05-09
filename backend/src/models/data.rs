@@ -16,10 +16,10 @@ pub(crate) struct Data {
 }
 
 impl Data {
-    pub fn get_project_file(&self, id: &str) -> Result<&ProjectFile> {
+    pub fn get_project_file(&self, project_file: &ProjectFile) -> Result<&ProjectFile> {
         self.project_files
             .iter()
-            .find(|x| x.id == id)
+            .find(|x| *x == project_file)
             .ok_or(ErrorKind::NotFound.into())
     }
 

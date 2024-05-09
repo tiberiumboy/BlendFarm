@@ -12,7 +12,6 @@ pub struct Inactive;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RenderNode<State = Idle> {
-    pub id: String,
     pub name: Option<String>,
     pub host: SocketAddr,
     state: PhantomData<State>,
@@ -23,7 +22,6 @@ impl RenderNode<Inactive> {
     pub fn parse(name: &str, host: &str) -> Result<RenderNode<Inactive>, Error> {
         match host.parse::<SocketAddr>() {
             Ok(socket) => Ok(RenderNode {
-                id: uuid::Uuid::new_v4().to_string(),
                 name: Some(name.to_owned()),
                 state: PhantomData::<Inactive>,
                 host: socket,
@@ -34,7 +32,6 @@ impl RenderNode<Inactive> {
 
     pub fn connect(self) -> RenderNode<Idle> {
         RenderNode {
-            id: self.id,
             name: self.name,
             host: self.host,
             state: PhantomData::<Idle>,
@@ -46,7 +43,6 @@ impl RenderNode<Idle> {
     pub fn create_localhost() -> Self {
         let host = SocketAddr::from_str("127.0.0.1:15000").unwrap();
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
             name: Some("localhost".to_owned()),
             host,
             state: PhantomData::<Idle>,
@@ -56,7 +52,6 @@ impl RenderNode<Idle> {
     #[allow(dead_code)]
     pub fn disconnected(self) -> RenderNode<Inactive> {
         RenderNode {
-            id: self.id,
             name: self.name,
             host: self.host,
             state: PhantomData::<Inactive>,
@@ -79,7 +74,6 @@ impl RenderNode<Idle> {
 impl RenderNode<Running> {
     pub fn abort(self) -> RenderNode<Idle> {
         RenderNode {
-            id: self.id,
             name: self.name,
             host: self.host,
             state: std::marker::PhantomData::<Idle>,
@@ -92,5 +86,11 @@ impl FromStr for RenderNode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         serde_json::from_str::<RenderNode>(s)
+    }
+}
+
+impl PartialEq for RenderNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.host == other.host && self.name == other.name
     }
 }

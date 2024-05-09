@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-semver = "1.0.22"
-serde = "1.0.198"
+semver = { version = "1.0.22", features = ["serde"] }
+serde = { version = "1.0.198", features = ["derive"] }

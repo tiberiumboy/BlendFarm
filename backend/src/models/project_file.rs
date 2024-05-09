@@ -1,11 +1,9 @@
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{env, fs::remove_file, io::Error, path::PathBuf, str::FromStr};
-use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProjectFile {
-    pub id: String, // is there a way we can store uuid instead string?
     pub file_name: String,
     pub src: PathBuf,
     #[serde(skip_serializing)]
@@ -15,11 +13,7 @@ pub struct ProjectFile {
 
 impl PartialEq for ProjectFile {
     fn eq(&self, other: &Self) -> bool {
-        self.id.eq(&other.id)
-    }
-
-    fn ne(&self, other: &Self) -> bool {
-        !self.eq(other)
+        *self.src == *other.src
     }
 }
 
@@ -32,7 +26,6 @@ impl ProjectFile {
 
         // in the path, I need to remove .blend from the path.
         Self {
-            id: Uuid::new_v4().to_string(),
             // TODO: Clean this up afterward!
             file_name: path
                 .file_stem()

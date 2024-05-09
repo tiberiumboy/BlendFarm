@@ -8,7 +8,6 @@ use super::{project_file::ProjectFile, render_node::RenderNode};
 // use crate::services::sender;
 use blender::{args::Args, blender::Blender, mode::Mode};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 // pub trait JobStatus {}
 #[derive(Debug, Serialize, Deserialize)]
@@ -19,23 +18,30 @@ pub struct Idle;
 // pub struct Completed;
 // pub struct Error(String);
 
+// todo - how do we know what mode to use or what mode to run?
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Job {
-    pub id: String,
     pub output: PathBuf, // output path
     pub nodes: Vec<RenderNode>,
+    pub mode: Mode,
     pub project_file: ProjectFile,
     pub image_pic: Option<String>,
 }
 
 impl Job {
-    pub fn new(project_file: &ProjectFile, output: &Path, nodes: Vec<RenderNode>) -> Job {
+    // TODO: Impl mode for job.
+    pub fn new(
+        project_file: &ProjectFile,
+        output: &Path,
+        nodes: Vec<RenderNode>,
+        mode: Mode,
+    ) -> Job {
         Job {
-            id: Uuid::new_v4().to_string(),
             nodes,
             output: output.to_path_buf().clone(),
             project_file: project_file.clone(),
             image_pic: None,
+            mode,
         }
     }
 
@@ -44,8 +50,7 @@ impl Job {
         let args = Args::new(
             self.project_file.src.clone(),
             self.output.clone(),
-            // TODO find a way to obtain which mode to run. animation, frame, etc.
-            Mode::Frame(1),
+            self.mode.clone(),
         );
 
         // need to send network packet to node to notify running job
@@ -85,5 +90,11 @@ impl Job {
     #[allow(dead_code)]
     pub fn resume(self) {
         todo!();
+    }
+}
+
+impl PartialEq for Job {
+    fn eq(&self, other: &Self) -> bool {
+        self.project_file == other.project_file
     }
 }

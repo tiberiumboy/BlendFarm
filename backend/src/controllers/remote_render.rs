@@ -1,5 +1,7 @@
 use crate::models::project_file::ProjectFile;
 use crate::models::{data::Data, job::Job, render_node::RenderNode};
+use blender::mode::Mode;
+use futures::executor;
 use std::{path::PathBuf, sync::Mutex /* thread */};
 use tauri::{command, Manager};
 use tauri::{AppHandle, Error};
@@ -31,11 +33,11 @@ pub fn edit_node(_app: AppHandle, _update_node: RenderNode) {
 }
 
 #[command]
-pub fn delete_node(app: AppHandle, id: String) -> Result<(), Error> {
+pub fn delete_node(app: AppHandle, target_node: RenderNode) -> Result<(), Error> {
     // delete node from list and refresh the app?
     let node_mutex = &app.state::<Mutex<Data>>();
     let mut node = node_mutex.lock().unwrap();
-    node.render_nodes.retain(|x| x.id != id);
+    node.render_nodes.retain(|x| x != &target_node);
     Ok(())
 }
 
@@ -52,22 +54,26 @@ pub fn import_project(app: AppHandle, path: &str) {
 }
 
 #[command]
-pub fn sync_project(app: AppHandle, id: &str) {
+pub fn sync_project(app: AppHandle, project_file: ProjectFile) {
     // we find the project by the id, then we re-sync the files
     let ctx = app.state::<Mutex<Data>>();
     let mut data = ctx.lock().unwrap();
-    let project = data.project_files.iter_mut().find(|x| x.id == id).unwrap();
+    let project = data
+        .project_files
+        .iter_mut()
+        .find(|x| *x == &project_file)
+        .unwrap();
     project.move_to_temp();
 }
 
 #[command]
-pub fn delete_project(app: AppHandle, id: &str) {
+pub fn delete_project(app: AppHandle, project_file: ProjectFile) {
     // retain the project from the collection.
     let ctx = app.state::<Mutex<Data>>();
     let mut data = ctx.lock().unwrap();
-    let mut project = data.get_project_file(id).unwrap().to_owned();
+    let mut project = data.get_project_file(&project_file).unwrap().to_owned();
     project.clear_temp();
-    data.project_files.retain(|x| x.id != id);
+    data.project_files.retain(|x| *x != project_file);
 }
 
 #[command]
@@ -79,13 +85,13 @@ pub fn list_projects(app: AppHandle) -> Result<String, Error> {
 }
 
 #[command]
-pub fn create_job(app: AppHandle, output: &str, project_id: &str, nodes: Vec<RenderNode>) {
+pub fn create_job(app: AppHandle, output: &str, project_file: ProjectFile, nodes: Vec<RenderNode>) {
     let ctx = app.state::<Mutex<Data>>();
     let mut data = ctx.lock().unwrap();
-    let project = data.get_project_file(project_id).unwrap();
-    dbg!(&output);
+    let project = data.get_project_file(&project_file).unwrap();
     let output = PathBuf::from(output);
-    let mut job = Job::new(&project.to_owned(), &output, nodes);
+    let mode = Mode::Frame(1); //TODO: make it so that we receive mode inputs.
+    let mut job = Job::new(&project.to_owned(), &output, nodes, mode);
     // I have some weird feeling about this. How can I make a method invocation if they receive certain event,
     // e.g. progress bar?? I must read the stdoutput to gather blender's progress information.
     // See commands for blender and sidecar from tauri.
@@ -94,20 +100,24 @@ pub fn create_job(app: AppHandle, output: &str, project_id: &str, nodes: Vec<Ren
     // currently this app will freeze when running blender from here.
     // thread::spawn(move || {
     // I would like to find a way to invoke event command to provide the user interface the image path to the final render job.
-    let output = job.run().unwrap();
-    job.image_pic = Some(output);
+    let fut_value = async {
+        match job.run() {
+            Ok(path) => Some(path),
+            Err(_) => None,
+        }
+    };
 
-    // });
-    //
+    let image = executor::block_on(fut_value);
+    job.image_pic = image;
     data.jobs.push(job);
 }
 
 #[command]
-pub fn delete_job(app: AppHandle, id: String) {
+pub fn delete_job(app: AppHandle, target_job: Job) {
     let ctx = app.state::<Mutex<Data>>();
     let mut data = ctx.lock().unwrap();
     // TODO: before I do this, I need to go through each of the nodes and stop this job.
-    data.jobs.retain(|x| x.id != id); // TODO: See if there's a deconstructor that I need to be consern about.
+    data.jobs.retain(|x| *x != target_job); // TODO: See if there's a deconstructor that I need to be consern about.
 }
 
 #[command]
