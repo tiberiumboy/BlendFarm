@@ -16,11 +16,37 @@ const unlisten = await once<RenderComposedPayload>("image_update", (event) => {
   console.log(event);
 });
 
+const Frame = () => {
+  <div>
+    <label>Frame</label>
+    <input type="number" />
+  </div>;
+};
+
+const Animation = () => {
+  <div>Animation</div>;
+};
+
+const Section = () => {
+  <div>
+    Section
+    <label>Start</label>
+    <input name="start" type="number" />
+    <label>End</label>
+    <input name="end" type="number" />
+  </div>;
+};
+
+const components = {
+  frame: Frame,
+  animation: Animation,
+  section: Section,
+};
+
 export default function RemoteRender() {
-  //#region Main data collection
   const [projects, setProjects] = useState(fetchProjects);
   const [jobs, setJobs] = useState(fetchJobs);
-  //#endregion
+  const [mode, setMode] = useState(components["frame"]);
 
   //#region User selected data
   const [selectedProject, setSelectedProject] = useState(
@@ -87,10 +113,12 @@ export default function RemoteRender() {
 
   function handleSubmitJobForm(e: any) {
     e.preventDefault();
+    // let mode =
     let data = {
       output: e.target.output.value,
       projectFile: selectedProject,
       nodes: selectedNodes,
+      // mode:
     };
     invoke("create_job", data).then(listJobs);
     closeDialog();
