@@ -302,7 +302,7 @@ export default function RemoteRender() {
             <button
               type="button"
               value="cancel"
-              onClick={() => closeDialog("create_process")}
+              onClick={closeDialog}
             >
               Cancel
             </button>
