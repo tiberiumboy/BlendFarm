@@ -59,11 +59,15 @@ impl Blender {
             .stdout
             .unwrap();
 
+        println!("Spawn a process");
+
         let reader = BufReader::new(stdout);
         let mut output: String = Default::default();
 
+        println!("Reading lines by lines");
         // parse stdout for human to read
         reader.lines().for_each(|line| {
+            // it would be nice to include verbose logs?
             let line = line.unwrap();
             // println!("{}", &line);
             // if line.contains("Warning:") {
@@ -92,7 +96,6 @@ impl Blender {
                 // that the render is completed
                 let location = line.split('\'').collect::<Vec<&str>>();
                 output = location[1].trim().to_string();
-                println!("Done! {}", output);
             }
         });
 

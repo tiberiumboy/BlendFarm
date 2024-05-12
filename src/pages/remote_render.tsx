@@ -46,6 +46,7 @@ const components = {
 export default function RemoteRender() {
   const [projects, setProjects] = useState(fetchProjects);
   const [jobs, setJobs] = useState(fetchJobs);
+  const [nodes, setNodes] = useState(fetchNodes);
   const [mode, setMode] = useState(components["frame"]);
 
   //#region User selected data
@@ -64,15 +65,18 @@ export default function RemoteRender() {
   // TODO: Move nodes inside sidebar. Makes more sense to allow adding/removing nodes from there.
 
   function fetchProjects() {
-    const initialProjects: ProjectFileProps[] = [];
     listProjects();
-    return initialProjects;
+    return [] as ProjectFileProps[];
   }
 
   function fetchJobs() {
-    const initialJobs: RenderJobProps[] = [];
     listJobs();
-    return initialJobs;
+    return [] as RenderJobProps[];
+  }
+
+  function fetchNodes() {
+    listNodes();
+    return [] as RenderNodeProps[];
   }
 
   //#endregion
@@ -84,6 +88,10 @@ export default function RemoteRender() {
 
   function listJobs() {
     invoke("list_job").then((ctx) => setJobs(JSON.parse(ctx + "")));
+  }
+
+  function listNodes() {
+    invoke("list_node").then((ctx) => setNodes(JSON.parse(ctx + "")));
   }
 
   //#endregion
@@ -100,19 +108,20 @@ export default function RemoteRender() {
     dialog.close();
   }
 
-  // const onCheckboxChanged = (e: any, props: RenderNodeProps) => {
-  //   let data = selectedNodes;
+  const onCheckboxChanged = (e: any, props: RenderNodeProps) => {
+    let data = selectedNodes;
 
-  //   if (e.target.checked) {
-  //     data.push(props);
-  //   } else {
-  //     data = data.filter((node) => node.id !== props.id);
-  //   }
-  //   setSelectedNodes(data);
-  // };
+    if (e.target.checked) {
+      data.push(props);
+    } else {
+      data = data.filter((node) => node.id !== props.id);
+    }
+    setSelectedNodes(data);
+  };
 
   function handleSubmitJobForm(e: any) {
     e.preventDefault();
+    console.log(selectedNodes);
     // let mode =
     let data = {
       output: e.target.output.value,
@@ -237,11 +246,11 @@ export default function RemoteRender() {
             }}
           />
           {/* Checklist list I need to find a way to fetch nodes from other component! How?*/}
-          {/* {nodes.map(
+          {nodes.map(
             (node: RenderNodeProps) => (
               (node.onDataChanged = onCheckboxChanged), Checkbox(node)
             ),
-          )} */}
+          )}
           {/* Output field */}
           <input
             type="text"

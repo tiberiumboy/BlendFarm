@@ -91,7 +91,7 @@ pub fn create_job(app: AppHandle, output: &str, project_file: ProjectFile, nodes
     let project = data.get_project_file(&project_file).unwrap();
     let output = PathBuf::from(output);
     let mode = Mode::Frame(1); //TODO: make it so that we receive mode inputs.
-    let mut job = Job::new(&project.to_owned(), &output, nodes, mode);
+    let mut job = Job::new(project, &output, nodes, mode);
     // I have some weird feeling about this. How can I make a method invocation if they receive certain event,
     // e.g. progress bar?? I must read the stdoutput to gather blender's progress information.
     // See commands for blender and sidecar from tauri.

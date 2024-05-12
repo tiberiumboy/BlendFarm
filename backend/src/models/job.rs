@@ -73,6 +73,7 @@ impl Job {
         };
 
         let mut blender = Blender::from_executable(path).unwrap();
+        println!("Running blender!");
         blender.render(&args)
     }
 
