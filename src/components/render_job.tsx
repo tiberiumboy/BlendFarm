@@ -12,7 +12,7 @@ export interface RenderJobProps {
 
 export default function RenderJob(job: RenderJobProps) {
   const deleteJob = () =>
-    invoke("delete_job", { id: job.id }).then(job.onDataChanged);
+    invoke("delete_job", { targetJob: job }).then(job.onDataChanged);
 
   const moreAction = () => {
     // should probably provide some context menu?
@@ -20,7 +20,6 @@ export default function RenderJob(job: RenderJobProps) {
   };
 
   const showCompletedImage = () => {
-    console.log(job);
     if (job.image_pic != null) {
       return (
         <img

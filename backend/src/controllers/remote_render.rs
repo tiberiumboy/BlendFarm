@@ -117,7 +117,7 @@ pub fn delete_job(app: AppHandle, target_job: Job) {
     let ctx = app.state::<Mutex<Data>>();
     let mut data = ctx.lock().unwrap();
     // TODO: before I do this, I need to go through each of the nodes and stop this job.
-    data.jobs.retain(|x| *x != target_job); // TODO: See if there's a deconstructor that I need to be consern about.
+    data.jobs.retain(|x| x != &target_job);
 }
 
 #[command]

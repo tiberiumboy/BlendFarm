@@ -1,5 +1,5 @@
 import { CiTrash } from "react-icons/ci";
-import { MdEdit, MdOutlineMovie } from "react-icons/md";
+import { MdOutlineMovie } from "react-icons/md";
 import { invoke } from "@tauri-apps/api/tauri";
 
 export interface ProjectFileProps {
@@ -17,12 +17,11 @@ export default function (props: ProjectFileProps) {
   };
 
   const deleteProject = () =>
-    invoke("delete_project", { id: props.id }).then(props.onDataChanged);
+    invoke("delete_project", { projectFile: props }).then(props.onDataChanged);
 
   // this should really open a new dialog and asking for which machine to use for this job...
   // but ok
   const createNewJob = () => props.onRequestNewJob(props);
-    
 
   return (
     <div className="item" key={props.id} id={props.id}>

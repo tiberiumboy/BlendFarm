@@ -121,8 +121,6 @@ export default function RemoteRender() {
 
   function handleSubmitJobForm(e: any) {
     e.preventDefault();
-    console.log(selectedNodes);
-    // let mode =
     let data = {
       output: e.target.output.value,
       projectFile: selectedProject,
