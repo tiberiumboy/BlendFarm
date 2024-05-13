@@ -37,8 +37,8 @@ export default function RenderJob(job: RenderJobProps) {
       <table>
         <tbody>
           <tr>
-            <td>{job.project_file.file_name}</td>
-            <td>{job.project_file.src}</td>
+            <td style={{ width: "100%" }}>{job.project_file.file_name}</td>
+            {/* <td>{job.project_file.src}</td> */}
             <td>
               <CiTrash onClick={deleteJob} />
             </td>

@@ -5,35 +5,41 @@ import { useEffect, useState } from "react";
 import RenderJob, { RenderJobProps } from "../components/render_job";
 import ProjectFile, { ProjectFileProps } from "../components/project_file";
 import RenderNode, { RenderNodeProps } from "../components/render_node";
-import Checkbox from "../components/Checkbox";
 
+// TODO: Find a way to invoke global event updates so that we can notify image changes/updates
+// hmm?
 interface RenderComposedPayload {
   id: string;
   src: string;
 }
 
+// hmmmm?
 const unlisten = await once<RenderComposedPayload>("image_update", (event) => {
   console.log(event);
 });
 
+// must deserialize into this format: "Frame": "i32",
 const Frame = () => {
   <div>
     <label>Frame</label>
-    <input type="number" />
+    <input name="frame" id="frame" type="number" />
   </div>;
 };
 
+// TODO: Find a good reason why we would prefer animation over section?
+// must deserialize into this format: "Animation",
 const Animation = () => {
   <div>Animation</div>;
 };
 
+// must deserialize into this format: "Section": { "start": i32, "end": i32 }
 const Section = () => {
   <div>
     Section
     <label>Start</label>
-    <input name="start" type="number" />
+    <input name="start" id="start" type="number" />
     <label>End</label>
-    <input name="end" type="number" />
+    <input name="end" id="end" type="number" />
   </div>;
 };
 
@@ -61,9 +67,6 @@ export default function RemoteRender() {
   }, []);
 
   //#region Initialization
-
-  // TODO: Move nodes inside sidebar. Makes more sense to allow adding/removing nodes from there.
-
   function fetchProjects() {
     listProjects();
     return [] as ProjectFileProps[];
@@ -108,25 +111,27 @@ export default function RemoteRender() {
     dialog.close();
   }
 
-  const onCheckboxChanged = (e: any, props: RenderNodeProps) => {
+  const onCheckboxChanged = (node: RenderNodeProps) => {
     let data = selectedNodes;
-
-    if (e.target.checked) {
-      data.push(props);
+    if (data.indexOf(node) == -1) {
+      data.push(node);
     } else {
-      data = data.filter((node) => node.id !== props.id);
+      data = data.filter((item) => item !== node);
     }
     setSelectedNodes(data);
+    console.log("I've been changed!", selectedNodes);
   };
 
   function handleSubmitJobForm(e: any) {
     e.preventDefault();
+    // TODO: Find a way to parse/serialize mode version
     let data = {
       output: e.target.output.value,
       projectFile: selectedProject,
       nodes: selectedNodes,
-      // mode:
+      mode: { Frame: 1 },
     };
+    console.log(selectedNodes);
     invoke("create_job", data).then(listJobs);
     closeDialog();
   }
@@ -235,20 +240,46 @@ export default function RemoteRender() {
             type="checkbox"
             onChange={(e: any) => {
               // Still skeptical about what Copilot writes here, but verify it afterward
-              const checkboxes = document.querySelectorAll(
-                "input[type=checkbox]",
-              ); // TODO: dangerous wildcard here...
-              checkboxes.forEach((checkbox) => {
-                checkbox.checked = e.target.checked;
-              });
+              // const checkboxes = document.querySelectorAll(
+              //   "input[type=checkbox]",
+              // ); // TODO: dangerous wildcard here...
+              // TODO: How do I send notification about update all set?
+              if (e.target.checked) {
+                setSelectedNodes(nodes);
+              } else {
+                setSelectedNodes([]);
+              }
+              // checkboxes.forEach((checkbox) => {
+
+              //   checkbox.checked = e.target.checked;
+              // });
             }}
           />
           {/* Checklist list I need to find a way to fetch nodes from other component! How?*/}
-          {nodes.map(
-            (node: RenderNodeProps) => (
-              (node.onDataChanged = onCheckboxChanged), Checkbox(node)
-            ),
-          )}
+          {nodes.map((node: RenderNodeProps, index: number) => (
+            <div key={"Node_" + node.name + "_" + index}>
+              <label>{node.name}</label>
+              <input
+                type={"checkbox"}
+                checked={selectedNodes.indexOf(node) != -1}
+                onChange={() => onCheckboxChanged(node)}
+              />
+            </div>
+          ))}
+          <label>Choose rendering mode</label>
+          <select
+            name="modes"
+            id="modes"
+            onChange={(e) => {
+              const component = components[e.target.value];
+              setMode(component);
+            }}
+          >
+            {Object.entries(components).map((item) => (
+              <option value={item[0]}>{item[0]}</option>
+            ))}
+          </select>
+          {mode}
           {/* Output field */}
           <input
             type="text"

@@ -1,7 +1,6 @@
 use crate::models::project_file::ProjectFile;
 use crate::models::{data::Data, job::Job, render_node::RenderNode};
 use blender::mode::Mode;
-use futures::executor;
 use std::{path::PathBuf, sync::Mutex /* thread */};
 use tauri::{command, Manager};
 use tauri::{AppHandle, Error};
@@ -84,13 +83,18 @@ pub fn list_projects(app: AppHandle) -> Result<String, Error> {
     Ok(data)
 }
 
-#[command]
-pub fn create_job(app: AppHandle, output: &str, project_file: ProjectFile, nodes: Vec<RenderNode>) {
+#[command(async)]
+pub fn create_job(
+    app: AppHandle,
+    output: &str,
+    project_file: ProjectFile,
+    nodes: Vec<RenderNode>,
+    mode: Mode,
+) {
     let ctx = app.state::<Mutex<Data>>();
     let mut data = ctx.lock().unwrap();
     let project = data.get_project_file(&project_file).unwrap();
     let output = PathBuf::from(output);
-    let mode = Mode::Frame(1); //TODO: make it so that we receive mode inputs.
     let mut job = Job::new(project, &output, nodes, mode);
     // I have some weird feeling about this. How can I make a method invocation if they receive certain event,
     // e.g. progress bar?? I must read the stdoutput to gather blender's progress information.
@@ -100,14 +104,14 @@ pub fn create_job(app: AppHandle, output: &str, project_file: ProjectFile, nodes
     // currently this app will freeze when running blender from here.
     // thread::spawn(move || {
     // I would like to find a way to invoke event command to provide the user interface the image path to the final render job.
-    let fut_value = async {
-        match job.run() {
-            Ok(path) => Some(path),
-            Err(_) => None,
-        }
+    // let fut_value = async {
+    let image = match job.run() {
+        Ok(path) => Some(path),
+        Err(_) => None,
     };
+    // };
 
-    let image = executor::block_on(fut_value);
+    // let image = executor::block_on(fut_value);
     job.image_pic = image;
     data.jobs.push(job);
 }

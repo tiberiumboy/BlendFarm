@@ -24,7 +24,8 @@ impl Blender {
     pub fn from_executable(executable: PathBuf) -> Result<Self> {
         // this should return the version number
         // macos
-        let exec = executable.to_str().unwrap();
+        let exec = executable.as_path();
+        // let exec = executable.to_str().unwrap();
         let output = Command::new(exec).arg("-v").output().unwrap().stdout;
         // Is there a way to handle stdout?
         let stdout = String::from_utf8(output).unwrap();
@@ -38,7 +39,7 @@ impl Blender {
         // still sketchy, but it'll do for now
 
         Ok(Blender {
-            executable, // is this necessary?
+            executable,
             version,
         })
     }
@@ -59,12 +60,9 @@ impl Blender {
             .stdout
             .unwrap();
 
-        println!("Spawn a process");
-
         let reader = BufReader::new(stdout);
         let mut output: String = Default::default();
 
-        println!("Reading lines by lines");
         // parse stdout for human to read
         reader.lines().for_each(|line| {
             // it would be nice to include verbose logs?
@@ -99,7 +97,6 @@ impl Blender {
             }
         });
 
-        // self.status
         Ok(output)
     }
 }

@@ -24,6 +24,8 @@ pub struct Job {
     pub output: PathBuf, // output path
     pub nodes: Vec<RenderNode>,
     pub mode: Mode,
+    // eventually I will need to ask what version of blender does the user wants to run in.
+    // How do I fetch the list of available blender version?
     pub project_file: ProjectFile,
     pub image_pic: Option<String>,
 }
@@ -66,6 +68,7 @@ impl Job {
         // TODO: Find a way to get correct blender version before running job
 
         // TODO: Replace this to reference correct blender version.
+        // eventually, I wanted to get to a point where I could ask the machine to download blender if I do not have the proper version installed.
         let path = match env::consts::OS {
             "linux" => PathBuf::from("/home/jordan/Downloads/blender/blender"),
             "macos" => PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender"),
@@ -73,7 +76,6 @@ impl Job {
         };
 
         let mut blender = Blender::from_executable(path).unwrap();
-        println!("Running blender!");
         blender.render(&args)
     }
 

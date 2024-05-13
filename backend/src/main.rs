@@ -56,6 +56,7 @@ fn client() {
 
 // eventually, I want to get to a point where I could use blender to render an image or return an error.
 // it would be nice to provide some kind of user interface to keep user entertained on the GUI side - e.g. percentage?
+// TODO: Move this to Blender's test suite
 #[allow(dead_code)]
 fn test_render() -> Result<()> {
     // load blend file. A simple scene with cube and plane. Ideally used for debugging purposes only.

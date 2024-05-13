@@ -3,31 +3,36 @@ import { CiTrash } from "react-icons/ci";
 // import { FaRegPauseCircle, FaRegPlayCircle } from "react-icons/fa";
 
 export interface RenderNodeProps {
-  id: string;
   name?: string;
-  onDataChanged?: (e: any, node: RenderNodeProps) => void;
+  host?: string;
+  onDataChanged?: () => void;
 }
 
-export default function RenderNode(index: Number, node: RenderNodeProps) {
+export default function RenderNode(node: RenderNodeProps) {
   const deleteNode = (e: any) =>
-    invoke("delete_node", { id: node.id }).then(() => notifyDataChanged(e)); // then we should signal a refresh somehow?
+    invoke("delete_node", { targetNode: node }).then(() =>
+      notifyDataChanged(e),
+    ); // then we should signal a refresh somehow?
 
+  // TODO: Future update - implement a way to pause/resume rendering node job.
+  /*
   const pauseNode = (e: any) =>
     // TODO: send a signal to that node to pause
-    invoke("pause_node", { id: node.id }).then(() => notifyDataChanged(e));
+    invoke("pause_node", { id: node }).then(() => notifyDataChanged(e));
 
   const resumeNode = (e: any) =>
     // TODO: Signal commands to resume job.
     invoke("resume_node", { id: node.id }).then(() => notifyDataChanged(e));
+ */
 
   const notifyDataChanged = (e: any) => {
     if (node.onDataChanged != null) {
-      node.onDataChanged(e, node);
+      node.onDataChanged();
     }
   };
 
   return (
-    <div key={index}>
+    <div key={"Node_" + node.name}>
       <table>
         <tbody>
           <tr>
