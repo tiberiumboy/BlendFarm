@@ -21,22 +21,19 @@ impl Blender {
         }
     }
 
+    // Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
+    // Otherwise, if Blender is not install, or a version is not found, an error will be thrown
     pub fn from_executable(executable: PathBuf) -> Result<Self> {
-        // this should return the version number
-        // macos
         let exec = executable.as_path();
-        // let exec = executable.to_str().unwrap();
         let output = Command::new(exec).arg("-v").output().unwrap().stdout;
-        // Is there a way to handle stdout?
         let stdout = String::from_utf8(output).unwrap();
         let collection = stdout.split("\n\t").collect::<Vec<&str>>();
         let first = collection.first().unwrap();
         let version = if first.contains("Blender") {
             Version::parse(&first[8..]).unwrap() // this looks sketchy...
         } else {
-            Version::new(4, 1, 0)
+            Version::new(4, 1, 0) // still sketchy, but it'll do for now
         };
-        // still sketchy, but it'll do for now
 
         Ok(Blender {
             executable,
@@ -68,10 +65,9 @@ impl Blender {
             // it would be nice to include verbose logs?
             let line = line.unwrap();
             // println!("{}", &line);
-            // if line.contains("Warning:") {
-            //     println!("{}", line);
-            // } else
-            if line.contains("Fra:") {
+            if line.contains("Warning:") {
+                println!("{}", line);
+            } else if line.contains("Fra:") {
                 let col = line.split('|').collect::<Vec<&str>>();
                 let last = col.last().unwrap().trim();
                 let slice = last.split(' ').collect::<Vec<&str>>();
@@ -80,7 +76,7 @@ impl Blender {
                         let current = slice[1].parse::<f32>().unwrap();
                         let total = slice[3].parse::<f32>().unwrap();
                         let percentage = current / total * 100.0;
-                        println!("Rendering {:.2}%", percentage);
+                        println!("{} {:.2}%", last, percentage);
                     }
                     _ => {
                         println!("{}", last);
@@ -88,7 +84,6 @@ impl Blender {
                 }
                 // this is where I can send signal back to the caller
                 // that the render is in progress
-                // check for either Syncing or Rendering.
             } else if line.contains("Saved:") {
                 // this is where I can send signal back to the caller
                 // that the render is completed
