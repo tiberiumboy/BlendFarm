@@ -2,13 +2,13 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{env, fs::remove_file, io::Error, path::PathBuf, str::FromStr};
 
+// TODO: this may ultimately get removed? We just need the pathbuf to the blender file specifically..
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProjectFile {
     pub file_name: String,
     pub src: PathBuf,
     #[serde(skip_serializing)]
     pub tmp: Option<PathBuf>,
-    pub version: Version,
 }
 
 impl PartialEq for ProjectFile {
@@ -20,10 +20,6 @@ impl PartialEq for ProjectFile {
 #[allow(dead_code)]
 impl ProjectFile {
     pub fn new(path: &PathBuf) -> Self {
-        //let blend = Blend::from_path(path).expect("Unable to read blend file!");
-        // todo find a way to detect what version this blend file was opened in
-        let version = Version::new(4, 1, 0); //blend.version().unwrap();
-
         // in the path, I need to remove .blend from the path.
         Self {
             // TODO: Clean this up afterward!
@@ -36,7 +32,6 @@ impl ProjectFile {
                 .to_owned(),
             src: path.to_owned(),
             tmp: None,
-            version,
         }
     }
 

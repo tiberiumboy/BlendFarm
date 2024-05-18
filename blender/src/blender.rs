@@ -7,13 +7,23 @@ use std::{
     process::{Command, Stdio},
 };
 
+/// Blender structure to hold path to executable and version of blender installed.
 #[derive(Debug, Eq, Serialize, Deserialize)]
 pub struct Blender {
-    version: Version, // Use this to help indicate what version blender is installed.
-    executable: PathBuf,
+    /// Path to blender executable on the system.
+    pub executable: PathBuf,
+    /// Version of blender installed on the system.
+    pub version: Version,
 }
 
 impl Blender {
+    /// Create a new blender struct with provided path and version. Note this is not checked and enforced!
+    ///
+    /// # Examples
+    /// ```
+    /// use blender::Blender;
+    /// let blender = Blender::new("path/to/blender", Version::new(4,1,0));
+    /// ```
     pub fn new(executable: PathBuf, version: Version) -> Self {
         Blender {
             executable,
@@ -21,8 +31,13 @@ impl Blender {
         }
     }
 
-    // Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
-    // Otherwise, if Blender is not install, or a version is not found, an error will be thrown
+    /// Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
+    /// Otherwise, if Blender is not install, or a version is not found, an error will be thrown
+    /// # Examples
+    /// ```
+    /// use blender::Blender;
+    /// let blender = Blender::from_executable("path/to/blender").unwrap();
+    /// ```
     pub fn from_executable(executable: PathBuf) -> Result<Self> {
         let exec = executable.as_path();
         let output = Command::new(exec).arg("-v").output().unwrap().stdout;
@@ -41,7 +56,14 @@ impl Blender {
         })
     }
 
-    // Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
+    /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
+    /// # Examples
+    /// ```
+    /// use blender::Blender;
+    /// use blender::args::Args;
+    /// let blender = Blender::from_executable("path/to/blender").unwrap();
+    /// let args = Args::new(PathBuf::from("path/to/project.blend"), PathBuf::from("path/to/output.png"));
+    /// ```
     pub fn render(&mut self, args: &Args) -> Result<String> {
         let col = args.create_arg_list();
 

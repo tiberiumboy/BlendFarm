@@ -47,7 +47,7 @@ impl Job {
         }
     }
 
-    // find a way to deal with async future/task?
+    /// Invoke blender to run the job
     pub fn run(&self) -> Result<String> {
         let args = Args::new(
             self.project_file.src.clone(),
@@ -65,8 +65,9 @@ impl Job {
         // let blender = Blender::new();
         // blender.render(&self.project_file, &self.output);
         // }
-        // TODO: Find a way to get correct blender version before running job
 
+        // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
+        // TODO: Find a way to get correct blender version before running job
         // TODO: Replace this to reference correct blender version.
         // eventually, I wanted to get to a point where I could ask the machine to download blender if I do not have the proper version installed.
         let path = match env::consts::OS {
