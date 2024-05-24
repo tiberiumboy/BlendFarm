@@ -1,4 +1,3 @@
-use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{env, fs::remove_file, io::Error, path::PathBuf, str::FromStr};
 

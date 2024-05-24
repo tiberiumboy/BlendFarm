@@ -3,9 +3,9 @@ use std::{fs, io, path::PathBuf};
 
 use blender::blender::Blender;
 
-const SETTINGS_PATH: &str = "ServerSettings";
-const BLENDER_DATA: &str = "BlenderData";
-const RENDER_DATA: &str = "RenderData";
+const SETTINGS_PATH: &str = "./ServerSettings";
+const BLENDER_DATA: &str = "./BlenderData";
+const RENDER_DATA: &str = "./RenderData";
 // const BLENDER_FILES: &str = "BlenderFiles";
 
 #[derive(Debug, Serialize, Deserialize)]

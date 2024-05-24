@@ -8,12 +8,12 @@ use std::path::PathBuf;
 // ref: https://docs.blender.org/manual/en/latest/advanced/command_line/render.html
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Args {
-    pub file: PathBuf,          // required
-    pub output: PathBuf,        // optional
-    pub mode: Mode,             // required
-    pub engine: Option<Engine>, // optional
-    pub device: Option<Device>, // optional
-    pub format: Option<Format>, // optional
+    file: PathBuf,          // required
+    output: PathBuf,        // optional
+    mode: Mode,             // required
+    engine: Option<Engine>, // optional
+    device: Option<Device>, // optional
+    format: Option<Format>, // optional
 }
 
 impl Args {

@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+reqwest = "0.12.4"
 semver = { version = "1.0.22", features = ["serde"] }
 serde = { version = "1.0.198", features = ["derive"] }
+url = "2.5.0"

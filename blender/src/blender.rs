@@ -1,4 +1,5 @@
 use crate::args::Args;
+// use reqwest::blocking::Client;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -6,14 +7,18 @@ use std::{
     path::PathBuf,
     process::{Command, Stdio},
 };
+use url::Url;
+
+// TODO - how do I define a constant string argument for url path?
+const BLENDER_DOWNLOAD_URL: &str = "https://download.blender.org/release/";
 
 /// Blender structure to hold path to executable and version of blender installed.
 #[derive(Debug, Eq, Serialize, Deserialize)]
 pub struct Blender {
     /// Path to blender executable on the system.
-    pub executable: PathBuf,
+    executable: PathBuf, // Private immutable variable - Must validate before using!
     /// Version of blender installed on the system.
-    pub version: Version,
+    version: Version, // Private immutable variable - Must validate before using!
 }
 
 impl Blender {
@@ -22,9 +27,9 @@ impl Blender {
     /// # Examples
     /// ```
     /// use blender::Blender;
-    /// let blender = Blender::new("path/to/blender", Version::new(4,1,0));
+    /// let blender = Blender::new(PathBuf::from("path/to/blender"), Version::new(4,1,0));
     /// ```
-    pub fn new(executable: PathBuf, version: Version) -> Self {
+    fn new(executable: PathBuf, version: Version) -> Self {
         Blender {
             executable,
             version,
@@ -36,7 +41,7 @@ impl Blender {
     /// # Examples
     /// ```
     /// use blender::Blender;
-    /// let blender = Blender::from_executable("path/to/blender").unwrap();
+    /// let blender = Blender::from_executable(Pathbuf::from("path/to/blender")).unwrap();
     /// ```
     pub fn from_executable(executable: PathBuf) -> Result<Self> {
         let exec = executable.as_path();
@@ -50,10 +55,30 @@ impl Blender {
             Version::new(4, 1, 0) // still sketchy, but it'll do for now
         };
 
-        Ok(Blender {
-            executable,
-            version,
-        })
+        Ok(Blender::new(executable, version))
+    }
+
+    /// Download blender from the internet and install it to the provided path.
+    /// # Examples
+    /// ```
+    /// use blender::Blender;
+    ///
+    pub fn download(version: Version, install_path: PathBuf) -> Result<Blender> {
+        // we will use the version to generate the url path to download blender.org website.
+        // then use the install_path to install blender directly.
+        // TODO: Find a way to utilize extracting utility to unzip blender after download has complete.
+        let mut url = Url::parse(BLENDER_DOWNLOAD_URL).unwrap();
+        let path = format!("Blender{}.{}", version.major, version.minor);
+        let url = url.join(&path);
+
+        dbg!(url);
+        let executable = PathBuf::from("path/to/blender");
+
+        // download blender from the internet
+        // extract the blender to a temporary directory
+        // return the path to the blender executable
+        // return the version of the blender
+        Ok(Blender::new(executable, version))
     }
 
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?

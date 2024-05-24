@@ -9,9 +9,11 @@ use crate::models::{data::Data, render_node::RenderNode};
 use blender::args::Args;
 use blender::blender::Blender;
 use blender::mode::Mode;
+use semver::Version;
 // use services::multicast::multicast;
 // use services::receiver::receive;
 
+use models::server_setting::ServerSetting;
 use regex::Regex;
 use std::fs;
 use std::path::PathBuf;
@@ -54,39 +56,21 @@ fn client() {
         .expect("error while running tauri application");
 }
 
-// eventually, I want to get to a point where I could use blender to render an image or return an error.
-// it would be nice to provide some kind of user interface to keep user entertained on the GUI side - e.g. percentage?
-// TODO: Move this to Blender's test suite
-#[allow(dead_code)]
-fn test_render() -> Result<()> {
-    // load blend file. A simple scene with cube and plane. Ideally used for debugging purposes only.
-    let output = PathBuf::from("./backend/");
-    let mut path = output.clone();
-    path.push("test");
-    path.set_extension("blend");
-
-    let args = Args::new(path, output, Mode::Frame(1));
-    let path = match env::consts::OS {
-        "linux" => PathBuf::from("/home/jordan/Downloads/blender/blender"),
-        "macos" => PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender"),
-        _ => panic!("unsupported OS"),
-    };
-    let mut blender = Blender::from_executable(path).unwrap();
-
-    // I now call render to invoke blender - returns file path of rendered output.
-    let _ = blender.render(&args).unwrap();
-
-    Ok(())
-}
-
 #[allow(dead_code)]
 fn test_reading_blender_files() -> Result<()> {
     // will need to find a place for this.
-    let re = Regex::new(r#"<a href="(?<url>.*?)">(?<name>.*?)</a>\s*(?<date>.*?)\s\s\s"#).unwrap();
-    let content = fs::read_to_string("./src/examples/blender.net").unwrap();
-    for (_, [url, name, date]) in re.captures_iter(&content).map(|c| c.extract()) {
-        println!("url: {}, name: {}, date: {}", url, name, date);
-    }
+    // where is the download url path for this?
+    // let re = Regex::new(r#"<a href="(?<url>.*?)">(?<name>.*?)</a>\s*(?<date>.*?)\s\s\s"#).unwrap();
+    // let content = fs::read_to_string("./src/examples/blender.net").unwrap();
+    // for (_, [url, name, date]) in re.captures_iter(&content).map(|c| c.extract()) {
+    //     println!("url: {}, name: {}, date: {}", url, name, date);
+    // }
+
+    // let version = Version::new(4, 1, 0);
+    let server_settings = ServerSetting::load();
+    let installation_path = server_settings.blender_data;
+    dbg!(installation_path);
+    // let blender = Blender::download(version, )
 
     Ok(())
 }
@@ -111,9 +95,9 @@ fn main() -> Result<()> {
     // now that we have a unit test to cover whether we can actually run blender from the desire machine, we should now
     // work on getting network stuff working together! yay!
     // let _ = test_render();
-    // let _ = test_reading_blender_files();
+    let _ = test_reading_blender_files();
 
-    client();
+    // client();
 
     Ok(())
 }

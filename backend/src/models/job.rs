@@ -18,14 +18,18 @@ pub struct Idle;
 // pub struct Completed;
 // pub struct Error(String);
 
-// todo - how do we know what mode to use or what mode to run?
+/// A container to hold rendering job information. This will be used to send off jobs to all other rendering farm
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Job {
-    pub output: PathBuf, // output path
+    /// Path to the output directory where final render image will be saved to
+    pub output: PathBuf,
+    /// Target node machines to run the job to
     pub nodes: Vec<RenderNode>,
+    /// What kind of mode should this job run as
     pub mode: Mode,
     // eventually I will need to ask what version of blender does the user wants to run in.
     // How do I fetch the list of available blender version?
+    /// Path to blender files
     pub project_file: ProjectFile,
     pub image_pic: Option<String>,
 }
