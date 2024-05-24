@@ -3,7 +3,7 @@ use std::{fs, io, path::PathBuf};
 
 use blender::blender::Blender;
 
-const SETTINGS_PATH: &str = "./ServerSettings";
+const SETTINGS_PATH: &str = "./ServerSettings.json";
 const BLENDER_DATA: &str = "./BlenderData";
 const RENDER_DATA: &str = "./RenderData";
 // const BLENDER_FILES: &str = "BlenderFiles";
@@ -79,12 +79,15 @@ impl ServerSetting {
     }
 
     pub fn load() -> ServerSetting {
-        // load server settings from config?
-        let path = SETTINGS_PATH; // SystemInfo.RelativeToApplicationDirectory(SETTINGS_PATH)???
-        let data = fs::read_to_string(path).expect("Unable to read file!");
-        let server_settings: ServerSetting =
-            serde_json::from_str(&data).expect("Unable to parse settings!");
-        server_settings
+        match fs::read_to_string(SETTINGS_PATH) {
+            // TODO: find a way to handle parsing the error?
+            Ok(data) => serde_json::from_str(&data).expect("Unable to parse settings!"),
+            Err(_) => {
+                let data = ServerSetting::default();
+                let _ = &data.save();
+                data
+            }
+        }
     }
 
     pub fn get_blender_data() -> io::Result<PathBuf> {
