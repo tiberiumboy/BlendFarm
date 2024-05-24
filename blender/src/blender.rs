@@ -1,8 +1,9 @@
 use crate::args::Args;
-// use reqwest::blocking::Client;
+use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
+    env, fs,
     io::{BufRead, BufReader, Result},
     path::PathBuf,
     process::{Command, Stdio},
@@ -62,17 +63,75 @@ impl Blender {
     /// # Examples
     /// ```
     /// use blender::Blender;
-    ///
+    /// let blender = Blender::download(Version::new(4,1,0), PathBuf::from("path/to/installation")).unwrap();
+    /// ```
     pub fn download(version: Version, install_path: PathBuf) -> Result<Blender> {
-        // we will use the version to generate the url path to download blender.org website.
         // then use the install_path to install blender directly.
         // TODO: Find a way to utilize extracting utility to unzip blender after download has complete.
-        let mut url = Url::parse(BLENDER_DOWNLOAD_URL).unwrap();
-        let path = format!("Blender{}.{}", version.major, version.minor);
-        let url = url.join(&path);
+        let url = Url::parse(BLENDER_DOWNLOAD_URL).unwrap();
+        let path = format!("Blender{}.{}/", version.major, version.minor);
+        let url = url.join(&path).unwrap();
 
+        // this OS includes the operating system name and the compressed format.
+        let os = match env::consts::OS {
+            "windows" => Ok(("windows".to_string(), "zip".to_string())),
+            "macos" => Ok(("macos".to_string(), "dmg".to_string())),
+            "linux" => Ok(("linux".to_string(), "tar.xy".to_string())),
+            // Currently unsupported OS because blender does not have the toolchain to support OS.
+            // It may be available in the future, but for now it's currently unsupported as of today.
+            // TODO: See if some of the OS can compile and run blender natively, android/ios/freebsd?
+            // - ios - Apple OS - may not support - https://en.wikipedia.org/wiki/IOS - requires MacOS / xcode to compile.
+            // - freebsd - see below - https://www.freebsd.org/
+            // - dragonfly - may be supported? may have to compile open source blender - https://www.dragonflybsd.org/
+            // - netbsd - may be supported? See toolchain links and compiling blender from open source - https://www.netbsd.org/
+            // - openbsd - may be supported? See toolchain links and compiling blender from Open source - https://www.openbsd.org/
+            // - solaris - Oracle OS - may not support - https://en.wikipedia.org/wiki/Oracle_Solaris
+            // - android - may be supported? See ARM instruction.
+            _ => Err(format!("Unsupported OS! {}", env::consts::OS)),
+        };
+
+        // fetch current architecture (Currently support 64bit or arm64)
+        let arch = match env::consts::ARCH {
+            // "x86" => Ok("32"),
+            "x86_64" => Ok("64"),
+            "aarch64" => Ok("arm64"),
+            // - arm - Not sure where this one will be used or applicable? TODO: Future research - See if blender does support ARM processor and if not, fall under unsupported arch?
+            // - powerpc  - TODO: research if this is widely used? may support? Do not know yet. - https://en.wikipedia.org/wiki/PowerPC
+            // - powerpc64  - TODO: research if this is widely used? Similar to above, support 64 bit architecture
+            // - riscv64  - TODO: research if this is widely used? https://en.wikipedia.org/wiki/RISC-V
+            // - s390x - TODO: research if this is widely used?
+            // - sparc64  - TODO: research if this is widely used?
+            _ => Err(format!(
+                "Unsupported architecture found! {}",
+                env::consts::ARCH
+            )),
+        };
+
+        // fetch content list from subtree
+        let content = reqwest::blocking::get(url)
+            .expect("unable to fetch content from the internet! Is the firewall blocking it or are you connected?")
+            .text()
+            .unwrap();
+
+        // Content parsing to get download url that matches target operating system and version
+        let os = os.unwrap();
+        let match_pattern = format!(
+            r#"(<a href="(?<url>.*?)".*{}.*{}.*{}.*.{}*</a>.)"#,
+            version,
+            os.0,
+            arch.unwrap(),
+            os.1
+        );
+        let regex = Regex::new(&match_pattern).unwrap();
+        let url = match regex.captures(&content) {
+            Some(info) => info["url"].to_string(),
+            None => panic!("Unable to find the download link!"),
+        };
         dbg!(url);
-        let executable = PathBuf::from("path/to/blender");
+
+        // now run reqwest on the url, and fetch the current links to find the url that matches the pattern above.
+
+        let executable = install_path.join("blender");
 
         // download blender from the internet
         // extract the blender to a temporary directory

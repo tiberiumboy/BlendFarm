@@ -66,12 +66,10 @@ fn test_reading_blender_files() -> Result<()> {
     //     println!("url: {}, name: {}, date: {}", url, name, date);
     // }
 
-    // let version = Version::new(4, 1, 0);
+    let version = Version::new(3, 0, 0);
     let server_settings = ServerSetting::load();
     let installation_path = server_settings.blender_data;
-    dbg!(installation_path);
-    // let blender = Blender::download(version, )
-
+    let blender = Blender::download(version, installation_path).unwrap();
     Ok(())
 }
 
@@ -94,7 +92,6 @@ fn main() -> Result<()> {
 
     // now that we have a unit test to cover whether we can actually run blender from the desire machine, we should now
     // work on getting network stuff working together! yay!
-    // let _ = test_render();
     let _ = test_reading_blender_files();
 
     // client();

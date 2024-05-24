@@ -4,16 +4,16 @@ use std::{fs, io, path::PathBuf};
 use blender::blender::Blender;
 
 const SETTINGS_PATH: &str = "./ServerSettings.json";
-const BLENDER_DATA: &str = "./BlenderData";
-const RENDER_DATA: &str = "./RenderData";
+const BLENDER_DATA: &str = "BlenderData";
+const RENDER_DATA: &str = "RenderData";
 // const BLENDER_FILES: &str = "BlenderFiles";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerSetting {
     pub port: u16,
     pub broadcast_port: u16,
-    pub blender_data: BlenderData,
-    pub render_data: RenderData,
+    pub blender_data: PathBuf,
+    pub render_data: PathBuf,
     // TODO: Find out how rust program load and read configurations and compare before running a new blender job.
     pub blenders: Vec<Blender>, // list of installed blender versions on this machine.
 }
@@ -23,39 +23,13 @@ pub struct ServerSetting {
 //     // TODO find a way to implement generic function that can be shared across all other directory like structure.
 // }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BlenderData {
-    pub path: PathBuf,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RenderData {
-    pub path: PathBuf,
-}
-
 fn create_tmp_dir(dir_name: &str) -> PathBuf {
     let mut tmp = std::env::temp_dir();
     tmp.push(dir_name);
     if !tmp.exists() {
-        fs::create_dir(&tmp).expect("Unable to create directory!");
+        fs::create_dir(&tmp).expect("Unable to create directory! Permission issue?");
     }
     tmp
-}
-
-impl Default for BlenderData {
-    fn default() -> Self {
-        Self {
-            path: create_tmp_dir(BLENDER_DATA),
-        }
-    }
-}
-
-impl Default for RenderData {
-    fn default() -> Self {
-        Self {
-            path: create_tmp_dir(RENDER_DATA),
-        }
-    }
 }
 
 impl Default for ServerSetting {
@@ -63,8 +37,8 @@ impl Default for ServerSetting {
         Self {
             port: 15000,
             broadcast_port: 16342,
-            blender_data: BlenderData::default(),
-            render_data: RenderData::default(),
+            blender_data: create_tmp_dir(BLENDER_DATA),
+            render_data: create_tmp_dir(RENDER_DATA),
             blenders: vec![],
         }
     }
