@@ -80,7 +80,7 @@ impl Job {
             _ => panic!("unsupported OS"),
         };
 
-        let mut blender = Blender::from_executable(path).unwrap();
+        let blender = Blender::from_executable(path).unwrap();
         blender.render(&args)
     }
 

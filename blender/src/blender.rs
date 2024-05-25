@@ -3,12 +3,18 @@ use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
-    env, fs,
-    io::{BufRead, BufReader, Result},
+    env,
+    fs::{self, File},
+    io::{self, BufRead, BufReader, Result},
     path::PathBuf,
     process::{Command, Stdio},
 };
+use tar::Archive;
 use url::Url;
+
+// this feature may only work for linux os only?
+// TODO: find a way to perform this action for macOS and windows as well.
+use xz::read::XzDecoder;
 
 // TODO - how do I define a constant string argument for url path?
 const BLENDER_DOWNLOAD_URL: &str = "https://download.blender.org/release/";
@@ -74,9 +80,9 @@ impl Blender {
 
         // this OS includes the operating system name and the compressed format.
         let os = match env::consts::OS {
-            "windows" => Ok(("windows".to_string(), "zip".to_string())),
-            "macos" => Ok(("macos".to_string(), "dmg".to_string())),
-            "linux" => Ok(("linux".to_string(), "tar.xy".to_string())),
+            "windows" => Ok(("windows".to_string(), ".zip".to_string())),
+            "macos" => Ok(("macos".to_string(), ".dmg".to_string())),
+            "linux" => Ok(("linux".to_string(), ".tar.xz".to_string())),
             // Currently unsupported OS because blender does not have the toolchain to support OS.
             // It may be available in the future, but for now it's currently unsupported as of today.
             // TODO: See if some of the OS can compile and run blender natively, android/ios/freebsd?
@@ -108,34 +114,53 @@ impl Blender {
         };
 
         // fetch content list from subtree
-        let content = reqwest::blocking::get(url)
-            .expect("unable to fetch content from the internet! Is the firewall blocking it or are you connected?")
-            .text()
-            .unwrap();
+        // let content = reqwest::blocking::get(url.clone())
+        //     .expect("unable to fetch content from the internet! Is the firewall blocking it or are you connected?")
+        //     .text()
+        //     .unwrap();
+        let content = fs::read_to_string("./src/examples/Blender3.0.html").unwrap();
 
         // Content parsing to get download url that matches target operating system and version
         let os = os.unwrap();
         let match_pattern = format!(
-            r#"(<a href="(?<url>.*?)".*{}.*{}.*{}.*.{}*</a>.)"#,
-            version,
+            r#"(<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.{}.*{}.*{}.*\.[{}].*)<\/a>)"#,
+            version.major,
+            version.minor,
+            version.patch,
             os.0,
             arch.unwrap(),
             os.1
         );
+
         let regex = Regex::new(&match_pattern).unwrap();
-        let url = match regex.captures(&content) {
+        // TODO: also fetch the "name" from regex - in case the name doesn't match the same as href
+        let path = match regex.captures(&content) {
             Some(info) => info["url"].to_string(),
+            // TODO: find a way to gracefully error out of this function call.
             None => panic!("Unable to find the download link!"),
         };
-        dbg!(url);
 
-        // now run reqwest on the url, and fetch the current links to find the url that matches the pattern above.
+        // concatenate the final download destination to the url path
+        let url = url.join(&path).unwrap();
 
-        let executable = install_path.join("blender");
+        // create download path location
+        let download_path = install_path.join(&path);
+        // it would be nice to ask reqwest to save the content instead of having to transfer from memory over...
+        // TODO: something wrong with this codeblock - it download "something", but unable to extract the content in it?
+        // let response = reqwest::blocking::get(url).unwrap();
+        // let body = response.text().unwrap();
+        // let mut file = File::create(&download_path).unwrap();
+        // io::copy(&mut body.as_bytes(), &mut file).expect("Unable to write file! Permission issue?");
 
-        // download blender from the internet
-        // extract the blender to a temporary directory
-        // return the path to the blender executable
+        // extract the contents of the downloaded file
+        // let file = File::open(&download_path).unwrap(); // comment this out if we can get the line above working again - wouldn't make sense to open after we created?
+        // let tar = XzDecoder::new(file);
+        // let mut archive = Archive::new(tar);
+        // archive.unpack(&install_path).unwrap();
+
+        let dir = path.replace(&os.1, "");
+        let executable = install_path.join(dir).join("blender");
+
         // return the version of the blender
         Ok(Blender::new(executable, version))
     }
@@ -147,8 +172,9 @@ impl Blender {
     /// use blender::args::Args;
     /// let blender = Blender::from_executable("path/to/blender").unwrap();
     /// let args = Args::new(PathBuf::from("path/to/project.blend"), PathBuf::from("path/to/output.png"));
+    /// let final_output = blender.render(&args).unwrap();
     /// ```
-    pub fn render(&mut self, args: &Args) -> Result<String> {
+    pub fn render(&self, args: &Args) -> Result<String> {
         let col = args.create_arg_list();
 
         // seems conflicting, this api locks main thread. NOT GOOD!

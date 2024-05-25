@@ -6,16 +6,12 @@ use crate::controllers::remote_render::{
     list_job, list_node, list_projects, sync_project,
 };
 use crate::models::{data::Data, render_node::RenderNode};
-use blender::args::Args;
 use blender::blender::Blender;
-use blender::mode::Mode;
+use blender::{args::Args, mode::Mode};
 use semver::Version;
 // use services::multicast::multicast;
 // use services::receiver::receive;
-
 use models::server_setting::ServerSetting;
-use regex::Regex;
-use std::fs;
 use std::path::PathBuf;
 use std::{env, io::Result, sync::Mutex /* thread */};
 use tauri::generate_handler;
@@ -58,18 +54,22 @@ fn client() {
 
 #[allow(dead_code)]
 fn test_reading_blender_files() -> Result<()> {
-    // will need to find a place for this.
-    // where is the download url path for this?
-    // let re = Regex::new(r#"<a href="(?<url>.*?)">(?<name>.*?)</a>\s*(?<date>.*?)\s\s\s"#).unwrap();
-    // let content = fs::read_to_string("./src/examples/blender.net").unwrap();
-    // for (_, [url, name, date]) in re.captures_iter(&content).map(|c| c.extract()) {
-    //     println!("url: {}, name: {}, date: {}", url, name, date);
-    // }
-
     let version = Version::new(3, 0, 0);
     let server_settings = ServerSetting::load();
+    // eventually we would want to check if the version is already installed on the machine.
+    // otherwise download and install the version prior to run this script.
+    // For now - Let's go ahead and try download it just to make sure this is all working properly
+    // let installed_blender = server_settings.blenders.find(|x| x.version == version);
+
     let installation_path = server_settings.blender_data;
     let blender = Blender::download(version, installation_path).unwrap();
+    let args = Args::new(
+        PathBuf::from("/home/jordan/Downloads/fire_fx.blend"),
+        PathBuf::from("/home/jordan/Downloads/test.png"),
+        Mode::Frame(1),
+    );
+    let render_path = blender.render(&args).unwrap();
+    dbg!(render_path);
     Ok(())
 }
 
@@ -98,5 +98,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-
-// /home/jordan/Documents/src/rust/BlendFarm/backend/test.blend

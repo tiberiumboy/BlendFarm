@@ -8,13 +8,14 @@ const BLENDER_DATA: &str = "BlenderData";
 const RENDER_DATA: &str = "RenderData";
 // const BLENDER_FILES: &str = "BlenderFiles";
 
+/// Server settings information that the user can load and configure for this program to operate.
+/// It will save the list of blender installation on the machine to avoid duplicate download and installation.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerSetting {
     pub port: u16,
     pub broadcast_port: u16,
     pub blender_data: PathBuf,
     pub render_data: PathBuf,
-    // TODO: Find out how rust program load and read configurations and compare before running a new blender job.
     pub blenders: Vec<Blender>, // list of installed blender versions on this machine.
 }
 
