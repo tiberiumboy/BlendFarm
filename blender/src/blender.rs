@@ -29,41 +29,49 @@ pub struct Blender {
 // TODO: find a way to only allow invocation calls per operating system level
 /// Extract tar.xz file from destination path, and return blender executable path
 #[cfg(target_os = "linux")]
-fn extract_content(download_path: &PathBuf, install_path: &PathBuf) -> Result<()> {
+fn extract_content(download_path: &PathBuf, folder_name: &PathBuf) -> Result<PathBuf> {
     use tar::Archive; // for linux only
     use xz::read::XzDecoder; // possibly used for linux only? Do not know - could verify and check on windows/macos
 
     // This method only works for tar.xz files (Linux distro)
     // extract the contents of the downloaded file
-    let file = File::open(&compressed_file).unwrap(); // comment this out if we can get the line above working again - wouldn't make sense to open after we created?
+    let output = download_path.parent().unwrap().join(folder_name);
+    let file = File::open(&download_path).unwrap(); // comment this out if we can get the line above working again - wouldn't make sense to open after we created?
     let tar = XzDecoder::new(file);
     let mut archive = Archive::new(tar);
-    archive.unpack(&install_path).unwrap();
-    Ok(())
+    archive.unpack(&output).unwrap();
+    Ok(output.join("/blender"))
 }
 
-// TODO: find a way to only allow invocation calls per operating system level
 /// Extract dmg files into destination path, and return the blender executable path
+// TODO: verify a way to test this out
+// I need to extract the content of dmg before running blender. I fear that I will run into permission issue, so I need to see how BlendFarm C# did it.
+// Problem is, I'm on the airplane and wifi expensive as hell, and would need to clone the repo when I get to the destination.
+// so I could review the code better and understand exactly how they did it from C# side of the world.
+// Also - great opportunity to look into windows section and see if there's anything unusual or unique I need to perform on rust side.
 #[cfg(target_os = "macos")]
-fn extract_content(download_path: &PathBuf, install_path: &PathBuf) -> Result<()> {
+fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
     use dmgwiz::{DmgWiz, Verbosity};
 
+    let output = download_path.parent().unwrap().join(folder_name);
     let file = File::open(&download_path).unwrap();
     let mut dmg = DmgWiz::from_reader(file, Verbosity::None).unwrap();
-    let outfile = File::create(&install_path.join("test.bin")).unwrap();
-    let output = BufWriter::new(outfile);
+    let outfile = File::create(&output.join("test.bin")).unwrap();
+    let output_buf = BufWriter::new(outfile);
     // I wonder if I need to provide a destination?
     // return usize (file size?)
-    let result = dmg.extract_all(output).unwrap();
+    let result = dmg.extract_all(output_buf).unwrap();
     dbg!(result);
-    Ok(())
+    Ok(output.join("/blender"))
 }
 
-// TODO: No extract_content implementation for windows just yet! From what it looks like it's a zip file? Would be nice if it was .tar.xz?
+// TODO: implement handler to unpack .zip files
+// TODO: Check and see if we need to return the .exe extension or not?
 #[cfg(target_ps = "windows")]
-fn extract_content(download_path: &PathBuf, install_path: &PathBuf) -> Result<()> {
+fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
+    let output = download_path.parent().unwrap().join(folder_name);
     todo!("Need to impl. window version of file extraction here");
-    Ok(())
+    Ok(output.join("/blender.exe"))
 }
 
 impl Blender {
@@ -112,13 +120,13 @@ impl Blender {
     pub fn download(version: Version, install_path: PathBuf) -> Result<Blender> {
         // then use the install_path to install blender directly.
         // TODO: Find a way to utilize extracting utility to unzip blender after download has complete.
-        let url = Url::parse(BLENDER_DOWNLOAD_URL).unwrap();
+        let url = Url::parse(BLENDER_DOWNLOAD_URL).unwrap(); // I would hope that this line should never fail...?
         let path = format!("Blender{}.{}/", version.major, version.minor);
         let url = url.join(&path).unwrap();
 
         // this OS includes the operating system name and the compressed format.
         // TODO: might reformat this so that it make sense - I don't think I need to capture the OS string literal, but I do need to capture the file extension type.
-        let os = match env::consts::OS {
+        let (os, extension) = match env::consts::OS {
             "windows" => ("windows".to_string(), WINDOW_EXT),
             "macos" => ("macos".to_string(), MACOS_EXT),
             "linux" => ("linux".to_string(), LINUX_EXT),
@@ -131,18 +139,18 @@ impl Blender {
             // - netbsd - may be supported? See toolchain links and compiling blender from open source - https://www.netbsd.org/
             // - openbsd - may be supported? See toolchain links and compiling blender from Open source - https://www.openbsd.org/
             // - solaris - Oracle OS - may not support - https://en.wikipedia.org/wiki/Oracle_Solaris
-            // - android - may be supported? See ARM instruction.
+            // - android - may be supported? See ARM instruction. - Do not know if we need to run specific toollink to compile for ARM processors.
             _ => {
                 return Err(Error::new(
                     ErrorKind::Unsupported,
-                    format!("Unsupported OS! {}", env::consts::OS),
+                    format!("No support for {}!", env::consts::OS),
                 ))
             }
         };
 
         // fetch current architecture (Currently support x86_64 or aarch64 (apple silicon))
         let arch = match env::consts::ARCH {
-            // "x86" => Ok("32"),
+            // "x86" => "32", // newer version of blender no longer support 32 bit arch - but older version does. Let's keep this in tact just in case.
             "x86_64" => "64",
             "aarch64" => "arm64",
             // - arm - Not sure where this one will be used or applicable? TODO: Future research - See if blender does support ARM processor and if not, fall under unsupported arch?
@@ -154,47 +162,34 @@ impl Blender {
             _ => {
                 return Err(Error::new(
                     ErrorKind::Unsupported,
-                    format!("Unsupported architecture found! {}", env::consts::ARCH),
+                    format!(
+                        r#"No support for target architecture "{}""#,
+                        env::consts::ARCH
+                    ),
                 ))
             }
         };
 
         // fetch content list from subtree
-        // let content = reqwest::blocking::get(url.clone())
-        //     .expect("unable to fetch content from the internet! Is the firewall blocking it or are you connected?")
-        //     .text()
-        //     .unwrap();
-
-        // ISSUE: currently works by running from backend directory, do not run from BlendFarm dir!
-        // May get removed in the future anyway
-        let content_path = match env::consts::OS {
-            "linux" | "macos" => PathBuf::from("./src/examples/Blender3.0.html"),
-            _ => {
-                return Err(Error::new(
-                    ErrorKind::Unsupported,
-                    format!("No support for {}", env::consts::OS),
-                ))
-            }
+        let content = match reqwest::blocking::get(url.clone()) {
+            Ok(data) => data.text().unwrap(),
+            Err(e) => return Err(Error::new(ErrorKind::BrokenPipe, e.to_string())),
         };
-
-        let content = fs::read_to_string(&content_path).unwrap();
 
         // Content parsing to get download url that matches target operating system and version
         let match_pattern = format!(
             r#"(<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.{}.*{}.*{}.*\.[{}].*)<\/a>)"#,
-            version.major, version.minor, version.patch, os.0, arch, os.1
+            version.major, version.minor, version.patch, os, arch, extension
         );
 
         let regex = Regex::new(&match_pattern).unwrap();
-        // TODO: also fetch the "name" from regex - in case the name doesn't match the same as href
-        let path = match regex.captures(&content) {
-            Some(info) => info["url"].to_string(),
-            // TODO: find a way to gracefully error out of this function call.
+        let (path, name) = match regex.captures(&content) {
+            Some(info) => (info["url"].to_string(), info["name"].to_string()),
             None => return Err(Error::new(
                 ErrorKind::NotFound,
                 format!(
                     "Unable to find the download link for target platform! OS: {} | Arch: {} | Version: {} | url: {}",
-                    os.0, arch, version, url
+                    os, arch, version, url
                 ),
             )),
         };
@@ -202,10 +197,9 @@ impl Blender {
         // concatenate the final download destination to the url path
         let url = url.join(&path).unwrap();
 
-        // create download path location
+        // remove extension from file name
+        let name = name.replace(extension, "");
         let download_path = install_path.join(&path);
-
-        dbg!(&download_path);
 
         // it would be nice to ask reqwest to save the content instead of having to transfer from memory over...
         // TODO: something wrong with this codeblock - it download "something", but unable to extract the content in it?
@@ -214,14 +208,10 @@ impl Blender {
         // let mut file = File::create(&download_path).unwrap();
         // io::copy(&mut body.as_bytes(), &mut file).expect("Unable to write file! Permission issue?");
 
-        // This method only works for .dmg files (macos)
-        let _ = extract_content(&download_path, &install_path).unwrap();
-
-        // Linux and macos works as intended -
         // TODO: Need to verify that I can extract dmg files on macos.
-
-        let dir = path.replace(&os.1, "");
-        let executable = install_path.join(dir).join("blender");
+        // TODO: verify this is working for macos (.dmg) and windows (.zip)
+        let executable = extract_content(&download_path, &name).unwrap();
+        // let executable = PathBuf::from("./");
 
         // return the version of the blender
         Ok(Blender::new(executable, version))
