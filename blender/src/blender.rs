@@ -1,5 +1,4 @@
 use crate::args::Args;
-use dmgwiz::{DmgWiz, Verbosity}; // for macOS only
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -10,12 +9,13 @@ use std::{
     path::PathBuf,
     process::{Command, Stdio},
 };
-// use tar::Archive; // for linux only
-// use xz::read::XzDecoder; // possibly used for linux only? Do not know - could verify and check on windows/macos
 use url::Url;
 
 // TODO - how do I define a constant string argument for url path?
 const BLENDER_DOWNLOAD_URL: &str = "https://download.blender.org/release/";
+const WINDOW_EXT: &str = ".zip";
+const LINUX_EXT: &str = ".tar.xz";
+const MACOS_EXT: &str = ".dmg";
 
 /// Blender structure to hold path to executable and version of blender installed.
 #[derive(Debug, Eq, Serialize, Deserialize)]
@@ -24,6 +24,46 @@ pub struct Blender {
     executable: PathBuf, // Private immutable variable - Must validate before using!
     /// Version of blender installed on the system.
     version: Version, // Private immutable variable - Must validate before using!
+}
+
+// TODO: find a way to only allow invocation calls per operating system level
+/// Extract tar.xz file from destination path, and return blender executable path
+#[cfg(target_os = "linux")]
+fn extract_content(download_path: &PathBuf, install_path: &PathBuf) -> Result<()> {
+    use tar::Archive; // for linux only
+    use xz::read::XzDecoder; // possibly used for linux only? Do not know - could verify and check on windows/macos
+
+    // This method only works for tar.xz files (Linux distro)
+    // extract the contents of the downloaded file
+    let file = File::open(&compressed_file).unwrap(); // comment this out if we can get the line above working again - wouldn't make sense to open after we created?
+    let tar = XzDecoder::new(file);
+    let mut archive = Archive::new(tar);
+    archive.unpack(&install_path).unwrap();
+    Ok(())
+}
+
+// TODO: find a way to only allow invocation calls per operating system level
+/// Extract dmg files into destination path, and return the blender executable path
+#[cfg(target_os = "macos")]
+fn extract_content(download_path: &PathBuf, install_path: &PathBuf) -> Result<()> {
+    use dmgwiz::{DmgWiz, Verbosity};
+
+    let file = File::open(&download_path).unwrap();
+    let mut dmg = DmgWiz::from_reader(file, Verbosity::None).unwrap();
+    let outfile = File::create(&install_path.join("test.bin")).unwrap();
+    let output = BufWriter::new(outfile);
+    // I wonder if I need to provide a destination?
+    // return usize (file size?)
+    let result = dmg.extract_all(output).unwrap();
+    dbg!(result);
+    Ok(())
+}
+
+// TODO: No extract_content implementation for windows just yet! From what it looks like it's a zip file? Would be nice if it was .tar.xz?
+#[cfg(target_ps = "windows")]
+fn extract_content(download_path: &PathBuf, install_path: &PathBuf) -> Result<()> {
+    todo!("Need to impl. window version of file extraction here");
+    Ok(())
 }
 
 impl Blender {
@@ -77,10 +117,11 @@ impl Blender {
         let url = url.join(&path).unwrap();
 
         // this OS includes the operating system name and the compressed format.
+        // TODO: might reformat this so that it make sense - I don't think I need to capture the OS string literal, but I do need to capture the file extension type.
         let os = match env::consts::OS {
-            "windows" => Ok(("windows".to_string(), ".zip".to_string())),
-            "macos" => Ok(("macos".to_string(), ".dmg".to_string())),
-            "linux" => Ok(("linux".to_string(), ".tar.xz".to_string())),
+            "windows" => ("windows".to_string(), WINDOW_EXT),
+            "macos" => ("macos".to_string(), MACOS_EXT),
+            "linux" => ("linux".to_string(), LINUX_EXT),
             // Currently unsupported OS because blender does not have the toolchain to support OS.
             // It may be available in the future, but for now it's currently unsupported as of today.
             // TODO: See if some of the OS can compile and run blender natively, android/ios/freebsd?
@@ -91,11 +132,15 @@ impl Blender {
             // - openbsd - may be supported? See toolchain links and compiling blender from Open source - https://www.openbsd.org/
             // - solaris - Oracle OS - may not support - https://en.wikipedia.org/wiki/Oracle_Solaris
             // - android - may be supported? See ARM instruction.
-            _ => Err(format!("Unsupported OS! {}", env::consts::OS)),
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::Unsupported,
+                    format!("Unsupported OS! {}", env::consts::OS),
+                ))
+            }
         };
 
-        // fetch current architecture (Currently support 64bit or arm64)
-        // Linux and macos works as intended
+        // fetch current architecture (Currently support x86_64 or aarch64 (apple silicon))
         let arch = match env::consts::ARCH {
             // "x86" => Ok("32"),
             "x86_64" => "64",
@@ -119,13 +164,15 @@ impl Blender {
         //     .expect("unable to fetch content from the internet! Is the firewall blocking it or are you connected?")
         //     .text()
         //     .unwrap();
-        // TODO: this line works for linux - but does not work for macos. figure out why?
+
+        // ISSUE: currently works by running from backend directory, do not run from BlendFarm dir!
+        // May get removed in the future anyway
         let content_path = match env::consts::OS {
             "linux" | "macos" => PathBuf::from("./src/examples/Blender3.0.html"),
             _ => {
                 return Err(Error::new(
                     ErrorKind::Unsupported,
-                    format!("Not yet supported for {}", env::consts::OS),
+                    format!("No support for {}", env::consts::OS),
                 ))
             }
         };
@@ -133,7 +180,6 @@ impl Blender {
         let content = fs::read_to_string(&content_path).unwrap();
 
         // Content parsing to get download url that matches target operating system and version
-        let os = os.unwrap();
         let match_pattern = format!(
             r#"(<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.{}.*{}.*{}.*\.[{}].*)<\/a>)"#,
             version.major, version.minor, version.patch, os.0, arch, os.1
@@ -144,7 +190,13 @@ impl Blender {
         let path = match regex.captures(&content) {
             Some(info) => info["url"].to_string(),
             // TODO: find a way to gracefully error out of this function call.
-            None => panic!("Unable to find the download link!"),
+            None => return Err(Error::new(
+                ErrorKind::NotFound,
+                format!(
+                    "Unable to find the download link for target platform! OS: {} | Arch: {} | Version: {} | url: {}",
+                    os.0, arch, version, url
+                ),
+            )),
         };
 
         // concatenate the final download destination to the url path
@@ -162,22 +214,8 @@ impl Blender {
         // let mut file = File::create(&download_path).unwrap();
         // io::copy(&mut body.as_bytes(), &mut file).expect("Unable to write file! Permission issue?");
 
-        // This method only works for tar.xz files (Linux distro)
-        // extract the contents of the downloaded file
-        // let file = File::open(&download_path).unwrap(); // comment this out if we can get the line above working again - wouldn't make sense to open after we created?
-        // let tar = XzDecoder::new(file);
-        // let mut archive = Archive::new(tar);
-        // archive.unpack(&install_path).unwrap();
-
         // This method only works for .dmg files (macos)
-        let file = File::open(&download_path).unwrap();
-        let mut dmg = DmgWiz::from_reader(file, Verbosity::None).unwrap();
-        let outfile = File::create(&install_path.join("test.bin")).unwrap();
-        let output = BufWriter::new(outfile);
-        // I wonder if I need to provide a destination?
-        // return usize (file size?)
-        let result = dmg.extract_all(output).unwrap();
-        dbg!(result);
+        let _ = extract_content(&download_path, &install_path).unwrap();
 
         // Linux and macos works as intended -
         // TODO: Need to verify that I can extract dmg files on macos.
