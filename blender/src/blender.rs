@@ -1,20 +1,18 @@
 use crate::args::Args;
+use dmgwiz::{DmgWiz, Verbosity}; // for macOS only
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
     env,
     fs::{self, File},
-    io::{self, BufRead, BufReader, Result},
+    io::{BufRead, BufReader, BufWriter, Error, ErrorKind, Result},
     path::PathBuf,
     process::{Command, Stdio},
 };
-use tar::Archive;
+// use tar::Archive; // for linux only
+// use xz::read::XzDecoder; // possibly used for linux only? Do not know - could verify and check on windows/macos
 use url::Url;
-
-// this feature may only work for linux os only?
-// TODO: find a way to perform this action for macOS and windows as well.
-use xz::read::XzDecoder;
 
 // TODO - how do I define a constant string argument for url path?
 const BLENDER_DOWNLOAD_URL: &str = "https://download.blender.org/release/";
@@ -97,20 +95,23 @@ impl Blender {
         };
 
         // fetch current architecture (Currently support 64bit or arm64)
+        // Linux and macos works as intended
         let arch = match env::consts::ARCH {
             // "x86" => Ok("32"),
-            "x86_64" => Ok("64"),
-            "aarch64" => Ok("arm64"),
+            "x86_64" => "64",
+            "aarch64" => "arm64",
             // - arm - Not sure where this one will be used or applicable? TODO: Future research - See if blender does support ARM processor and if not, fall under unsupported arch?
             // - powerpc  - TODO: research if this is widely used? may support? Do not know yet. - https://en.wikipedia.org/wiki/PowerPC
             // - powerpc64  - TODO: research if this is widely used? Similar to above, support 64 bit architecture
             // - riscv64  - TODO: research if this is widely used? https://en.wikipedia.org/wiki/RISC-V
             // - s390x - TODO: research if this is widely used?
             // - sparc64  - TODO: research if this is widely used?
-            _ => Err(format!(
-                "Unsupported architecture found! {}",
-                env::consts::ARCH
-            )),
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::Unsupported,
+                    format!("Unsupported architecture found! {}", env::consts::ARCH),
+                ))
+            }
         };
 
         // fetch content list from subtree
@@ -118,18 +119,24 @@ impl Blender {
         //     .expect("unable to fetch content from the internet! Is the firewall blocking it or are you connected?")
         //     .text()
         //     .unwrap();
-        let content = fs::read_to_string("./src/examples/Blender3.0.html").unwrap();
+        // TODO: this line works for linux - but does not work for macos. figure out why?
+        let content_path = match env::consts::OS {
+            "linux" | "macos" => PathBuf::from("./src/examples/Blender3.0.html"),
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::Unsupported,
+                    format!("Not yet supported for {}", env::consts::OS),
+                ))
+            }
+        };
+
+        let content = fs::read_to_string(&content_path).unwrap();
 
         // Content parsing to get download url that matches target operating system and version
         let os = os.unwrap();
         let match_pattern = format!(
             r#"(<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.{}.*{}.*{}.*\.[{}].*)<\/a>)"#,
-            version.major,
-            version.minor,
-            version.patch,
-            os.0,
-            arch.unwrap(),
-            os.1
+            version.major, version.minor, version.patch, os.0, arch, os.1
         );
 
         let regex = Regex::new(&match_pattern).unwrap();
@@ -145,6 +152,9 @@ impl Blender {
 
         // create download path location
         let download_path = install_path.join(&path);
+
+        dbg!(&download_path);
+
         // it would be nice to ask reqwest to save the content instead of having to transfer from memory over...
         // TODO: something wrong with this codeblock - it download "something", but unable to extract the content in it?
         // let response = reqwest::blocking::get(url).unwrap();
@@ -152,11 +162,25 @@ impl Blender {
         // let mut file = File::create(&download_path).unwrap();
         // io::copy(&mut body.as_bytes(), &mut file).expect("Unable to write file! Permission issue?");
 
+        // This method only works for tar.xz files (Linux distro)
         // extract the contents of the downloaded file
         // let file = File::open(&download_path).unwrap(); // comment this out if we can get the line above working again - wouldn't make sense to open after we created?
         // let tar = XzDecoder::new(file);
         // let mut archive = Archive::new(tar);
         // archive.unpack(&install_path).unwrap();
+
+        // This method only works for .dmg files (macos)
+        let file = File::open(&download_path).unwrap();
+        let mut dmg = DmgWiz::from_reader(file, Verbosity::None).unwrap();
+        let outfile = File::create(&install_path.join("test.bin")).unwrap();
+        let output = BufWriter::new(outfile);
+        // I wonder if I need to provide a destination?
+        // return usize (file size?)
+        let result = dmg.extract_all(output).unwrap();
+        dbg!(result);
+
+        // Linux and macos works as intended -
+        // TODO: Need to verify that I can extract dmg files on macos.
 
         let dir = path.replace(&os.1, "");
         let executable = install_path.join(dir).join("blender");

@@ -7,12 +7,12 @@ use crate::controllers::remote_render::{
 };
 use crate::models::{data::Data, render_node::RenderNode};
 use blender::blender::Blender;
-use blender::{args::Args, mode::Mode};
+// use blender::{args::Args, mode::Mode};
 use semver::Version;
 // use services::multicast::multicast;
 // use services::receiver::receive;
 use models::server_setting::ServerSetting;
-use std::path::PathBuf;
+// use std::path::PathBuf;
 use std::{env, io::Result, sync::Mutex /* thread */};
 use tauri::generate_handler;
 
@@ -54,7 +54,7 @@ fn client() {
 
 #[allow(dead_code)]
 fn test_reading_blender_files() -> Result<()> {
-    let version = Version::new(3, 0, 0);
+    let version = Version::new(3, 0, 1);
     let server_settings = ServerSetting::load();
     // eventually we would want to check if the version is already installed on the machine.
     // otherwise download and install the version prior to run this script.
@@ -62,14 +62,14 @@ fn test_reading_blender_files() -> Result<()> {
     // let installed_blender = server_settings.blenders.find(|x| x.version == version);
 
     let installation_path = server_settings.blender_data;
-    let blender = Blender::download(version, installation_path).unwrap();
-    let args = Args::new(
-        PathBuf::from("/home/jordan/Downloads/fire_fx.blend"),
-        PathBuf::from("/home/jordan/Downloads/test.png"),
-        Mode::Frame(1),
-    );
-    let render_path = blender.render(&args).unwrap();
-    dbg!(render_path);
+    let _blender = Blender::download(version, installation_path).unwrap();
+    // let args = Args::new(
+    //     PathBuf::from("/home/jordan/Downloads/fire_fx.blend"),
+    //     PathBuf::from("/home/jordan/Downloads/test.png"),
+    //     Mode::Frame(1),
+    // );
+    // let render_path = blender.render(&args).unwrap();
+    // dbg!(render_path);
     Ok(())
 }
 
