@@ -5,14 +5,16 @@ use crate::controllers::remote_render::{
     create_job, create_node, delete_job, delete_node, delete_project, edit_node, import_project,
     list_job, list_node, list_projects, sync_project,
 };
+
+use crate::controllers::settings::{add_blender_installation, list_blender_installation};
 use crate::models::{data::Data, render_node::RenderNode};
 use blender::blender::Blender;
-// use blender::{args::Args, mode::Mode};
+use blender::{args::Args, mode::Mode};
 use semver::Version;
 // use services::multicast::multicast;
 // use services::receiver::receive;
 use models::server_setting::ServerSetting;
-// use std::path::PathBuf;
+use std::path::PathBuf;
 use std::{env, io::Result, sync::Mutex /* thread */};
 use tauri::generate_handler;
 
@@ -21,7 +23,6 @@ pub mod models;
 pub mod services;
 
 // globabally
-#[allow(dead_code)]
 fn client() {
     let localhost = RenderNode::create_localhost();
     let mut data = Data::default();
@@ -47,6 +48,9 @@ fn client() {
             list_node,
             list_projects,
             list_job,
+            // settings
+            add_blender_installation,
+            list_blender_installation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -54,22 +58,37 @@ fn client() {
 
 #[allow(dead_code)]
 fn test_reading_blender_files() -> Result<()> {
-    let version = Version::new(3, 0, 1);
-    let server_settings = ServerSetting::load();
+    let version = Version::new(4, 1, 0);
+    let mut server_settings = ServerSetting::load();
     // eventually we would want to check if the version is already installed on the machine.
     // otherwise download and install the version prior to run this script.
     // For now - Let's go ahead and try download it just to make sure this is all working properly
-    // let installed_blender = server_settings.blenders.find(|x| x.version == version);
+    let blender = match server_settings
+        .blenders
+        .iter()
+        .find(|&x| x.version == version)
+    {
+        Some(blender) => blender.to_owned(),
+        None => {
+            let blender = Blender::download(version, &server_settings.blender_data).unwrap();
+            server_settings.blenders.push(blender.clone());
+            server_settings.save();
+            blender
+        }
+    };
 
-    let installation_path = server_settings.blender_data;
-    let _blender = Blender::download(version, installation_path).unwrap();
-    // let args = Args::new(
-    //     PathBuf::from("/home/jordan/Downloads/fire_fx.blend"),
-    //     PathBuf::from("/home/jordan/Downloads/test.png"),
-    //     Mode::Frame(1),
-    // );
-    // let render_path = blender.render(&args).unwrap();
-    // dbg!(render_path);
+    // This part of the code is used to test and verify that we can successfully run blender
+    let (file, output) = match env::consts::OS {
+        "macos" => ("/Users/Shared/triangle.blend", "/Users/Shared/"),
+        "linux" => (
+            "/home/jordan/Downloads/fire_fx.blend",
+            "/home/jordan/Downloads/test.png",
+        ),
+        _ => todo!(),
+    };
+    let args = Args::new(PathBuf::from(file), PathBuf::from(output), Mode::Frame(1));
+    let render_path = blender.render(&args).unwrap();
+    dbg!(render_path);
     Ok(())
 }
 
