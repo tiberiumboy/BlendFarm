@@ -3,7 +3,7 @@ use crate::engine::Engine;
 use crate::format::Format;
 use crate::mode::Mode;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // ref: https://docs.blender.org/manual/en/latest/advanced/command_line/render.html
 #[derive(Debug, Serialize, Deserialize)]
@@ -17,10 +17,10 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn new(file: PathBuf, output: PathBuf, mode: Mode) -> Self {
+    pub fn new(file: impl AsRef<Path>, output: impl AsRef<Path>, mode: Mode) -> Self {
         Args {
-            file,
-            output,
+            file: file.as_ref().to_path_buf(),
+            output: output.as_ref().to_path_buf(),
             mode,
             engine: None,
             device: None,

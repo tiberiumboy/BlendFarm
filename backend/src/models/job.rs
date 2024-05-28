@@ -1,12 +1,12 @@
 use std::{
-    env,
     io::Result,
     path::{Path, PathBuf},
 };
 
-use super::{project_file::ProjectFile, render_node::RenderNode};
+use super::{project_file::ProjectFile, render_node::RenderNode, server_setting::ServerSetting};
 // use crate::services::sender;
 use blender::{args::Args, blender::Blender, mode::Mode};
+use semver::Version;
 use serde::{Deserialize, Serialize};
 
 // pub trait JobStatus {}
@@ -28,7 +28,7 @@ pub struct Job {
     /// What kind of mode should this job run as
     pub mode: Mode,
     // eventually I will need to ask what version of blender does the user wants to run in.
-    // How do I fetch the list of available blender version?
+    pub version: Version,
     /// Path to blender files
     pub project_file: ProjectFile,
     pub image_pic: Option<String>,
@@ -39,12 +39,14 @@ impl Job {
     pub fn new(
         project_file: &ProjectFile,
         output: &Path,
+        version: &Version,
         nodes: Vec<RenderNode>,
         mode: Mode,
     ) -> Job {
         Job {
             nodes,
             output: output.to_path_buf().clone(),
+            version: version.to_owned(),
             project_file: project_file.clone(),
             image_pic: None,
             mode,
@@ -74,13 +76,23 @@ impl Job {
         // TODO: Find a way to get correct blender version before running job
         // TODO: Replace this to reference correct blender version.
         // eventually, I wanted to get to a point where I could ask the machine to download blender if I do not have the proper version installed.
-        let path = match env::consts::OS {
-            "linux" => PathBuf::from("/home/jordan/Downloads/blender/blender"),
-            "macos" => PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender"),
-            _ => panic!("unsupported OS"),
+        let mut server_settings = ServerSetting::load();
+        // eventually we would want to check if the version is already installed on the machine.
+        // otherwise download and install the version prior to run this script.
+        let blender = match server_settings
+            .blenders
+            .iter()
+            .find(|&x| x.version == self.version)
+        {
+            Some(blender) => blender.to_owned(),
+            None => {
+                let blender =
+                    Blender::download(&self.version, &server_settings.blender_data).unwrap();
+                server_settings.blenders.push(blender.clone());
+                server_settings.save();
+                blender
+            }
         };
-
-        let blender = Blender::from_executable(path).unwrap();
         blender.render(&args)
     }
 

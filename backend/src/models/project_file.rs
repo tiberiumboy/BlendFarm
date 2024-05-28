@@ -4,7 +4,6 @@ use std::{env, fs::remove_file, io::Error, path::PathBuf, str::FromStr};
 // TODO: this may ultimately get removed? We just need the pathbuf to the blender file specifically..
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProjectFile {
-    pub file_name: String,
     pub src: PathBuf,
     #[serde(skip_serializing)]
     pub tmp: Option<PathBuf>,
@@ -21,14 +20,6 @@ impl ProjectFile {
     pub fn new(path: &PathBuf) -> Self {
         // in the path, I need to remove .blend from the path.
         Self {
-            // TODO: Clean this up afterward!
-            file_name: path
-                .file_stem()
-                // .file_name()
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_owned(),
             src: path.to_owned(),
             tmp: None,
         }
@@ -45,6 +36,11 @@ impl ProjectFile {
         dir.push(file_name);
         let _ = std::fs::copy(&self.src, &dir);
         self.tmp = Some(dir);
+    }
+
+    /// Retrieve the file name from source path
+    pub fn get_file_name(&self) -> String {
+        self.src.file_stem().unwrap().to_str().unwrap().to_owned()
     }
 
     pub(crate) fn clear_temp(&mut self) {

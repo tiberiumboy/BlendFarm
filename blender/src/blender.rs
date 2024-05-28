@@ -108,10 +108,10 @@ impl Blender {
     /// use blender::Blender;
     /// let blender = Blender::new(PathBuf::from("path/to/blender"), Version::new(4,1,0));
     /// ```
-    fn new(executable: PathBuf, version: Version) -> Self {
-        Blender {
-            executable,
-            version,
+    fn new(executable: &PathBuf, version: &Version) -> Self {
+        Self {
+            executable: executable.to_owned(),
+            version: version.to_owned(),
         }
     }
 
@@ -134,13 +134,12 @@ impl Blender {
         let stdout = String::from_utf8(output).unwrap();
         let collection = stdout.split("\n\t").collect::<Vec<&str>>();
         let first = collection.first().unwrap();
-        let version = if first.contains("Blender") {
-            Version::parse(&first[8..]).unwrap() // this looks sketchy...
+        if first.contains("Blender") {
+            let version = Version::parse(&first[8..]).unwrap(); // this looks sketchy...
+            Ok(Blender::new(&executable, &version))
         } else {
-            Version::new(4, 1, 0) // still sketchy, but it'll do for now
-        };
-
-        Ok(Blender::new(executable, version))
+            Err(Error::new(ErrorKind::InvalidData, "Unable to fetch Blender version, are you sure you have blender installed correctly?"))
+        }
     }
 
     /// Download blender from the internet and install it to the provided path.
@@ -149,7 +148,7 @@ impl Blender {
     /// use blender::Blender;
     /// let blender = Blender::download(Version::new(4,1,0), PathBuf::from("path/to/installation")).unwrap();
     /// ```
-    pub fn download(version: Version, install_path: &PathBuf) -> Result<Blender> {
+    pub fn download(version: &Version, install_path: impl AsRef<Path>) -> Result<Blender> {
         let url = Url::parse(BLENDER_DOWNLOAD_URL).unwrap(); // I would hope that this line should never fail...?
         let path = format!("Blender{}.{}/", version.major, version.minor);
         let url = url.join(&path).unwrap();
@@ -227,7 +226,7 @@ impl Blender {
 
         // remove extension from file name
         let name = name.replace(extension, "");
-        let download_path = install_path.join(&path);
+        let download_path = install_path.as_ref().join(&path);
 
         // Download the file from the internet and save it to blender data folder
         let response = reqwest::blocking::get(url).unwrap();
@@ -238,7 +237,7 @@ impl Blender {
         let executable = extract_content(&download_path, &name).unwrap();
 
         // return the version of the blender
-        Ok(Blender::new(executable, version))
+        Ok(Blender::new(&executable, version))
     }
 
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?

@@ -40,7 +40,7 @@ impl PageCache {
         // Wonder if this is the best practice?
         let data = serde_json::to_string(&self).expect("Unable to deserialize data!");
         let path = Self::get_dir().join(CACHE_CONFIG);
-        fs::write(path, &data);
+        let _ = fs::write(path, &data); // wonder why I need to see the result from this? TODO: find out more about this info?
     }
 
     pub fn load() -> Self {
