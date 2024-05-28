@@ -84,7 +84,8 @@ pub fn list_projects(app: AppHandle) -> Result<String, Error> {
     Ok(data)
 }
 
-// TODO: I need blender version here!
+// TODO: Update front end to supply version string info.
+// TODO: Read what format the version needs to be in for the parser to work correctly.
 #[command(async)]
 pub fn create_job(
     app: AppHandle,
