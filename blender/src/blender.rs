@@ -1,12 +1,12 @@
 use crate::args::Args;
+use crate::page_cache::PageCache;
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
-    env,
-    fs::{self, File},
-    io::{BufRead, BufReader, BufWriter, Error, ErrorKind, Result},
-    path::PathBuf,
+    env, fs,
+    io::{BufRead, BufReader, Error, ErrorKind, Result},
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 use url::Url;
@@ -18,12 +18,27 @@ const LINUX_EXT: &str = ".tar.xz";
 const MACOS_EXT: &str = ".dmg";
 
 /// Blender structure to hold path to executable and version of blender installed.
-#[derive(Debug, Eq, Serialize, Deserialize)]
+#[derive(Debug, Eq, Serialize, Deserialize, Clone)]
 pub struct Blender {
     /// Path to blender executable on the system.
     executable: PathBuf, // Private immutable variable - Must validate before using!
     /// Version of blender installed on the system.
-    version: Version, // Private immutable variable - Must validate before using!
+    pub version: Version, // Private immutable variable - Must validate before using!
+}
+
+// Currently being used for MacOS (I wonder if I need to do the same for windows?)
+#[cfg(target_os = "macos")]
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
+    fs::create_dir_all(&dst).unwrap();
+    for entry in fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name())).unwrap();
+        } else {
+            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
 }
 
 // TODO: find a way to only allow invocation calls per operating system level
@@ -43,26 +58,37 @@ fn extract_content(download_path: &PathBuf, folder_name: &PathBuf) -> Result<Pat
     Ok(output.join("/blender"))
 }
 
-/// Extract dmg files into destination path, and return the blender executable path
-// TODO: verify a way to test this out
-// I need to extract the content of dmg before running blender. I fear that I will run into permission issue, so I need to see how BlendFarm C# did it.
-// Problem is, I'm on the airplane and wifi expensive as hell, and would need to clone the repo when I get to the destination.
-// so I could review the code better and understand exactly how they did it from C# side of the world.
-// Also - great opportunity to look into windows section and see if there's anything unusual or unique I need to perform on rust side.
+/// Mounts dmg target to volume, then extract the contents to a new folder using the folder_name,
+/// lastly, provide a path to the blender executable inside the content.
 #[cfg(target_os = "macos")]
 fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
-    use dmgwiz::{DmgWiz, Verbosity};
+    use dmg::Attach;
 
-    let output = download_path.parent().unwrap().join(folder_name);
-    let file = File::open(&download_path).unwrap();
-    let mut dmg = DmgWiz::from_reader(file, Verbosity::None).unwrap();
-    let outfile = File::create(&output.join("test.bin")).unwrap();
-    let output_buf = BufWriter::new(outfile);
-    // I wonder if I need to provide a destination?
-    // return usize (file size?)
-    let result = dmg.extract_all(output_buf).unwrap();
-    dbg!(result);
-    Ok(output.join("/blender"))
+    let dst = download_path
+        .parent()
+        .unwrap()
+        .join(folder_name)
+        .join("Blender.app");
+
+    // TODO: wonder if this is a good idea?
+    if !dst.exists() {
+        let _ = fs::create_dir_all(&dst).unwrap();
+    }
+
+    // attach dmg to volume
+    let dmg = Attach::new(download_path)
+        .attach()
+        .expect("Could not attach");
+    let src = PathBuf::from(&dmg.mount_point.join("Blender.app"));
+
+    // Extract content inside Blender.app to destination
+    let _ = copy_dir_all(&src, &dst).unwrap();
+
+    // detach dmg volume
+    dmg.detach().expect("could not detach!");
+
+    // return path with additional path to invoke blender directly
+    Ok(dst.join("Contents/MacOS/Blender"))
 }
 
 // TODO: implement handler to unpack .zip files
@@ -89,6 +115,12 @@ impl Blender {
         }
     }
 
+    pub fn get_version(&self) -> Version {
+        self.version.clone()
+    }
+
+    // TODO: MacOS needs an additional path layer to invoke the application executable. It is NOT Blender.app!
+    //  - Invoke command inside 'Blender.app/Contents/MacOS/blender' instead
     /// Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
     /// Otherwise, if Blender is not install, or a version is not found, an error will be thrown
     /// # Examples
@@ -117,12 +149,14 @@ impl Blender {
     /// use blender::Blender;
     /// let blender = Blender::download(Version::new(4,1,0), PathBuf::from("path/to/installation")).unwrap();
     /// ```
-    pub fn download(version: Version, install_path: PathBuf) -> Result<Blender> {
-        // then use the install_path to install blender directly.
-        // TODO: Find a way to utilize extracting utility to unzip blender after download has complete.
+    pub fn download(version: Version, install_path: &PathBuf) -> Result<Blender> {
         let url = Url::parse(BLENDER_DOWNLOAD_URL).unwrap(); // I would hope that this line should never fail...?
         let path = format!("Blender{}.{}/", version.major, version.minor);
         let url = url.join(&path).unwrap();
+
+        // In the original code - there's a warning message that we should use cache as much as possible to prevent possible IP Blacklisted. - Should I ask Blender community about this?
+        let mut cache = PageCache::load();
+        let content = cache.fetch(&url).unwrap();
 
         // this OS includes the operating system name and the compressed format.
         // TODO: might reformat this so that it make sense - I don't think I need to capture the OS string literal, but I do need to capture the file extension type.
@@ -170,12 +204,6 @@ impl Blender {
             }
         };
 
-        // fetch content list from subtree
-        let content = match reqwest::blocking::get(url.clone()) {
-            Ok(data) => data.text().unwrap(),
-            Err(e) => return Err(Error::new(ErrorKind::BrokenPipe, e.to_string())),
-        };
-
         // Content parsing to get download url that matches target operating system and version
         let match_pattern = format!(
             r#"(<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.{}.*{}.*{}.*\.[{}].*)<\/a>)"#,
@@ -201,17 +229,13 @@ impl Blender {
         let name = name.replace(extension, "");
         let download_path = install_path.join(&path);
 
-        // it would be nice to ask reqwest to save the content instead of having to transfer from memory over...
-        // TODO: something wrong with this codeblock - it download "something", but unable to extract the content in it?
-        // let response = reqwest::blocking::get(url).unwrap();
-        // let body = response.text().unwrap();
-        // let mut file = File::create(&download_path).unwrap();
-        // io::copy(&mut body.as_bytes(), &mut file).expect("Unable to write file! Permission issue?");
+        // Download the file from the internet and save it to blender data folder
+        let response = reqwest::blocking::get(url).unwrap();
+        let body = response.bytes().unwrap();
+        fs::write(&download_path, &body).expect("Unable to write file! Permission issue?");
 
-        // TODO: Need to verify that I can extract dmg files on macos.
-        // TODO: verify this is working for macos (.dmg) and windows (.zip)
+        // TODO: verify this is working for windows (.zip)
         let executable = extract_content(&download_path, &name).unwrap();
-        // let executable = PathBuf::from("./");
 
         // return the version of the blender
         Ok(Blender::new(executable, version))
@@ -248,6 +272,7 @@ impl Blender {
         reader.lines().for_each(|line| {
             // it would be nice to include verbose logs?
             let line = line.unwrap();
+            // TODO: find a way to show error code or other message if blender doesn't actually render!
             // println!("{}", &line);
             if line.contains("Warning:") {
                 println!("{}", line);

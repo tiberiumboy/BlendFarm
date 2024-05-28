@@ -15,3 +15,6 @@ pub mod format;
 
 // Type of rendering mode
 pub mod mode;
+
+// Page cache to avoid potential IP Blacklisted.
+pub mod page_cache;
