@@ -27,7 +27,7 @@ pub struct Job {
     pub nodes: Vec<RenderNode>,
     /// What kind of mode should this job run as
     pub mode: Mode,
-    // eventually I will need to ask what version of blender does the user wants to run in.
+    /// What version of blender we need to use to render this project job.
     pub version: Version,
     /// Path to blender files
     pub project_file: ProjectFile,
@@ -53,6 +53,7 @@ impl Job {
         }
     }
 
+    // TODO: consider about how I can invoke this command from network protocol?
     /// Invoke blender to run the job
     pub fn run(&self) -> Result<String> {
         let args = Args::new(
@@ -73,12 +74,7 @@ impl Job {
         // }
 
         // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
-        // TODO: Find a way to get correct blender version before running job
-        // TODO: Replace this to reference correct blender version.
-        // eventually, I wanted to get to a point where I could ask the machine to download blender if I do not have the proper version installed.
         let mut server_settings = ServerSetting::load();
-        // eventually we would want to check if the version is already installed on the machine.
-        // otherwise download and install the version prior to run this script.
         let blender = match server_settings
             .blenders
             .iter()
@@ -87,7 +83,7 @@ impl Job {
             Some(blender) => blender.to_owned(),
             None => {
                 let blender =
-                    Blender::download(&self.version, &server_settings.blender_data).unwrap();
+                    Blender::download(self.version.clone(), &server_settings.blender_data).unwrap();
                 server_settings.blenders.push(blender.clone());
                 server_settings.save();
                 blender
@@ -96,21 +92,21 @@ impl Job {
         blender.render(&args)
     }
 
-    #[allow(dead_code)]
-    pub fn pause(self) {
-        todo!();
-    }
+    // #[allow(dead_code)]
+    // pub fn pause(self) {
+    //     todo!();
+    // }
 
-    // cancel current job and provide error message "User abort the job."
-    #[allow(dead_code)]
-    pub fn abort(self, _msg: &str) {
-        todo!();
-    }
+    // // cancel current job and provide error message "User abort the job."
+    // #[allow(dead_code)]
+    // pub fn abort(self, _msg: &str) {
+    //     todo!();
+    // }
 
-    #[allow(dead_code)]
-    pub fn resume(self) {
-        todo!();
-    }
+    // #[allow(dead_code)]
+    // pub fn resume(self) {
+    //     todo!();
+    // }
 }
 
 impl PartialEq for Job {

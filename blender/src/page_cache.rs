@@ -8,6 +8,7 @@ pub struct PageCache {
     cache: HashMap<Url, PathBuf>,
 }
 
+// consider using directories::UserDirs::document_dir()
 const CACHE_DIR: &str = "cache";
 const CACHE_CONFIG: &str = "cache.json";
 
@@ -20,12 +21,17 @@ impl PageCache {
 
     // fetch the directory
     fn get_dir() -> PathBuf {
-        let mut tmp = std::env::temp_dir();
+        // TODO: Do not save the data in temp dir - MacOS clear the temp directory after a restart! BAD!
+        let mut tmp = std::env::home_dir().unwrap();
         tmp.push(CACHE_DIR);
         if !tmp.exists() {
             fs::create_dir(&tmp).expect("Unable to create directory! Permission issue?");
         }
         tmp
+    }
+
+    fn get_cache_path() -> PathBuf {
+        Self::get_dir().join(CACHE_CONFIG)
     }
 
     fn create() -> Self {
@@ -39,13 +45,11 @@ impl PageCache {
         // it may seems like this is a bad idea but I would expect this function to work either way?
         // Wonder if this is the best practice?
         let data = serde_json::to_string(&self).expect("Unable to deserialize data!");
-        let path = Self::get_dir().join(CACHE_CONFIG);
-        let _ = fs::write(path, &data); // wonder why I need to see the result from this? TODO: find out more about this info?
+        let _ = fs::write(Self::get_cache_path(), &data); // wonder why I need to see the result from this? TODO: find out more about this info?
     }
 
     pub fn load() -> Self {
-        let path = Self::get_dir().join(CACHE_CONFIG);
-        match fs::read_to_string(path) {
+        match fs::read_to_string(Self::get_cache_path()) {
             Ok(data) => serde_json::from_str(&data).expect("Unable to parse content!"),
             Err(_) => Self::create(),
         }
@@ -70,11 +74,15 @@ impl PageCache {
                 let file_name = re.replace_all(&url_name, "-").to_string();
                 tmp.push(file_name);
 
+                // a problem here?
+                dbg!(&tmp);
+                // Why does it error out here? I understand I'm not connected to the internet but why should it stop here?
                 let content = match reqwest::blocking::get(url.clone()) {
                     Ok(data) => data.text().unwrap(),
                     Err(_) => return None,
                 };
-                fs::write(&tmp, content).unwrap();
+                dbg!(&content);
+                fs::write(&tmp, content).unwrap(); // maybe here?
                 self.cache.insert(url.clone(), tmp.clone());
                 self.save();
                 tmp

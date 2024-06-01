@@ -11,7 +11,7 @@ use std::{
 };
 use url::Url;
 
-// TODO - how do I define a constant string argument for url path?
+// TODO - See aboout an offline regex search engine?
 const BLENDER_DOWNLOAD_URL: &str = "https://download.blender.org/release/";
 const WINDOW_EXT: &str = ".zip";
 const LINUX_EXT: &str = ".tar.xz";
@@ -41,21 +41,29 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
     Ok(())
 }
 
-// TODO: find a way to only allow invocation calls per operating system level
 /// Extract tar.xz file from destination path, and return blender executable path
 #[cfg(target_os = "linux")]
 fn extract_content(download_path: &PathBuf, folder_name: &PathBuf) -> Result<PathBuf> {
-    use tar::Archive; // for linux only
-    use xz::read::XzDecoder; // possibly used for linux only? Do not know - could verify and check on windows/macos
+    use tar::Archive;
+    use xz::read::XzDecoder;
 
-    // This method only works for tar.xz files (Linux distro)
-    // extract the contents of the downloaded file
-    let output = download_path.parent().unwrap().join(folder_name);
+    // Get file handler to download location
     let file = File::open(&download_path).unwrap(); // comment this out if we can get the line above working again - wouldn't make sense to open after we created?
+
+    // decode compressed xz file
     let tar = XzDecoder::new(file);
+
+    // unarchive content from decompressed file
     let mut archive = Archive::new(tar);
-    archive.unpack(&output).unwrap();
-    Ok(output.join("/blender"))
+
+    // generaet destination path
+    let destination = download_path.parent().unwrap().join(folder_name);
+
+    // extract content to destination
+    archive.unpack(&destination).unwrap();
+
+    // return extracted executable path
+    Ok(destination.join("/blender"))
 }
 
 /// Mounts dmg target to volume, then extract the contents to a new folder using the folder_name,
@@ -64,6 +72,7 @@ fn extract_content(download_path: &PathBuf, folder_name: &PathBuf) -> Result<Pat
 fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
     use dmg::Attach;
 
+    // generate destination path
     let dst = download_path
         .parent()
         .unwrap()
@@ -79,6 +88,8 @@ fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf
     let dmg = Attach::new(download_path)
         .attach()
         .expect("Could not attach");
+
+    // create source path from mount point
     let src = PathBuf::from(&dmg.mount_point.join("Blender.app"));
 
     // Extract content inside Blender.app to destination
@@ -108,54 +119,126 @@ impl Blender {
     /// use blender::Blender;
     /// let blender = Blender::new(PathBuf::from("path/to/blender"), Version::new(4,1,0));
     /// ```
-    fn new(executable: &PathBuf, version: &Version) -> Self {
+    fn new(executable: PathBuf, version: Version) -> Self {
         Self {
-            executable: executable.to_owned(),
-            version: version.to_owned(),
+            executable,
+            version,
         }
     }
 
-    pub fn get_version(&self) -> Version {
-        self.version.clone()
-    }
-
-    // TODO: MacOS needs an additional path layer to invoke the application executable. It is NOT Blender.app!
-    //  - Invoke command inside 'Blender.app/Contents/MacOS/blender' instead
-    /// Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
-    /// Otherwise, if Blender is not install, or a version is not found, an error will be thrown
-    /// # Examples
+    /// Returns true when the executable path exist and leads to a blender executable location
+    /// This function does not validate whether we can execute and run blender from this executable location.
+    ///
+    /// # Example
+    ///
     /// ```
     /// use blender::Blender;
-    /// let blender = Blender::from_executable(Pathbuf::from("path/to/blender")).unwrap();
+    /// let blender = Blender::new(PathBuf::from("path/to/blender"), Version::new(4,1,0));
+    /// if blender.exists() {
+    ///     Ok(())
+    /// } else {
+    ///     Err("Does not exist!")
+    /// }
     /// ```
-    pub fn from_executable(executable: PathBuf) -> Result<Self> {
-        let exec = executable.as_path();
-        let output = Command::new(exec).arg("-v").output().unwrap().stdout;
+    pub fn exists(&self) -> bool {
+        self.executable.exists()
+    }
+
+    /// This function will invoke the -v command ot retrieve blender version information.
+    ///
+    /// # Errors
+    /// * InvalidData - executable path do not exist or is invalid. Please verify that the path provided exist and not compressed.
+    ///  This error also serves where the executable is unable to provide the blender version.
+    // TODO: Find a better way to fetch version from stdout (Possibly regex? How would other do it?)
+    // Wonder if this is the better approach? Do not know! We'll find out more?
+    fn check_version(&self) -> Result<Version> {
+        if !self.exists() {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "Executable path do not exist!".to_owned(),
+            ));
+        }
+        let output = Command::new(self.executable.as_path())
+            .arg("-v")
+            .output()
+            .unwrap()
+            .stdout;
         let stdout = String::from_utf8(output).unwrap();
+        // TODO: I wonder if there's a way to improve this process without needed to create new array struct? Maybe a parser?
         let collection = stdout.split("\n\t").collect::<Vec<&str>>();
         let first = collection.first().unwrap();
+        // TODO: Find a way to improve this so that we can parse the output directly without needed to parse it into array struct?
         if first.contains("Blender") {
+            // TODO: Do some research on how I could utilize a better way to fetch blender version from stdout? Maybe regex?
             let version = Version::parse(&first[8..]).unwrap(); // this looks sketchy...
-            Ok(Blender::new(&executable, &version))
+            Ok(version)
         } else {
+            // TODO: How can I handle error message if this doesn't work, I need to find a way to pop this entry off from config file if blender file doesn't exist or doesn't work?
             Err(Error::new(ErrorKind::InvalidData, "Unable to fetch Blender version, are you sure you have blender installed correctly?"))
         }
     }
 
+    /// Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
+    /// Otherwise, if Blender is not install, or a version is not found, an error will be thrown
+    ///
+    /// # Error
+    ///
+    /// * InvalidData - executable path do not exist, or is invalid. Please verify that the executable path is correct and leads to the actual executable.
+    /// *
+    /// # Examples
+    ///
+    /// ```
+    /// use blender::Blender;
+    /// let blender = Blender::from_executable(Pathbuf::from("path/to/blender")).unwrap();
+    /// ```
+    pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self> {
+        // currently need a path to the executable before executing the command.
+        let mut blender = Blender::new(executable.as_ref().to_owned(), Version::new(0, 0, 0));
+        let version = blender.check_version().unwrap();
+        blender.version = version;
+        Ok(blender)
+        // TODO: How can I handle error message if this doesn't work, I need to find a way to pop this entry off from config file if blender file doesn't exist or doesn't work?
+        // Err(Error::new(ErrorKind::InvalidData, "Unable to fetch Blender version, are you sure you have blender installed correctly?"))
+    }
+
     /// Download blender from the internet and install it to the provided path.
+    ///
+    /// # Potential errors
+    ///
+    /// * Unable to fetch download from the source - You may have lost connection to the internet, or this computer is unable to fetch download.blender.org website.
+    ///  Please check and validate that you can access to the internet so that this program can download the correct version of blender on the system.
+    ///
+    /// * Unsupported OS - In some extreme case, this program cannot run on operating system or architecture outside of blender support. Curretnly supporting 64 bit architecture (Linux/Windows/Mac Intel) or Apple Silicon (arm64 base)
+    ///  Currently there are no plan to support different operating system (Freebird, Solaris, Android) with matching architecture (arm, x86_64, powerpc)
+    ///  It is possible to support these unsupported operating system / architecture by downloading the source code onto the target machine, and compile directly.
+    ///  However, for this scope of this project, I have no plans or intention on supporting that far of detail to make this possible. (Especially when I need to verify all other crates are compatible with the target platform/os)
+    ///
+    /// *
+    ///
     /// # Examples
     /// ```
     /// use blender::Blender;
     /// let blender = Blender::download(Version::new(4,1,0), PathBuf::from("path/to/installation")).unwrap();
     /// ```
-    pub fn download(version: &Version, install_path: impl AsRef<Path>) -> Result<Blender> {
-        let url = Url::parse(BLENDER_DOWNLOAD_URL).unwrap(); // I would hope that this line should never fail...?
+    pub fn download(version: Version, install_path: impl AsRef<Path>) -> Result<Blender> {
+        let url = Url::parse(BLENDER_DOWNLOAD_URL).unwrap(); // I would hope that this line should never fail...? I would like to know how someone could possibly fail this line here.
+
+        // In the original code - there's a comment implying we should use cache as much as possible to avoid IP Blacklisted. TODO: Verify this in Blender community about this.
+        let mut cache = PageCache::load();
+        // create a subpath using the version and check to see if this exist. Otherwise, I may have to regex this information out...?
+        // TODO: Once I get internet connection, finish this - Impl cache for the download page, impl regex search for specific blender version
+        // let content = cache.fetch(&url).unwrap();
+        // let
+
+        // create a subtree path from the directory page.
+        // This line of code may be replaced with the regex search above - use this for now in terms of development.
         let path = format!("Blender{}.{}/", version.major, version.minor);
         let url = url.join(&path).unwrap();
 
-        // In the original code - there's a warning message that we should use cache as much as possible to prevent possible IP Blacklisted. - Should I ask Blender community about this?
-        let mut cache = PageCache::load();
+        // fetch the content of the subtree information
         let content = cache.fetch(&url).unwrap();
+
+        dbg!(&content);
 
         // this OS includes the operating system name and the compressed format.
         // TODO: might reformat this so that it make sense - I don't think I need to capture the OS string literal, but I do need to capture the file extension type.
@@ -203,6 +286,8 @@ impl Blender {
             }
         };
 
+        dbg!(&os, &extension, &arch);
+
         // Content parsing to get download url that matches target operating system and version
         let match_pattern = format!(
             r#"(<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.{}.*{}.*{}.*\.[{}].*)<\/a>)"#,
@@ -210,6 +295,7 @@ impl Blender {
         );
 
         let regex = Regex::new(&match_pattern).unwrap();
+        dbg!(&regex);
         let (path, name) = match regex.captures(&content) {
             Some(info) => (info["url"].to_string(), info["name"].to_string()),
             None => return Err(Error::new(
@@ -220,6 +306,7 @@ impl Blender {
                 ),
             )),
         };
+        dbg!(&path, &name);
 
         // concatenate the final download destination to the url path
         let url = url.join(&path).unwrap();
@@ -228,8 +315,13 @@ impl Blender {
         let name = name.replace(extension, "");
         let download_path = install_path.as_ref().join(&path);
 
+        dbg!(&download_path, &url);
         // Download the file from the internet and save it to blender data folder
-        let response = reqwest::blocking::get(url).unwrap();
+        // I feel like I'm running into problem here?
+        let response = match reqwest::blocking::get(url) {
+            Ok(response) => response,
+            Err(e) => return Err(Error::new(ErrorKind::Other, e.to_string())),
+        };
         let body = response.bytes().unwrap();
         fs::write(&download_path, &body).expect("Unable to write file! Permission issue?");
 
@@ -237,7 +329,7 @@ impl Blender {
         let executable = extract_content(&download_path, &name).unwrap();
 
         // return the version of the blender
-        Ok(Blender::new(&executable, version))
+        Ok(Blender::new(executable, version))
     }
 
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
@@ -251,6 +343,9 @@ impl Blender {
     /// ```
     pub fn render(&self, args: &Args) -> Result<String> {
         let col = args.create_arg_list();
+
+        // let see what the argument is?
+        dbg!(&col);
 
         // seems conflicting, this api locks main thread. NOT GOOD!
         // Instead I need to find a way to send signal back to the class that called this
@@ -271,8 +366,7 @@ impl Blender {
         reader.lines().for_each(|line| {
             // it would be nice to include verbose logs?
             let line = line.unwrap();
-            // TODO: find a way to show error code or other message if blender doesn't actually render!
-            // println!("{}", &line);
+
             if line.contains("Warning:") {
                 println!("{}", line);
             } else if line.contains("Fra:") {
@@ -295,8 +389,13 @@ impl Blender {
             } else if line.contains("Saved:") {
                 // this is where I can send signal back to the caller
                 // that the render is completed
+                // TODO: why this didn't work after second render?
                 let location = line.split('\'').collect::<Vec<&str>>();
+                dbg!(&line, &location);
                 output = location[1].trim().to_string();
+            } else {
+                // TODO: find a way to show error code or other message if blender doesn't actually render!
+                println!("{}", &line);
             }
         });
 

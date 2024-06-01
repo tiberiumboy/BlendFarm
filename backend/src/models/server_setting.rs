@@ -1,11 +1,15 @@
 use serde::{Deserialize, Serialize};
-use std::{fs, io, path::PathBuf};
+use std::{fs, path::PathBuf};
 
 use blender::blender::Blender;
 
+// path to config file name.
 const SETTINGS_PATH: &str = "./ServerSettings.json";
-const BLENDER_DATA: &str = "BlenderData";
-const RENDER_DATA: &str = "RenderData";
+// Blender data needs to be saved in the user's document settings to retain and save blender location.
+// TODO: Find a way to fetch user's directory and use that directory for Blender_data const variable
+const BLENDER_DATA: &str = "BlenderData/";
+// RenderData can be used in a temp directory because I do not expect this to be long lived.
+const RENDER_DATA: &str = "RenderData/";
 // const BLENDER_FILES: &str = "BlenderFiles";
 
 /// Server settings information that the user can load and configure for this program to operate.
@@ -19,33 +23,28 @@ pub struct ServerSetting {
     pub blenders: Vec<Blender>, // list of installed blender versions on this machine.
 }
 
-// pub trait TempDirectory {
-//     fn get_tmp_dir() -> PathBuf;
-//     // TODO find a way to implement generic function that can be shared across all other directory like structure.
-// }
-
-fn create_tmp_dir(dir_name: &str) -> PathBuf {
-    let mut tmp = std::env::temp_dir();
-    tmp.push(dir_name);
-    if !tmp.exists() {
-        fs::create_dir(&tmp).expect("Unable to create directory! Permission issue?");
-    }
-    tmp
-}
-
 impl Default for ServerSetting {
     fn default() -> Self {
+        let mut render_data = std::env::temp_dir();
+        render_data.push(RENDER_DATA);
+        fs::create_dir_all(&render_data).unwrap();
+
+        let blender_data = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join(BLENDER_DATA);
+        fs::create_dir_all(&blender_data).unwrap();
         Self {
             port: 15000,
             broadcast_port: 16342,
-            blender_data: create_tmp_dir(BLENDER_DATA),
-            render_data: create_tmp_dir(RENDER_DATA),
+            blender_data,
+            render_data,
             blenders: vec![],
         }
     }
 }
 
-#[allow(dead_code)]
 impl ServerSetting {
     pub fn save(&self) {
         // save this data to...?
@@ -53,6 +52,7 @@ impl ServerSetting {
         fs::write(SETTINGS_PATH, data).expect("Unable to write file! Permission issue?");
     }
 
+    // TODO: Consider about returning Result<ServerSetting> or Result<Self>?
     pub fn load() -> ServerSetting {
         match fs::read_to_string(SETTINGS_PATH) {
             // TODO: find a way to handle parsing the error?
@@ -63,19 +63,5 @@ impl ServerSetting {
                 data
             }
         }
-    }
-
-    pub fn get_blender_data() -> io::Result<PathBuf> {
-        let mut tmp = std::env::temp_dir();
-        tmp.push(format!("/{}/", BLENDER_DATA));
-        std::fs::create_dir_all(&tmp)?;
-        Ok(tmp)
-    }
-
-    pub fn get_render_data() -> io::Result<PathBuf> {
-        let mut tmp = std::env::temp_dir();
-        tmp.push(format!("/{}/", RENDER_DATA));
-        std::fs::create_dir(&tmp)?;
-        Ok(tmp)
     }
 }

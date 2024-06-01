@@ -3,7 +3,7 @@
 
 use crate::controllers::remote_render::{
     create_job, create_node, delete_job, delete_node, delete_project, edit_node, import_project,
-    list_job, list_node, list_projects, sync_project,
+    list_job, list_node, list_projects, list_versions, /*sync_project,*/
 };
 
 use crate::controllers::settings::{add_blender_installation, list_blender_installation};
@@ -38,7 +38,7 @@ fn client() {
         // })
         .invoke_handler(generate_handler![
             import_project,
-            sync_project,
+            // sync_project,
             create_node,
             create_job,
             delete_node,
@@ -48,6 +48,7 @@ fn client() {
             list_node,
             list_projects,
             list_job,
+            list_versions,
             // settings
             add_blender_installation,
             list_blender_installation,
@@ -56,15 +57,17 @@ fn client() {
         .expect("error while running tauri application");
 }
 
+/// This code is only used to test out downloading blender from source or reuse existing installation of blender, render a test scene example, and output the result.
 #[allow(dead_code)]
-fn test_reading_blender_files(file: impl AsRef<Path>, version: &Version) -> Result<()> {
+fn test_reading_blender_files(file: impl AsRef<Path>, version: Version) -> Result<()> {
     let mut server_settings = ServerSetting::load();
     // eventually we would want to check if the version is already installed on the machine.
     // otherwise download and install the version prior to run this script.
+    dbg!(&server_settings);
     let blender = match server_settings
         .blenders
         .iter()
-        .find(|&x| &x.version == version)
+        .find(|&x| &x.version == &version)
     {
         Some(blender) => blender.to_owned(),
         None => {
@@ -102,13 +105,10 @@ fn main() -> Result<()> {
 
     // now that we have a unit test to cover whether we can actually run blender from the desire machine, we should now
     // work on getting network stuff working together! yay!
-    let version = Version::new(4, 1, 0);
-    let file = match env::consts::OS {
-        "macos" => PathBuf::from("/Users/Shared/triangle.blend"),
-        "linux" => PathBuf::from("/home/jordan/Downloads/fire_fx.blend"),
-        _ => todo!(),
-    };
-    let _ = test_reading_blender_files(&file, &version);
+    // let version = Version::new(4, 1, 0);
+    // Assuming this code was compiled and run from ./backend dir
+    // let file = PathBuf::from("./test.blend");
+    // let _ = test_reading_blender_files(&file, &version);
 
     client();
 

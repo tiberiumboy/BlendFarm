@@ -1,12 +1,13 @@
 use crate::models::project_file::ProjectFile;
 use crate::models::{data::Data, job::Job, render_node::RenderNode};
 use blender::mode::Mode;
+// use blender::page_cache::PageCache;
 use semver::Version;
 use std::{path::PathBuf, sync::Mutex /* thread */};
 use tauri::{command, Manager};
 use tauri::{AppHandle, Error};
 
-// soon I want to return the client node it established to
+/// Create a node
 #[command]
 pub fn create_node(app: AppHandle, name: &str, host: &str) -> Result<String, Error> {
     let node = RenderNode::parse(name, host).unwrap();
@@ -18,6 +19,7 @@ pub fn create_node(app: AppHandle, name: &str, host: &str) -> Result<String, Err
     Ok(data)
 }
 
+/// List out all available node for this blendfarm.
 #[command]
 pub fn list_node(app: AppHandle) -> Result<String, Error> {
     let node_mutex = app.state::<Mutex<Data>>();
@@ -26,12 +28,24 @@ pub fn list_node(app: AppHandle) -> Result<String, Error> {
     Ok(data)
 }
 
-// may not be in used?
+/// List all of the available blender version. (TODO - Impl. list of blender version available to download?)
+#[command]
+pub fn list_versions() -> Result<String, Error> {
+    // let cache = PageCache::load();
+    // TODO: Find a way to load blender version here? See how Blendfarm does it?
+    let versions = vec![Version::new(3, 0, 1), Version::new(4, 1, 0)];
+    // let contents = cache.fetch(url);
+    let contents = serde_json::to_string(&versions).unwrap();
+    Ok(contents)
+}
+
+/// Edit target node and update config with the new configuration set for the target node
 #[command]
 pub fn edit_node(_app: AppHandle, _update_node: RenderNode) {
     todo!();
 }
 
+/// Delete target node from the configuration
 #[command]
 pub fn delete_node(app: AppHandle, target_node: RenderNode) -> Result<(), Error> {
     // delete node from list and refresh the app?
@@ -41,7 +55,7 @@ pub fn delete_node(app: AppHandle, target_node: RenderNode) -> Result<(), Error>
     Ok(())
 }
 
-// TODO: Change this to handle string input of files for new project file.
+/// Allow user to import a new project file for blenderfarm to process job for.
 #[command]
 pub fn import_project(app: AppHandle, path: &str) {
     let file_path = PathBuf::from(path);
@@ -53,19 +67,22 @@ pub fn import_project(app: AppHandle, path: &str) {
     ctx.project_files.push(project_file);
 }
 
-#[command]
-pub fn sync_project(app: AppHandle, project_file: ProjectFile) {
-    // we find the project by the id, then we re-sync the files
-    let ctx = app.state::<Mutex<Data>>();
-    let mut data = ctx.lock().unwrap();
-    let project = data
-        .project_files
-        .iter_mut()
-        .find(|x| *x == &project_file)
-        .unwrap();
-    project.move_to_temp();
-}
+// TODO: Find a good reason why we need to keep this? Do we need to send updates to all server node? May not be used
+// This might be a dead code?
+// #[command]
+// pub fn sync_project(app: AppHandle, project_file: ProjectFile) {
+//     // we find the project by the id, then we re-sync the files
+//     let ctx = app.state::<Mutex<Data>>();
+//     let mut data = ctx.lock().unwrap();
+//     let project = data
+//         .project_files
+//         .iter_mut()
+//         .find(|x| *x == &project_file)
+//         .unwrap();
+//     project.move_to_temp();
+// }
 
+/// Delete target project file from the collection. Note - this does not mean delete the original source file, it simply remove the project entry from the list
 #[command]
 pub fn delete_project(app: AppHandle, project_file: ProjectFile) {
     // retain the project from the collection.
@@ -84,8 +101,7 @@ pub fn list_projects(app: AppHandle) -> Result<String, Error> {
     Ok(data)
 }
 
-// TODO: Update front end to supply version string info.
-// TODO: Read what format the version needs to be in for the parser to work correctly.
+/// Create a new job from the list of project collection, and begin network rendering from target nodes.
 #[command(async)]
 pub fn create_job(
     app: AppHandle,
@@ -103,8 +119,9 @@ pub fn create_job(
     let mut job = Job::new(project, &output, &version, nodes, mode);
     // I have some weird feeling about this. How can I make a method invocation if they receive certain event,
     // e.g. progress bar?? I must read the stdoutput to gather blender's progress information.
-    // See commands for blender and sidecar from tauri.
 
+    // see about how I can go about notify each node what frame to render next, and then expect to receive the files back.
+    // this function may be relocated somewhere else?
     let image = match job.run() {
         Ok(path) => Some(path),
         Err(_) => None,
@@ -114,6 +131,7 @@ pub fn create_job(
     data.jobs.push(job);
 }
 
+/// Abort the job if it's running and delete the entry from the collection list.
 #[command]
 pub fn delete_job(app: AppHandle, target_job: Job) {
     let ctx = app.state::<Mutex<Data>>();
@@ -122,6 +140,7 @@ pub fn delete_job(app: AppHandle, target_job: Job) {
     data.jobs.retain(|x| x != &target_job);
 }
 
+/// List all available jobs stored in the collection.
 #[command]
 pub fn list_job(app: AppHandle) -> Result<String, Error> {
     let job_mutex = app.state::<Mutex<Data>>();

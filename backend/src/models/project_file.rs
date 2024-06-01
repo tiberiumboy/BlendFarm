@@ -31,6 +31,7 @@ impl ProjectFile {
     }
 
     pub(crate) fn move_to_temp(&mut self) {
+        // TODO: Do not use temp_dir() - MacOS clear the temp directory after a restart! BAD!
         let mut dir = env::temp_dir();
         let file_name = self.src.file_name().unwrap();
         dir.push(file_name);

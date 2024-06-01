@@ -19,29 +19,27 @@ const unlisten = await once<RenderComposedPayload>("image_update", (event) => {
 });
 
 // must deserialize into this format: "Frame": "i32",
-const Frame = () => {
+const Frame = () => (
   <div>
-    <label>Frame</label>
-    <input name="frame" id="frame" type="number" />
-  </div>;
-};
+    <label htmlFor="frame">Frame</label>
+    <input name="frame" type="number" />
+  </div>
+);
 
 // TODO: Find a good reason why we would prefer animation over section?
 // must deserialize into this format: "Animation",
-const Animation = () => {
-  <div>Animation</div>;
-};
+const Animation = () => <div>Animation</div>;
 
 // must deserialize into this format: "Section": { "start": i32, "end": i32 }
-const Section = () => {
+const Section = () => (
   <div>
     Section
-    <label>Start</label>
-    <input name="start" id="start" type="number" />
-    <label>End</label>
-    <input name="end" id="end" type="number" />
-  </div>;
-};
+    <label htmlFor="start">Start</label>
+    <input name="start" type="number" value={1} />
+    <label htmlFor="end">End</label>
+    <input name="end" type="number" value={2} />
+  </div>
+);
 
 const components = {
   frame: Frame,
@@ -53,7 +51,8 @@ export default function RemoteRender() {
   const [projects, setProjects] = useState(fetchProjects);
   const [jobs, setJobs] = useState(fetchJobs);
   const [nodes, setNodes] = useState(fetchNodes);
-  const [mode, setMode] = useState(components["frame"]);
+  const [versions, setVersions] = useState(fetchVersions);
+  const [mode, setMode] = useState(components["frame"]());
 
   //#region User selected data
   const [selectedProject, setSelectedProject] = useState(
@@ -82,6 +81,11 @@ export default function RemoteRender() {
     return [] as RenderNodeProps[];
   }
 
+  function fetchVersions() {
+    listVersions();
+    return [] as string[];
+  }
+
   //#endregion
 
   //#region API Calls to fetch Data
@@ -95,6 +99,10 @@ export default function RemoteRender() {
 
   function listNodes() {
     invoke("list_node").then((ctx) => setNodes(JSON.parse(ctx + "")));
+  }
+
+  function listVersions() {
+    invoke("list_versions").then((ctx) => setVersions(JSON.parse(ctx + "")));
   }
 
   //#endregion
@@ -119,19 +127,41 @@ export default function RemoteRender() {
       data = data.filter((item) => item !== node);
     }
     setSelectedNodes(data);
-    console.log("I've been changed!", selectedNodes);
   };
 
   function handleSubmitJobForm(e: any) {
     e.preventDefault();
-    // TODO: Find a way to parse/serialize mode version
+    // why is this not working??
+    const selectedMode = e.target.modes.value;
+
+    let mode = {};
+    switch (selectedMode) {
+      case "frame":
+        mode = {
+          Frame: Number(e.target.frame.value),
+        };
+        break;
+      case "animation":
+        mode = { Animation };
+        break;
+      case "section":
+        mode = {
+          Section: {
+            start: Number(e.target.start.value),
+            end: Number(e.target.end.value),
+          },
+        };
+        break;
+    }
+
     let data = {
       output: e.target.output.value,
       projectFile: selectedProject,
+      version: e.target.version.value,
       nodes: selectedNodes,
-      mode: { Frame: 1 },
+      mode,
     };
-    console.log(selectedNodes);
+
     invoke("create_job", data).then(listJobs);
     closeDialog();
   }
@@ -261,6 +291,7 @@ export default function RemoteRender() {
               <label>{node.name}</label>
               <input
                 type={"checkbox"}
+                defaultChecked={true}
                 checked={selectedNodes.indexOf(node) != -1}
                 onChange={() => onCheckboxChanged(node)}
               />
@@ -269,14 +300,16 @@ export default function RemoteRender() {
           <label>Choose rendering mode</label>
           <select
             name="modes"
-            id="modes"
-            onChange={(e) => {
-              const component = components[e.target.value];
-              setMode(component);
-            }}
+            onChange={(e) => setMode(components[e.target.value]())}
           >
             {Object.entries(components).map((item) => (
               <option value={item[0]}>{item[0]}</option>
+            ))}
+          </select>
+          Blender Version:
+          <select name="version" value={"4.1.0"}>
+            {versions.map((item) => (
+              <option value={item}>{item}</option>
             ))}
           </select>
           {mode}
@@ -286,6 +319,7 @@ export default function RemoteRender() {
             placeholder="Output Path"
             id="output"
             name="output"
+            value={"/Users/Shared/"}
             readOnly={true}
             onClick={async (e: any) => {
               const filePath = await open({
@@ -299,11 +333,7 @@ export default function RemoteRender() {
             }}
           />
           <menu>
-            <button
-              type="button"
-              value="cancel"
-              onClick={closeDialog}
-            >
+            <button type="button" value="cancel" onClick={closeDialog}>
               Cancel
             </button>
             <button type="submit">Ok</button>

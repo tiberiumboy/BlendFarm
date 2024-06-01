@@ -5,16 +5,15 @@ import RenderNode from "./render_node";
 
 // how do I extract nodes from this window?
 export default function NodeWindow() {
+  const [nodes, setNodes] = useState(fetchNodes);
 
-	const [nodes, setNodes] = useState(fetchNodes);
-  
-	function fetchNodes() {
-		const initialNodes: RenderNodeProps[] = [];
+  function fetchNodes() {
+    const initialNodes: RenderNodeProps[] = [];
     listNodes();
     return initialNodes;
   }
 
-	function listNodes() {
+  function listNodes() {
     invoke("list_node").then((ctx: any) => setNodes(JSON.parse(ctx + "")));
   }
 
@@ -25,7 +24,7 @@ export default function NodeWindow() {
 
   function closeDialog() {
     let dialog = document.getElementById("create_node");
-    dialog?.close();    // how can I make this implicitly as dialog?
+    dialog?.close(); // how can I make this implicitly as dialog?
   }
 
   function handleSubmitNodeForm(e: any) {
@@ -39,21 +38,21 @@ export default function NodeWindow() {
     closeDialog();
   }
 
-	function nodeWindow() {
-		return (
-			<div>
-				{/* Show the activity of the computer progress */}
-				<h2>Computer Nodes</h2>
-				<button onClick={showDialog}>Connect</button>
-				<div className="group" id="RenderNodes">
-					{nodes.map(
-						(node: RenderNodeProps, index: Number) => (
-							(node.onDataChanged = listNodes), RenderNode(index, node)
-						),
-					)}
-				</div>
-			</div>
-		);
+  function nodeWindow() {
+    return (
+      <div>
+        {/* Show the activity of the computer progress */}
+        <h2>Computer Nodes</h2>
+        <button onClick={showDialog}>Connect</button>
+        <div className="group" id="RenderNodes">
+          {nodes.map(
+            (node: RenderNodeProps, index: Number) => (
+              (node.onDataChanged = listNodes), RenderNode(node)
+            ),
+          )}
+        </div>
+      </div>
+    );
   }
 
   function nodeCreationDialog() {
@@ -67,11 +66,7 @@ export default function NodeWindow() {
           <input type="text" placeholder="IP Address" id="ip" name="ip" /> */}
 
           <menu>
-            <button
-              type="button"
-              value="cancel"
-              onClick={closeDialog}
-            >
+            <button type="button" value="cancel" onClick={closeDialog}>
               Cancel
             </button>
             <button type="submit">Ok</button>
@@ -82,10 +77,10 @@ export default function NodeWindow() {
   }
 
   return (
-    <div>   
-        {/* I'm concern about dialog window size dimension */}
-        {nodeWindow()}
-        {nodeCreationDialog()}
+    <div>
+      {/* I'm concern about dialog window size dimension */}
+      {nodeWindow()}
+      {nodeCreationDialog()}
     </div>
   );
 }

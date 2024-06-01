@@ -16,8 +16,23 @@ pub fn list_blender_installation() -> Result<String, Error> {
 /// Add a new blender entry to the system, but validate it first!
 #[command]
 pub fn add_blender_installation(path: PathBuf) -> Result<(), Error> {
-    let mut server_settings = ServerSetting::load();
+    // first thing first, check and see if we're interfacing with either the compressed version of blender or the actual executable app of blender.
+    // Once we figure out if it's the compress -> Unpack them into our blenderData directory
+    // If it's actual executable, reference the path directly instead.
+
+    // What's the rust recommendation way of doing this?
+    // I wanted to make sure that the user isn't just loading compressed file containing blender
+    // and at the same time, I also wanted to make sure that whatever Operating system blender is reference, needs to associate with the path directly
+
+    if &path.as_os_str().to_os_string().into_string().(".app") {
+        // more likely this is a macos path.
+        // we would need to defer the current path and assign the correct path to blender location.
+        path = path.join("Contents/MacOS/Blender");
+    }
+    dbg!(&path);
+
     let blender = Blender::from_executable(path).unwrap();
+    let mut server_settings = ServerSetting::load();
     server_settings.blenders.push(blender);
     server_settings.save();
     Ok(())

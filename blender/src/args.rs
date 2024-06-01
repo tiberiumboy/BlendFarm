@@ -66,6 +66,8 @@ impl Args {
             ],
         };
 
+        // TODO: Find out what's wrong with the issue with Section.
+        // TODO: Test "Animation"?
         col.append(&mut additional_args);
 
         // Cycles add-on options must be specified following a double dash.
