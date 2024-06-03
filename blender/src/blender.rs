@@ -43,12 +43,13 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
 
 /// Extract tar.xz file from destination path, and return blender executable path
 #[cfg(target_os = "linux")]
-fn extract_content(download_path: &PathBuf, folder_name: &PathBuf) -> Result<PathBuf> {
+fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
+    use std::fs::File;
     use tar::Archive;
     use xz::read::XzDecoder;
 
     // Get file handler to download location
-    let file = File::open(&download_path).unwrap(); // comment this out if we can get the line above working again - wouldn't make sense to open after we created?
+    let file = File::open(download_path).unwrap();
 
     // decode compressed xz file
     let tar = XzDecoder::new(file);
@@ -63,7 +64,7 @@ fn extract_content(download_path: &PathBuf, folder_name: &PathBuf) -> Result<Pat
     archive.unpack(&destination).unwrap();
 
     // return extracted executable path
-    Ok(destination.join("/blender"))
+    Ok(destination.join("blender"))
 }
 
 /// Mounts dmg target to volume, then extract the contents to a new folder using the folder_name,

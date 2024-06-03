@@ -24,7 +24,12 @@ pub fn add_blender_installation(path: PathBuf) -> Result<(), Error> {
     // I wanted to make sure that the user isn't just loading compressed file containing blender
     // and at the same time, I also wanted to make sure that whatever Operating system blender is reference, needs to associate with the path directly
 
-    if &path.as_os_str().to_os_string().into_string().(".app") {
+    if &path
+        .as_os_str()
+        .as_ref()
+        .to_string()
+        .contains([".zip", ".tar.xz", ".dmg"])
+    {
         // more likely this is a macos path.
         // we would need to defer the current path and assign the correct path to blender location.
         path = path.join("Contents/MacOS/Blender");
