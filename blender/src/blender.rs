@@ -152,14 +152,15 @@ impl Blender {
     ///  This error also serves where the executable is unable to provide the blender version.
     // TODO: Find a better way to fetch version from stdout (Possibly regex? How would other do it?)
     // Wonder if this is the better approach? Do not know! We'll find out more?
-    fn check_version(&self) -> Result<Version> {
-        if !self.exists() {
+    fn check_version(executable_path: impl AsRef<Path>) -> Result<Version> {
+        let executable_path = executable_path.as_ref();
+        if !executable_path.exists() {
             return Err(Error::new(
                 ErrorKind::InvalidData,
                 "Executable path do not exist!".to_owned(),
             ));
         }
-        let output = Command::new(self.executable.as_path())
+        let output = Command::new(executable_path)
             .arg("-v")
             .output()
             .unwrap()
@@ -194,12 +195,11 @@ impl Blender {
     /// ```
     pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self> {
         // currently need a path to the executable before executing the command.
-        let mut blender = Blender::new(executable.as_ref().to_owned(), Version::new(0, 0, 0));
-        let version = blender.check_version().unwrap();
-        blender.version = version;
-        Ok(blender)
+        match Self::check_version(&executable) {
+            Ok(version) => Ok(Self::new(executable.as_ref().to_path_buf(), version)),
+            Err(e) => Err(e),
+        }
         // TODO: How can I handle error message if this doesn't work, I need to find a way to pop this entry off from config file if blender file doesn't exist or doesn't work?
-        // Err(Error::new(ErrorKind::InvalidData, "Unable to fetch Blender version, are you sure you have blender installed correctly?"))
     }
 
     /// Download blender from the internet and install it to the provided path.
@@ -296,7 +296,6 @@ impl Blender {
         );
 
         let regex = Regex::new(&match_pattern).unwrap();
-        dbg!(&regex);
         let (path, name) = match regex.captures(&content) {
             Some(info) => (info["url"].to_string(), info["name"].to_string()),
             None => return Err(Error::new(
