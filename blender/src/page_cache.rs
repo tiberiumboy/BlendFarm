@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::PathBuf};
 use url::Url;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 pub struct PageCache {
     cache: HashMap<Url, PathBuf>,
 }
@@ -13,20 +13,12 @@ const CACHE_DIR: &str = "cache";
 const CACHE_CONFIG: &str = "cache.json";
 
 impl PageCache {
-    fn new() -> Self {
-        Self {
-            cache: HashMap::new(),
-        }
-    }
-
     // fetch the directory
     fn get_dir() -> PathBuf {
         // TODO: Do not save the data in temp dir - MacOS clear the temp directory after a restart! BAD!
-        let mut tmp = std::env::home_dir().unwrap();
+        let mut tmp = dirs::cache_dir().unwrap();
         tmp.push(CACHE_DIR);
-        if !tmp.exists() {
-            fs::create_dir(&tmp).expect("Unable to create directory! Permission issue?");
-        }
+        fs::create_dir_all(&tmp).expect("Unable to create directory! Permission issue?");
         tmp
     }
 
@@ -35,7 +27,7 @@ impl PageCache {
     }
 
     fn create() -> Self {
-        let obj = Self::new();
+        let obj = Self::default();
         obj.save();
         obj
     }
@@ -45,7 +37,7 @@ impl PageCache {
         // it may seems like this is a bad idea but I would expect this function to work either way?
         // Wonder if this is the best practice?
         let data = serde_json::to_string(&self).expect("Unable to deserialize data!");
-        let _ = fs::write(Self::get_cache_path(), &data); // wonder why I need to see the result from this? TODO: find out more about this info?
+        let _ = fs::write(Self::get_cache_path(), data); // wonder why I need to see the result from this? TODO: find out more about this info?
     }
 
     pub fn load() -> Self {
@@ -60,7 +52,7 @@ impl PageCache {
     /// then return the page result.
     /// Otherwise if page is inaccessible - None will be returned instead.
     pub fn fetch(&mut self, url: &Url) -> Option<String> {
-        let path = match self.cache.get(&url) {
+        let path = match self.cache.get(url) {
             // if we are unable to find the url that we have previous cached, then we need to create a new entry.
             // after we append that entry, we need to save it to the file somewhere.
             Some(path) => path.to_owned(),
@@ -74,14 +66,11 @@ impl PageCache {
                 let file_name = re.replace_all(&url_name, "-").to_string();
                 tmp.push(file_name);
 
-                // a problem here?
-                dbg!(&tmp);
                 // Why does it error out here? I understand I'm not connected to the internet but why should it stop here?
                 let content = match reqwest::blocking::get(url.clone()) {
                     Ok(data) => data.text().unwrap(),
                     Err(_) => return None,
                 };
-                dbg!(&content);
                 fs::write(&tmp, content).unwrap(); // maybe here?
                 self.cache.insert(url.clone(), tmp.clone());
                 self.save();

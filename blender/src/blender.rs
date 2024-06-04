@@ -214,8 +214,6 @@ impl Blender {
     ///  It is possible to support these unsupported operating system / architecture by downloading the source code onto the target machine, and compile directly.
     ///  However, for this scope of this project, I have no plans or intention on supporting that far of detail to make this possible. (Especially when I need to verify all other crates are compatible with the target platform/os)
     ///
-    /// *
-    ///
     /// # Examples
     /// ```
     /// use blender::Blender;
@@ -228,13 +226,17 @@ impl Blender {
         let mut cache = PageCache::load();
         // create a subpath using the version and check to see if this exist. Otherwise, I may have to regex this information out...?
         // TODO: Once I get internet connection, finish this - Impl cache for the download page, impl regex search for specific blender version
-        // let content = cache.fetch(&url).unwrap();
-        // let
+        let content: String = cache.fetch(&url).unwrap();
 
-        // create a subtree path from the directory page.
-        // This line of code may be replaced with the regex search above - use this for now in terms of development.
+        // search for the root of the blender version
+        // does it seems important? How did BlendFarm fetch all blender version?
         let path = format!("Blender{}.{}/", version.major, version.minor);
         let url = url.join(&path).unwrap();
+
+        let blender = Blender::new(PathBuf::from("path/to/blender"), version);
+        Ok(blender)
+
+        /*
 
         // fetch the content of the subtree information
         let content = cache.fetch(&url).unwrap();
@@ -330,6 +332,8 @@ impl Blender {
 
         // return the version of the blender
         Ok(Blender::new(executable, version))
+
+        */
     }
 
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?

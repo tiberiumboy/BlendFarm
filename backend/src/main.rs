@@ -63,26 +63,25 @@ fn test_reading_blender_files(file: impl AsRef<Path>, version: Version) -> Resul
     let mut server_settings = ServerSetting::load();
     // eventually we would want to check if the version is already installed on the machine.
     // otherwise download and install the version prior to run this script.
-    dbg!(&server_settings);
-    let blender = match server_settings
-        .blenders
-        .iter()
-        .find(|&x| &x.version == &version)
-    {
-        Some(blender) => blender.to_owned(),
-        None => {
-            let blender = Blender::download(version, &server_settings.blender_data).unwrap();
-            server_settings.blenders.push(blender.clone());
-            server_settings.save();
-            blender
-        }
-    };
+    // let blender = match server_settings
+    //     .blenders
+    //     .iter()
+    //     .find(|&x| &x.version == &version)
+    // {
+    //     Some(blender) => blender.to_owned(),
+    //     None => {
+    let blender = Blender::download(version, &server_settings.blender_dir).unwrap();
+    //         server_settings.blenders.push(blender.clone());
+    //         server_settings.save();
+    //         blender
+    //     }
+    // };
 
     // This part of the code is used to test and verify that we can successfully run blender
-    let output = file.as_ref().parent().unwrap();
-    let args = Args::new(file.as_ref(), PathBuf::from(output), Mode::Frame(1));
-    let render_path = blender.render(&args).unwrap();
-    dbg!(render_path);
+    // let output = file.as_ref().parent().unwrap();
+    // let args = Args::new(file.as_ref(), PathBuf::from(output), Mode::Frame(1));
+    // let render_path = blender.render(&args).unwrap();
+    // dbg!(render_path);
     Ok(())
 }
 
@@ -105,12 +104,10 @@ fn main() -> Result<()> {
 
     // now that we have a unit test to cover whether we can actually run blender from the desire machine, we should now
     // work on getting network stuff working together! yay!
-    // let version = Version::new(4, 1, 0);
     // Assuming this code was compiled and run from ./backend dir
-    // let file = PathBuf::from("./test.blend");
-    // let _ = test_reading_blender_files(&file, &version);
+    let _ = test_reading_blender_files(PathBuf::from("./test.blend"), Version::new(4, 1, 0));
 
-    client();
+    // client();
 
     Ok(())
 }

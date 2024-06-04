@@ -83,7 +83,7 @@ impl Job {
             Some(blender) => blender.to_owned(),
             None => {
                 let blender =
-                    Blender::download(self.version.clone(), &server_settings.blender_data).unwrap();
+                    Blender::download(self.version.clone(), &server_settings.blender_dir).unwrap();
                 server_settings.blenders.push(blender.clone());
                 server_settings.save();
                 blender

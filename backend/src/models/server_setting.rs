@@ -1,15 +1,12 @@
+use blender::blender::Blender;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 
-use blender::blender::Blender;
-
 // path to config file name.
-const SETTINGS_PATH: &str = "./ServerSettings.json";
-// Blender data needs to be saved in the user's document settings to retain and save blender location.
-// TODO: Find a way to fetch user's directory and use that directory for Blender_data const variable
-const BLENDER_DATA: &str = "BlenderData/";
-// RenderData can be used in a temp directory because I do not expect this to be long lived.
-const RENDER_DATA: &str = "RenderData/";
+const SETTINGS_PATH: &str = "BlendFarm/";
+const SETTINGS_FILE_NAME: &str = "ServerSettings.json";
+const BLENDER_DIR: &str = "BlenderData/";
+const RENDER_DIR: &str = "RenderData/";
 // const BLENDER_FILES: &str = "BlenderFiles";
 
 /// Server settings information that the user can load and configure for this program to operate.
@@ -18,44 +15,47 @@ const RENDER_DATA: &str = "RenderData/";
 pub struct ServerSetting {
     pub port: u16,
     pub broadcast_port: u16,
-    pub blender_data: PathBuf,
-    pub render_data: PathBuf,
+    pub blender_dir: PathBuf,
+    pub render_dir: PathBuf,
     pub blenders: Vec<Blender>, // list of installed blender versions on this machine.
 }
 
 impl Default for ServerSetting {
     fn default() -> Self {
         let mut render_data = std::env::temp_dir();
-        render_data.push(RENDER_DATA);
+        render_data.push(RENDER_DIR);
         fs::create_dir_all(&render_data).unwrap();
 
-        let blender_data = std::env::current_exe()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join(BLENDER_DATA);
+        let blender_data = dirs::download_dir().unwrap().join(BLENDER_DIR);
         fs::create_dir_all(&blender_data).unwrap();
         Self {
             port: 15000,
             broadcast_port: 16342,
-            blender_data,
-            render_data,
+            blender_dir: blender_data,
+            render_dir: render_data,
             blenders: vec![],
         }
     }
 }
 
 impl ServerSetting {
-    pub fn save(&self) {
-        // save this data to...?
-        let data = serde_json::to_string(&self).expect("Unable to parse ServerSettings into json!");
-        fs::write(SETTINGS_PATH, data).expect("Unable to write file! Permission issue?");
+    fn get_config_path() -> PathBuf {
+        let path = dirs::config_dir().unwrap().join(SETTINGS_PATH);
+        fs::create_dir_all(&path).expect("Unable to create directory!");
+        path.join(SETTINGS_FILE_NAME)
     }
 
-    // TODO: Consider about returning Result<ServerSetting> or Result<Self>?
+    /// Save the configurations to the user's config directory.
+    pub fn save(&self) {
+        let data = serde_json::to_string(&self).expect("Unable to parse ServerSettings into json!");
+        let config_path = Self::get_config_path();
+        fs::write(config_path, data).expect("Unable to write file! Permission issue?");
+    }
+
+    /// Load user configurations from the user's config directory
     pub fn load() -> ServerSetting {
-        match fs::read_to_string(SETTINGS_PATH) {
-            // TODO: find a way to handle parsing the error?
+        let config_path = Self::get_config_path();
+        match fs::read_to_string(config_path) {
             Ok(data) => serde_json::from_str(&data).expect("Unable to parse settings!"),
             Err(_) => {
                 let data = ServerSetting::default();
