@@ -153,30 +153,22 @@ impl Blender {
     // TODO: Find a better way to fetch version from stdout (Possibly regex? How would other do it?)
     // Wonder if this is the better approach? Do not know! We'll find out more?
     fn check_version(executable_path: impl AsRef<Path>) -> Result<Version> {
-        let executable_path = executable_path.as_ref();
-        if !executable_path.exists() {
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                "Executable path do not exist!".to_owned(),
-            ));
-        }
-        let output = Command::new(executable_path)
+        let output = Command::new(executable_path.as_ref())
             .arg("-v")
             .output()
-            .unwrap()
-            .stdout;
-        let stdout = String::from_utf8(output).unwrap();
-        // TODO: I wonder if there's a way to improve this process without needed to create new array struct? Maybe a parser?
-        let collection = stdout.split("\n\t").collect::<Vec<&str>>();
-        let first = collection.first().unwrap();
-        // TODO: Find a way to improve this so that we can parse the output directly without needed to parse it into array struct?
-        if first.contains("Blender") {
-            // TODO: Do some research on how I could utilize a better way to fetch blender version from stdout? Maybe regex?
-            let version = Version::parse(&first[8..]).unwrap(); // this looks sketchy...
-            Ok(version)
-        } else {
-            // TODO: How can I handle error message if this doesn't work, I need to find a way to pop this entry off from config file if blender file doesn't exist or doesn't work?
-            Err(Error::new(ErrorKind::InvalidData, "Unable to fetch Blender version, are you sure you have blender installed correctly?"))
+            .unwrap();
+
+        // wonder if there's a better way to test this?
+        let regex =
+            Regex::new(r"(Blender (?<major>[0-9]).(?<minor>[0-9]).(?<patch>[0-9]))").unwrap();
+
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        match regex.captures(&stdout) {
+            Some(info) => Ok(Version::new(info["major"].parse().unwrap(), info["minor"].parse().unwrap(), info["patch"].parse().unwrap())),
+            None => Err(Error::new(
+                ErrorKind::NotFound,
+                    "Unable to fetch blender version! Are you sure you provided the exact blender executable path?",
+            )),
         }
     }
 
@@ -194,12 +186,20 @@ impl Blender {
     /// let blender = Blender::from_executable(Pathbuf::from("path/to/blender")).unwrap();
     /// ```
     pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self> {
+        // check and verify that the executable exist.
+        let path = executable.as_ref();
+        if !path.exists() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "Executable path do not exist or is invalid!",
+            ));
+        }
+
         // currently need a path to the executable before executing the command.
-        match Self::check_version(&executable) {
-            Ok(version) => Ok(Self::new(executable.as_ref().to_path_buf(), version)),
+        match Self::check_version(path) {
+            Ok(version) => Ok(Self::new(path.to_path_buf(), version)),
             Err(e) => Err(e),
         }
-        // TODO: How can I handle error message if this doesn't work, I need to find a way to pop this entry off from config file if blender file doesn't exist or doesn't work?
     }
 
     /// Download blender from the internet and install it to the provided path.
@@ -224,6 +224,7 @@ impl Blender {
 
         // In the original code - there's a comment implying we should use cache as much as possible to avoid IP Blacklisted. TODO: Verify this in Blender community about this.
         let mut cache = PageCache::load();
+
         // create a subpath using the version and check to see if this exist. Otherwise, I may have to regex this information out...?
         // TODO: Once I get internet connection, finish this - Impl cache for the download page, impl regex search for specific blender version
         let content: String = cache.fetch(&url).unwrap();
@@ -347,9 +348,6 @@ impl Blender {
     /// ```
     pub fn render(&self, args: &Args) -> Result<String> {
         let col = args.create_arg_list();
-
-        // let see what the argument is?
-        dbg!(&col);
 
         // seems conflicting, this api locks main thread. NOT GOOD!
         // Instead I need to find a way to send signal back to the class that called this

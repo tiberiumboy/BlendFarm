@@ -55,19 +55,15 @@ impl Args {
                 vec!["-f".to_owned(), f.to_string()]
             }
             // Render the whole animation using all the settings saved in the blend-file.
-            Mode::Animation => {
-                vec!["-a".to_owned()]
-            }
             Mode::Section { start, end } => vec![
                 "-s".to_owned(),
                 start.to_string(),
                 "-e".to_owned(),
                 end.to_string(),
+                "-a".to_owned(),
             ],
         };
 
-        // TODO: Find out what's wrong with the issue with Section.
-        // TODO: Test "Animation"?
         col.append(&mut additional_args);
 
         // Cycles add-on options must be specified following a double dash.
