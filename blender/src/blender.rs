@@ -26,92 +26,6 @@ pub struct Blender {
     pub version: Version, // Private immutable variable - Must validate before using!
 }
 
-// Currently being used for MacOS (I wonder if I need to do the same for windows?)
-#[cfg(target_os = "macos")]
-fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
-    fs::create_dir_all(&dst).unwrap();
-    for entry in fs::read_dir(src).unwrap() {
-        let entry = entry.unwrap();
-        if entry.file_type().unwrap().is_dir() {
-            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name())).unwrap();
-        } else {
-            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
-        }
-    }
-    Ok(())
-}
-
-/// Extract tar.xz file from destination path, and return blender executable path
-#[cfg(target_os = "linux")]
-fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
-    use std::fs::File;
-    use tar::Archive;
-    use xz::read::XzDecoder;
-
-    // Get file handler to download location
-    let file = File::open(download_path).unwrap();
-
-    // decode compressed xz file
-    let tar = XzDecoder::new(file);
-
-    // unarchive content from decompressed file
-    let mut archive = Archive::new(tar);
-
-    // generaet destination path
-    let destination = download_path.parent().unwrap().join(folder_name);
-
-    // extract content to destination
-    archive.unpack(&destination).unwrap();
-
-    // return extracted executable path
-    Ok(destination.join("blender"))
-}
-
-/// Mounts dmg target to volume, then extract the contents to a new folder using the folder_name,
-/// lastly, provide a path to the blender executable inside the content.
-#[cfg(target_os = "macos")]
-fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
-    use dmg::Attach;
-
-    // generate destination path
-    let dst = download_path
-        .parent()
-        .unwrap()
-        .join(folder_name)
-        .join("Blender.app");
-
-    // TODO: wonder if this is a good idea?
-    if !dst.exists() {
-        let _ = fs::create_dir_all(&dst).unwrap();
-    }
-
-    // attach dmg to volume
-    let dmg = Attach::new(download_path)
-        .attach()
-        .expect("Could not attach");
-
-    // create source path from mount point
-    let src = PathBuf::from(&dmg.mount_point.join("Blender.app"));
-
-    // Extract content inside Blender.app to destination
-    let _ = copy_dir_all(&src, &dst).unwrap();
-
-    // detach dmg volume
-    dmg.detach().expect("could not detach!");
-
-    // return path with additional path to invoke blender directly
-    Ok(dst.join("Contents/MacOS/Blender"))
-}
-
-// TODO: implement handler to unpack .zip files
-// TODO: Check and see if we need to return the .exe extension or not?
-#[cfg(target_ps = "windows")]
-fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
-    let output = download_path.parent().unwrap().join(folder_name);
-    todo!("Need to impl. window version of file extraction here");
-    Ok(output.join("/blender.exe"))
-}
-
 impl Blender {
     /// Create a new blender struct with provided path and version. Note this is not checked and enforced!
     ///
@@ -143,6 +57,90 @@ impl Blender {
     /// ```
     pub fn exists(&self) -> bool {
         self.executable.exists()
+    }
+
+    // Currently being used for MacOS (I wonder if I need to do the same for windows?)
+    #[cfg(target_os = "macos")]
+    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
+        fs::create_dir_all(&dst).unwrap();
+        for entry in fs::read_dir(src).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                Self::copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name())).unwrap();
+            } else {
+                fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Extract tar.xz file from destination path, and return blender executable path
+    #[cfg(target_os = "linux")]
+    fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
+        use std::fs::File;
+        use tar::Archive;
+        use xz::read::XzDecoder;
+
+        // Get file handler to download location
+        let file = File::open(download_path).unwrap();
+
+        // decode compressed xz file
+        let tar = XzDecoder::new(file);
+
+        // unarchive content from decompressed file
+        let mut archive = Archive::new(tar);
+
+        // generaet destination path
+        let destination = download_path.parent().unwrap().join(folder_name);
+
+        // extract content to destination
+        archive.unpack(&destination).unwrap();
+
+        // return extracted executable path
+        Ok(destination.join("blender"))
+    }
+
+    /// Mounts dmg target to volume, then extract the contents to a new folder using the folder_name,
+    /// lastly, provide a path to the blender executable inside the content.
+    #[cfg(target_os = "macos")]
+    fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
+        use dmg::Attach;
+
+        // generate destination path
+        let dst = download_path
+            .parent()
+            .unwrap()
+            .join(folder_name)
+            .join("Blender.app");
+
+        // TODO: wonder if this is a good idea?
+        if !dst.exists() {
+            let _ = fs::create_dir_all(&dst)?;
+        }
+
+        // attach dmg to volume
+        let dmg = Attach::new(download_path).attach()?;
+
+        // create source path from mount point
+        let src = PathBuf::from(&dmg.mount_point.join("Blender.app"));
+
+        // Extract content inside Blender.app to destination
+        let _ = Self::copy_dir_all(&src, &dst).unwrap();
+
+        // detach dmg volume
+        dmg.detach()?;
+
+        // return path with additional path to invoke blender directly
+        Ok(dst.join("Contents/MacOS/Blender"))
+    }
+
+    // TODO: implement handler to unpack .zip files
+    // TODO: Check and see if we need to return the .exe extension or not?
+    #[cfg(target_ps = "windows")]
+    fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
+        let output = download_path.parent().unwrap().join(folder_name);
+        todo!("Need to impl. window version of file extraction here");
+        Ok(output.join("/blender.exe"))
     }
 
     /// This function will invoke the -v command ot retrieve blender version information.
