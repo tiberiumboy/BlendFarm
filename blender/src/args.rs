@@ -51,8 +51,9 @@ impl Args {
 
         // this argument must be set at the very end
         let mut additional_args = match self.mode {
-            Mode::Frame(f) => {
-                vec!["-f".to_owned(), f.to_string()]
+            Mode::Single { frame } => {
+                // could there be a better way to do this?
+                vec!["-f".to_owned(), frame.to_string()]
             }
             // Render the whole animation using all the settings saved in the blend-file.
             Mode::Section { start, end } => vec![
