@@ -32,6 +32,7 @@ impl Args {
         // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#argument-order
         // # is substitute to 0 pad, none will add to suffix four pounds (####)
 
+        // yet another instance here?
         let mut col = vec![
             "-b".to_owned(),
             self.file.to_str().unwrap().to_string(),
@@ -51,7 +52,7 @@ impl Args {
 
         // this argument must be set at the very end
         let mut additional_args = match self.mode {
-            Mode::Single { frame } => {
+            Mode::Frame(frame) => {
                 // could there be a better way to do this?
                 vec!["-f".to_owned(), frame.to_string()]
             }
