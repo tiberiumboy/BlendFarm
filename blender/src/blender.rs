@@ -41,24 +41,6 @@ impl Blender {
         }
     }
 
-    /// Returns true when the executable path exist and leads to a blender executable location
-    /// This function does not validate whether we can execute and run blender from this executable location.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use blender::Blender;
-    /// let blender = Blender::new(PathBuf::from("path/to/blender"), Version::new(4,1,0));
-    /// if blender.exists() {
-    ///     Ok(())
-    /// } else {
-    ///     Err("Does not exist!")
-    /// }
-    /// ```
-    pub fn exists(&self) -> bool {
-        self.executable.exists()
-    }
-
     // Currently being used for MacOS (I wonder if I need to do the same for windows?)
     #[cfg(target_os = "macos")]
     fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
@@ -225,17 +207,13 @@ impl Blender {
 
         // create a subpath using the version and check to see if this exist. Otherwise, I may have to regex this information out...?
         // TODO: Once I get internet connection, finish this - Impl cache for the download page, impl regex search for specific blender version
-        let content: String = cache.fetch(&url).unwrap();
+        // I don't know if I need to parse the page for this level of detail - but I would like to know how did blendfarm fetch all of blender's version from the website...?
+        // let content: String = cache.fetch(&url).unwrap();
 
         // search for the root of the blender version
         // does it seems important? How did BlendFarm fetch all blender version?
         let path = format!("Blender{}.{}/", version.major, version.minor);
         let url = url.join(&path).unwrap();
-
-        let blender = Blender::new(PathBuf::from("path/to/blender"), version);
-        Ok(blender)
-
-        /*
 
         // fetch the content of the subtree information
         let content = cache.fetch(&url).unwrap();
@@ -288,8 +266,6 @@ impl Blender {
             }
         };
 
-        dbg!(&os, &extension, &arch);
-
         // Content parsing to get download url that matches target operating system and version
         let match_pattern = format!(
             r#"(<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.{}.*{}.*{}.*\.[{}].*)<\/a>)"#,
@@ -307,7 +283,6 @@ impl Blender {
                 ),
             )),
         };
-        dbg!(&path, &name);
 
         // concatenate the final download destination to the url path
         let url = url.join(&path).unwrap();
@@ -316,7 +291,6 @@ impl Blender {
         let name = name.replace(extension, "");
         let download_path = install_path.as_ref().join(&path);
 
-        dbg!(&download_path, &url);
         // Download the file from the internet and save it to blender data folder
         // I feel like I'm running into problem here?
         let response = match reqwest::blocking::get(url) {
@@ -327,12 +301,10 @@ impl Blender {
         fs::write(&download_path, &body).expect("Unable to write file! Permission issue?");
 
         // TODO: verify this is working for windows (.zip)
-        let executable = extract_content(&download_path, &name).unwrap();
+        let executable = Self::extract_content(&download_path, &name).unwrap();
 
         // return the version of the blender
         Ok(Blender::new(executable, version))
-
-        */
     }
 
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
