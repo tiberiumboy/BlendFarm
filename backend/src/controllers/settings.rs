@@ -1,6 +1,6 @@
 // this is the settings controller section that will handle input from the setting page.
 use crate::models::server_setting::ServerSetting;
-use blender::blender::Blender;
+// use blender::blender::Blender;
 use std::path::PathBuf;
 use tauri::{command, Error};
 
@@ -24,7 +24,8 @@ pub fn add_blender_installation(path: PathBuf) -> Result<(), Error> {
     // I wanted to make sure that the user isn't just loading compressed file containing blender
     // and at the same time, I also wanted to make sure that whatever Operating system blender is reference, needs to associate with the path directly
 
-    let mut path: PathBuf = path;
+    // TODO: finish this implementation when you can!
+    let path: PathBuf = path;
     // if &path
     //     .as_os_str()
     //     .as_ref()
@@ -37,7 +38,7 @@ pub fn add_blender_installation(path: PathBuf) -> Result<(), Error> {
     // }
     dbg!(&path);
 
-    let blender = Blender::from_executable(path).unwrap();
+    // let blender = Blender::from_executable(path).unwrap();
     // let mut server_settings = ServerSetting::load();
     // server_settings.blenders.push(blender);
     // server_settings.save();

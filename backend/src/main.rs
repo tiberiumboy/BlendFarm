@@ -3,7 +3,7 @@
 
 use crate::controllers::remote_render::{
     create_job, create_node, delete_job, delete_node, delete_project, edit_node, import_project,
-    list_job, list_node, list_projects, list_versions, /*sync_project,*/
+    list_job, list_node, list_projects, list_versions,
 };
 
 use crate::controllers::settings::{add_blender_installation, list_blender_installation};
@@ -15,7 +15,7 @@ use semver::Version;
 // use services::receiver::receive;
 use models::server_setting::ServerSetting;
 use std::path::{Path, PathBuf};
-use std::{env, io::Result, sync::Mutex /* thread */};
+use std::{env, io::Result, sync::Mutex};
 use tauri::generate_handler;
 
 pub mod controllers;
@@ -57,35 +57,44 @@ fn client() {
         .expect("error while running tauri application");
 }
 
+#[allow(dead_code)]
+fn test_downloading_blender() -> Result<Blender> {
+    let server_setting = ServerSetting::load();
+    let blender = Blender::download(Version::new(4, 1, 0), server_setting.blender_dir).unwrap();
+    Ok(blender)
+}
+
 /// This code is only used to test out downloading blender from source or reuse existing installation of blender, render a test scene example, and output the result.
 #[allow(dead_code)]
 fn test_reading_blender_files(file: impl AsRef<Path>, version: Version) -> Result<()> {
     let mut server_settings = ServerSetting::load();
+
     // eventually we would want to check if the version is already installed on the machine.
     // otherwise download and install the version prior to run this script.
-    // let blender = match server_settings
-    //     .blenders
-    //     .iter()
-    //     .find(|&x| &x.version == &version)
-    // {
-    //     Some(blender) => blender.to_owned(),
-    //     None => {
-    let blender = Blender::download(version, &server_settings.blender_dir).unwrap();
-    //         server_settings.blenders.push(blender.clone());
-    //         server_settings.save();
-    //         blender
-    //     }
-    // };
+    let blender = match server_settings
+        .blenders
+        .iter()
+        .find(|&x| x.version == version)
+    {
+        Some(blender) => blender.to_owned(),
+        None => {
+            let blender = Blender::download(version, &server_settings.blender_dir).unwrap();
+            server_settings.blenders.push(blender.clone());
+            server_settings.save();
+            blender
+        }
+    };
 
     // This part of the code is used to test and verify that we can successfully run blender
-    // let output = file.as_ref().parent().unwrap();
-    // let args = Args::new(file.as_ref(), PathBuf::from(output), Mode::Frame(1));
-    // let render_path = blender.render(&args).unwrap();
-    // dbg!(render_path);
+    let output = file.as_ref().parent().unwrap();
+    let args = Args::new(file.as_ref(), PathBuf::from(output), Mode::Frame(1));
+    let render_path = blender.render(&args).unwrap();
+    dbg!(render_path);
     Ok(())
 }
 
 fn main() -> Result<()> {
+    let args = env::args().collect::<Vec<String>>();
     // get the machine configuration here, and cache the result for poll request
     // we're making the assumption that the device card is available and ready when this app launches
 
@@ -105,9 +114,14 @@ fn main() -> Result<()> {
     // now that we have a unit test to cover whether we can actually run blender from the desire machine, we should now
     // work on getting network stuff working together! yay!
     // Assuming this code was compiled and run from ./backend dir
-    let _ = test_reading_blender_files(PathBuf::from("./test.blend"), Version::new(4, 1, 0));
+    // let _ = test_reading_blender_files(PathBuf::from("./test.blend"), Version::new(4, 1, 0));
 
-    // client();
+    // Just to run some test here - run as "cargo run -- test"
+    if args.contains(&"test".to_owned()) {
+        let _ = test_downloading_blender();
+    } else {
+        client();
+    }
 
     Ok(())
 }

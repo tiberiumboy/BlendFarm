@@ -40,6 +40,8 @@ impl RenderNode<Inactive> {
 }
 
 impl RenderNode<Idle> {
+    // TODO: Find a reason to keep this code around...?
+    #[allow(dead_code)]
     pub fn create_localhost() -> Self {
         let host = SocketAddr::from_str("127.0.0.1:15000").unwrap();
         Self {

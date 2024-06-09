@@ -1,11 +1,34 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::HashMap, fs, io::ErrorKind, path::PathBuf, time::SystemTime};
+use thiserror::Error;
 use url::Url;
 
+// Hide this for now,
+#[doc(hidden)]
+// rely the cache creation date on file metadata.
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct PageCache {
+    was_modified: bool,
     cache: HashMap<Url, PathBuf>,
+}
+
+#[derive(Debug, Error)]
+pub enum PageCacheError {
+    #[error("Cache directory does not exist!")]
+    CacheDirNotFound,
+    #[error("Unable to create cache directory at `{path}`!")]
+    CannotCreate { path: PathBuf },
+    #[error("IO Error: {source}")]
+    Io {
+        #[from]
+        source: std::io::Error,
+    },
+    #[error("Reqwest Error: {source}")]
+    Reqwest {
+        #[from]
+        source: reqwest::Error,
+    },
 }
 
 // consider using directories::UserDirs::document_dir()
@@ -13,79 +36,131 @@ const CACHE_DIR: &str = "cache";
 const CACHE_CONFIG: &str = "cache.json";
 
 impl PageCache {
-    // fetch the directory
-    fn get_dir() -> PathBuf {
-        // TODO: Do not save the data in temp dir - MacOS clear the temp directory after a restart! BAD!
-        let mut tmp = dirs::cache_dir().unwrap();
+    // fetch cache directory
+    fn get_dir() -> Result<PathBuf, PageCacheError> {
+        // TODO: What should happen if I can't fetch cache_dir()?
+        let mut tmp = dirs::cache_dir().ok_or(PageCacheError::CacheDirNotFound)?;
         tmp.push(CACHE_DIR);
-        fs::create_dir_all(&tmp).expect("Unable to create directory! Permission issue?");
-        tmp
+        if fs::create_dir_all(&tmp).is_err() {
+            Err(PageCacheError::CannotCreate { path: tmp })
+        } else {
+            Ok(tmp)
+        }
     }
 
-    fn get_cache_path() -> PathBuf {
-        Self::get_dir().join(CACHE_CONFIG)
+    // fetch path to cache file
+    fn get_cache_path() -> Result<PathBuf, PageCacheError> {
+        match Self::get_dir() {
+            Ok(path) => Ok(path.join(CACHE_CONFIG)),
+            Err(e) => Err(e),
+        }
     }
 
-    fn create() -> Self {
-        let obj = Self::default();
-        obj.save();
-        obj
-    }
+    // fn refresh() {
+    //     todo!("impl. a way to delete the cache file if exists. And fetch the page again.");
+    // }
 
     // private method, only used to save when cache has changed.
-    fn save(&self) {
-        // it may seems like this is a bad idea but I would expect this function to work either way?
-        // Wonder if this is the best practice?
+    fn save(&mut self) -> Result<(), PageCacheError> {
+        self.was_modified = false;
         let data = serde_json::to_string(&self).expect("Unable to deserialize data!");
-        let _ = fs::write(Self::get_cache_path(), data); // wonder why I need to see the result from this? TODO: find out more about this info?
+        match Self::get_cache_path() {
+            Ok(path) => match fs::write(path, data) {
+                Ok(_) => {
+                    println!("Successfully saved cache file!");
+                    Ok(())
+                }
+                Err(e) => Err(e.into()),
+            },
+            Err(e) => Err(e),
+        }
     }
 
-    pub fn load() -> Self {
-        match fs::read_to_string(Self::get_cache_path()) {
-            Ok(data) => serde_json::from_str(&data).expect("Unable to parse content!"),
-            Err(_) => Self::create(),
+    // TODO: Impl a way to verify cache is not old or out of date. What's a good refresh cache time? 2 weeks? server_settings config?
+    pub fn load(expiration: SystemTime) -> Result<Self, PageCacheError> {
+        // use define path to cache file
+        let path = Self::get_cache_path()?;
+        let created_date = match fs::metadata(&path) {
+            Ok(metadata) => {
+                if metadata.is_file() {
+                    println!("Cache file found! Fetching metadata creation date property!");
+                    metadata.created().unwrap_or(SystemTime::now())
+                } else {
+                    println!("Unable to find cache file, creating new one!");
+                    SystemTime::now()
+                }
+            }
+            Err(_) => SystemTime::now(),
+        };
+
+        let data = match expiration.duration_since(created_date) {
+            Ok(_) => match fs::read_to_string(path) {
+                Ok(data) => serde_json::from_str(&data).unwrap_or(Self::default()),
+                Err(_) => Self::default(),
+            },
+            Err(_) => Self::default(),
+        };
+
+        Ok(data)
+    }
+
+    fn generate_file_name(url: &Url) -> String {
+        let mut file_name = url.to_string();
+
+        // Rule: find any invalid file name characters
+        let re = Regex::new(r#"[/\\?%*:|."<>]"#).unwrap();
+
+        // remove trailing slash
+        if file_name.ends_with('/') {
+            file_name.pop();
         }
+
+        // Replace any invalid characters with hyphens
+        re.replace_all(&file_name, "-").to_string()
+    }
+
+    /// Fetch url response from argument and save response body to cache directory using url as file name
+    /// This will append a new entry to the cache hashmap.
+    fn save_content_to_cache(url: &Url) -> Result<PathBuf, PageCacheError> {
+        let file_name = Self::generate_file_name(url);
+        // create an absolute file path
+        let mut tmp = Self::get_dir()?;
+        tmp.push(file_name);
+
+        // fetch the content from the url
+        let response = reqwest::blocking::get(url.to_string())?;
+        let content = response.text()?;
+
+        // write the content to the file
+        fs::write(&tmp, content)?;
+        Ok(tmp)
     }
 
     /// check and see if the url matches the cache,
     /// otherwise, fetch the page from the internet, and save it to storage cache,
     /// then return the page result.
-    /// Otherwise if page is inaccessible - None will be returned instead.
-    pub fn fetch(&mut self, url: &Url) -> Option<String> {
-        let path = match self.cache.get(url) {
-            // if we are unable to find the url that we have previous cached, then we need to create a new entry.
-            // after we append that entry, we need to save it to the file somewhere.
-            Some(path) => path.to_owned(),
-            None => {
-                let mut tmp = Self::get_dir();
-                let re = Regex::new(r#"[/\\?%*:|."<>]"#).unwrap();
-                let mut url_name = format!("{}{}", url.host().unwrap(), url.path());
-                if url_name.ends_with('/') {
-                    url_name.pop();
-                }
-                let file_name = re.replace_all(&url_name, "-").to_string();
-                tmp.push(file_name);
-
-                // Why does it error out here? I understand I'm not connected to the internet but why should it stop here?
-                let content = match reqwest::blocking::get(url.clone()) {
-                    Ok(data) => data.text().unwrap(),
-                    Err(_) => return None,
-                };
-                fs::write(&tmp, content).unwrap(); // maybe here?
-                self.cache.insert(url.clone(), tmp.clone());
-                self.save();
-                tmp
-            }
-        };
+    pub fn fetch(&mut self, url: &Url) -> Result<String, PageCacheError> {
+        let path = self.cache.entry(url.to_owned()).or_insert({
+            self.was_modified = true;
+            Self::save_content_to_cache(url)?.to_owned()
+        });
 
         match fs::read_to_string(path) {
-            Ok(data) => Some(data),
-            Err(_) => None, // usually it means that there were no data to load?
+            Ok(data) => Ok(data),
+            Err(e) => Err(e.into()),
         }
     }
 
-    pub fn fetch_str(&mut self, url: &str) -> Option<String> {
+    pub fn fetch_str(&mut self, url: &str) -> Result<String, PageCacheError> {
         let url = Url::parse(url).unwrap();
         self.fetch(&url)
+    }
+}
+
+impl Drop for PageCache {
+    fn drop(&mut self) {
+        if self.was_modified {
+            self.save().unwrap();
+        }
     }
 }

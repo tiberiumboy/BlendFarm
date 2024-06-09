@@ -1,20 +1,9 @@
-// argument command to pass for blender to execute
+// TODO: Add documentation and examples to this code.
+
 pub mod args;
-
-// container for blender installation
 pub mod blender;
-
-// Type of hardware to use
 pub mod device;
-
-// Explicitly define blender what engine to use
 pub mod engine;
-
-// File format extension to use for output
 pub mod format;
-
-// Type of rendering mode
 pub mod mode;
-
-// Page cache to avoid potential IP Blacklisted.
 pub mod page_cache;

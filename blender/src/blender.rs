@@ -1,21 +1,61 @@
-use crate::args::Args;
+/*
+
+Developer blog:
+- Re-reading through this code several times, it seems like I got the bare surface working to get started with the rest of the components.
+- Thought about if other computer node have identical os/arch - then just distribute the blender downloaded on the source to those target machine instead to prevent multiple downloads from the source.
+- I eventually went back and read some parts of Rust Programming Language book to get a better understanding how to handle errors effectively.
+- Using thiserror to define custom error within this library and anyhow for main.rs function, eventually I will have to handle those situation of the error message.
+
+*/
 use crate::page_cache::PageCache;
+use crate::{args::Args, page_cache::PageCacheError};
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::os;
 use std::{
-    env, fs,
-    io::{BufRead, BufReader, Error, ErrorKind, Result},
+    env::consts,
+    fs,
+    io::{self, BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    time::SystemTime,
 };
+use thiserror::Error;
 use url::Url;
 
-// TODO - See aboout an offline regex search engine?
-const BLENDER_DOWNLOAD_URL: &str = "https://download.blender.org/release/";
 const WINDOW_EXT: &str = ".zip";
 const LINUX_EXT: &str = ".tar.xz";
 const MACOS_EXT: &str = ".dmg";
+
+// TODO: consider making this private to make it easy to modify internally than affecting exposed APIs
+#[derive(Debug, Error)]
+pub enum BlenderError {
+    #[error("Unable to fetch download from the source! {0}")]
+    FetchError(String),
+    #[error("Unsupported OS: {0}")]
+    UnsupportedOS(String),
+    #[error("Unsupported Architecture: {0}")]
+    UnsupportedArch(String),
+    #[error("Cannot find target download link for blender version: {version} | arch: {arch} | os: {os} | url: {url}")]
+    DownloadNotFound {
+        version: Version,
+        arch: String,
+        os: String,
+        url: String,
+    },
+    #[error("Path to executable not found! {0}")]
+    ExecutableNotFound(PathBuf),
+    #[error("Unable to call blender!")]
+    ExecutableInvalid,
+    #[error(transparent)]
+    PageCache(#[from] PageCacheError),
+    #[error("IO Error: {source}")]
+    Io {
+        #[from]
+        source: io::Error,
+    },
+}
 
 /// Blender structure to hold path to executable and version of blender installed.
 #[derive(Debug, Eq, Serialize, Deserialize, Clone)]
@@ -26,7 +66,15 @@ pub struct Blender {
     pub version: Version, // Private immutable variable - Must validate before using!
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct BlenderDownloadLink {
+    name: String,
+    url: Url,
+}
+
 impl Blender {
+    // #region private functions
+
     /// Create a new blender struct with provided path and version. Note this is not checked and enforced!
     ///
     /// # Examples
@@ -58,7 +106,10 @@ impl Blender {
 
     /// Extract tar.xz file from destination path, and return blender executable path
     #[cfg(target_os = "linux")]
-    fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
+    fn extract_content(
+        download_path: &PathBuf,
+        folder_name: &str,
+    ) -> Result<PathBuf, BlenderError> {
         use std::fs::File;
         use tar::Archive;
         use xz::read::XzDecoder;
@@ -85,7 +136,10 @@ impl Blender {
     /// Mounts dmg target to volume, then extract the contents to a new folder using the folder_name,
     /// lastly, provide a path to the blender executable inside the content.
     #[cfg(target_os = "macos")]
-    fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
+    fn extract_content(
+        download_path: &PathBuf,
+        folder_name: &str,
+    ) -> Result<PathBuf, BlenderError> {
         use dmg::Attach;
 
         // generate destination path
@@ -119,10 +173,56 @@ impl Blender {
     // TODO: implement handler to unpack .zip files
     // TODO: Check and see if we need to return the .exe extension or not?
     #[cfg(target_ps = "windows")]
-    fn extract_content(download_path: &PathBuf, folder_name: &str) -> Result<PathBuf> {
+    fn extract_content(
+        download_path: &PathBuf,
+        folder_name: &str,
+    ) -> Result<PathBuf, BlenderError> {
         let output = download_path.parent().unwrap().join(folder_name);
         todo!("Need to impl. window version of file extraction here");
         Ok(output.join("/blender.exe"))
+    }
+
+    /// Return extension matching to the current operating system (Only display Windows(zip), Linux(tar.xz), or macos(.dmg)).
+    fn get_extension() -> Result<String, BlenderError> {
+        let extension = match consts::OS {
+            "windows" => WINDOW_EXT,
+            "macos" => MACOS_EXT,
+            "linux" => LINUX_EXT,
+            os => return Err(BlenderError::UnsupportedOS(os.to_string())),
+        };
+
+        Ok(extension.to_owned())
+    }
+
+    /// fetch current architecture (Currently support x86_64 or aarch64 (apple silicon))
+    fn get_valid_arch() -> Result<String, BlenderError> {
+        let arch = match consts::ARCH {
+            "x86_64" => "64",
+            "aarch64" => "arm64",
+            value => return Err(BlenderError::UnsupportedArch(value.to_string())),
+        };
+
+        Ok(arch.to_owned())
+    }
+
+    /// Return the pattern matching to identify correct blender download link
+    fn generate_blender_pattern_matching(version: &Version) -> Result<String, BlenderError> {
+        let extension = Self::get_extension()?;
+        let arch = Self::get_valid_arch()?;
+
+        // Regex rules - Find the url that matches version, computer os and arch, and the extension.
+        // - There should only be one entry matching for this. Otherwise return error stating unable to find download path
+        let match_pattern = format!(
+            r#"(<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.{}.*{}.*{}.*\.[{}].*)<\/a>)"#,
+            version.major,
+            version.minor,
+            version.patch,
+            consts::OS,
+            arch,
+            extension
+        );
+
+        Ok(match_pattern)
     }
 
     /// This function will invoke the -v command ot retrieve blender version information.
@@ -132,11 +232,11 @@ impl Blender {
     ///  This error also serves where the executable is unable to provide the blender version.
     // TODO: Find a better way to fetch version from stdout (Possibly regex? How would other do it?)
     // Wonder if this is the better approach? Do not know! We'll find out more?
-    fn check_version(executable_path: impl AsRef<Path>) -> Result<Version> {
-        let output = Command::new(executable_path.as_ref())
-            .arg("-v")
-            .output()
-            .unwrap();
+    fn check_version(executable_path: impl AsRef<Path>) -> Result<Version, BlenderError> {
+        let output = match Command::new(executable_path.as_ref()).arg("-v").output() {
+            Ok(output) => output,
+            Err(_) => return Err(BlenderError::ExecutableInvalid),
+        };
 
         // wonder if there's a better way to test this?
         let regex =
@@ -144,11 +244,12 @@ impl Blender {
 
         let stdout = String::from_utf8(output.stdout).unwrap();
         match regex.captures(&stdout) {
-            Some(info) => Ok(Version::new(info["major"].parse().unwrap(), info["minor"].parse().unwrap(), info["patch"].parse().unwrap())),
-            None => Err(Error::new(
-                ErrorKind::NotFound,
-                    "Unable to fetch blender version! Are you sure you provided the exact blender executable path?",
+            Some(info) => Ok(Version::new(
+                info["major"].parse().unwrap(),
+                info["minor"].parse().unwrap(),
+                info["patch"].parse().unwrap(),
             )),
+            None => Err(BlenderError::ExecutableInvalid),
         }
     }
 
@@ -165,14 +266,11 @@ impl Blender {
     /// use blender::Blender;
     /// let blender = Blender::from_executable(Pathbuf::from("path/to/blender")).unwrap();
     /// ```
-    pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self> {
+    pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self, BlenderError> {
         // check and verify that the executable exist.
         let path = executable.as_ref();
         if !path.exists() {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                "Executable path do not exist or is invalid!",
-            ));
+            return Err(BlenderError::ExecutableNotFound(path.to_path_buf()));
         }
 
         // currently need a path to the executable before executing the command.
@@ -199,112 +297,82 @@ impl Blender {
     /// use blender::Blender;
     /// let blender = Blender::download(Version::new(4,1,0), PathBuf::from("path/to/installation")).unwrap();
     /// ```
-    pub fn download(version: Version, install_path: impl AsRef<Path>) -> Result<Blender> {
-        let url = Url::parse(BLENDER_DOWNLOAD_URL).unwrap(); // I would hope that this line should never fail...? I would like to know how someone could possibly fail this line here.
+    pub fn download(
+        version: Version,
+        install_path: impl AsRef<Path>,
+    ) -> Result<Blender, BlenderError> {
+        // TODO: As a extra security measure, I would like to verify the hash of the content before extracting the files.
+        let url = Url::parse("https://download.blender.org/release/").unwrap(); // I would hope that this line should never fail...? I would like to know how someone could possibly fail this line here.
 
         // In the original code - there's a comment implying we should use cache as much as possible to avoid IP Blacklisted. TODO: Verify this in Blender community about this.
-        let mut cache = PageCache::load();
+        let mut cache = match PageCache::load(SystemTime::now()) {
+            Ok(cache) => cache,
+            Err(e) => return Err(BlenderError::PageCache(e)),
+        };
 
-        // create a subpath using the version and check to see if this exist. Otherwise, I may have to regex this information out...?
-        // TODO: Once I get internet connection, finish this - Impl cache for the download page, impl regex search for specific blender version
-        // I don't know if I need to parse the page for this level of detail - but I would like to know how did blendfarm fetch all of blender's version from the website...?
-        // let content: String = cache.fetch(&url).unwrap();
-
-        // search for the root of the blender version
-        // does it seems important? How did BlendFarm fetch all blender version?
+        // TODO: How did BlendFarm fetch all blender version?
+        // working out a hack to rely on website availability for now. Would like to simply get the url I need to download and run blender.
+        // could this be made into a separate function?
         let path = format!("Blender{}.{}/", version.major, version.minor);
         let url = url.join(&path).unwrap();
 
         // fetch the content of the subtree information
         let content = cache.fetch(&url).unwrap();
+        let match_pattern = Self::generate_blender_pattern_matching(&version)?;
 
-        dbg!(&content);
-
-        // this OS includes the operating system name and the compressed format.
-        // TODO: might reformat this so that it make sense - I don't think I need to capture the OS string literal, but I do need to capture the file extension type.
-        let (os, extension) = match env::consts::OS {
-            "windows" => ("windows".to_string(), WINDOW_EXT),
-            "macos" => ("macos".to_string(), MACOS_EXT),
-            "linux" => ("linux".to_string(), LINUX_EXT),
-            // Currently unsupported OS because blender does not have the toolchain to support OS.
-            // It may be available in the future, but for now it's currently unsupported as of today.
-            // TODO: See if some of the OS can compile and run blender natively, android/ios/freebsd?
-            // - ios - Apple OS - may not support - https://en.wikipedia.org/wiki/IOS - requires MacOS / xcode to compile.
-            // - freebsd - see below - https://www.freebsd.org/
-            // - dragonfly - may be supported? may have to compile open source blender - https://www.dragonflybsd.org/
-            // - netbsd - may be supported? See toolchain links and compiling blender from open source - https://www.netbsd.org/
-            // - openbsd - may be supported? See toolchain links and compiling blender from Open source - https://www.openbsd.org/
-            // - solaris - Oracle OS - may not support - https://en.wikipedia.org/wiki/Oracle_Solaris
-            // - android - may be supported? See ARM instruction. - Do not know if we need to run specific toollink to compile for ARM processors.
-            _ => {
-                return Err(Error::new(
-                    ErrorKind::Unsupported,
-                    format!("No support for {}!", env::consts::OS),
-                ))
-            }
-        };
-
-        // fetch current architecture (Currently support x86_64 or aarch64 (apple silicon))
-        let arch = match env::consts::ARCH {
-            // "x86" => "32", // newer version of blender no longer support 32 bit arch - but older version does. Let's keep this in tact just in case.
-            "x86_64" => "64",
-            "aarch64" => "arm64",
-            // - arm - Not sure where this one will be used or applicable? TODO: Future research - See if blender does support ARM processor and if not, fall under unsupported arch?
-            // - powerpc  - TODO: research if this is widely used? may support? Do not know yet. - https://en.wikipedia.org/wiki/PowerPC
-            // - powerpc64  - TODO: research if this is widely used? Similar to above, support 64 bit architecture
-            // - riscv64  - TODO: research if this is widely used? https://en.wikipedia.org/wiki/RISC-V
-            // - s390x - TODO: research if this is widely used?
-            // - sparc64  - TODO: research if this is widely used?
-            _ => {
-                return Err(Error::new(
-                    ErrorKind::Unsupported,
-                    format!(
-                        r#"No support for target architecture "{}""#,
-                        env::consts::ARCH
-                    ),
-                ))
-            }
-        };
-
-        // Content parsing to get download url that matches target operating system and version
-        let match_pattern = format!(
-            r#"(<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.{}.*{}.*{}.*\.[{}].*)<\/a>)"#,
-            version.major, version.minor, version.patch, os, arch, extension
-        );
-
+        // unwrap() is used here explicitly because I know that the above regex command will not fail.
         let regex = Regex::new(&match_pattern).unwrap();
-        let (path, name) = match regex.captures(&content) {
-            Some(info) => (info["url"].to_string(), info["name"].to_string()),
-            None => return Err(Error::new(
-                ErrorKind::NotFound,
-                format!(
-                    "Unable to find the download link for target platform! OS: {} | Arch: {} | Version: {} | url: {}",
-                    os, arch, version, url
-                ),
-            )),
+        let download_link = match regex.captures(&content) {
+            Some(info) => BlenderDownloadLink {
+                name: info["name"].to_string(),
+                url: Url::parse(&info["url"]).unwrap(),
+            },
+            None => {
+                return Err(BlenderError::DownloadNotFound {
+                    version,
+                    arch: consts::ARCH.to_string(),
+                    os: consts::OS.to_string(),
+                    url: url.to_string(),
+                })
+            }
         };
 
+        dbg!(download_link);
+
+        /*
         // concatenate the final download destination to the url path
-        let url = url.join(&path).unwrap();
+        let url = download_link.url.join(&path).unwrap();
 
         // remove extension from file name
-        let name = name.replace(extension, "");
+        let name = download_link.name.replace(extension, "");
         let download_path = install_path.as_ref().join(&path);
 
         // Download the file from the internet and save it to blender data folder
         // I feel like I'm running into problem here?
-        let response = match reqwest::blocking::get(url) {
+
+        let response = match reqwest::blocking::get(url.as_str()) {
             Ok(response) => response,
-            Err(e) => return Err(Error::new(ErrorKind::Other, e.to_string())),
-        };
-        let body = response.bytes().unwrap();
-        fs::write(&download_path, &body).expect("Unable to write file! Permission issue?");
+            Err(_) => {
+                return Err(BlenderError::DownloadNotFound {
+                    version,
+                    arch: arch.to_string(),
+                    os: consts::OS.to_string(),
+                    url: url.to_string(),
+                    })
+                }
+            };
+            let body = response.bytes().unwrap();
+            fs::write(&download_path, &body).expect("Unable to write file! Permission issue?");
 
         // TODO: verify this is working for windows (.zip)
         let executable = Self::extract_content(&download_path, &name).unwrap();
 
         // return the version of the blender
         Ok(Blender::new(executable, version))
+        */
+
+        // dummy test
+        Ok(Blender::new(PathBuf::from("path/to/blender"), version))
     }
 
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
@@ -316,7 +384,7 @@ impl Blender {
     /// let args = Args::new(PathBuf::from("path/to/project.blend"), PathBuf::from("path/to/output.png"));
     /// let final_output = blender.render(&args).unwrap();
     /// ```
-    pub fn render(&self, args: &Args) -> Result<String> {
+    pub fn render(&self, args: &Args) -> Result<String, BlenderError> {
         let col = args.create_arg_list();
 
         // seems conflicting, this api locks main thread. NOT GOOD!

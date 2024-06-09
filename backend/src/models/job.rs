@@ -35,7 +35,8 @@ pub struct Job {
 }
 
 impl Job {
-    // TODO: Impl mode for job.
+    // TODO: See if we need this?
+    #[allow(dead_code)]
     pub fn new(
         project_file: &ProjectFile,
         output: &Path,
@@ -55,6 +56,7 @@ impl Job {
 
     // TODO: consider about how I can invoke this command from network protocol?
     /// Invoke blender to run the job
+    #[allow(dead_code)]
     pub fn run(&self) -> Result<String> {
         let args = Args::new(
             self.project_file.src.clone(),
@@ -89,24 +91,11 @@ impl Job {
                 blender
             }
         };
-        blender.render(&args)
+
+        // TODO: Find a way to handle the errors here?
+        let path = blender.render(&args).unwrap();
+        Ok(path)
     }
-
-    // #[allow(dead_code)]
-    // pub fn pause(self) {
-    //     todo!();
-    // }
-
-    // // cancel current job and provide error message "User abort the job."
-    // #[allow(dead_code)]
-    // pub fn abort(self, _msg: &str) {
-    //     todo!();
-    // }
-
-    // #[allow(dead_code)]
-    // pub fn resume(self) {
-    //     todo!();
-    // }
 }
 
 impl PartialEq for Job {
