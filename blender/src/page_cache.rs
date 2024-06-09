@@ -151,6 +151,7 @@ impl PageCache {
         }
     }
 
+    // TODO: Maybe this isn't needed, but would like to know if there's a better way to do this? Look into IntoUrl?
     pub fn fetch_str(&mut self, url: &str) -> Result<String, PageCacheError> {
         let url = Url::parse(url).unwrap();
         self.fetch(&url)

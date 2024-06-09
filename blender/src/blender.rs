@@ -91,7 +91,7 @@ impl Blender {
 
     // Currently being used for MacOS (I wonder if I need to do the same for windows?)
     #[cfg(target_os = "macos")]
-    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
+    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), BlenderError> {
         fs::create_dir_all(&dst).unwrap();
         for entry in fs::read_dir(src).unwrap() {
             let entry = entry.unwrap();
@@ -154,6 +154,7 @@ impl Blender {
             let _ = fs::create_dir_all(&dst)?;
         }
 
+        // something wrong here, it would not let me mount the dmg file?
         // attach dmg to volume
         let dmg = Attach::new(download_path).attach()?;
 
@@ -323,10 +324,16 @@ impl Blender {
         // unwrap() is used here explicitly because I know that the above regex command will not fail.
         let regex = Regex::new(&match_pattern).unwrap();
         let download_link = match regex.captures(&content) {
-            Some(info) => BlenderDownloadLink {
-                name: info["name"].to_string(),
-                url: Url::parse(&info["url"]).unwrap(),
-            },
+            Some(info) => {
+                let name = info["name"].to_string();
+                let path = info["url"].to_string();
+                let url = &url.join(&path).unwrap();
+
+                BlenderDownloadLink {
+                    name,
+                    url: url.clone(),
+                }
+            }
             None => {
                 return Err(BlenderError::DownloadNotFound {
                     version,
@@ -337,42 +344,36 @@ impl Blender {
             }
         };
 
-        dbg!(download_link);
-
-        /*
-        // concatenate the final download destination to the url path
-        let url = download_link.url.join(&path).unwrap();
-
         // remove extension from file name
-        let name = download_link.name.replace(extension, "");
-        let download_path = install_path.as_ref().join(&path);
+        let name = download_link
+            .name
+            .replace(&Self::get_extension().unwrap(), "");
+        let destination = install_path.as_ref().join(&path).join(download_link.name);
+        fs::create_dir_all(&install_path).unwrap();
+        dbg!(&destination);
 
         // Download the file from the internet and save it to blender data folder
-        // I feel like I'm running into problem here?
-
         let response = match reqwest::blocking::get(url.as_str()) {
             Ok(response) => response,
             Err(_) => {
                 return Err(BlenderError::DownloadNotFound {
                     version,
-                    arch: arch.to_string(),
+                    arch: consts::ARCH.to_string(),
                     os: consts::OS.to_string(),
                     url: url.to_string(),
-                    })
-                }
-            };
-            let body = response.bytes().unwrap();
-            fs::write(&download_path, &body).expect("Unable to write file! Permission issue?");
+                })
+            }
+        };
+        let body = response.bytes().unwrap();
+        fs::write(&destination, &body).expect("Unable to write file! Permission issue?");
 
         // TODO: verify this is working for windows (.zip)
-        let executable = Self::extract_content(&download_path, &name).unwrap();
+        let executable = Self::extract_content(&destination, &name).unwrap();
+
+        dbg!(&executable);
 
         // return the version of the blender
         Ok(Blender::new(executable, version))
-        */
-
-        // dummy test
-        Ok(Blender::new(PathBuf::from("path/to/blender"), version))
     }
 
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
