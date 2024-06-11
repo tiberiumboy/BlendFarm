@@ -1,3 +1,13 @@
+/*
+    Developer blog:
+    - Had a brain fart trying to figure out some ideas allowing me to run this application as either client or server
+        Originally thought of using Clap library to parse in input, but when I run `cargo tauri dev -- test` the application fail to compile due to unknown arguments when running web framework?
+        TODO: How can I pass in argument for this application executable?
+    - Had an idea that allows user remotely to locally add blender installation without using GUI interface,
+        This would serves two purposes - allow user to expressly select which blender version they can choose from the remote machine and
+        prevent multiple download instances for the node, in case the target machine does not have it pre-installed.
+*/
+
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -101,9 +111,9 @@ fn main() -> Result<()> {
     // we're making the assumption that the device card is available and ready when this app launches
 
     // parse argument input here
-    // let args = env::args().collect::<Vec<String>>();
+    let args = env::args().collect::<Vec<String>>();
     // let args = std::env::args();
-    // println!("{args:?}");
+    println!("{args:?}");
     // obtain configurations
 
     // initialize service listener
@@ -119,6 +129,10 @@ fn main() -> Result<()> {
     // Assuming this code was compiled and run from ./backend dir
     // let _ = test_reading_blender_files(PathBuf::from("./test.blend"), Version::new(4, 1, 0));
 
+    // TODO: It would be nice to include command line utility to let the user add blender installation from remotely.
+    // TODO: consider looking into clap?
+    // TOOD: If I build this application, how can I invoke commands directly? Do more search and test to see if there's a way for me to allow run this code if possible without having to separate the apps.
+    // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.
     // Just to run some test here - run as "cargo run -- test"
     // if args.contains(&"test".to_owned()) {
     // } else {
