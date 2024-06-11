@@ -46,11 +46,14 @@ export default function Setting() {
       >
         Add Blender Installation
       </button>
-      {blenders.toString()}
       {blenders.map((blender: BlenderProps) => (
         <div>
+          {/* TODO: Find a way to only extract the file name here? */}
+          {/* Maybe get the icon as well? since we have the directory path anyway */}
           <div>{blender.executable}</div>
           <div>{blender.version}</div>
+          <button>Modify</button>
+          <button>Delete</button>
         </div>
       ))}
       {/* Todo Display the list of blender installation stored in serversettings config */}
