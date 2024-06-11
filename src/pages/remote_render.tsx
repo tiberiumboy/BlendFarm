@@ -26,10 +26,6 @@ const Frame = () => (
   </div>
 );
 
-// TODO: Find a good reason why we would prefer animation over section?
-// must deserialize into this format: "Animation",
-const Animation = () => <div>Animation</div>;
-
 // must deserialize into this format: "Section": { "start": i32, "end": i32 }
 const Section = () => (
   <div>
@@ -43,7 +39,6 @@ const Section = () => (
 
 const components = {
   frame: Frame,
-  animation: Animation,
   section: Section,
 };
 
@@ -140,9 +135,6 @@ export default function RemoteRender() {
         mode = {
           Frame: Number(e.target.frame.value),
         };
-        break;
-      case "animation":
-        mode = { Animation };
         break;
       case "section":
         mode = {

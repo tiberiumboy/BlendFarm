@@ -2,6 +2,8 @@ import { BlenderProps } from "../props/blender_props";
 import { invoke } from "@tauri-apps/api/tauri";
 import { useState } from "react";
 import { open } from "@tauri-apps/api/dialog";
+import { CiCirclePlus } from "react-icons/ci";
+import BlenderEntry from "../components/blender_entry";
 
 export default function Setting() {
   const [blenders, setBlenders] = useState(fetchBlenders);
@@ -24,7 +26,8 @@ export default function Setting() {
         Here we list out all possible configuration this tool can offer to user.
         Exposing rich and deep component to fit your production flow
       </h2>
-      <button
+      Blender Installation
+      <CiCirclePlus
         onClick={(e: any) => {
           e.preventDefault();
           open({
@@ -43,19 +46,15 @@ export default function Setting() {
             }
           });
         }}
-      >
-        Add Blender Installation
-      </button>
-      {blenders.map((blender: BlenderProps) => (
-        <div>
-          {/* TODO: Find a way to only extract the file name here? */}
-          {/* Maybe get the icon as well? since we have the directory path anyway */}
-          <div>{blender.executable}</div>
-          <div>{blender.version}</div>
-          <button>Modify</button>
-          <button>Delete</button>
-        </div>
-      ))}
+      />
+      <div className="group">
+        {blenders.map((blender: BlenderProps) => (
+          <div>
+            {/* TODO: Find a way to only extract the file name here? */}
+            {BlenderEntry(blender)}
+          </div>
+        ))}
+      </div>
       {/* Todo Display the list of blender installation stored in serversettings config */}
     </div>
   );
