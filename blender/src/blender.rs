@@ -7,15 +7,16 @@ Developer blog:
 - Using thiserror to define custom error within this library and anyhow for main.rs function, eventually I will have to handle those situation of the error message.
 
 */
+
 use crate::page_cache::PageCache;
 use crate::{args::Args, page_cache::PageCacheError};
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::os;
+use std::io::Write;
 use std::{
     env::consts,
-    fs,
+    fs::{self, File},
     io::{self, BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -37,9 +38,8 @@ pub enum BlenderError {
     UnsupportedOS(String),
     #[error("Unsupported Architecture: {0}")]
     UnsupportedArch(String),
-    #[error("Cannot find target download link for blender version: {version} | arch: {arch} | os: {os} | url: {url}")]
+    #[error("Cannot find target download link for blender! os: {os} | arch: {arch} | url: {url}")]
     DownloadNotFound {
-        version: Version,
         arch: String,
         os: String,
         url: String,
@@ -67,31 +67,20 @@ pub struct Blender {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct BlenderDownloadLink {
+pub struct BlenderDownloadLink {
     name: String,
+    ext: String,
     url: Url,
 }
 
-impl Blender {
-    // #region private functions
-
-    /// Create a new blender struct with provided path and version. Note this is not checked and enforced!
-    ///
-    /// # Examples
-    /// ```
-    /// use blender::Blender;
-    /// let blender = Blender::new(PathBuf::from("path/to/blender"), Version::new(4,1,0));
-    /// ```
-    fn new(executable: PathBuf, version: Version) -> Self {
-        Self {
-            executable,
-            version,
-        }
+impl BlenderDownloadLink {
+    pub fn new(name: String, ext: String, url: Url) -> Self {
+        Self { name, ext, url }
     }
 
     // Currently being used for MacOS (I wonder if I need to do the same for windows?)
     #[cfg(target_os = "macos")]
-    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), BlenderError> {
+    pub fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), BlenderError> {
         fs::create_dir_all(&dst).unwrap();
         for entry in fs::read_dir(src).unwrap() {
             let entry = entry.unwrap();
@@ -106,16 +95,15 @@ impl Blender {
 
     /// Extract tar.xz file from destination path, and return blender executable path
     #[cfg(target_os = "linux")]
-    fn extract_content(
-        download_path: &PathBuf,
+    pub fn extract_content(
+        download_path: impl AsRef<Path>,
         folder_name: &str,
     ) -> Result<PathBuf, BlenderError> {
-        use std::fs::File;
         use tar::Archive;
         use xz::read::XzDecoder;
 
         // Get file handler to download location
-        let file = File::open(download_path).unwrap();
+        let file = File::open(&download_path).unwrap();
 
         // decode compressed xz file
         let tar = XzDecoder::new(file);
@@ -123,21 +111,22 @@ impl Blender {
         // unarchive content from decompressed file
         let mut archive = Archive::new(tar);
 
-        // generaet destination path
-        let destination = download_path.parent().unwrap().join(folder_name);
+        // generate destination path
+        let destination = download_path.as_ref().parent().unwrap();
 
         // extract content to destination
-        archive.unpack(&destination).unwrap();
+        archive.unpack(destination).unwrap();
 
         // return extracted executable path
-        Ok(destination.join("blender"))
+        Ok(destination.join(folder_name).join("blender"))
     }
 
+    // TODO: Test this on macos
     /// Mounts dmg target to volume, then extract the contents to a new folder using the folder_name,
     /// lastly, provide a path to the blender executable inside the content.
     #[cfg(target_os = "macos")]
     fn extract_content(
-        download_path: &PathBuf,
+        download_path: impl AsRef<Path>,
         folder_name: &str,
     ) -> Result<PathBuf, BlenderError> {
         use dmg::Attach;
@@ -175,12 +164,62 @@ impl Blender {
     // TODO: Check and see if we need to return the .exe extension or not?
     #[cfg(target_ps = "windows")]
     fn extract_content(
-        download_path: &PathBuf,
+        download_path: impl AsRef<Path>,
         folder_name: &str,
     ) -> Result<PathBuf, BlenderError> {
         let output = download_path.parent().unwrap().join(folder_name);
         todo!("Need to impl. window version of file extraction here");
         Ok(output.join("/blender.exe"))
+    }
+
+    fn download_and_extract(&self, destination: impl AsRef<Path>) -> Result<PathBuf, BlenderError> {
+        let dir = destination.as_ref();
+
+        // Download the file from the internet and save it to blender data folder
+        let body = match reqwest::blocking::get(self.url.as_str()) {
+            Ok(response) => match response.bytes() {
+                Ok(body) => body,
+                Err(e) => {
+                    return Err(BlenderError::FetchError(format!(
+                        "Error while fetching downloads: {}",
+                        e
+                    )))
+                }
+            },
+            Err(_) => {
+                return Err(BlenderError::DownloadNotFound {
+                    arch: consts::ARCH.to_string(),
+                    os: consts::OS.to_string(),
+                    url: self.url.to_string(),
+                })
+            }
+        };
+
+        let target = &dir.join(&self.name);
+
+        if let Err(e) = fs::write(target, &body) {
+            return Err(e.into());
+        }
+        let extract_folder = self.name.replace(&self.ext, "");
+
+        let executable_path = Self::extract_content(target, &extract_folder).unwrap();
+        Ok(executable_path)
+    }
+}
+
+impl Blender {
+    /// Create a new blender struct with provided path and version. Note this is not checked and enforced!
+    ///
+    /// # Examples
+    /// ```
+    /// use blender::Blender;
+    /// let blender = Blender::new(PathBuf::from("path/to/blender"), Version::new(4,1,0));
+    /// ```
+    fn new(executable: PathBuf, version: Version) -> Self {
+        Self {
+            executable,
+            version,
+        }
     }
 
     /// Return extension matching to the current operating system (Only display Windows(zip), Linux(tar.xz), or macos(.dmg)).
@@ -325,18 +364,15 @@ impl Blender {
         let regex = Regex::new(&match_pattern).unwrap();
         let download_link = match regex.captures(&content) {
             Some(info) => {
+                // remove extension from file name
                 let name = info["name"].to_string();
                 let path = info["url"].to_string();
                 let url = &url.join(&path).unwrap();
-
-                BlenderDownloadLink {
-                    name,
-                    url: url.clone(),
-                }
+                let ext = Self::get_extension().unwrap();
+                BlenderDownloadLink::new(name, ext, url.clone())
             }
             None => {
                 return Err(BlenderError::DownloadNotFound {
-                    version,
                     arch: consts::ARCH.to_string(),
                     os: consts::OS.to_string(),
                     url: url.to_string(),
@@ -344,33 +380,11 @@ impl Blender {
             }
         };
 
-        // remove extension from file name
-        let name = download_link
-            .name
-            .replace(&Self::get_extension().unwrap(), "");
-        let destination = install_path.as_ref().join(&path).join(download_link.name);
-        fs::create_dir_all(&install_path).unwrap();
-        dbg!(&destination);
+        let destination = install_path.as_ref().join(&path);
+        fs::create_dir_all(&destination).unwrap();
 
-        // Download the file from the internet and save it to blender data folder
-        let response = match reqwest::blocking::get(url.as_str()) {
-            Ok(response) => response,
-            Err(_) => {
-                return Err(BlenderError::DownloadNotFound {
-                    version,
-                    arch: consts::ARCH.to_string(),
-                    os: consts::OS.to_string(),
-                    url: url.to_string(),
-                })
-            }
-        };
-        let body = response.bytes().unwrap();
-        fs::write(&destination, &body).expect("Unable to write file! Permission issue?");
-
-        // TODO: verify this is working for windows (.zip)
-        let executable = Self::extract_content(&destination, &name).unwrap();
-
-        dbg!(&executable);
+        // TODO: verify this is working for windows (.zip)?
+        let executable = download_link.download_and_extract(&destination)?;
 
         // return the version of the blender
         Ok(Blender::new(executable, version))

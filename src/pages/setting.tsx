@@ -46,6 +46,7 @@ export default function Setting() {
       >
         Add Blender Installation
       </button>
+      {blenders.toString()}
       {blenders.map((blender: BlenderProps) => (
         <div>
           <div>{blender.executable}</div>

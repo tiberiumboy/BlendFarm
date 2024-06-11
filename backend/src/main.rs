@@ -23,6 +23,7 @@ pub mod models;
 pub mod services;
 
 // globabally
+#[allow(dead_code)]
 fn client() {
     let localhost = RenderNode::create_localhost();
     let mut data = Data::default();
@@ -60,7 +61,9 @@ fn client() {
 #[allow(dead_code)]
 fn test_downloading_blender() -> Result<Blender> {
     let server_setting = ServerSetting::load();
-    let blender = Blender::download(Version::new(4, 1, 0), server_setting.blender_dir).unwrap();
+    let version = Version::new(4, 1, 0);
+    let blender = Blender::download(version, server_setting.blender_dir).unwrap();
+    dbg!(&blender);
     Ok(blender)
 }
 
@@ -94,11 +97,11 @@ fn test_reading_blender_files(file: impl AsRef<Path>, version: Version) -> Resul
 }
 
 fn main() -> Result<()> {
-    let args = env::args().collect::<Vec<String>>();
     // get the machine configuration here, and cache the result for poll request
     // we're making the assumption that the device card is available and ready when this app launches
 
     // parse argument input here
+    // let args = env::args().collect::<Vec<String>>();
     // let args = std::env::args();
     // println!("{args:?}");
     // obtain configurations
@@ -117,11 +120,10 @@ fn main() -> Result<()> {
     // let _ = test_reading_blender_files(PathBuf::from("./test.blend"), Version::new(4, 1, 0));
 
     // Just to run some test here - run as "cargo run -- test"
-    if args.contains(&"test".to_owned()) {
-        let _ = test_downloading_blender();
-    } else {
-        client();
-    }
+    // if args.contains(&"test".to_owned()) {
+    // } else {
+    client();
+    // }
 
     Ok(())
 }

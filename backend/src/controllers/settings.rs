@@ -1,6 +1,7 @@
 // this is the settings controller section that will handle input from the setting page.
 use crate::models::server_setting::ServerSetting;
 // use blender::blender::Blender;
+use blender::blender::{Blender, BlenderDownloadLink};
 use std::path::PathBuf;
 use tauri::{command, Error};
 
@@ -36,7 +37,12 @@ pub fn add_blender_installation(path: PathBuf) -> Result<(), Error> {
     //     // we would need to defer the current path and assign the correct path to blender location.
     //     path = path.join("Contents/MacOS/Blender");
     // }
-    dbg!(&path);
+    let folder_name = "";
+    let link = match BlenderDownloadLink::extract_content(&path, folder_name) {
+        Ok(link) => link,
+        Err(_) => panic!("Shouldn't happen?"),
+    };
+    let blender = Blender::from_executable(link).unwrap();
 
     // let blender = Blender::from_executable(path).unwrap();
     // let mut server_settings = ServerSetting::load();
