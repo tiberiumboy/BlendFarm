@@ -80,7 +80,7 @@ impl BlenderDownloadLink {
 
     // Currently being used for MacOS (I wonder if I need to do the same for windows?)
     #[cfg(target_os = "macos")]
-    pub fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), BlenderError> {
+    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), BlenderError> {
         fs::create_dir_all(&dst).unwrap();
         for entry in fs::read_dir(src).unwrap() {
             let entry = entry.unwrap();
@@ -125,14 +125,16 @@ impl BlenderDownloadLink {
     /// Mounts dmg target to volume, then extract the contents to a new folder using the folder_name,
     /// lastly, provide a path to the blender executable inside the content.
     #[cfg(target_os = "macos")]
-    fn extract_content(
+    pub fn extract_content(
         download_path: impl AsRef<Path>,
         folder_name: &str,
     ) -> Result<PathBuf, BlenderError> {
         use dmg::Attach;
 
+        let source = download_path.as_ref();
+
         // generate destination path
-        let dst = download_path
+        let dst = source
             .parent()
             .unwrap()
             .join(folder_name)
@@ -143,9 +145,8 @@ impl BlenderDownloadLink {
             let _ = fs::create_dir_all(&dst)?;
         }
 
-        // something wrong here, it would not let me mount the dmg file?
         // attach dmg to volume
-        let dmg = Attach::new(download_path).attach()?;
+        let dmg = Attach::new(&source).attach()?;
 
         // create source path from mount point
         let src = PathBuf::from(&dmg.mount_point.join("Blender.app"));
@@ -163,7 +164,7 @@ impl BlenderDownloadLink {
     // TODO: implement handler to unpack .zip files
     // TODO: Check and see if we need to return the .exe extension or not?
     #[cfg(target_ps = "windows")]
-    fn extract_content(
+    pub fn extract_content(
         download_path: impl AsRef<Path>,
         folder_name: &str,
     ) -> Result<PathBuf, BlenderError> {
@@ -172,7 +173,10 @@ impl BlenderDownloadLink {
         Ok(output.join("/blender.exe"))
     }
 
-    fn download_and_extract(&self, destination: impl AsRef<Path>) -> Result<PathBuf, BlenderError> {
+    pub fn download_and_extract(
+        &self,
+        destination: impl AsRef<Path>,
+    ) -> Result<PathBuf, BlenderError> {
         let dir = destination.as_ref();
 
         // Download the file from the internet and save it to blender data folder
@@ -222,29 +226,6 @@ impl Blender {
         }
     }
 
-    /// Return extension matching to the current operating system (Only display Windows(zip), Linux(tar.xz), or macos(.dmg)).
-    fn get_extension() -> Result<String, BlenderError> {
-        let extension = match consts::OS {
-            "windows" => WINDOW_EXT,
-            "macos" => MACOS_EXT,
-            "linux" => LINUX_EXT,
-            os => return Err(BlenderError::UnsupportedOS(os.to_string())),
-        };
-
-        Ok(extension.to_owned())
-    }
-
-    /// fetch current architecture (Currently support x86_64 or aarch64 (apple silicon))
-    fn get_valid_arch() -> Result<String, BlenderError> {
-        let arch = match consts::ARCH {
-            "x86_64" => "64",
-            "aarch64" => "arm64",
-            value => return Err(BlenderError::UnsupportedArch(value.to_string())),
-        };
-
-        Ok(arch.to_owned())
-    }
-
     /// Return the pattern matching to identify correct blender download link
     fn generate_blender_pattern_matching(version: &Version) -> Result<String, BlenderError> {
         let extension = Self::get_extension()?;
@@ -291,6 +272,29 @@ impl Blender {
             )),
             None => Err(BlenderError::ExecutableInvalid),
         }
+    }
+
+    /// Return extension matching to the current operating system (Only display Windows(zip), Linux(tar.xz), or macos(.dmg)).
+    pub fn get_extension() -> Result<String, BlenderError> {
+        let extension = match consts::OS {
+            "windows" => WINDOW_EXT,
+            "macos" => MACOS_EXT,
+            "linux" => LINUX_EXT,
+            os => return Err(BlenderError::UnsupportedOS(os.to_string())),
+        };
+
+        Ok(extension.to_owned())
+    }
+
+    /// fetch current architecture (Currently support x86_64 or aarch64 (apple silicon))
+    pub fn get_valid_arch() -> Result<String, BlenderError> {
+        let arch = match consts::ARCH {
+            "x86_64" => "64",
+            "aarch64" => "arm64",
+            value => return Err(BlenderError::UnsupportedArch(value.to_string())),
+        };
+
+        Ok(arch.to_owned())
     }
 
     /// Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
