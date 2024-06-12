@@ -31,6 +31,7 @@ impl RenderNode<Inactive> {
     }
 
     pub fn connect(self) -> RenderNode<Idle> {
+        // TODO: find out how we can establish connection here?
         RenderNode {
             name: self.name,
             host: self.host,
@@ -63,12 +64,6 @@ impl RenderNode<Idle> {
     #[allow(dead_code)]
     pub fn send(self, file: &PathBuf) {
         sender::send(file, &self);
-        // RenderNode {
-        //     id: self.id,
-        //     name: self.name,
-        //     host: self.host,
-        //     state: std::marker::PhantomData::<Running>,
-        // }
     }
 }
 

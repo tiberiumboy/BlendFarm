@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api";
-import { CiTrash } from "react-icons/ci";
+import { CiTrash, CiCircleMore } from "react-icons/ci";
 // import { FaRegPauseCircle, FaRegPlayCircle } from "react-icons/fa";
 
 export interface RenderNodeProps {
@@ -37,6 +37,9 @@ export default function RenderNode(node: RenderNodeProps) {
         <tbody>
           <tr>
             <td style={{ width: "100%" }}>{node.name}</td>
+            <td>
+              <CiCircleMore />
+            </td>
             <td>
               <CiTrash onClick={deleteNode} />
             </td>

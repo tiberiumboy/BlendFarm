@@ -107,45 +107,6 @@ button {
   align-items: center;
 }
 
-.sidebar .nav-links {
-  height: 100%;
-  padding: 30px 0 150px 0;
-  overflow: auto;
-}
-
-.sidebar .nav-links::-webkit-scrollbar {
-  display: none;
-}
-
-.sidebar .nav-links li {
-  position: relative;
-  list-style: none;
-}
-
-.sidebar .nav-links li:hover {
-  background: black;
-}
-
-.sidebar .nav-links li i {
-  height: 50px;
-  min-width: 78px;
-  text-align: center;
-  line-height: 50px;
-  color: white;
-  font-size: 20px;
-  cursor: pointer;
-}
-
-.sidebar .nav-links li a {
-  padding-left: 20px;
-  color: white
-}
-
-.sidebar .nav-links li a.active {
-  background: blue;
-  border-radius: 4px;
-}
-
 /* progress bar style */
 #progressbar {
   padding: 3px;

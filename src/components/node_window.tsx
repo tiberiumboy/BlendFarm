@@ -60,10 +60,10 @@ export default function NodeWindow() {
       <dialog id="create_node">
         <form method="dialog" onSubmit={handleSubmitNodeForm}>
           <h1>Dialog</h1>
-          {/* <label>Computer Name:</label>
+          <label>Computer Name:</label>
           <input type="text" placeholder="Name" id="name" name="name" />
           <label>Internet Protocol Address</label>
-          <input type="text" placeholder="IP Address" id="ip" name="ip" /> */}
+          <input type="text" placeholder="IP Address" id="ip" name="ip" />
 
           <menu>
             <button type="button" value="cancel" onClick={closeDialog}>

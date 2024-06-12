@@ -22,37 +22,36 @@ export default function Setting() {
   return (
     <div className="content">
       <h1>Settings</h1>
-      <h2>
+      <p>
         Here we list out all possible configuration this tool can offer to user.
         Exposing rich and deep component to fit your production flow
+      </p>
+      <h2>
+        Blender Installation
+        <CiCirclePlus
+          onClick={(e: any) => {
+            e.preventDefault();
+            open({
+              multiple: false,
+              // filters: [
+              //   {
+              //     name: "Blender",
+              //     // extensions: ["exe", "dmg", ""], // how do I go about selecting app from linux? Linux app doesn't have extension AFAIK?
+              //   },
+              // ],
+            }).then((selected) => {
+              if (selected != null) {
+                invoke("add_blender_installation", { path: selected }).then(
+                  listBlenders,
+                );
+              }
+            });
+          }}
+        />
       </h2>
-      Blender Installation
-      <CiCirclePlus
-        onClick={(e: any) => {
-          e.preventDefault();
-          open({
-            multiple: false,
-            // filters: [
-            //   {
-            //     name: "Blender",
-            //     // extensions: ["exe", "dmg", ""], // how do I go about selecting app from linux? Linux app doesn't have extension AFAIK?
-            //   },
-            // ],
-          }).then((selected) => {
-            if (selected != null) {
-              invoke("add_blender_installation", { path: selected }).then(
-                listBlenders,
-              );
-            }
-          });
-        }}
-      />
       <div className="group">
         {blenders.map((blender: BlenderProps) => (
-          <div>
-            {/* TODO: Find a way to only extract the file name here? */}
-            {BlenderEntry(blender)}
-          </div>
+          BlenderEntry(blender)
         ))}
       </div>
       {/* Todo Display the list of blender installation stored in serversettings config */}

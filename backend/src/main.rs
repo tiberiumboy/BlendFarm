@@ -6,6 +6,10 @@
     - Had an idea that allows user remotely to locally add blender installation without using GUI interface,
         This would serves two purposes - allow user to expressly select which blender version they can choose from the remote machine and
         prevent multiple download instances for the node, in case the target machine does not have it pre-installed.
+    - Eventually, I will need to find a way to spin up a virtual machine and run blender farm on that machine to see about getting networking protocol working in place.
+        This will allow me to do two things - I can continue to develop without needing to fire up a remote machine to test this and
+        verify all packet works as intended while I can run the code in parallel to see if there's any issue I need to work overhead.
+        This might be another big project to work over the summer to understand how network works in Rust.
 */
 
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
@@ -16,7 +20,10 @@ use crate::controllers::remote_render::{
     list_job, list_node, list_projects, list_versions,
 };
 
-use crate::controllers::settings::{add_blender_installation, list_blender_installation};
+use crate::controllers::settings::{
+    add_blender_installation, get_server_settings, list_blender_installation,
+    remove_blender_installation,
+};
 use crate::models::{data::Data, render_node::RenderNode};
 use blender::blender::Blender;
 use blender::{args::Args, mode::Mode};
@@ -60,9 +67,11 @@ fn client() {
             list_projects,
             list_job,
             list_versions,
+            get_server_settings,
             // settings
             add_blender_installation,
             list_blender_installation,
+            remove_blender_installation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

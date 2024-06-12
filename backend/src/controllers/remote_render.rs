@@ -10,6 +10,7 @@ use tauri::{AppHandle, Error};
 /// Create a node
 #[command]
 pub fn create_node(app: AppHandle, name: &str, host: &str) -> Result<String, Error> {
+    // Got an invalid socket address syntax from this line?
     let node = RenderNode::parse(name, host).unwrap();
     let node_mutex = app.state::<Mutex<Data>>();
     let mut col = node_mutex.lock().unwrap();

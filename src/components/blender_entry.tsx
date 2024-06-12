@@ -21,7 +21,7 @@ export default function BlenderEntry(props: BlenderEntryProps) {
                 <tbody>
                     <tr>
                         <td style={{ width: "100%" }}>
-                            <p>Blender {props.version}</p>
+                            Blender {props.version}
                         </td>
                         <td>
                             <CiCircleMore />

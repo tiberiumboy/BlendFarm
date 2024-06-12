@@ -1,3 +1,11 @@
+/*
+    Developer Blog:
+    - Original idea behind this was to use PhantomData to mitigate the status of the job instead of reading from enum.
+        Need to refresh materials about PhantomData, and how I can translate this data information for front end to update/reflect changes
+        The idea is to change the struct to have state of the job.
+    - I need to fetch the handles so that I can maintain and monitor all node activity.
+    - TODO: See about migrating Sender code into this module?
+*/
 use std::{
     io::Result,
     path::{Path, PathBuf},
@@ -8,15 +16,30 @@ use super::{project_file::ProjectFile, render_node::RenderNode, server_setting::
 use blender::{args::Args, blender::Blender, mode::Mode};
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum JobError {
+    #[error("Job failed to run: {0}")]
+    FailedToRun(String),
+}
 
 // pub trait JobStatus {}
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Idle;
-// pub struct Paused;
+pub struct Paused;
 // find a way to parse output data, and provide percentage of completion here
-// pub struct Running(f32); // percentage of completion
-// pub struct Completed;
-// pub struct Error(String);
+/// percentage of completion
+pub struct Running {
+    frame: f32,
+}
+/// The job has been completed, path refers to the directory which contains all of the completed render image data.
+pub struct Completed {
+    path: Path,
+}
+
+/// Job reported an error that needs to be handle carefully.
+pub struct Error(JobError);
 
 /// A container to hold rendering job information. This will be used to send off jobs to all other rendering farm
 #[derive(Debug, Serialize, Deserialize)]
@@ -56,8 +79,8 @@ impl Job {
 
     // TODO: consider about how I can invoke this command from network protocol?
     /// Invoke blender to run the job
-    #[allow(dead_code)]
     pub fn run(&self) -> Result<String> {
+        // TODO: How can I split this up to run async task? E.g. Keep this task running while we still have frames left over.
         let args = Args::new(
             self.project_file.src.clone(),
             self.output.clone(),
@@ -76,6 +99,7 @@ impl Job {
         // }
 
         // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
+        // TODO: This looks like I could move this code block somewhere else?
         let mut server_settings = ServerSetting::load();
         let blender = match server_settings
             .blenders
