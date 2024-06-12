@@ -6,40 +6,49 @@
     - I need to fetch the handles so that I can maintain and monitor all node activity.
     - TODO: See about migrating Sender code into this module?
 */
+use super::{project_file::ProjectFile, render_node::RenderNode, server_setting::ServerSetting};
 use std::{
     io::Result,
     path::{Path, PathBuf},
 };
-
-use super::{project_file::ProjectFile, render_node::RenderNode, server_setting::ServerSetting};
 // use crate::services::sender;
 use blender::{args::Args, blender::Blender, mode::Mode};
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::thread::{self, JoinHandle};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum JobError {
     #[error("Job failed to run: {0}")]
     FailedToRun(String),
+    // it would be nice to have blender errors here?
 }
 
 // pub trait JobStatus {}
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Idle;
-pub struct Paused;
-// find a way to parse output data, and provide percentage of completion here
-/// percentage of completion
-pub struct Running {
-    frame: f32,
-}
-/// The job has been completed, path refers to the directory which contains all of the completed render image data.
-pub struct Completed {
-    path: Path,
+pub enum JobStatus {
+    /// Job is idle - Do we need this?
+    Idle,
+    /// Pause the working job, (cancel blender process, and wait for incoming packet)
+    Paused,
+    Downloading(String),
+    // find a way to parse output data, and provide percentage of completion here
+    /// percentage of completion
+    Running {
+        frame: f32,
+    },
+    Error(JobError),
+    /// The job has been completed
+    Completed,
 }
 
-/// Job reported an error that needs to be handle carefully.
-pub struct Error(JobError);
+#[derive(Debug, Serialize, Deserialize, Hash, Eq, PartialEq)]
+pub struct RenderInfo {
+    pub frame: i32,
+    pub path: PathBuf,
+}
 
 /// A container to hold rendering job information. This will be used to send off jobs to all other rendering farm
 #[derive(Debug, Serialize, Deserialize)]
@@ -54,7 +63,10 @@ pub struct Job {
     pub version: Version,
     /// Path to blender files
     pub project_file: ProjectFile,
-    pub image_pic: Option<String>,
+    /// Path to completed image result - May not be needed?
+    pub renders: HashSet<RenderInfo>, // frame, then path to completed image source.
+    #[serde(skip)]
+    handlers: Vec<JoinHandle<JobStatus>>,
 }
 
 impl Job {
@@ -72,19 +84,31 @@ impl Job {
             output: output.to_path_buf().clone(),
             version: version.to_owned(),
             project_file: project_file.clone(),
-            image_pic: None,
+            renders: None,
             mode,
+            handlers: Vec::new(),
         }
+    }
+
+    // this method should be treated as a manager style where this job will be responsible to
+    // divided the job into smaller frame task, and distribute across different target nodes on the network
+    pub fn execute(&mut self) -> Result<()> {
+        // This is where we will implement handlers group to monitor and manage threaded task.
+        // One thread to monitor one job nodes
+
+        let handle = thread::spawn(|| JobStatus::Completed);
+        self.handlers.push(handle);
+        todo!("Implement this manager method");
     }
 
     // TODO: consider about how I can invoke this command from network protocol?
     /// Invoke blender to run the job
-    pub fn run(&self) -> Result<String> {
+    pub fn run(&mut self, frame: i32) -> Result<RenderInfo> {
         // TODO: How can I split this up to run async task? E.g. Keep this task running while we still have frames left over.
         let args = Args::new(
             self.project_file.src.clone(),
             self.output.clone(),
-            self.mode.clone(),
+            Mode::Frame(frame),
         );
 
         // need to send network packet to node to notify running job
@@ -116,9 +140,12 @@ impl Job {
             }
         };
 
-        // TODO: Find a way to handle the errors here?
-        let path = blender.render(&args).unwrap();
-        Ok(path)
+        // here's the question - if I'm on a network node, how do I send the host the image of the completed rendered job?
+        let path = PathBuf::from(blender.render(&args).unwrap());
+
+        // Return completed render info to the caller
+        let info = RenderInfo { frame, path };
+        Ok(info)
     }
 }
 

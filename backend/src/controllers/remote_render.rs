@@ -128,7 +128,8 @@ pub fn create_job(
         Err(_) => None,
     };
 
-    job.image_pic = image;
+    // TODO: Change this so that this is inside job instead?
+    job.renders = image;
     data.jobs.push(job);
 }
 
