@@ -1,7 +1,8 @@
 use crate::models::error::Error;
 use crate::services::sender;
+use message_io::node::{NodeHandler, NodeListener};
 use serde::{Deserialize, Serialize};
-use std::{marker::PhantomData, net::SocketAddr, path::PathBuf, str::FromStr};
+use std::{marker::PhantomData, net::SocketAddr, path::PathBuf, str::FromStr, thread};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Idle;
@@ -11,71 +12,57 @@ pub struct Running;
 pub struct Inactive;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct RenderNode<State = Idle> {
-    pub name: Option<String>,
+pub struct RenderNode {
+    pub name: String,
     pub host: SocketAddr,
-    state: PhantomData<State>,
 }
 
 #[allow(dead_code)]
-impl RenderNode<Inactive> {
-    pub fn parse(name: &str, host: &str) -> Result<RenderNode<Inactive>, Error> {
+impl RenderNode {
+    pub fn parse(name: &str, host: &str) -> Result<RenderNode, Error> {
         match host.parse::<SocketAddr>() {
             Ok(socket) => Ok(RenderNode {
-                name: Some(name.to_owned()),
-                state: PhantomData::<Inactive>,
+                name: name.to_owned(),
                 host: socket,
             }),
             Err(e) => Err(Error::PoisonError(e.to_string())),
         }
     }
 
-    pub fn connect(self) -> RenderNode<Idle> {
+    pub fn connect(self) -> RenderNode {
         // TODO: find out how we can establish connection here?
+
         RenderNode {
             name: self.name,
             host: self.host,
-            state: PhantomData::<Idle>,
         }
     }
-}
 
-impl RenderNode<Idle> {
     // TODO: Find a reason to keep this code around...?
     #[allow(dead_code)]
     pub fn create_localhost() -> Self {
         let host = SocketAddr::from_str("127.0.0.1:15000").unwrap();
         Self {
-            name: Some("localhost".to_owned()),
+            name: "localhost".to_owned(),
             host,
-            state: PhantomData::<Idle>,
         }
     }
 
     #[allow(dead_code)]
-    pub fn disconnected(self) -> RenderNode<Inactive> {
-        RenderNode {
-            name: self.name,
-            host: self.host,
-            state: PhantomData::<Inactive>,
-        }
-    }
+    pub fn disconnected(self) {}
 
     #[allow(dead_code)]
     pub fn send(self, file: &PathBuf) {
         sender::send(file, &self);
     }
-}
 
-#[allow(dead_code)]
-impl RenderNode<Running> {
-    pub fn abort(self) -> RenderNode<Idle> {
-        RenderNode {
-            name: self.name,
-            host: self.host,
-            state: std::marker::PhantomData::<Idle>,
-        }
+    /// Invoke the render node to start running the job
+    pub fn run(self) {
+        // is this where we can set the jobhandler?
+        // let handler = thread::spawn(|| {});
     }
+
+    pub fn abort(self) {}
 }
 
 impl FromStr for RenderNode {

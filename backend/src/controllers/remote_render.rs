@@ -68,21 +68,6 @@ pub fn import_project(app: AppHandle, path: &str) {
     ctx.project_files.push(project_file);
 }
 
-// TODO: Find a good reason why we need to keep this? Do we need to send updates to all server node? May not be used
-// This might be a dead code?
-// #[command]
-// pub fn sync_project(app: AppHandle, project_file: ProjectFile) {
-//     // we find the project by the id, then we re-sync the files
-//     let ctx = app.state::<Mutex<Data>>();
-//     let mut data = ctx.lock().unwrap();
-//     let project = data
-//         .project_files
-//         .iter_mut()
-//         .find(|x| *x == &project_file)
-//         .unwrap();
-//     project.move_to_temp();
-// }
-
 /// Delete target project file from the collection. Note - this does not mean delete the original source file, it simply remove the project entry from the list
 #[command]
 pub fn delete_project(app: AppHandle, project_file: ProjectFile) {
@@ -112,24 +97,17 @@ pub fn create_job(
     nodes: Vec<RenderNode>,
     mode: Mode,
 ) {
-    let ctx = app.state::<Mutex<Data>>();
-    let mut data = ctx.lock().unwrap();
-    let project = data.get_project_file(&project_file).unwrap();
-    let output = PathBuf::from(output);
+    let output: PathBuf = PathBuf::from(output);
     let version = Version::parse(version).unwrap();
-    let mut job = Job::new(project, &output, &version, nodes, mode);
+    let mut job = Job::new(&project_file, &output, &version, nodes, mode);
     // I have some weird feeling about this. How can I make a method invocation if they receive certain event,
     // e.g. progress bar?? I must read the stdoutput to gather blender's progress information.
 
     // see about how I can go about notify each node what frame to render next, and then expect to receive the files back.
     // this function may be relocated somewhere else?
-    let image = match job.run() {
-        Ok(path) => Some(path),
-        Err(_) => None,
-    };
-
-    // TODO: Change this so that this is inside job instead?
-    job.renders = image;
+    job.execute().unwrap();
+    let ctx = app.state::<Mutex<Data>>();
+    let mut data = ctx.lock().unwrap();
     data.jobs.push(job);
 }
 

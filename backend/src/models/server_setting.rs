@@ -1,4 +1,5 @@
 use blender::blender::Blender;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 
@@ -50,6 +51,22 @@ impl ServerSetting {
         let data = serde_json::to_string(&self).expect("Unable to parse ServerSettings into json!");
         let config_path = Self::get_config_path();
         fs::write(config_path, data).expect("Unable to write file! Permission issue?");
+    }
+
+    pub fn get_blender(&mut self, version: Version) -> Blender {
+        // eventually we would want to check if the version is already installed on the machine.
+        // otherwise download and install the version prior to run this script.
+        let blender = match self.blenders.iter().find(|&x| x.version == version) {
+            Some(blender) => blender.to_owned(),
+            None => {
+                let blender = Blender::download(version, &self.blender_dir).unwrap();
+                self.blenders.push(blender.clone());
+                self.save();
+                blender
+            }
+        };
+
+        blender
     }
 
     /// Load user configurations from the user's config directory

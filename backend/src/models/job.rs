@@ -19,7 +19,7 @@ use std::collections::HashSet;
 use std::thread::{self, JoinHandle};
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Serialize, Deserialize)]
 pub enum JobError {
     #[error("Job failed to run: {0}")]
     FailedToRun(String),
@@ -70,8 +70,6 @@ pub struct Job {
 }
 
 impl Job {
-    // TODO: See if we need this?
-    #[allow(dead_code)]
     pub fn new(
         project_file: &ProjectFile,
         output: &Path,
@@ -84,7 +82,7 @@ impl Job {
             output: output.to_path_buf().clone(),
             version: version.to_owned(),
             project_file: project_file.clone(),
-            renders: None,
+            renders: HashSet::new(),
             mode,
             handlers: Vec::new(),
         }
@@ -95,10 +93,11 @@ impl Job {
     pub fn execute(&mut self) -> Result<()> {
         // This is where we will implement handlers group to monitor and manage threaded task.
         // One thread to monitor one job nodes
+        self.run(1);
+        Ok(())
 
-        let handle = thread::spawn(|| JobStatus::Completed);
-        self.handlers.push(handle);
-        todo!("Implement this manager method");
+        // let handle = thread::spawn(|| JobStatus::Completed);
+        // self.handlers.push(handle);
     }
 
     // TODO: consider about how I can invoke this command from network protocol?
@@ -111,34 +110,10 @@ impl Job {
             Mode::Frame(frame),
         );
 
-        // need to send network packet to node to notify running job
-        // before sending notification out
-        // sender.send();
-        // for ele in self.nodes {
-        // how can we get ahead of this and say that each node now needs to get the files
-        // ele.send(&self.project_file.src);
-        // ele.render
-        // let blender = Blender::new();
-        // blender.render(&self.project_file, &self.output);
-        // }
-
         // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
         // TODO: This looks like I could move this code block somewhere else?
         let mut server_settings = ServerSetting::load();
-        let blender = match server_settings
-            .blenders
-            .iter()
-            .find(|&x| x.version == self.version)
-        {
-            Some(blender) => blender.to_owned(),
-            None => {
-                let blender =
-                    Blender::download(self.version.clone(), &server_settings.blender_dir).unwrap();
-                server_settings.blenders.push(blender.clone());
-                server_settings.save();
-                blender
-            }
-        };
+        let blender = server_settings.get_blender(self.version.clone());
 
         // here's the question - if I'm on a network node, how do I send the host the image of the completed rendered job?
         let path = PathBuf::from(blender.render(&args).unwrap());
