@@ -106,8 +106,6 @@ pub fn create_job(
     // see about how I can go about notify each node what frame to render next, and then expect to receive the files back.
     // this function may be relocated somewhere else?
     job.execute().unwrap();
-    let ctx = app.state::<Mutex<Data>>();
-    let mut data = ctx.lock().unwrap();
     data.jobs.push(job);
 }
 
