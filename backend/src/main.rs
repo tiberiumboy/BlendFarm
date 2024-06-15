@@ -28,7 +28,7 @@ use crate::models::{data::Data, render_node::RenderNode};
 use blender::blender::Blender;
 use blender::{args::Args, mode::Mode};
 use semver::Version;
-// use services::multicast::multicast;
+use services::multicast::multicast;
 // use services::receiver::receive;
 use models::server_setting::ServerSetting;
 use std::path::{Path, PathBuf};
@@ -118,17 +118,12 @@ fn test_reading_blender_files(file: impl AsRef<Path>, version: Version) -> Resul
 fn main() -> Result<()> {
     // get the machine configuration here, and cache the result for poll request
     // we're making the assumption that the device card is available and ready when this app launches
-
-    // parse argument input here
-    let args = env::args().collect::<Vec<String>>();
-    // let args = std::env::args();
-    println!("{args:?}");
     // obtain configurations
 
     // initialize service listener
     // thread::spawn(|| {
-    //     // receive();
-    //     multicast();
+    // receive();
+    multicast();
     // });
     //
     // here we will ask for the user's blender file
@@ -145,7 +140,7 @@ fn main() -> Result<()> {
     // Just to run some test here - run as "cargo run -- test"
     // if args.contains(&"test".to_owned()) {
     // } else {
-    client();
+    // client();
     // }
 
     Ok(())

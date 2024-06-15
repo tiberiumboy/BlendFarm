@@ -15,7 +15,7 @@ pub fn multicast() {
     listener.for_each(move |event| match event.network() {
         NetEvent::Connected(_, _always_true_for_udp) => {
             println!("Notifying on the network");
-            handler.network().send(endpoint, "receiver".as_bytes());
+            handler.network().send(endpoint, "Blendfarm".as_bytes());
             handler
                 .network()
                 .listen(Transport::Udp, multicast_addr)

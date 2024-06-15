@@ -93,7 +93,7 @@ impl Job {
     pub fn execute(&mut self) -> Result<()> {
         // This is where we will implement handlers group to monitor and manage threaded task.
         // One thread to monitor one job nodes
-        self.run(1);
+        let _ = self.run(1);
         Ok(())
 
         // let handle = thread::spawn(|| JobStatus::Completed);
