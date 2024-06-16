@@ -90,7 +90,6 @@ pub fn list_projects(app: AppHandle) -> Result<String, Error> {
 /// Create a new job from the list of project collection, and begin network rendering from target nodes.
 #[command(async)]
 pub fn create_job(
-    app: AppHandle,
     output: &str,
     version: &str,
     project_file: ProjectFile,
@@ -106,7 +105,7 @@ pub fn create_job(
     // see about how I can go about notify each node what frame to render next, and then expect to receive the files back.
     // this function may be relocated somewhere else?
     job.execute().unwrap();
-    data.jobs.push(job);
+    // data.jobs.push(job);
 }
 
 /// Abort the job if it's running and delete the entry from the collection list.
