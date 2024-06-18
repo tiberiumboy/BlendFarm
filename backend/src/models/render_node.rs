@@ -1,3 +1,8 @@
+/*
+    Developer blog:
+    - Wonder if I should make this into a separate directory for network infrastructure?
+*/
+
 use crate::models::common::{ReceiverMsg, SenderMsg};
 use crate::models::error::Error;
 use anyhow::Result;
@@ -11,42 +16,52 @@ use std::io::Read;
 use std::time::Duration;
 use std::{net::SocketAddr, path::PathBuf, str::FromStr};
 
+// should this be used in a separate library module?
+
 const CHUNK_SIZE: usize = 65536;
 
 // Not sure if I need the state?
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Idle;
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Running;
-#[derive(Debug)]
-pub struct Inactive;
+// #[derive(Debug, Serialize, Deserialize)]
+// pub struct Idle;
+// #[derive(Debug, Serialize, Deserialize)]
+// pub struct Running;
+// #[derive(Debug)]
+// pub struct Inactive;
 
 enum Signal {
     SendChunk,
     // what else do I need to perform on network packet?
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug)]
+pub struct NetworkConnection {
+    handler: NodeHandler<()>,
+    node_listener: Option<NodeListener<()>>,
+    endpoint: Endpoint,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RenderNode {
     pub name: String,
     pub host: SocketAddr,
-    handler: NodeHandler<()>,
-    endpoint: Endpoint,
-    node_listener: Option<NodeListener<()>>,
+    #[serde(skip)]
+    pub connection: Option<NetworkConnection>,
 }
 
 #[allow(dead_code)]
 impl RenderNode {
-    pub fn new(name: &str, host: SocketAddr) -> Self {
+    pub fn new(name: &str, host: SocketAddr) -> Result<Self> {
         let (handler, node_listener) = node::split();
 
-        let listen_addr = "127.0.0.1:0";
-        let (_, listen_addr) = handler.network().connect(Transport::FramedTcp, 
-        Self {
+        let (endpoint, _) = handler.network().connect(Transport::FramedTcp, host)?;
+
+        Ok(Self {
             name: name.to_string(),
             host,
-            handler: None,
-        }
+            handler,
+            endpoint,
+            node_listener: Some(node_listener),
+        })
     }
 
     pub fn parse(name: &str, host: &str) -> Result<RenderNode> {
@@ -59,19 +74,30 @@ impl RenderNode {
         }
     }
 
-    pub fn host() -> Result<RenderNode> {
-        let (handler, listener) = node::split();
+    fn handle_message(endpoint: Endpoint, data: &[u8]) {
+        let message: ReceiverMsg = bincode::deserialize(data).unwrap();
+        match message {
+            ReceiverMsg::CanReceive(can) => match can {
+                true => handler.signals().send(Signal::SendChunk),
+                false => {
+                    handler.stop();
+                    println!("The receiver can not receive the file!");
+                }
+            },
+        }
     }
 
     pub fn listen(&self) -> Result<()> {
         // TODO: find out how we can establish connection here?
         let (handler, listener) = node::split();
         let (server_id, _) = handler.network().connect(Transport::FramedTcp, self.host)?;
+        let mut file_bytes_sent = 0;
 
         listener.for_each(move |event| match event {
             NodeEvent::Network(net_event) => match net_event {
                 NetEvent::Connected(endpoint, established) => {
                     if established {
+                        // what should I do here?
                     } else {
                         println!(
                             "Can not connect to the receiver by TCP to {}",
@@ -79,20 +105,9 @@ impl RenderNode {
                         );
                     }
                 }
+                // I wonder why this is unreachable?
                 NetEvent::Accepted(_, _) => unreachable!(),
-                NetEvent::Message(_, input_data) => {
-                    let message: ReceiverMsg = bincode::deserialize(input_data).unwrap();
-                    match message {
-                        ReceiverMsg::CanReceive(can) => match can {
-                            true => handler.signals().send(Signal::SendChunk),
-                            false => {
-                                handler.stop();
-                                println!("The receiver can not receive the file!");
-                            }
-                        },
-                    }
-                }
-                // NetEvent::PauseJob(_) => {}
+                NetEvent::Message(endpoint, data) => Self::handle_message(endpoint, data),
                 NetEvent::Disconnected(_) => {
                     handler.stop();
                     println!("\nReceiver disconnected");
@@ -123,26 +138,20 @@ impl RenderNode {
                 }
             },
         });
+
+        Ok(())
     }
 
-    pub fn send(file_path: &PathBuf, target: &RenderNode) {
-        let file_size = fs::metadata(file_path).unwrap().len() as usize;
-        let mut file = File::open(file_path).unwrap();
-        let file_name: &OsStr = file_path.file_name().expect("Missing file!");
-
-        let mut file_bytes_sent = 0;
-    }
-
-    #[allow(dead_code)]
-    pub fn disconnected(self) {}
-
-    #[allow(dead_code)]
     pub fn send(self, file: &PathBuf) {
-        println!("Sender connected by TCP {}", endpoint.addr().ip());
+        let file_size = fs::metadata(file).unwrap().len() as usize;
+        let file_name: &OsStr = file.file_name().expect("Missing file!");
+        let mut file = File::open(file).unwrap();
+
+        println!("Sender connected by TCP {}", self.endpoint.addr().ip());
         let request =
             SenderMsg::FileRequest(file_name.to_os_string().into_string().unwrap(), file_size);
         let output_data = bincode::serialize(&request).unwrap();
-        handler.network().send(endpoint, &output_data);
+        self.handler.network().send(self.endpoint, &output_data);
     }
 
     /// Invoke the render node to start running the job
@@ -152,6 +161,14 @@ impl RenderNode {
     }
 
     pub fn abort(self) {}
+}
+
+impl Default for RenderNode {
+    fn default() -> Self {
+        // socketAddr should not crash if the host address is defined globally
+        let socket = SocketAddr::from_str("127.0.0.1:15000").unwrap();
+        RenderNode::new("localhost", socket).unwrap()
+    }
 }
 
 impl FromStr for RenderNode {
@@ -165,5 +182,11 @@ impl FromStr for RenderNode {
 impl PartialEq for RenderNode {
     fn eq(&self, other: &Self) -> bool {
         self.host == other.host && self.name == other.name
+    }
+}
+
+impl Drop for RenderNode {
+    fn drop(&mut self) {
+        self.handler.stop();
     }
 }

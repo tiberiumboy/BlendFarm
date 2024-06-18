@@ -28,7 +28,7 @@ use crate::models::{data::Data, render_node::RenderNode};
 use blender::blender::Blender;
 use blender::{args::Args, mode::Mode};
 use semver::Version;
-use services::multicast::multicast;
+// use services::multicast::multicast;
 // use services::receiver::receive;
 use models::server_setting::ServerSetting;
 use std::path::{Path, PathBuf};
@@ -39,12 +39,10 @@ pub mod controllers;
 pub mod models;
 pub mod services;
 
-// globabally
-#[allow(dead_code)]
 fn client() {
-    let localhost = RenderNode::create_localhost();
+    let localhost = RenderNode::default();
     let mut data = Data::default();
-    data.render_nodes.push(localhost);
+    data.render_nodes.push(localhost); // always push the localhost
     let ctx = Mutex::new(data);
 
     tauri::Builder::default()
@@ -78,41 +76,31 @@ fn client() {
 }
 
 #[allow(dead_code)]
-fn test_downloading_blender() -> Result<Blender> {
+fn test_downloading_blender() {
+    // fetch the server settings to identify where we can save blender installation to.
     let server_setting = ServerSetting::load();
+    // target blender version to download to - at the time of writing this was the latest version.
     let version = Version::new(4, 1, 0);
-    let blender = Blender::download(version, server_setting.blender_dir).unwrap();
-    dbg!(&blender);
-    Ok(blender)
+    // run test!
+    let blender = Blender::download(version, server_setting.blender_dir);
+    // verify that blender returned ok, otherwise fail if we have issues (internet connection/permission issue?)
+    assert!(blender.is_ok());
 }
 
 /// This code is only used to test out downloading blender from source or reuse existing installation of blender, render a test scene example, and output the result.
 #[allow(dead_code)]
-fn test_reading_blender_files(file: impl AsRef<Path>, version: Version) -> Result<()> {
+fn test_reading_blender_files(file: impl AsRef<Path>, version: Version) {
     let mut server_settings = ServerSetting::load();
 
     // eventually we would want to check if the version is already installed on the machine.
     // otherwise download and install the version prior to run this script.
-    let blender = match server_settings
-        .blenders
-        .iter()
-        .find(|&x| x.version == version)
-    {
-        Some(blender) => blender.to_owned(),
-        None => {
-            let blender = Blender::download(version, &server_settings.blender_dir).unwrap();
-            server_settings.blenders.push(blender.clone());
-            server_settings.save();
-            blender
-        }
-    };
+    let blender = server_settings.get_blender(version);
 
     // This part of the code is used to test and verify that we can successfully run blender
     let output = file.as_ref().parent().unwrap();
     let args = Args::new(file.as_ref(), PathBuf::from(output), Mode::Frame(1));
-    let render_path = blender.render(&args).unwrap();
-    dbg!(render_path);
-    Ok(())
+    let render_path = blender.render(&args);
+    assert!(render_path.is_ok());
 }
 
 fn main() -> Result<()> {
@@ -123,7 +111,7 @@ fn main() -> Result<()> {
     // initialize service listener
     // thread::spawn(|| {
     // receive();
-    multicast();
+    // multicast();
     // });
     //
     // here we will ask for the user's blender file
@@ -142,6 +130,7 @@ fn main() -> Result<()> {
     // } else {
     // client();
     // }
-
+    let local_node = RenderNode::default();
+    println!("{:?}", local_node);
     Ok(())
 }
