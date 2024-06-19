@@ -39,13 +39,24 @@ pub mod controllers;
 pub mod models;
 pub mod services;
 
+// when the app starts up, I would need to have access to onfigs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
+// I will have to create a manager struct -this is self managed by user action. e.g. new node, edit project files, delete jobs, etc.
 fn client() {
-    let localhost = RenderNode::default();
     let mut data = Data::default();
-    data.render_nodes.push(localhost); // always push the localhost
+    // I would like to find a better way to update or append data to render_nodes,
+    // but I need to review more context about handling context like this in rust.
+    // I understand Mutex, but I do not know if it's any safe to create pointers inside data struct from mutex memory.
+    // "Do not communicate with shared memory"
+    let localhost = RenderNode::default();
+    data.render_nodes.push(localhost);
+
+    // Could I create more than one
     let ctx = Mutex::new(data);
 
+    // why I can't dive into implementation details here?
     tauri::Builder::default()
+        // https://docs.rs/tauri/1.6.8/tauri/struct.Builder.html#method.manage
+        // It is indeed possible to have more than one manage - which I will be taking advantage over how I can share and mutate configuration data across this platform.
         .manage(ctx)
         // .setup(|app| {
         //     // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.
@@ -128,9 +139,9 @@ fn main() -> Result<()> {
     // Just to run some test here - run as "cargo run -- test"
     // if args.contains(&"test".to_owned()) {
     // } else {
-    // client();
+    client();
     // }
-    let local_node = RenderNode::default();
+
     println!("{:?}", local_node);
     Ok(())
 }

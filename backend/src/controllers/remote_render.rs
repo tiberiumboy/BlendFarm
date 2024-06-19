@@ -7,6 +7,13 @@ use std::{path::PathBuf, sync::Mutex /* thread */};
 use tauri::{command, Manager};
 use tauri::{AppHandle, Error};
 
+// We'll use this to organize and collect render nodes information
+pub struct Manager {
+    pub nodes: Mutex<Vec<RenderNode>>,
+    pub projects: Mutex<Vec<ProjectFile>>,
+    pub jobs: Mutex<Vec<Job>>,
+}
+
 /// Create a node
 #[command]
 pub fn create_node(app: AppHandle, name: &str, host: &str) -> Result<String, Error> {

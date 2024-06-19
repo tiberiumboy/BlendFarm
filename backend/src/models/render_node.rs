@@ -20,14 +20,6 @@ use std::{net::SocketAddr, path::PathBuf, str::FromStr};
 
 const CHUNK_SIZE: usize = 65536;
 
-// Not sure if I need the state?
-// #[derive(Debug, Serialize, Deserialize)]
-// pub struct Idle;
-// #[derive(Debug, Serialize, Deserialize)]
-// pub struct Running;
-// #[derive(Debug)]
-// pub struct Inactive;
-
 enum Signal {
     SendChunk,
     // what else do I need to perform on network packet?
@@ -40,27 +32,42 @@ pub struct NetworkConnection {
     endpoint: Endpoint,
 }
 
+impl NetworkConnection {
+    pub fn connect(host: &SocketAddr) -> Self {
+        let (handler, listener) = node::split();
+
+        let (endpoint, _) = handler
+            .network()
+            .connect(Transport::FrameTcp, host)
+            .unwrap();
+
+        Self {
+            handler,
+            endpoint,
+            node_listener: Some(listener),
+        }
+    }
+
+    pub fn listen(&self) {}
+}
+
+// Could I bring mutex content down here? I need to append new render node if it's discovered by the network
+// Do not communicate by sharing memory
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RenderNode {
     pub name: String,
     pub host: SocketAddr,
     #[serde(skip)]
-    pub connection: Option<NetworkConnection>,
+    context : Box<
 }
 
 #[allow(dead_code)]
 impl RenderNode {
     pub fn new(name: &str, host: SocketAddr) -> Result<Self> {
-        let (handler, node_listener) = node::split();
-
-        let (endpoint, _) = handler.network().connect(Transport::FramedTcp, host)?;
-
         Ok(Self {
             name: name.to_string(),
             host,
-            handler,
-            endpoint,
-            node_listener: Some(node_listener),
+            connection: None,
         })
     }
 
@@ -87,6 +94,7 @@ impl RenderNode {
         }
     }
 
+    // is this something that needs ot be invoked asyncronously?
     pub fn listen(&self) -> Result<()> {
         // TODO: find out how we can establish connection here?
         let (handler, listener) = node::split();
@@ -97,7 +105,8 @@ impl RenderNode {
             NodeEvent::Network(net_event) => match net_event {
                 NetEvent::Connected(endpoint, established) => {
                     if established {
-                        // what should I do here?
+                        // Is there a way I could send out hey you establish a new rendernode connection?
+
                     } else {
                         println!(
                             "Can not connect to the receiver by TCP to {}",
