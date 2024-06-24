@@ -5,51 +5,50 @@
 
 use crate::models::common::{ReceiverMsg, SenderMsg};
 use crate::models::error::Error;
-use anyhow::Result;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::NodeHandler;
 use message_io::node::{self, NodeEvent, NodeListener};
 use serde::{Deserialize, Serialize};
-use std::ffi::OsStr;
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::Read;
 use std::time::Duration;
-use std::{net::SocketAddr, path::PathBuf, str::FromStr};
+use std::{net::SocketAddr, str::FromStr};
 
 // should this be used in a separate library module?
 
 const CHUNK_SIZE: usize = 65536;
 
+// Don't think I need this anymore?
 enum Signal {
     SendChunk,
     // what else do I need to perform on network packet?
 }
 
-#[derive(Debug)]
-pub struct NetworkConnection {
-    handler: NodeHandler<()>,
-    node_listener: Option<NodeListener<()>>,
-    endpoint: Endpoint,
-}
+// #[derive(Debug)]
+// pub struct NetworkConnection {
+//     handler: NodeHandler<()>,
+//     node_listener: Option<NodeListener<()>>,
+//     endpoint: Endpoint,
+// }
 
-impl NetworkConnection {
-    pub fn connect(host: &SocketAddr) -> Self {
-        let (handler, listener) = node::split();
+// impl NetworkConnection {
+//     pub fn connect(host: &SocketAddr) -> Self {
+//         let (handler, listener) = node::split();
 
-        let (endpoint, _) = handler
-            .network()
-            .connect(Transport::FrameTcp, host)
-            .unwrap();
+//         let (endpoint, _) = handler
+//             .network()
+//             .connect(Transport::FrameTcp, host)
+//             .unwrap();
 
-        Self {
-            handler,
-            endpoint,
-            node_listener: Some(listener),
-        }
-    }
+//         Self {
+//             handler,
+//             endpoint,
+//             node_listener: Some(listener),
+//         }
+//     }
 
-    pub fn listen(&self) {}
-}
+//     pub fn listen(&self) {}
+// }
 
 // Could I bring mutex content down here? I need to append new render node if it's discovered by the network
 // Do not communicate by sharing memory
@@ -57,36 +56,34 @@ impl NetworkConnection {
 pub struct RenderNode {
     pub name: String,
     pub host: SocketAddr,
-    // #[serde(skip)]
-    // context : Box<
 }
 
 #[allow(dead_code)]
 impl RenderNode {
-    pub fn new(name: &str, host: SocketAddr) -> Result<Self> {
-        Ok(Self {
+    pub fn new(name: &str, host: SocketAddr) -> Self {
+        Self {
             name: name.to_string(),
             host,
-        })
+        }
     }
 
-    pub fn parse(name: &str, host: &str) -> Result<RenderNode> {
+    pub fn parse(name: &str, host: &str) -> Result<RenderNode, Error> {
         match host.parse::<SocketAddr>() {
             Ok(host) => match Self::connect(name, host) {
                 Ok(node) => Ok(node),
-                Err(e) => Err(Error::PosionError(e.to_string())),
+                Err(e) => Err(Error::PoisonError(e.to_string())),
             },
             Err(e) => Err(Error::PoisonError(e.to_string())),
         }
     }
 
-    fn handle_message(endpoint: Endpoint, data: &[u8]) {
+    fn handle_message(&mut self, endpoint: Endpoint, data: &[u8]) {
         let message: ReceiverMsg = bincode::deserialize(data).unwrap();
         match message {
             ReceiverMsg::CanReceive(can) => match can {
-                true => handler.signals().send(Signal::SendChunk),
+                true => self.handler.signals().send(Signal::SendChunk),
                 false => {
-                    handler.stop();
+                    self.handler.stop();
                     println!("The receiver can not receive the file!");
                 }
             },
@@ -94,7 +91,7 @@ impl RenderNode {
     }
 
     // is this something that needs ot be invoked asyncronously?
-    pub fn listen(&self) -> Result<()> {
+    pub fn listen(&self) -> Result<(), Error> {
         // TODO: find out how we can establish connection here?
         let (handler, listener) = node::split();
         let (server_id, _) = handler.network().connect(Transport::FramedTcp, self.host)?;
@@ -114,7 +111,7 @@ impl RenderNode {
                 }
                 // I wonder why this is unreachable?
                 NetEvent::Accepted(_, _) => unreachable!(),
-                NetEvent::Message(endpoint, data) => Self::handle_message(endpoint, data),
+                NetEvent::Message(endpoint, data) => self.handle_message(endpoint, data),
                 NetEvent::Disconnected(_) => {
                     handler.stop();
                     println!("\nReceiver disconnected");
@@ -149,17 +146,17 @@ impl RenderNode {
         Ok(())
     }
 
-    pub fn send(self, file: &PathBuf) {
-        let file_size = fs::metadata(file).unwrap().len() as usize;
-        let file_name: &OsStr = file.file_name().expect("Missing file!");
-        let mut file = File::open(file).unwrap();
+    // pub fn send(self, file: &PathBuf) {
+    //     let file_size = fs::metadata(file).unwrap().len() as usize;
+    //     let file_name: &OsStr = file.file_name().expect("Missing file!");
+    //     let mut file = File::open(file).unwrap();
 
-        println!("Sender connected by TCP {}", self.endpoint.addr().ip());
-        let request =
-            SenderMsg::FileRequest(file_name.to_os_string().into_string().unwrap(), file_size);
-        let output_data = bincode::serialize(&request).unwrap();
-        self.handler.network().send(self.endpoint, &output_data);
-    }
+    //     println!("Sender connected by TCP {}", self.endpoint.addr().ip());
+    //     let request =
+    //         SenderMsg::FileRequest(file_name.to_os_string().into_string().unwrap(), file_size);
+    //     let output_data = bincode::serialize(&request).unwrap();
+    //     self.handler.network().send(self.endpoint, &output_data);
+    // }
 
     /// Invoke the render node to start running the job
     pub fn run(self) {
@@ -192,8 +189,8 @@ impl PartialEq for RenderNode {
     }
 }
 
-impl Drop for RenderNode {
-    fn drop(&mut self) {
-        self.handler.stop();
-    }
-}
+// impl Drop for RenderNode {
+//     fn drop(&mut self) {
+//         self.handler.stop();
+//     }
+// }
