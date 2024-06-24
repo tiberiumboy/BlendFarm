@@ -142,6 +142,5 @@ fn main() -> Result<()> {
     client();
     // }
 
-    println!("{:?}", local_node);
     Ok(())
 }

@@ -57,8 +57,8 @@ impl NetworkConnection {
 pub struct RenderNode {
     pub name: String,
     pub host: SocketAddr,
-    #[serde(skip)]
-    context : Box<
+    // #[serde(skip)]
+    // context : Box<
 }
 
 #[allow(dead_code)]
@@ -67,7 +67,6 @@ impl RenderNode {
         Ok(Self {
             name: name.to_string(),
             host,
-            connection: None,
         })
     }
 
@@ -106,7 +105,6 @@ impl RenderNode {
                 NetEvent::Connected(endpoint, established) => {
                     if established {
                         // Is there a way I could send out hey you establish a new rendernode connection?
-
                     } else {
                         println!(
                             "Can not connect to the receiver by TCP to {}",

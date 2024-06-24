@@ -22,9 +22,16 @@ pub fn create_node(app: AppHandle, name: &str, host: &str) -> Result<String, Err
     let node_mutex = app.state::<Mutex<Data>>();
     let mut col = node_mutex.lock().unwrap();
     let data = serde_json::to_string(&node).unwrap();
-    let node = node.connect();
-    col.render_nodes.push(node);
-    Ok(data)
+    match node.connect() {
+        Ok(node) => {
+            col.render_nodes.push(node);
+            Ok(data)
+        }
+        Err(e) => {
+            println!("Error: {}", e);
+            Err(Error::from(e))
+        }
+    }
 }
 
 /// List out all available node for this blendfarm.
