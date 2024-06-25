@@ -30,7 +30,7 @@ use blender::{args::Args, mode::Mode};
 use semver::Version;
 // use services::multicast::multicast;
 // use services::receiver::receive;
-use models::{node::Node, server_setting::ServerSetting};
+use models::{client::Client, server_setting::ServerSetting};
 use std::path::{Path, PathBuf};
 use std::{env, io::Result, sync::Mutex};
 use tauri::generate_handler;
@@ -43,10 +43,12 @@ pub mod services;
 // I will have to create a manager struct -this is self managed by user action. e.g. new node, edit project files, delete jobs, etc.
 fn client() {
     let server_setting = ServerSetting::load();
-    let server = Server::new(server_setting.port).expect("Failed to create server");
+    let mut server = Server::new(server_setting.port).expect("Failed to create server");
     println!("About to run server!");
+
     server.run();
-    println!("Server is running!");
+
+    panic!("This will never call until server finishes!");
 
     let mut data = Data::default();
     // I would like to find a better way to update or append data to render_nodes,
@@ -140,7 +142,7 @@ fn main() -> Result<()> {
     // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.
     // Just to run some test here - run as "cargo run -- test"
     if args.contains(&"test".to_owned()) {
-        Node::default().run();
+        Client::default().run();
     } else {
         client();
     }

@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::net::SocketAddr;
-
-use super::node::Node;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Message {
@@ -11,7 +10,7 @@ pub enum Message {
     JobResult(String), // return the result of the job
 
     // From Server
-    NodeList(Vec<(String, SocketAddr)>),
+    NodeList(HashMap<SocketAddr, String>),
     LoadJob(), // TODO figure out what kind of type I need to load here.
 
     // From Client to Client
