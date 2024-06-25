@@ -276,6 +276,7 @@ impl Blender {
 
     /// Return extension matching to the current operating system (Only display Windows(zip), Linux(tar.xz), or macos(.dmg)).
     pub fn get_extension() -> Result<String, BlenderError> {
+        // TODO: Find a better way to re-write this - I assume we could take advantage of the compiler tags to return string literal without switch statement like this?
         let extension = match consts::OS {
             "windows" => WINDOW_EXT,
             "macos" => MACOS_EXT,

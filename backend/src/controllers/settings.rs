@@ -29,6 +29,7 @@ pub fn add_blender_installation(path: PathBuf) -> Result<(), Error> {
 
     // I need information in string so I could use the contains operand, if there's a better way to write this without having to cast into string, would be ideal
     // TODO: Optimized so I could check the extension without casting to string (memory intensive operation)
+    // TODO - Move this code implementation to Blender implementation instead.
     let extension = Blender::get_extension().unwrap();
     let str_path = path.as_os_str().to_str().unwrap().to_owned();
 

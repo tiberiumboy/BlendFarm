@@ -6,19 +6,15 @@
 use crate::models::common::{ReceiverMsg, SenderMsg};
 use crate::models::error::Error;
 use message_io::network::{Endpoint, NetEvent, Transport};
-use message_io::node::NodeHandler;
-use message_io::node::{self, NodeEvent, NodeListener};
+use message_io::node::{self, NodeEvent};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
-use std::time::Duration;
 use std::{net::SocketAddr, str::FromStr};
 
 // should this be used in a separate library module?
-
 const CHUNK_SIZE: usize = 65536;
 
-// Don't think I need this anymore?
 enum Signal {
     SendChunk,
     // what else do I need to perform on network packet?
@@ -67,35 +63,24 @@ impl RenderNode {
         }
     }
 
-    pub fn parse(name: &str, host: &str) -> Result<RenderNode, Error> {
-        match host.parse::<SocketAddr>() {
-            Ok(host) => match Self::connect(name, host) {
-                Ok(node) => Ok(node),
-                Err(e) => Err(Error::PoisonError(e.to_string())),
-            },
-            Err(e) => Err(Error::PoisonError(e.to_string())),
-        }
-    }
-
-    fn handle_message(&mut self, endpoint: Endpoint, data: &[u8]) {
+    fn handle_message(&mut self, _endpoint: Endpoint, data: &[u8]) {
         let message: ReceiverMsg = bincode::deserialize(data).unwrap();
         match message {
-            ReceiverMsg::CanReceive(can) => match can {
-                true => self.handler.signals().send(Signal::SendChunk),
-                false => {
-                    self.handler.stop();
-                    println!("The receiver can not receive the file!");
-                }
-            },
+            // when I receive signal back -
+            ReceiverMsg::CanReceive(_can) => {
+                // send chunks.
+                // true => self.handler.signals().send(Signal::SendChunk),
+                // false => self.handler.stop();
+            }
         }
     }
 
     // is this something that needs ot be invoked asyncronously?
-    pub fn listen(&self) -> Result<(), Error> {
+    pub fn listen(&mut self) -> Result<(), Error> {
         // TODO: find out how we can establish connection here?
         let (handler, listener) = node::split();
-        let (server_id, _) = handler.network().connect(Transport::FramedTcp, self.host)?;
-        let mut file_bytes_sent = 0;
+        // let (server_id, _) = handler.network().connect(Transport::FramedTcp, self.host)?;
+        // let mut file_bytes_sent = 0;
 
         listener.for_each(move |event| match event {
             NodeEvent::Network(net_event) => match net_event {
@@ -111,34 +96,35 @@ impl RenderNode {
                 }
                 // I wonder why this is unreachable?
                 NetEvent::Accepted(_, _) => unreachable!(),
+                // message is received from the receiver - what's the difference between NetEvent::Message and NodeEvent::Signal?
                 NetEvent::Message(endpoint, data) => self.handle_message(endpoint, data),
                 NetEvent::Disconnected(_) => {
                     handler.stop();
                     println!("\nReceiver disconnected");
                 }
             },
+            // this type can only be genrated by the receiver.
             NodeEvent::Signal(signal) => match signal {
                 Signal::SendChunk => {
-                    let mut file = File::open(file_path).unwrap();
-                    let mut data = [0; CHUNK_SIZE];
-                    let bytes_read = file.read(&mut data).unwrap();
-                    if bytes_read > 0 {
-                        let chunk = SenderMsg::Chunk(Vec::from(&data[0..bytes_read]));
-                        let output_data = bincode::serialize(&chunk).unwrap();
-                        handler.network().send(server_id, &output_data);
-                        file_bytes_sent += bytes_read;
+                    // hmm how do I get the file I need to transfer?
+                    // let mut file = File::open(file_path).unwrap();
+                    // let mut data = [0; CHUNK_SIZE];
+                    // let bytes_read = file.read(&mut data).unwrap();
+                    // if bytes_read > 0 {
+                    //     let chunk = SenderMsg::Chunk(Vec::from(&data[0..bytes_read]));
+                    //     let output_data = bincode::serialize(&chunk).unwrap();
+                    //     handler.network().send(server_id, &output_data);
+                    //     file_bytes_sent += bytes_read;
 
-                        let percentage =
-                            ((file_bytes_sent as f32 / file_size as f32) * 100.0) as usize;
-                        println!("\rSending {:?}: {}%", file_name, percentage);
+                    //     // let percentage =
+                    //     //     ((file_bytes_sent as f32 / file_size as f32) * 100.0) as usize;
+                    //     // println!("\rSending {:?}: {}%", file_name, percentage);
 
-                        handler
-                            .signals()
-                            .send_with_timer(Signal::SendChunk, Duration::from_micros(10));
-                    } else {
-                        println!("\nFile sent!");
-                        handler.stop();
-                    }
+                    //     handler.signals().send(Signal::SendChunk);
+                    // } else {
+                    println!("\nFile sent!");
+                    handler.stop();
+                    // }
                 }
             },
         });
@@ -171,7 +157,7 @@ impl Default for RenderNode {
     fn default() -> Self {
         // socketAddr should not crash if the host address is defined globally
         let socket = SocketAddr::from_str("127.0.0.1:15000").unwrap();
-        RenderNode::new("localhost", socket).unwrap()
+        RenderNode::new("localhost", socket)
     }
 }
 

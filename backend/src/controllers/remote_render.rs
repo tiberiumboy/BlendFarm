@@ -8,30 +8,38 @@ use tauri::{command, Manager};
 use tauri::{AppHandle, Error};
 
 // We'll use this to organize and collect render nodes information
-pub struct Manager {
-    pub nodes: Mutex<Vec<RenderNode>>,
-    pub projects: Mutex<Vec<ProjectFile>>,
-    pub jobs: Mutex<Vec<Job>>,
-}
+// pub struct Context {
+//     pub nodes: Mutex<Vec<RenderNode>>,
+//     pub projects: Mutex<Vec<ProjectFile>>,
+//     pub jobs: Mutex<Vec<Job>>,
+// }
 
 /// Create a node
 #[command]
-pub fn create_node(app: AppHandle, name: &str, host: &str) -> Result<String, Error> {
+pub fn create_node(_app: AppHandle, name: &str, host: &str) -> Result<String, Error> {
     // Got an invalid socket address syntax from this line?
-    let node = RenderNode::parse(name, host).unwrap();
-    let node_mutex = app.state::<Mutex<Data>>();
-    let mut col = node_mutex.lock().unwrap();
-    let data = serde_json::to_string(&node).unwrap();
-    match node.connect() {
-        Ok(node) => {
-            col.render_nodes.push(node);
-            Ok(data)
-        }
-        Err(e) => {
-            println!("Error: {}", e);
-            Err(Error::from(e))
-        }
-    }
+    let socket = host.parse().expect("Unable to parse socket address!");
+    let mut node = RenderNode::new(name, socket);
+
+    println!("created our node successfully! {:?}", &node);
+    // hmm would this become a problem?
+    let _ = node.listen();
+
+    println!("Successfully listened!");
+
+    // let data = serde_json::to_string(&node).unwrap();
+    // match node.connect() {
+    //     Ok(node) => {
+    // let node_mutex = app.state::<Mutex<Data>>();
+    // let mut col = node_mutex.lock().unwrap();
+    //         col.render_nodes.push(node);
+    Ok("Node created successfully".to_string())
+    //     }
+    //     Err(e) => {
+    //         println!("Error: {}", e);
+    //         Err(Error::from(e))
+    //     }
+    // }
 }
 
 /// List out all available node for this blendfarm.

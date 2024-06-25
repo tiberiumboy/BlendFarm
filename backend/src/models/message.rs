@@ -1,11 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
+use super::node::Node;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Message {
     // To Server
-    RegisterNode(String, SocketAddr),
-    UnregisterNode(String),
+    RegisterNode { name: String, addr: SocketAddr },
+    UnregisterNode { addr: SocketAddr },
     JobResult(String), // return the result of the job
 
     // From Server

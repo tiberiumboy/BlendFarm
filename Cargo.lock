@@ -342,6 +342,7 @@ dependencies = [
  "bincode",
  "blender",
  "dirs",
+ "gethostname",
  "message-io",
  "regex",
  "semver",
