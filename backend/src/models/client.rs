@@ -1,3 +1,8 @@
+/*
+    Developer blog:
+    - Do some research on concurrent http downloader for transferring project files and blender from one client to another.
+*/
+
 use crate::models::{message::Message, node::Node};
 use anyhow::Result;
 use gethostname::gethostname;
@@ -8,7 +13,7 @@ use std::net::SocketAddr;
 
 pub struct Client {
     handler: NodeHandler<()>,
-    listeners: Option<NodeListener<()>>,
+    listener: Option<NodeListener<()>>,
     name: String,
     server_endpoint: Endpoint,
     public_addr: SocketAddr,
@@ -31,7 +36,7 @@ impl Client {
 
         Ok(Self {
             handler,
-            listeners: Some(listener),
+            listener: Some(listener),
             name: name.to_string(),
             server_endpoint: endpoint,
             public_addr: listen_addr,
@@ -41,7 +46,10 @@ impl Client {
 
     // Client begin listening for server
     pub fn run(mut self) {
-        let listener = self.listeners.take().unwrap();
+        // This doesn't seem like it will repeat?
+        // TODO: How do I make it broadcast so it'll repeat?
+
+        let listener = self.listener.take().unwrap();
         listener.for_each(move |event| {
             match event {
                 NodeEvent::Network(net_event) => match net_event {
@@ -51,6 +59,7 @@ impl Client {
                             self.send_to_server(&self.register_message());
                         } else {
                             println!("Could not connect to the server!");
+                            // is there any way I could just begin the listen process here?
                         }
                     }
                     NetEvent::Accepted(_, _) => unreachable!(),
@@ -59,10 +68,12 @@ impl Client {
                         // TODO: How can we initialize another listening job? We definitely don't want the user to go through the trouble of figuring out which machine has stopped.
                         // Disconnected was call when server was shut down
                         println!("Lost connection to host! [{}]", endpoint.addr());
+                        self.listen();
                         // in the case of this node disconnecting, I would like to auto renew the connection if possible.
                         // how would I go about setting this up?
                     }
                 },
+
                 // client is sending self generated signals?
                 NodeEvent::Signal(signal) => match signal {
                     // Signal
@@ -72,44 +83,55 @@ impl Client {
         })
     }
 
+    // wait to receive a multi-cast response.
+    // this will send register node notification to the signal.
+    pub fn listen(&mut self) {
+        let multicast_addr = "239.255.0.1:3010";
+        println!("Begin listening broadcast signals on [{multicast_addr}]");
+        // let (endpoint, _) = self
+        //     .handler
+        //     .network()
+        //     .connect(Transport::Udp, multicast_addr)
+        //     .unwrap();
+
+        // let listener = self.listeners.take().unwrap();
+
+        listener.for_each(move |event| match event.network() {
+            NetEvent::Connected(_, _always_true_for_udp) => {}
+            _ => {
+                println!("Found something from listener?")
+            }
+        })
+    }
+
     fn handle_message(&mut self, endpoint: Endpoint, bytes: &[u8]) {
-        let message: Message = bincode::deserialize(&bytes).unwrap();
+        let message: Message = bincode::deserialize(bytes).unwrap();
         match message {
             // Client receives this message from the server
-            Message::NodeList(nodes) => {
-                // how come I don't receive event for this one?
-                println!("Node list received! ({} nodes)", nodes.len());
-                for (addr, name) in nodes {
-                    let node = Node::new(&name, addr, endpoint);
-                    self.nodes.push(node);
-                    println!("{} [{}] is online", name, addr);
-                }
-            }
+            Message::NodeList(nodes) => self.handle_node_list(nodes, endpoint),
+            // how did I do this part again? Let's review over to message io
             Message::FileRequest(name, size) => {
                 let message = Message::CanReceive(true);
-                let output_data = bincode::serialize(&message).unwrap();
-                // how would I go about sending files?
-                // if let Some(listener) = self.listeners {
-                //     self.handler
-                //         .network()
-                //         .send(listener.get(&name).unwrap(), &output_data);
-                // }
+                let data = bincode::serialize(&message).unwrap();
+                self.handler.network().send(endpoint, &data);
             }
             Message::Chunk(data) => {}
+
             Message::RegisterNode { name, addr } => self.add_node(&name, addr, endpoint),
             Message::UnregisterNode { addr } => self.remove_node(addr),
             _ => todo!("Not yet implemented!"),
         }
     }
 
-    // fn discover_nodes(&mut self, name: &str, addr: SocketAddr, text: &str) {
-    //     let (endpoint, _) = self
-    //         .handler
-    //         .network()
-    //         .connect(Transport::FramedTcp, addr)
-    //         .unwrap();
-    //     // self.
-    // }
+    fn handle_node_list(&mut self, nodes: HashMap<SocketAddr, String>, endpoint: Endpoint) {
+        // how come I don't receive event for this one?
+        println!("Node list received! ({} nodes)", nodes.len());
+        for (addr, name) in nodes {
+            let node = Node::new(&name, addr, endpoint);
+            self.nodes.push(node);
+            println!("{} [{}] is online", name, addr);
+        }
+    }
 
     fn add_node(&mut self, name: &str, addr: SocketAddr, endpoint: Endpoint) {
         let node = Node::new(name, addr, endpoint);
@@ -132,17 +154,17 @@ impl Client {
         }
     }
 
+    #[allow(dead_code)]
+    fn send_to_target(&self, endpoint: Endpoint, message: &Message) {
+        println!("Sending {:?} to target [{}]", message, endpoint.addr());
+        let data = bincode::serialize(&message).unwrap();
+        self.handler.network().send(endpoint, &data);
+    }
+
     fn send_to_server(&self, message: &Message) {
         println!("Sending {:?} to server", message);
         let data = bincode::serialize(message).unwrap();
         self.handler.network().send(self.server_endpoint, &data);
-    }
-}
-
-impl Default for Client {
-    fn default() -> Self {
-        let hostname = gethostname().into_string().unwrap();
-        Self::new(&hostname, 15000).unwrap()
     }
 }
 

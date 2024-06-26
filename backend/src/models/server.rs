@@ -2,14 +2,21 @@ use crate::models::{message::Message, node::Node};
 use anyhow::Result;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
-use std::collections::HashMap;
 use std::net::SocketAddr;
+
+use super::job::Job;
 
 pub struct Server {
     handler: NodeHandler<()>,
     listeners: Option<NodeListener<()>>,
     nodes: Vec<Node>,
 }
+
+struct JobManager {
+    jobs: Vec<Job>,
+}
+
+// Should I have a job manager here? Or should that be in it's own separate struct?
 
 impl Server {
     pub fn new(port: u16) -> Result<Server> {
@@ -29,6 +36,8 @@ impl Server {
 
     // Server listens
     pub fn run(&mut self) {
+        self.ping(); // ping the inactive clients, if there are any
+
         let listener = self.listeners.take().unwrap();
         listener.for_each(move |event| match event {
             // interface from the network status
@@ -42,13 +51,14 @@ impl Server {
             NodeEvent::Signal(_signal) //=> match signal {
                 // Signal::SendChunk => self.send_chunk(),
                 => println!("Signal received, but not implemented!"),
-            //},
-        });
+                //},
+            });
     }
 
     // Once the server connects to node? Maybe this will never get called?
     fn handle_connected(&mut self, endpoint: Endpoint, established: bool) {
-        todo!("Figure out how this is invoked, and then update the implmentation below.");
+        // Did I accidentially multi-cast myself?
+        // todo!("Figure out how this is invoked, and then update the implmentation below.");
         println!(
             "Something connected to the server! {}, {}",
             endpoint, established
@@ -74,6 +84,7 @@ impl Server {
         }
     }
 
+    // A node has been disconnected from the network
     fn handle_disconnected(&mut self, endpoint: Endpoint) {
         // I believe there's a reason why I cannot use endpoint.addr()
         // Instead, I need to match endpoint to endpoint from node struct instead
@@ -88,6 +99,21 @@ impl Server {
                 panic!("This should never happen! Unless I got the address wrong again?");
             }
         }
+    }
+
+    /// Ping any inactive node to reconnect
+    pub fn ping(&self) {
+        // need to send signal out
+        let multicast_addr = "239.255.0.1:3010";
+        let (endpoint, _) = self
+            .handler
+            .network()
+            .connect(Transport::Udp, multicast_addr)
+            .unwrap();
+        let msg = Message::ServerPing;
+        let data = bincode::serialize(&msg).unwrap();
+
+        self.handler.network().send(endpoint, &data);
     }
 
     /// Notify all clients a node has been registered (Connected)

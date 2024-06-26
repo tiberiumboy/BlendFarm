@@ -30,9 +30,10 @@ use blender::{args::Args, mode::Mode};
 use semver::Version;
 // use services::multicast::multicast;
 // use services::receiver::receive;
+use gethostname::gethostname;
 use models::{client::Client, server_setting::ServerSetting};
 use std::path::{Path, PathBuf};
-use std::{env, io::Result, sync::Mutex};
+use std::{env, io::Result, sync::Mutex, thread};
 use tauri::generate_handler;
 
 pub mod controllers;
@@ -41,14 +42,19 @@ pub mod services;
 
 // when the app starts up, I would need to have access to onfigs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
 // I will have to create a manager struct -this is self managed by user action. e.g. new node, edit project files, delete jobs, etc.
-fn client() {
-    let server_setting = ServerSetting::load();
-    let mut server = Server::new(server_setting.port).expect("Failed to create server");
+fn client(server_setting: &ServerSetting) {
     println!("About to run server!");
 
-    server.run();
+    // is there a clear and better way to get around this?
+    // I do not want to have any dangling threads if we have to run async
+    let network_handle = thread::spawn(|| {
+        let mut server = Server::new(server_setting.port).expect("Failed to create server");
+        server.run();
+    });
 
-    panic!("This will never call until server finishes!");
+    println!("Successfully initialize the server");
+
+    // panic!("This will never call until server finishes!");
 
     let mut data = Data::default();
     // I would like to find a better way to update or append data to render_nodes,
@@ -122,6 +128,14 @@ fn test_reading_blender_files(file: impl AsRef<Path>, version: Version) {
     assert!(render_path.is_ok());
 }
 
+fn run_as_node(port: u16) {
+    let hostname = gethostname().into_string().unwrap();
+    match Client::new(&hostname, port) {
+        Ok(client) => client.run(),
+        Err(err) => println!("Cannot run the client! {}", err),
+    }
+}
+
 fn main() -> Result<()> {
     let args = std::env::args().collect::<Vec<String>>();
     // get the machine configuration here, and cache the result for poll request
@@ -141,10 +155,12 @@ fn main() -> Result<()> {
     // TOOD: If I build this application, how can I invoke commands directly? Do more search and test to see if there's a way for me to allow run this code if possible without having to separate the apps.
     // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.
     // Just to run some test here - run as "cargo run -- test"
+    let server_setting = ServerSetting::load();
+
     if args.contains(&"test".to_owned()) {
-        Client::default().run();
+        run_as_node(server_setting.port);
     } else {
-        client();
+        client(&server_setting);
     }
 
     Ok(())
