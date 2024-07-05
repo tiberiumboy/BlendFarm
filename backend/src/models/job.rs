@@ -7,16 +7,11 @@
     - TODO: See about migrating Sender code into this module?
 */
 use super::{project_file::ProjectFile, render_node::RenderNode, server_setting::ServerSetting};
-use std::{
-    io::Result,
-    path::{Path, PathBuf},
-};
-// use crate::services::sender;
-use blender::{args::Args, blender::Blender, mode::Mode};
+use blender::{args::Args, mode::Mode};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::thread::{self, JoinHandle};
+use std::{io::Result, path::PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Error, Serialize, Deserialize)]
@@ -55,36 +50,31 @@ pub struct RenderInfo {
 pub struct Job {
     /// Path to the output directory where final render image will be saved to
     pub output: PathBuf,
-    /// Target node machines to run the job to
-    pub nodes: Vec<RenderNode>,
     /// What kind of mode should this job run as
     pub mode: Mode,
     /// What version of blender we need to use to render this project job.
     pub version: Version,
     /// Path to blender files
     pub project_file: ProjectFile,
-    /// Path to completed image result - May not be needed?
-    pub renders: HashSet<RenderInfo>, // frame, then path to completed image source.
-    #[serde(skip)]
-    handlers: Vec<JoinHandle<JobStatus>>,
+    // Path to completed image result - May not be needed?
+    // I should probably take responsibility for this, Once render is complete - I need to send a signal back to the host saying here's the frame, and here's the raw image data.
+    // This would be nice to have to have some kind of historical copy, but then again, all of this value is being sent to the server directly. we should not retain any data behind on the node to remain lightweight and easy on storage space.
+    // pub renders: HashSet<RenderInfo>, // frame, then path to completed image source.
 }
 
 impl Job {
     pub fn new(
         project_file: &ProjectFile,
-        output: &Path,
+        // TODO: Is it acceptable to use Path to store in struct?
+        output: PathBuf,
         version: &Version,
-        nodes: Vec<RenderNode>,
         mode: Mode,
     ) -> Job {
         Job {
-            nodes,
-            output: output.to_path_buf().clone(),
+            output,
             version: version.to_owned(),
             project_file: project_file.clone(),
-            renders: HashSet::new(),
             mode,
-            handlers: Vec::new(),
         }
     }
 
@@ -107,7 +97,7 @@ impl Job {
         let args = Args::new(
             self.project_file.src.clone(),
             self.output.clone(),
-            Mode::Frame(frame),
+            self.mode.clone(),
         );
 
         // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
@@ -119,7 +109,7 @@ impl Job {
         let path = PathBuf::from(blender.render(&args).unwrap());
 
         // Return completed render info to the caller
-        let info = RenderInfo { frame, path };
+        let info = RenderInfo { frame: 1, path };
         Ok(info)
     }
 }

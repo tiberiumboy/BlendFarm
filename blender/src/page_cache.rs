@@ -1,6 +1,6 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, io::ErrorKind, path::PathBuf, time::SystemTime};
+use std::{collections::HashMap, fs, path::PathBuf, time::SystemTime};
 use thiserror::Error;
 use url::Url;
 
@@ -9,8 +9,8 @@ use url::Url;
 // rely the cache creation date on file metadata.
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct PageCache {
-    was_modified: bool,
     cache: HashMap<Url, PathBuf>,
+    was_modified: bool,
 }
 
 #[derive(Debug, Error)]
@@ -56,10 +56,6 @@ impl PageCache {
         }
     }
 
-    // fn refresh() {
-    //     todo!("impl. a way to delete the cache file if exists. And fetch the page again.");
-    // }
-
     // private method, only used to save when cache has changed.
     fn save(&mut self) -> Result<(), PageCacheError> {
         self.was_modified = false;
@@ -104,6 +100,7 @@ impl PageCache {
         Ok(data)
     }
 
+    // This function can be relocated somewhere else?
     fn generate_file_name(url: &Url) -> String {
         let mut file_name = url.to_string();
 
@@ -122,10 +119,9 @@ impl PageCache {
     /// Fetch url response from argument and save response body to cache directory using url as file name
     /// This will append a new entry to the cache hashmap.
     fn save_content_to_cache(url: &Url) -> Result<PathBuf, PageCacheError> {
-        let file_name = Self::generate_file_name(url);
         // create an absolute file path
         let mut tmp = Self::get_dir()?;
-        tmp.push(file_name);
+        tmp.push(Self::generate_file_name(url));
 
         // fetch the content from the url
         let response = reqwest::blocking::get(url.to_string())?;

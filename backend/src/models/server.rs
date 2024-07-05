@@ -1,10 +1,14 @@
-use crate::models::{message::Message, node::Node};
+use crate::models::{
+    job::Job, message::Message, node::Node, project_file::ProjectFile, render_node::RenderNode,
+};
 use anyhow::Result;
+use blender::mode::Mode;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
-use std::net::SocketAddr;
+use semver::Version;
+use std::{net::SocketAddr, path::PathBuf};
 
-use super::job::Job;
+pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
 
 pub struct Server {
     handler: NodeHandler<()>,
@@ -12,9 +16,9 @@ pub struct Server {
     nodes: Vec<Node>,
 }
 
-struct JobManager {
-    jobs: Vec<Job>,
-}
+// struct JobManager {
+//     jobs: Vec<Job>,
+// }
 
 // Should I have a job manager here? Or should that be in it's own separate struct?
 
@@ -22,10 +26,10 @@ impl Server {
     pub fn new(port: u16) -> Result<Server> {
         let (handler, listeners) = node::split();
         let listen_addr = format!("127.0.0.1:{}", port);
-        dbg!(&listen_addr);
         handler
             .network()
             .listen(Transport::FramedTcp, listen_addr)?;
+        handler.network().listen(Transport::Udp, MULTICAST_ADDR)?;
 
         Ok(Self {
             handler,
@@ -55,7 +59,7 @@ impl Server {
             });
     }
 
-    // Once the server connects to node? Maybe this will never get called?
+    /// Once the server connects to node? Maybe this will never get called?
     fn handle_connected(&mut self, endpoint: Endpoint, established: bool) {
         // Did I accidentially multi-cast myself?
         // todo!("Figure out how this is invoked, and then update the implmentation below.");
@@ -65,26 +69,28 @@ impl Server {
         );
     }
 
-    // Server accepts connection if through TCP, UDP will always accept connection no matter what
+    /// Server accepts connection if through TCP, UDP will always accept connection no matter what
     fn handle_accepted(&mut self, endpoint: Endpoint) {
         println!("Server acccepts [{}]", endpoint.addr());
     }
 
-    // Receive message from client nodes
+    /// Receive message from client nodes
     fn handle_message(&mut self, endpoint: Endpoint, bytes: &[u8]) {
+        // problem here? I am trying to deserialize Job, but unwrap reports io error: Unexpected end of file message! Figure out why! String works?
         let msg: Message = bincode::deserialize(bytes).unwrap();
-
         match msg {
             // a new node register itself to the network!
             Message::RegisterNode { name, addr } => self.register_node(&name, addr, endpoint),
             Message::UnregisterNode { addr } => self.unregister_node(addr),
             // Client should not be sending us the jobs!
             //Message::LoadJob() => {}
+            Message::ServerPing => println!("Received server ping from [{}]", endpoint.addr()),
+            Message::HaveBlender { .. } => self.ask_client_for_blender(endpoint, &msg),
             _ => todo!("Not yet implemented!"),
         }
     }
 
-    // A node has been disconnected from the network
+    /// A node has been disconnected from the network
     fn handle_disconnected(&mut self, endpoint: Endpoint) {
         // I believe there's a reason why I cannot use endpoint.addr()
         // Instead, I need to match endpoint to endpoint from node struct instead
@@ -92,7 +98,7 @@ impl Server {
             Some(index) => {
                 let unit = self.nodes.remove(index);
                 let msg = Message::UnregisterNode { addr: unit.addr };
-                self.send_to_all(msg);
+                self.send_to_all(&msg);
                 println!("Unregistered node '{}' with ip {}", unit.name, unit.addr);
             }
             None => {
@@ -103,28 +109,41 @@ impl Server {
 
     /// Ping any inactive node to reconnect
     pub fn ping(&self) {
-        // need to send signal out
-        let multicast_addr = "239.255.0.1:3010";
+        // attempt to connect to multicast address
         let (endpoint, _) = self
             .handler
             .network()
-            .connect(Transport::Udp, multicast_addr)
+            .connect(Transport::Udp, MULTICAST_ADDR)
             .unwrap();
+
+        // create a server ping
+        // it would be nice to send SocketAddress to connect back to us?
         let msg = Message::ServerPing;
         let data = bincode::serialize(&msg).unwrap();
 
+        // send
         self.handler.network().send(endpoint, &data);
     }
 
     /// Notify all clients a node has been registered (Connected)
     fn register_node(&mut self, name: &str, addr: SocketAddr, endpoint: Endpoint) {
         let node = Node::new(name, addr, endpoint);
-        self.send_to_all(Message::RegisterNode {
+        self.send_to_all(&Message::RegisterNode {
             name: node.name.clone(),
             addr: node.addr,
         });
-        self.send_to_target(endpoint, self.create_node_list());
+
+        // here we can invoke new container to hold the incoming connection.
+
+        self.send_to_target(endpoint, &self.create_node_list());
+        // for testing purposes -
+        // let's start working from here
+        // once we received a connection, we should give the node a new job if there's one available, or currently pending.
+        // in this example here, we'll focus on sending a job to the connected node.
+        self.send_job_to_node(&node);
+
         self.nodes.push(node);
+
         println!("Node Registered successfully! '{}' [{}]", name, addr);
     }
 
@@ -134,7 +153,7 @@ impl Server {
             Some(index) => {
                 let unit = self.nodes.remove(index);
                 let msg = Message::UnregisterNode { addr: unit.addr };
-                self.send_to_all(msg);
+                self.send_to_all(&msg);
                 println!("Unregistered node '{}' with ip {}", unit.name, unit.addr);
             }
             None => {
@@ -143,6 +162,17 @@ impl Server {
         }
     }
 
+    /// A client request if other client have identical blender version
+    fn ask_client_for_blender(&mut self, endpoint: Endpoint, msg: &Message) {
+        // in this case, the client is asking all other client if any one have the matching blender version type.
+        let _map = self
+            .nodes
+            .iter()
+            .filter(|n| n.endpoint != endpoint)
+            .map(|n| self.send_to_target(n.endpoint, &msg));
+    }
+
+    /// Generate a list of node message to send
     fn create_node_list(&self) -> Message {
         let list = self
             .nodes
@@ -152,17 +182,36 @@ impl Server {
         Message::NodeList(list)
     }
 
-    fn send_to_target(&self, endpoint: Endpoint, message: Message) {
+    /// send network message to specific endpoint
+    fn send_to_target(&self, endpoint: Endpoint, message: &Message) {
         let data = bincode::serialize(&message).unwrap();
         self.handler.network().send(endpoint, &data);
     }
 
     /// Send message to all clients that's connected to the host.
-    fn send_to_all(&self, message: Message) {
+    fn send_to_all(&self, message: &Message) {
         println!("Sending {:?} to all clients", &message);
         let data = bincode::serialize(&message).unwrap();
         for node in &self.nodes {
             self.handler.network().send(node.endpoint, &data);
         }
+    }
+
+    /// Test example: Send a example job to target node
+    fn send_job_to_node(&self, node: &Node) {
+        // create an example job we can use to work with this.
+        let path = PathBuf::from("./test.blend");
+        let project_file = ProjectFile::new(path);
+        let output = PathBuf::from("./");
+        let version = Version::new(4, 1, 0);
+
+        let mode = Mode::Frame(1);
+        let job = Job::new(&project_file, output, &version, mode);
+        let message = Message::LoadJob(job);
+        println!(
+            "About to send message {:?} to target {}",
+            &message, &node.endpoint
+        );
+        self.send_to_target(node.endpoint, &message);
     }
 }

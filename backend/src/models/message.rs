@@ -15,10 +15,15 @@ pub enum Message {
         addr: SocketAddr,
     },
     JobResult(String), // return the result of the job
+    HaveBlender {
+        os: String,
+        version: String,
+        arch: String,
+    },
 
     // From Server to Client
     NodeList(HashMap<SocketAddr, String>),
-    LoadJob, // TODO figure out what kind of type I need to load here.
+    LoadJob(Job), // TODO figure out what kind of type I need to load here.
     PrepareJob(Job),
 
     // From Client to Client
@@ -29,11 +34,6 @@ pub enum Message {
 
     // From multicast
     ServerPing,
-    HaveBlender {
-        os: String,
-        version: String,
-        arch: String,
-    },
     FileRequest(PathBuf, usize),
     // have a look into concurrent http file transfer if possible?
     Chunk(Vec<u8>), // how exactly can I make this server expects chunk of files?

@@ -1,7 +1,4 @@
-use std::{
-    io::{ErrorKind, Result},
-    thread::JoinHandle,
-};
+use std::io::{ErrorKind, Result};
 
 use crate::models::{
     project_file::ProjectFile, render_node::RenderNode, server_setting::ServerSetting,

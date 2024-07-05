@@ -3,13 +3,16 @@
     - Do some research on concurrent http downloader for transferring project files and blender from one client to another.
 */
 
-use crate::models::{message::Message, node::Node};
-use anyhow::Result;
-use gethostname::gethostname;
+use crate::models::{message::Message, node::Node, server};
+use anyhow::{Error, Result};
+// use gethostname::gethostname;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::Path;
+
+use super::job::Job;
 
 pub struct Client {
     handler: NodeHandler<()>,
@@ -18,6 +21,7 @@ pub struct Client {
     server_endpoint: Endpoint,
     public_addr: SocketAddr,
     nodes: Vec<Node>,
+    is_connected: bool,
 }
 
 impl Client {
@@ -34,6 +38,11 @@ impl Client {
             .network()
             .connect(Transport::FramedTcp, discovery_addr)?;
 
+        // this will handle the multicast address channel
+        handler
+            .network()
+            .listen(Transport::Udp, server::MULTICAST_ADDR)?;
+
         Ok(Self {
             handler,
             listener: Some(listener),
@@ -41,14 +50,12 @@ impl Client {
             server_endpoint: endpoint,
             public_addr: listen_addr,
             nodes: Vec::new(),
+            is_connected: false,
         })
     }
 
     // Client begin listening for server
     pub fn run(mut self) {
-        // This doesn't seem like it will repeat?
-        // TODO: How do I make it broadcast so it'll repeat?
-
         let listener = self.listener.take().unwrap();
         listener.for_each(move |event| {
             match event {
@@ -63,12 +70,15 @@ impl Client {
                         }
                     }
                     NetEvent::Accepted(_, _) => unreachable!(),
-                    NetEvent::Message(endpoint, bytes) => self.handle_message(endpoint, bytes),
+                    NetEvent::Message(endpoint, bytes) => {
+                        if let Err(err) = self.handle_message(endpoint, bytes) {
+                            println!("{}", err);
+                        }
+                    }
                     NetEvent::Disconnected(endpoint) => {
                         // TODO: How can we initialize another listening job? We definitely don't want the user to go through the trouble of figuring out which machine has stopped.
                         // Disconnected was call when server was shut down
                         println!("Lost connection to host! [{}]", endpoint.addr());
-                        self.listen();
                         // in the case of this node disconnecting, I would like to auto renew the connection if possible.
                         // how would I go about setting this up?
                     }
@@ -83,49 +93,40 @@ impl Client {
         })
     }
 
-    // wait to receive a multi-cast response.
-    // this will send register node notification to the signal.
-    pub fn listen(&mut self) {
-        let multicast_addr = "239.255.0.1:3010";
-        println!("Begin listening broadcast signals on [{multicast_addr}]");
-        // let (endpoint, _) = self
-        //     .handler
-        //     .network()
-        //     .connect(Transport::Udp, multicast_addr)
-        //     .unwrap();
+    fn handle_message(&mut self, endpoint: Endpoint, bytes: &[u8]) -> Result<()> {
+        // why did this part failed?
+        let message: Message = match bincode::deserialize(bytes) {
+            Ok(data) => data,
+            Err(e) => return Err(Error::new(e)),
+        };
 
-        // let listener = self.listeners.take().unwrap();
-
-        listener.for_each(move |event| match event.network() {
-            NetEvent::Connected(_, _always_true_for_udp) => {}
-            _ => {
-                println!("Found something from listener?")
-            }
-        })
-    }
-
-    fn handle_message(&mut self, endpoint: Endpoint, bytes: &[u8]) {
-        let message: Message = bincode::deserialize(bytes).unwrap();
         match message {
             // Client receives this message from the server
             Message::NodeList(nodes) => self.handle_node_list(nodes, endpoint),
             // how did I do this part again? Let's review over to message io
-            Message::FileRequest(name, size) => {
-                let message = Message::CanReceive(true);
-                let data = bincode::serialize(&message).unwrap();
-                self.handler.network().send(endpoint, &data);
+            Message::FileRequest(name, size) => self.handle_file_request(endpoint, &name, size),
+            Message::Chunk(_data) => todo!("Find a way to save data to temp?"),
+            Message::ServerPing => {
+                println!("Hey! Client received a multicast ping signal!");
+                if !self.is_connected {
+                    self.send_to_target(endpoint, &self.register_message());
+                } else {
+                    println!("Sorry, we're already connected to the host!");
+                }
             }
-            Message::Chunk(data) => {}
 
             Message::RegisterNode { name, addr } => self.add_node(&name, addr, endpoint),
             Message::UnregisterNode { addr } => self.remove_node(addr),
+            Message::LoadJob(job) => self.load_job(job),
             _ => todo!("Not yet implemented!"),
-        }
+        };
+        Ok(())
     }
 
     fn handle_node_list(&mut self, nodes: HashMap<SocketAddr, String>, endpoint: Endpoint) {
         // how come I don't receive event for this one?
         println!("Node list received! ({} nodes)", nodes.len());
+        self.is_connected = true;
         for (addr, name) in nodes {
             let node = Node::new(&name, addr, endpoint);
             self.nodes.push(node);
@@ -146,15 +147,24 @@ impl Client {
         }
     }
 
+    fn load_job(&mut self, job: Job) {
+        println!("Received a new job!\n{:?}", job);
+    }
+
+    fn handle_file_request(&mut self, endpoint: Endpoint, name: impl AsRef<Path>, size: usize) {
+        println!("name: {:?} | size: {}", name.as_ref().as_os_str(), size);
+        let message = Message::CanReceive(true);
+        let data = bincode::serialize(&message).unwrap();
+        self.handler.network().send(endpoint, &data);
+    }
+
     fn register_message(&self) -> Message {
-        println!("Creating register message.");
         Message::RegisterNode {
             name: self.name.clone(),
             addr: self.public_addr,
         }
     }
 
-    #[allow(dead_code)]
     fn send_to_target(&self, endpoint: Endpoint, message: &Message) {
         println!("Sending {:?} to target [{}]", message, endpoint.addr());
         let data = bincode::serialize(&message).unwrap();
@@ -168,20 +178,20 @@ impl Client {
     }
 }
 
-// impl Drop for Node {
-//     fn drop(&mut self) {
-//         println!("About to drop!");
-//         let message = Message::UnregisterNode {
-//             addr: self.public_addr,
-//         };
-//         let output_data = bincode::serialize(&message).unwrap();
+impl Drop for Client {
+    fn drop(&mut self) {
+        println!("About to drop!");
+        let message = Message::UnregisterNode {
+            addr: self.public_addr,
+        };
+        let output_data = bincode::serialize(&message).unwrap();
 
-//         println!("Sending unregisternode packet to host before stopping!");
-//         self.handler
-//             .network()
-//             .send(self.server_endpoint, &output_data);
+        println!("Sending unregisternode packet to host before stopping!");
+        self.handler
+            .network()
+            .send(self.server_endpoint, &output_data);
 
-//         println!("Stopping connection!");
-//         self.handler.stop();
-//     }
-// }
+        println!("Stopping connection!");
+        self.handler.stop();
+    }
+}

@@ -3,18 +3,18 @@
     - Wonder if I should make this into a separate directory for network infrastructure?
 */
 
-use crate::models::common::{ReceiverMsg, SenderMsg};
+use crate::models::common::ReceiverMsg;
 use crate::models::error::Error;
-use message_io::network::{Endpoint, NetEvent, Transport};
+use message_io::network::{Endpoint, NetEvent};
 use message_io::node::{self, NodeEvent};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::Read;
 use std::{net::SocketAddr, str::FromStr};
 
 // should this be used in a separate library module?
+#[allow(dead_code)]
 const CHUNK_SIZE: usize = 65536;
 
+#[allow(dead_code)]
 enum Signal {
     SendChunk,
     // what else do I need to perform on network packet?

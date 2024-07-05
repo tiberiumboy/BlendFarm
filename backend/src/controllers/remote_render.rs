@@ -82,7 +82,7 @@ pub fn delete_node(app: AppHandle, target_node: RenderNode) -> Result<(), Error>
 #[command]
 pub fn import_project(app: AppHandle, path: &str) {
     let file_path = PathBuf::from(path);
-    let mut project_file = ProjectFile::new(&file_path);
+    let mut project_file = ProjectFile::new(file_path);
 
     let ctx_mutex = app.state::<Mutex<Data>>();
     let mut ctx = ctx_mutex.lock().unwrap();
@@ -120,7 +120,7 @@ pub fn create_job(
 ) {
     let output: PathBuf = PathBuf::from(output);
     let version = Version::parse(version).unwrap();
-    let mut job = Job::new(&project_file, &output, &version, nodes, mode);
+    let mut job = Job::new(&project_file, output, &version, mode);
     // I have some weird feeling about this. How can I make a method invocation if they receive certain event,
     // e.g. progress bar?? I must read the stdoutput to gather blender's progress information.
 

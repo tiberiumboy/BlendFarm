@@ -19,7 +19,6 @@ use crate::controllers::remote_render::{
     create_job, create_node, delete_job, delete_node, delete_project, edit_node, import_project,
     list_job, list_node, list_projects, list_versions,
 };
-
 use crate::controllers::settings::{
     add_blender_installation, get_server_settings, list_blender_installation,
     remove_blender_installation,
@@ -27,13 +26,11 @@ use crate::controllers::settings::{
 use crate::models::{data::Data, render_node::RenderNode, server::Server};
 use blender::blender::Blender;
 use blender::{args::Args, mode::Mode};
-use semver::Version;
-// use services::multicast::multicast;
-// use services::receiver::receive;
 use gethostname::gethostname;
 use models::{client::Client, server_setting::ServerSetting};
+use semver::Version;
 use std::path::{Path, PathBuf};
-use std::{env, io::Result, sync::Mutex, thread};
+use std::{env, io::Result, sync::Mutex};
 use tauri::generate_handler;
 
 pub mod controllers;
@@ -47,10 +44,10 @@ fn client(server_setting: &ServerSetting) {
 
     // is there a clear and better way to get around this?
     // I do not want to have any dangling threads if we have to run async
-    let network_handle = thread::spawn(|| {
-        let mut server = Server::new(server_setting.port).expect("Failed to create server");
-        server.run();
-    });
+    // let network_handle = thread::spawn(|| {
+    let mut server = Server::new(server_setting.port).expect("Failed to create server");
+    server.run();
+    // });
 
     println!("Successfully initialize the server");
 
@@ -64,7 +61,6 @@ fn client(server_setting: &ServerSetting) {
     let localhost = RenderNode::default();
     data.render_nodes.push(localhost);
 
-    // Could I create more than one
     let ctx = Mutex::new(data);
 
     // why I can't dive into implementation details here?
@@ -100,13 +96,11 @@ fn client(server_setting: &ServerSetting) {
         .expect("error while running tauri application");
 }
 
+/// this code is only used to test and download blender version from the internet.
 #[allow(dead_code)]
-fn test_downloading_blender() {
+fn test_downloading_blender(version: Version) {
     // fetch the server settings to identify where we can save blender installation to.
     let server_setting = ServerSetting::load();
-    // target blender version to download to - at the time of writing this was the latest version.
-    let version = Version::new(4, 1, 0);
-    // run test!
     let blender = Blender::download(version, server_setting.blender_dir);
     // verify that blender returned ok, otherwise fail if we have issues (internet connection/permission issue?)
     assert!(blender.is_ok());
