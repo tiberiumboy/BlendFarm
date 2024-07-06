@@ -1,6 +1,4 @@
-use crate::models::{
-    job::Job, message::Message, node::Node, project_file::ProjectFile, render_node::RenderNode,
-};
+use crate::models::{job::Job, message::Message, node::Node, project_file::ProjectFile};
 use anyhow::Result;
 use blender::mode::Mode;
 use message_io::network::{Endpoint, NetEvent, Transport};
@@ -14,6 +12,7 @@ pub struct Server {
     handler: NodeHandler<()>,
     listeners: Option<NodeListener<()>>,
     nodes: Vec<Node>,
+    port: u16,
 }
 
 // struct JobManager {
@@ -35,6 +34,7 @@ impl Server {
             handler,
             listeners: Some(listeners),
             nodes: Vec::new(),
+            port,
         })
     }
 
@@ -71,7 +71,7 @@ impl Server {
 
     /// Server accepts connection if through TCP, UDP will always accept connection no matter what
     fn handle_accepted(&mut self, endpoint: Endpoint) {
-        println!("Server acccepts [{}]", endpoint.addr());
+        println!("Server acccepts connection: [{}]", endpoint.addr());
     }
 
     /// Receive message from client nodes
@@ -84,7 +84,11 @@ impl Server {
             Message::UnregisterNode { addr } => self.unregister_node(addr),
             // Client should not be sending us the jobs!
             //Message::LoadJob() => {}
-            Message::ServerPing => println!("Received server ping from [{}]", endpoint.addr()),
+            Message::ServerPing { port } => println!(
+                "Received server ping from [{}] with port info: {}",
+                endpoint.addr(),
+                port
+            ),
             Message::HaveBlender { .. } => self.ask_client_for_blender(endpoint, &msg),
             _ => todo!("Not yet implemented!"),
         }
@@ -118,7 +122,8 @@ impl Server {
 
         // create a server ping
         // it would be nice to send SocketAddress to connect back to us?
-        let msg = Message::ServerPing;
+        // TODO: Find a way to get client send a registration mode correctly back to us?
+        let msg = Message::ServerPing { port: self.port };
         let data = bincode::serialize(&msg).unwrap();
 
         // send
@@ -134,8 +139,8 @@ impl Server {
         });
 
         // here we can invoke new container to hold the incoming connection.
-
         self.send_to_target(endpoint, &self.create_node_list());
+
         // for testing purposes -
         // let's start working from here
         // once we received a connection, we should give the node a new job if there's one available, or currently pending.
@@ -202,11 +207,11 @@ impl Server {
         // create an example job we can use to work with this.
         let path = PathBuf::from("./test.blend");
         let project_file = ProjectFile::new(path);
+        let mode = Mode::Frame(1);
         let output = PathBuf::from("./");
         let version = Version::new(4, 1, 0);
 
-        let mode = Mode::Frame(1);
-        let job = Job::new(&project_file, output, &version, mode);
+        let job = Job::new(&project_file, output, version, mode);
         let message = Message::LoadJob(job);
         println!(
             "About to send message {:?} to target {}",

@@ -3,16 +3,16 @@
     - Do some research on concurrent http downloader for transferring project files and blender from one client to another.
 */
 
-use crate::models::{message::Message, node::Node, server};
+use crate::models::server_setting::ServerSetting;
+use crate::models::{job::Job, message::Message, node::Node, server};
 use anyhow::{Error, Result};
-// use gethostname::gethostname;
+use blender::{args::Args, blender::Blender};
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;
-
-use super::job::Job;
+use std::str::FromStr;
 
 pub struct Client {
     handler: NodeHandler<()>,
@@ -70,11 +70,7 @@ impl Client {
                         }
                     }
                     NetEvent::Accepted(_, _) => unreachable!(),
-                    NetEvent::Message(endpoint, bytes) => {
-                        if let Err(err) = self.handle_message(endpoint, bytes) {
-                            println!("{}", err);
-                        }
-                    }
+                    NetEvent::Message(endpoint, bytes) => self.handle_message(endpoint, bytes),
                     NetEvent::Disconnected(endpoint) => {
                         // TODO: How can we initialize another listening job? We definitely don't want the user to go through the trouble of figuring out which machine has stopped.
                         // Disconnected was call when server was shut down
@@ -93,11 +89,12 @@ impl Client {
         })
     }
 
-    fn handle_message(&mut self, endpoint: Endpoint, bytes: &[u8]) -> Result<()> {
+    fn handle_message(&mut self, endpoint: Endpoint, bytes: &[u8]) {
         // why did this part failed?
         let message: Message = match bincode::deserialize(bytes) {
             Ok(data) => data,
-            Err(e) => return Err(Error::new(e)),
+            // just for now we'll just panic. making the assumption that both side should have identical data type matches, it should be fine.
+            Err(e) => panic!("Error deserializing message input: \n{:?}", e),
         };
 
         match message {
@@ -106,10 +103,24 @@ impl Client {
             // how did I do this part again? Let's review over to message io
             Message::FileRequest(name, size) => self.handle_file_request(endpoint, &name, size),
             Message::Chunk(_data) => todo!("Find a way to save data to temp?"),
-            Message::ServerPing => {
+            Message::ServerPing { port } => {
                 println!("Hey! Client received a multicast ping signal!");
+                let server = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
+                // let mut server = endpoint.addr().clone();
+                // server.set_port(port);
                 if !self.is_connected {
-                    self.send_to_target(endpoint, &self.register_message());
+                    // I am not sure why I am unable to send a register message back to the server?
+                    let (endpoint, _) = self
+                        .handler
+                        .network()
+                        .connect(Transport::FramedTcp, server)
+                        .unwrap(); // should in theory be able to connect back to the server?
+                    println!(
+                        "{:?} | {:?}",
+                        &self.server_endpoint.addr(),
+                        &endpoint.addr()
+                    );
+                    self.server_endpoint = endpoint;
                 } else {
                     println!("Sorry, we're already connected to the host!");
                 }
@@ -120,9 +131,11 @@ impl Client {
             Message::LoadJob(job) => self.load_job(job),
             _ => todo!("Not yet implemented!"),
         };
-        Ok(())
     }
 
+    // this function takes two parts. it handles the incoming list, and change the struct field is_connected to true.
+    // we're making a fine assumption that once we received the node back from the server, it means that the server have acknoledge the response.
+    // TODO: See if this is a bad programming practice? Should I keep single responsibility implementation?
     fn handle_node_list(&mut self, nodes: HashMap<SocketAddr, String>, endpoint: Endpoint) {
         // how come I don't receive event for this one?
         println!("Node list received! ({} nodes)", nodes.len());
@@ -149,6 +162,21 @@ impl Client {
 
     fn load_job(&mut self, job: Job) {
         println!("Received a new job!\n{:?}", job);
+
+        // First let's check if we hvae the correct blender installation
+        // then check and see if we have the files?
+        if !job.project_file.file_path().exists() {
+            // here we will fetch the file path from the server
+            // but for now let's continue.
+        }
+
+        let mut config = ServerSetting::load();
+        let blender = config.get_blender(job.version);
+        let args = Args::new(job.project_file.file_path(), job.output, job.mode);
+        match blender.render(&args) {
+            Ok(str) => println!("{}", str),
+            Err(e) => println!("{}", e),
+        }
     }
 
     fn handle_file_request(&mut self, endpoint: Endpoint, name: impl AsRef<Path>, size: usize) {
@@ -165,6 +193,8 @@ impl Client {
         }
     }
 
+    // TODO: We will use this for blender installation transfer, but for now this isn't important for our objective goal
+    #[allow(dead_code)]
     fn send_to_target(&self, endpoint: Endpoint, message: &Message) {
         println!("Sending {:?} to target [{}]", message, endpoint.addr());
         let data = bincode::serialize(&message).unwrap();
@@ -172,7 +202,11 @@ impl Client {
     }
 
     fn send_to_server(&self, message: &Message) {
-        println!("Sending {:?} to server", message);
+        println!(
+            "Sending {:?} to server [{}]",
+            message,
+            self.server_endpoint.addr()
+        );
         let data = bincode::serialize(message).unwrap();
         self.handler.network().send(self.server_endpoint, &data);
     }

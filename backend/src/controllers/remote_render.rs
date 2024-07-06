@@ -115,12 +115,13 @@ pub fn create_job(
     output: &str,
     version: &str,
     project_file: ProjectFile,
-    nodes: Vec<RenderNode>,
+    // may no longer need this?
+    // nodes: Vec<RenderNode>,
     mode: Mode,
 ) {
     let output: PathBuf = PathBuf::from(output);
     let version = Version::parse(version).unwrap();
-    let mut job = Job::new(&project_file, output, &version, mode);
+    let mut job = Job::new(&project_file, output, version, mode);
     // I have some weird feeling about this. How can I make a method invocation if they receive certain event,
     // e.g. progress bar?? I must read the stdoutput to gather blender's progress information.
 

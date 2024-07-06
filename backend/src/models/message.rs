@@ -33,7 +33,9 @@ pub enum Message {
     },
 
     // From multicast
-    ServerPing,
+    ServerPing {
+        port: u16,
+    },
     FileRequest(PathBuf, usize),
     // have a look into concurrent http file transfer if possible?
     Chunk(Vec<u8>), // how exactly can I make this server expects chunk of files?

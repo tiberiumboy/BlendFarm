@@ -67,7 +67,7 @@ impl Job {
         project_file: &ProjectFile,
         // TODO: Is it acceptable to use Path to store in struct?
         output: PathBuf,
-        version: &Version,
+        version: Version,
         mode: Mode,
     ) -> Job {
         Job {
@@ -97,7 +97,7 @@ impl Job {
         let args = Args::new(
             self.project_file.src.clone(),
             self.output.clone(),
-            self.mode.clone(),
+            Mode::Frame(frame),
         );
 
         // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
@@ -109,7 +109,7 @@ impl Job {
         let path = PathBuf::from(blender.render(&args).unwrap());
 
         // Return completed render info to the caller
-        let info = RenderInfo { frame: 1, path };
+        let info = RenderInfo { frame, path };
         Ok(info)
     }
 }

@@ -5,7 +5,6 @@ use std::{env, fs::remove_file, path::PathBuf, str::FromStr};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProjectFile {
     pub src: PathBuf,
-    #[serde(skip_serializing)]
     pub tmp: Option<PathBuf>,
 }
 
@@ -32,7 +31,7 @@ impl ProjectFile {
         let file_name = self.src.file_name().unwrap();
         dir.push(file_name);
         if let Ok(_) = std::fs::copy(&self.src, &dir) {
-            self.tmp = Some(dir);
+            // self.tmp = Some(dir);
         }
     }
 

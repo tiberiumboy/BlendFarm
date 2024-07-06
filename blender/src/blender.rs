@@ -13,7 +13,6 @@ use crate::{args::Args, page_cache::PageCacheError};
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-// use std::io::Write;
 use std::{
     env::consts,
     fs,
