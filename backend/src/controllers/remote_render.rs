@@ -121,14 +121,8 @@ pub fn create_job(
 ) {
     let output: PathBuf = PathBuf::from(output);
     let version = Version::parse(version).unwrap();
-    let mut job = Job::new(&project_file, output, version, mode);
-    // I have some weird feeling about this. How can I make a method invocation if they receive certain event,
-    // e.g. progress bar?? I must read the stdoutput to gather blender's progress information.
-
-    // see about how I can go about notify each node what frame to render next, and then expect to receive the files back.
-    // this function may be relocated somewhere else?
-    job.execute().unwrap();
-    // data.jobs.push(job);
+    let mut _job = Job::new(project_file, output, version, mode);
+    // fetch me the server, and push new job to the server.
 }
 
 /// Abort the job if it's running and delete the entry from the collection list.

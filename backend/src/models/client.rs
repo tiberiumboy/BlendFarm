@@ -2,17 +2,15 @@
     Developer blog:
     - Do some research on concurrent http downloader for transferring project files and blender from one client to another.
 */
-
-use crate::models::server_setting::ServerSetting;
-use crate::models::{job::Job, message::Message, node::Node, server};
-use anyhow::{Error, Result};
-use blender::{args::Args, blender::Blender};
+use crate::models::{
+    file_info::FileInfo, message::Message, node::Node, render_queue::RenderQueue, server,
+    server_setting::ServerSetting,
+};
+use anyhow::Result;
+use blender::{args::Args, mode::Mode};
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::path::Path;
-use std::str::FromStr;
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, str::FromStr};
 
 pub struct Client {
     handler: NodeHandler<()>,
@@ -63,7 +61,8 @@ impl Client {
                     NetEvent::Connected(_, established) => {
                         if established {
                             println!("Node connected! Sending register node!");
-                            self.send_to_server(&self.register_message());
+                            self.send_to_target(self.server_endpoint, self.register_message());
+                            self.is_connected = true;
                         } else {
                             println!("Could not connect to the server!");
                             // is there any way I could just begin the listen process here?
@@ -101,35 +100,30 @@ impl Client {
             // Client receives this message from the server
             Message::NodeList(nodes) => self.handle_node_list(nodes, endpoint),
             // how did I do this part again? Let's review over to message io
-            Message::FileRequest(name, size) => self.handle_file_request(endpoint, &name, size),
-            Message::Chunk(_data) => todo!("Find a way to save data to temp?"),
-            Message::ServerPing { port } => {
-                println!("Hey! Client received a multicast ping signal!");
-                let server = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
-                // let mut server = endpoint.addr().clone();
-                // server.set_port(port);
-                if !self.is_connected {
-                    // I am not sure why I am unable to send a register message back to the server?
-                    let (endpoint, _) = self
-                        .handler
-                        .network()
-                        .connect(Transport::FramedTcp, server)
-                        .unwrap(); // should in theory be able to connect back to the server?
-                    println!(
-                        "{:?} | {:?}",
-                        &self.server_endpoint.addr(),
-                        &endpoint.addr()
-                    );
-                    self.server_endpoint = endpoint;
-                } else {
-                    println!("Sorry, we're already connected to the host!");
+            Message::RegisterNode { name, addr } => self.add_node(&name, addr, endpoint),
+            Message::UnregisterNode { addr } => self.remove_node(addr),
+            Message::LoadJob(render_queue) => self.load_job(render_queue),
+
+            // client to client
+            Message::ContainBlenderResponse { have_blender } => {
+                if have_blender {
+                    // there should be some kind of handler to reject any other potential response
+                    let msg = Message::CanReceive(true);
+                    self.send_to_target(endpoint, msg);
                 }
             }
 
-            Message::RegisterNode { name, addr } => self.add_node(&name, addr, endpoint),
-            Message::UnregisterNode { addr } => self.remove_node(addr),
-            Message::LoadJob(job) => self.load_job(job),
-            _ => todo!("Not yet implemented!"),
+            // multicast
+            Message::ServerPing { port } => self.handle_server_ping(port, &endpoint),
+            Message::FileRequest(file_info) => self.handle_file_request(endpoint, &file_info),
+            Message::Chunk(_data) => todo!("Find a way to save data to temp?"),
+            Message::CanReceive(accepted) => {
+                if accepted {
+                    // accept receiving chunks of data
+                    // here we start sending the endpoint data?
+                }
+            }
+            _ => println!("Unhandled client message case condition for {:?}", message),
         };
     }
 
@@ -160,30 +154,60 @@ impl Client {
         }
     }
 
-    fn load_job(&mut self, job: Job) {
-        println!("Received a new job!\n{:?}", job);
+    fn load_job(&mut self, render_queue: RenderQueue) {
+        println!("Received a new render queue!\n{:?}", render_queue);
 
         // First let's check if we hvae the correct blender installation
         // then check and see if we have the files?
-        if !job.project_file.file_path().exists() {
+        if !render_queue.project_file.file_path().exists() {
             // here we will fetch the file path from the server
             // but for now let's continue.
         }
 
-        let mut config = ServerSetting::load();
-        let blender = config.get_blender(job.version);
-        let args = Args::new(job.project_file.file_path(), job.output, job.mode);
+        match render_queue.run() {
+            Ok(path) => println!("{:?}", path),
+            Err(e) => println!("Fail to render on client! {:?}", e),
+        }
+
         match blender.render(&args) {
-            Ok(str) => println!("{}", str),
+            Ok(str) => {
+                println!("Render completed! Sending job over to server! {}", str);
+                let image_path = PathBuf::from(str);
+                // let render_info = RenderInfo::new(1, &image_path);
+                // let msg = Message::JobResult(render_info);
+
+                // TODO - find a way to transfer file back to host!
+                let info = FileInfo::new(image_path);
+                let msg = Message::FileRequest(info);
+                self.send_to_target(self.server_endpoint, msg);
+            }
             Err(e) => println!("{}", e),
         }
     }
 
-    fn handle_file_request(&mut self, endpoint: Endpoint, name: impl AsRef<Path>, size: usize) {
-        println!("name: {:?} | size: {}", name.as_ref().as_os_str(), size);
+    fn handle_server_ping(&mut self, port: u16, endpoint: &Endpoint) {
+        println!("Hey! Client received a multicast ping signal!");
+        // Currently this is a hack and I need to find a way to get a loopback rule working.
+        // TODO: find a fix for this, this is only used for testing purpose only! DO NOT SHIP!
+        let server = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
+        println!("{}", endpoint);
+        if !self.is_connected {
+            // I am not sure why I am unable to send a register message back to the server?
+            if let Ok((endpoint, _)) = self.handler.network().connect(Transport::FramedTcp, server)
+            {
+                self.server_endpoint = endpoint;
+            }
+        } else {
+            println!("Sorry, we're already connected to the host!");
+        }
+    }
+
+    fn handle_file_request(&mut self, endpoint: Endpoint, file_info: &FileInfo) {
+        println!("name: {:?} | size: {}", file_info.path, file_info.size);
         let message = Message::CanReceive(true);
         let data = bincode::serialize(&message).unwrap();
         self.handler.network().send(endpoint, &data);
+        // TODO: Find a way to send file from one computer to another!
     }
 
     fn register_message(&self) -> Message {
@@ -193,22 +217,10 @@ impl Client {
         }
     }
 
-    // TODO: We will use this for blender installation transfer, but for now this isn't important for our objective goal
-    #[allow(dead_code)]
-    fn send_to_target(&self, endpoint: Endpoint, message: &Message) {
+    fn send_to_target(&self, endpoint: Endpoint, message: Message) {
         println!("Sending {:?} to target [{}]", message, endpoint.addr());
         let data = bincode::serialize(&message).unwrap();
         self.handler.network().send(endpoint, &data);
-    }
-
-    fn send_to_server(&self, message: &Message) {
-        println!(
-            "Sending {:?} to server [{}]",
-            message,
-            self.server_endpoint.addr()
-        );
-        let data = bincode::serialize(message).unwrap();
-        self.handler.network().send(self.server_endpoint, &data);
     }
 }
 

@@ -6,12 +6,13 @@
     - I need to fetch the handles so that I can maintain and monitor all node activity.
     - TODO: See about migrating Sender code into this module?
 */
-use super::{project_file::ProjectFile, render_node::RenderNode, server_setting::ServerSetting};
+use super::{project_file::ProjectFile, render_info::RenderInfo, server_setting::ServerSetting};
 use blender::{args::Args, mode::Mode};
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::{io::Result, path::PathBuf};
+// use std::collections::HashSet;
+use std::{collections::HashSet, io::Result, path::PathBuf};
+
 use thiserror::Error;
 
 #[derive(Debug, Error, Serialize, Deserialize)]
@@ -39,12 +40,8 @@ pub enum JobStatus {
     Completed,
 }
 
-#[derive(Debug, Serialize, Deserialize, Hash, Eq, PartialEq)]
-pub struct RenderInfo {
-    pub frame: i32,
-    pub path: PathBuf,
-}
-
+// how do I make this job extend it's lifespan? I need to monitor and regulate all on-going job method?
+// if a node joins the server, we automatically assign a new active job to the node.
 /// A container to hold rendering job information. This will be used to send off jobs to all other rendering farm
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Job {
@@ -57,41 +54,38 @@ pub struct Job {
     /// Path to blender files
     pub project_file: ProjectFile,
     // Path to completed image result - May not be needed?
+    pub renders: HashSet<RenderInfo>,
     // I should probably take responsibility for this, Once render is complete - I need to send a signal back to the host saying here's the frame, and here's the raw image data.
     // This would be nice to have to have some kind of historical copy, but then again, all of this value is being sent to the server directly. we should not retain any data behind on the node to remain lightweight and easy on storage space.
     // pub renders: HashSet<RenderInfo>, // frame, then path to completed image source.
+    current_frame: i32,
 }
 
 impl Job {
     pub fn new(
-        project_file: &ProjectFile,
+        project_file: ProjectFile,
         // TODO: Is it acceptable to use Path to store in struct?
         output: PathBuf,
         version: Version,
         mode: Mode,
     ) -> Job {
+        let current_frame = match mode {
+            Mode::Frame(frame) => frame,
+            Mode::Section { start, .. } => start,
+        };
         Job {
             output,
-            version: version.to_owned(),
-            project_file: project_file.clone(),
+            version,
+            project_file,
             mode,
+            renders: Default::default(),
+            current_frame,
         }
-    }
-
-    // this method should be treated as a manager style where this job will be responsible to
-    // divided the job into smaller frame task, and distribute across different target nodes on the network
-    pub fn execute(&mut self) -> Result<()> {
-        // This is where we will implement handlers group to monitor and manage threaded task.
-        // One thread to monitor one job nodes
-        let _ = self.run(1);
-        Ok(())
-
-        // let handle = thread::spawn(|| JobStatus::Completed);
-        // self.handlers.push(handle);
     }
 
     // TODO: consider about how I can invoke this command from network protocol?
     /// Invoke blender to run the job
+    #[allow(dead_code)]
     pub fn run(&mut self, frame: i32) -> Result<RenderInfo> {
         // TODO: How can I split this up to run async task? E.g. Keep this task running while we still have frames left over.
         let args = Args::new(
@@ -111,6 +105,22 @@ impl Job {
         // Return completed render info to the caller
         let info = RenderInfo { frame, path };
         Ok(info)
+    }
+
+    fn internal_compare_and_fetch(&mut self, max: i32) -> Option<i32> {
+        if self.current_frame < max {
+            self.current_frame += 1;
+            Some(self.current_frame)
+        } else {
+            None
+        }
+    }
+
+    pub fn next_frame(&mut self) -> Option<i32> {
+        match self.mode {
+            Mode::Frame(frame) => self.internal_compare_and_fetch(frame),
+            Mode::Section { start, end } => self.internal_compare_and_fetch(end),
+        }
     }
 }
 
