@@ -1,9 +1,9 @@
-use crate::models::project_file::ProjectFile;
-use crate::models::{data::Data, job::Job, render_node::RenderNode};
+use crate::models::{
+    data::Data, job::Job, project_file::ProjectFile, render_node::RenderNode, server::Server,
+};
 use blender::mode::Mode;
-// use blender::page_cache::PageCache;
 use semver::Version;
-use std::{path::PathBuf, sync::Mutex /* thread */};
+use std::{path::PathBuf, sync::Mutex};
 use tauri::{command, Manager};
 use tauri::{AppHandle, Error};
 
@@ -111,12 +111,21 @@ pub fn list_projects(app: AppHandle) -> Result<String, Error> {
 
 /// Create a new job from the list of project collection, and begin network rendering from target nodes.
 #[command(async)]
-pub fn create_job(output: &str, version: &str, project_file: ProjectFile, mode: Mode) {
+pub fn create_job(
+    app: AppHandle,
+    output: &str,
+    version: &str,
+    project_file: ProjectFile,
+    mode: Mode,
+) {
     let output: PathBuf = PathBuf::from(output);
     let version = Version::parse(version).unwrap();
-    let mut _job = Job::new(project_file, output, version, mode);
-    // TODO: How do I fetch the server info and push the job there?
+    let job = Job::new(project_file, output, version, mode);
+    dbg!(&job);
     // fetch me the server, and push new job to the server.
+    let ctx = app.state::<Mutex<Server>>();
+    let mut server = ctx.lock().unwrap();
+    server.set_job(job);
 }
 
 /// Abort the job if it's running and delete the entry from the collection list.

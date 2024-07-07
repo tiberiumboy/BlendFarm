@@ -131,6 +131,7 @@ export default function RemoteRender() {
       mode,
     };
 
+    // so does this actually works?
     invoke("create_job", data).then(listJobs);
     closeDialog();
   }

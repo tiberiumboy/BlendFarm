@@ -104,6 +104,7 @@ impl BlenderDownloadLink {
         download_path: impl AsRef<Path>,
         folder_name: &str,
     ) -> Result<PathBuf, BlenderError> {
+        use std::fs::File;
         use tar::Archive;
         use xz::read::XzDecoder;
 

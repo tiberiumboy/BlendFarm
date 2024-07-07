@@ -228,7 +228,7 @@ impl Server {
     /// Test example: Send a example job to target node
     /// TODO: Split this function up where we'll have a method to send a new job to the server, and allowing new node to get on-going job
     // TODO: Find a way to call server.set_job to kick off the job process!
-    fn set_job(&mut self, mut job: Job) {
+    pub fn set_job(&mut self, mut job: Job) {
         // create an example job we can use to work with this.
         if self.job.is_some() {
             panic!("Job already exists! Cannot set a new job! Need to understand how this situation can arise?");
