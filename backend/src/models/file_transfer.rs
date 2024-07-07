@@ -1,5 +1,4 @@
 use super::message::{Message, Signal};
-use anyhow::Result;
 use message_io::{network::Endpoint, node::NodeHandler};
 use std::{
     fs::{self, File},
@@ -20,17 +19,17 @@ pub struct FileTransfer {
 }
 
 impl FileTransfer {
-    pub fn new(file_path: PathBuf, destination: Endpoint) -> Result<Self> {
-        let file = File::open(&file_path)?;
-        let size = fs::metadata(&file_path)?.len() as usize;
+    pub fn new(file_path: PathBuf, destination: Endpoint) -> Self {
+        let file = File::open(&file_path).unwrap();
+        let size = fs::metadata(&file_path).unwrap().len() as usize;
 
-        Ok(FileTransfer {
+        FileTransfer {
             file_path,
             file,
             size,
             destination,
             file_bytes_sent: 0,
-        })
+        }
     }
 
     pub fn transfer(&mut self, handler: &NodeHandler<Signal>) -> Option<usize> {

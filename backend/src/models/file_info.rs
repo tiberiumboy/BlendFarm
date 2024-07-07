@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
+use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -10,6 +10,7 @@ pub struct FileInfo {
 }
 
 impl FileInfo {
+    #[allow(dead_code)]
     pub fn new(path: PathBuf) -> Self {
         let size = fs::metadata(&path).unwrap().len() as usize;
         let name = path

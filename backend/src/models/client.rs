@@ -107,8 +107,7 @@ impl Client {
                                 self.file_transfer = None;
                             }
                         }
-                    }
-                    _ => todo!("Not yet implemented!"),
+                    } //_ => todo!("Not yet implemented!"),
                 },
             }
         })
@@ -198,20 +197,13 @@ impl Client {
                     render_info
                 );
 
-                let ft = match FileTransfer::new(render_info.path.clone(), self.server_endpoint)
-                    .as_mut()
-                {
-                    Ok(file_transfer) => {
-                        file_transfer.transfer(&self.handler);
-                        Some(file_transfer)
-                    }
-                    Err(e) => {
-                        println!("Failed to transfer file! {:?}", e);
-                        None
-                    }
-                };
+                let mut file_transfer =
+                    FileTransfer::new(render_info.path.clone(), self.server_endpoint);
 
-                self.file_transfer = ft;
+                file_transfer.transfer(&self.handler);
+                // is there a way to convert mutable to immutable?
+
+                self.file_transfer = Some(file_transfer);
                 // wonder if there's a way to say - hey I've completed my transfer,
                 // please go and look in your download folder with this exact file name,
                 // then proceed to your job manager to move out to output destination.

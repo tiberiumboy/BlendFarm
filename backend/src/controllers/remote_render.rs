@@ -111,17 +111,11 @@ pub fn list_projects(app: AppHandle) -> Result<String, Error> {
 
 /// Create a new job from the list of project collection, and begin network rendering from target nodes.
 #[command(async)]
-pub fn create_job(
-    output: &str,
-    version: &str,
-    project_file: ProjectFile,
-    // may no longer need this?
-    // nodes: Vec<RenderNode>,
-    mode: Mode,
-) {
+pub fn create_job(output: &str, version: &str, project_file: ProjectFile, mode: Mode) {
     let output: PathBuf = PathBuf::from(output);
     let version = Version::parse(version).unwrap();
     let mut _job = Job::new(project_file, output, version, mode);
+    // TODO: How do I fetch the server info and push the job there?
     // fetch me the server, and push new job to the server.
 }
 

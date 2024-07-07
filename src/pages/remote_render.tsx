@@ -45,16 +45,12 @@ const components = {
 export default function RemoteRender() {
   const [projects, setProjects] = useState(fetchProjects);
   const [jobs, setJobs] = useState(fetchJobs);
-  const [nodes, setNodes] = useState(fetchNodes);
   const [versions, setVersions] = useState(fetchVersions);
   const [mode, setMode] = useState(components["frame"]());
 
-  //#region User selected data
   const [selectedProject, setSelectedProject] = useState(
     {} as ProjectFileProps,
   );
-  const [selectedNodes, setSelectedNodes] = useState([] as RenderNodeProps[]);
-  //#endregion
 
   useEffect(() => {
     unlisten(); // hmm should this work?
@@ -71,11 +67,6 @@ export default function RemoteRender() {
     return [] as RenderJobProps[];
   }
 
-  function fetchNodes() {
-    listNodes();
-    return [] as RenderNodeProps[];
-  }
-
   function fetchVersions() {
     listVersions();
     return [] as string[];
@@ -90,10 +81,6 @@ export default function RemoteRender() {
 
   function listJobs() {
     invoke("list_job").then((ctx) => setJobs(JSON.parse(ctx + "")));
-  }
-
-  function listNodes() {
-    invoke("list_node").then((ctx) => setNodes(JSON.parse(ctx + "")));
   }
 
   function listVersions() {
@@ -114,43 +101,33 @@ export default function RemoteRender() {
     dialog.close();
   }
 
-  const onCheckboxChanged = (node: RenderNodeProps) => {
-    let data = selectedNodes;
-    if (data.indexOf(node) == -1) {
-      data.push(node);
-    } else {
-      data = data.filter((item) => item !== node);
-    }
-    setSelectedNodes(data);
-  };
-
-  function handleSubmitJobForm(e: any) {
-    e.preventDefault();
-    // why is this not working??
-    const selectedMode = e.target.modes.value;
-
-    let mode = {};
-    switch (selectedMode) {
+  function generateMode(mode: any, target: any) {
+    switch (mode) {
       case "frame":
-        mode = {
-          Frame: Number(e.target.frame.value),
+        return {
+          Frame: Number(target.frame.value),
         };
-        break;
       case "section":
-        mode = {
+        return {
           Section: {
-            start: Number(e.target.start.value),
-            end: Number(e.target.end.value),
+            start: Number(target.start.value),
+            end: Number(target.end.value),
           },
         };
-        break;
+      default:
+        return {};
     }
+  }
 
+  const handleSubmitJobForm = (e: React.FormEvent) => {
+    e.preventDefault(); // wonder if this does anything?
+    // why is this not working??
+    const selectedMode = e.target.modes.value;
+    let mode = generateMode(selectedMode, e.target);
     let data = {
       output: e.target.output.value,
-      projectFile: selectedProject,
       version: e.target.version.value,
-      nodes: selectedNodes,
+      projectFile: selectedProject,
       mode,
     };
 
@@ -243,8 +220,8 @@ export default function RemoteRender() {
       TODO: List blender version for the blender project we collected
       TODO: Test argument passing to rust and verify all system working as intended.
 
-      once that is completed, it set forth a new queue instruction to all selected nodes.
-      Send the project file for each selected nodes.
+      once that is completed, it set forth a new queue instruction to all nodes.
+      Send the project file for each nodes available on the network.
       Then, invoke blender with configurations (which frames) to the downloaded project file.
       Once blender completed, transfer result image back to the server.
       The host will display received image progress.
@@ -252,43 +229,7 @@ export default function RemoteRender() {
     return (
       <dialog id="create_process">
         <form method="dialog" onSubmit={handleSubmitJobForm}>
-          <h1>Dialog</h1>
-          <label>Choose Node</label>
-          {/* Toggle node checkboxes */}
-          <label />
-          Toggle nodes:
-          <input
-            id="toggleNodes"
-            type="checkbox"
-            onChange={(e: any) => {
-              // Still skeptical about what Copilot writes here, but verify it afterward
-              // const checkboxes = document.querySelectorAll(
-              //   "input[type=checkbox]",
-              // ); // TODO: dangerous wildcard here...
-              // TODO: How do I send notification about update all set?
-              if (e.target.checked) {
-                setSelectedNodes(nodes);
-              } else {
-                setSelectedNodes([]);
-              }
-              // checkboxes.forEach((checkbox) => {
-
-              //   checkbox.checked = e.target.checked;
-              // });
-            }}
-          />
-          {/* Checklist list I need to find a way to fetch nodes from other component! How?*/}
-          {nodes.map((node: RenderNodeProps, index: number) => (
-            <div key={"Node_" + node.name + "_" + index}>
-              <label>{node.name}</label>
-              <input
-                type={"checkbox"}
-                defaultChecked={true}
-                checked={selectedNodes.indexOf(node) != -1}
-                onChange={() => onCheckboxChanged(node)}
-              />
-            </div>
-          ))}
+          <h1>Create new Render Job</h1>
           <label>Choose rendering mode</label>
           <select
             name="modes"
@@ -298,6 +239,7 @@ export default function RemoteRender() {
               <option value={item[0]}>{item[0]}</option>
             ))}
           </select>
+          <br />
           Blender Version:
           <select name="version" value={"4.1.0"}>
             {versions.map((item) => (
@@ -305,7 +247,7 @@ export default function RemoteRender() {
             ))}
           </select>
           {mode}
-          {/* Output field */}
+          Output destination:
           <input
             type="text"
             placeholder="Output Path"
@@ -331,7 +273,7 @@ export default function RemoteRender() {
             <button type="submit">Ok</button>
           </menu>
         </form>
-      </dialog>
+      </dialog >
     );
   }
 

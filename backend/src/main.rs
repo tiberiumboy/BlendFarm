@@ -27,10 +27,10 @@ use crate::models::{data::Data, render_node::RenderNode, server::Server};
 use blender::blender::Blender;
 use blender::{args::Args, mode::Mode};
 use gethostname::gethostname;
-use message_io::util::thread::NamespacedThread;
 use models::{client::Client, server_setting::ServerSetting};
 use semver::Version;
 use std::path::{Path, PathBuf};
+use std::thread;
 use std::{env, io::Result, sync::Mutex};
 use tauri::generate_handler;
 
@@ -49,9 +49,11 @@ fn client(server_setting: &ServerSetting) {
 
     // Find a way to hold reference to this struct, and keep that struct as long lived until server produce an error or the app shutdown
     // let server = Arc::new(Mutex::new(server));
-    let network_handle = NamespacedThread::spawn("Why do I need a name for this?", move || {
+    // let network_handle = NamespacedThread::spawn("Why do I need a name for this?", move || {
+    thread::spawn(move || {
         server.run();
     });
+    // });
 
     println!("Successfully initialize the server");
 
