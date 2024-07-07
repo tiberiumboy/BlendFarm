@@ -23,9 +23,11 @@ pub struct Client {
     name: String,
     server_endpoint: Endpoint,
     public_addr: SocketAddr,
+    // do I still need this?
     nodes: Vec<Node>,
     is_connected: bool,
     file_transfer: Option<FileTransfer>,
+    // Is there a way for me to hold struct objects while performing a transfer task?
 }
 
 impl Client {
@@ -195,8 +197,24 @@ impl Client {
                     "Render completed! Sending image to server! {:?}",
                     render_info
                 );
-                let info = FileInfo::new(render_info.path.clone());
 
+                let ft = match FileTransfer::new(render_info.path.clone(), self.server_endpoint)
+                    .as_mut()
+                {
+                    Ok(file_transfer) => {
+                        file_transfer.transfer(&self.handler);
+                        Some(file_transfer)
+                    }
+                    Err(e) => {
+                        println!("Failed to transfer file! {:?}", e);
+                        None
+                    }
+                };
+
+                self.file_transfer = ft;
+                // wonder if there's a way to say - hey I've completed my transfer,
+                // please go and look in your download folder with this exact file name,
+                // then proceed to your job manager to move out to output destination.
                 // first notify the server that the job is completed and prepare to receive the file
                 let msg = Message::JobResult(render_info);
                 self.send_to_target(self.server_endpoint, msg);

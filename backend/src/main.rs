@@ -27,6 +27,7 @@ use crate::models::{data::Data, render_node::RenderNode, server::Server};
 use blender::blender::Blender;
 use blender::{args::Args, mode::Mode};
 use gethostname::gethostname;
+use message_io::util::thread::NamespacedThread;
 use models::{client::Client, server_setting::ServerSetting};
 use semver::Version;
 use std::path::{Path, PathBuf};
@@ -44,10 +45,13 @@ fn client(server_setting: &ServerSetting) {
 
     // is there a clear and better way to get around this?
     // I do not want to have any dangling threads if we have to run async
-    // let network_handle = thread::spawn(|| {
     let mut server = Server::new(server_setting.port).expect("Failed to create server");
-    server.run();
-    // });
+
+    // Find a way to hold reference to this struct, and keep that struct as long lived until server produce an error or the app shutdown
+    // let server = Arc::new(Mutex::new(server));
+    let network_handle = NamespacedThread::spawn("Why do I need a name for this?", move || {
+        server.run();
+    });
 
     println!("Successfully initialize the server");
 

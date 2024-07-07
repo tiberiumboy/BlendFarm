@@ -6,6 +6,7 @@ Developer blog:
 - I eventually went back and read some parts of Rust Programming Language book to get a better understanding how to handle errors effectively.
 - Using thiserror to define custom error within this library and anyhow for main.rs function, eventually I will have to handle those situation of the error message.
 
+- Invoking blender should be called asyncronously on OS thread level. You have the ability to set priority for blender.
 */
 
 use crate::page_cache::PageCache;
@@ -56,6 +57,9 @@ pub enum BlenderError {
     },
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BlenderHandler {}
+
 /// Blender structure to hold path to executable and version of blender installed.
 #[derive(Debug, Eq, Serialize, Deserialize, Clone)]
 pub struct Blender {
@@ -63,6 +67,8 @@ pub struct Blender {
     executable: PathBuf, // Private immutable variable - Must validate before using!
     /// Version of blender installed on the system.
     pub version: Version, // Private immutable variable - Must validate before using!
+                          // possibly a handler to proceed data?
+                          // handler: Option<JoinHandle<BlenderHandler>>, // thoughts about passing struct to JoinHandle instead of unit?
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -222,6 +228,7 @@ impl Blender {
         Self {
             executable,
             version,
+            // handler: None,
         }
     }
 

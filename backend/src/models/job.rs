@@ -10,9 +10,8 @@ use super::{project_file::ProjectFile, render_info::RenderInfo, server_setting::
 use blender::{args::Args, mode::Mode};
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-// use std::collections::HashSet;
 use std::{collections::HashSet, io::Result, path::PathBuf};
+use uuid::Uuid;
 
 use thiserror::Error;
 
@@ -122,7 +121,7 @@ impl Job {
     pub fn next_frame(&mut self) -> Option<i32> {
         match self.mode {
             Mode::Frame(frame) => self.internal_compare_and_fetch(frame),
-            Mode::Section { start, end } => self.internal_compare_and_fetch(end),
+            Mode::Section { start: _, end } => self.internal_compare_and_fetch(end),
         }
     }
 }

@@ -1,10 +1,8 @@
-use crate::models::{job::Job, message::Message, node::Node, project_file::ProjectFile};
+use crate::models::{job::Job, message::Message, node::Node};
 use anyhow::Result;
-use blender::mode::Mode;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
-use semver::Version;
-use std::{net::SocketAddr, path::PathBuf};
+use std::net::SocketAddr;
 
 use super::message::Signal;
 use super::render_info::RenderInfo;
@@ -148,7 +146,7 @@ impl Server {
         // let's start working from here
         // once we received a connection, we should give the node a new job if there's one available, or currently pending.
         // in this example here, we'll focus on sending a job to the connected node.
-        self.send_job_to_node(&node);
+        // self.send_job_to_node(&node);
 
         self.nodes.push(node);
 
@@ -229,20 +227,12 @@ impl Server {
 
     /// Test example: Send a example job to target node
     /// TODO: Split this function up where we'll have a method to send a new job to the server, and allowing new node to get on-going job
-    fn send_job_to_node(&mut self, node: &Node) {
+    fn set_job(&mut self, mut job: Job) {
         // create an example job we can use to work with this.
-        if self.job.is_none() {
-            let path = PathBuf::from("./test.blend");
-            let output = PathBuf::from("./");
-            let project_file = ProjectFile::new(path);
-            let version = Version::new(4, 1, 0);
-            let mode = Mode::Section { start: 1, end: 10 };
-
-            let job = Job::new(project_file, output, version, mode);
-            self.job = Some(job);
+        if self.job.is_some() {
+            panic!("Job already exists! Cannot set a new job! Need to understand how this situation can arise?");
         };
 
-        let job = self.job.as_mut().unwrap();
         if let Some(frame) = job.next_frame() {
             let version = job.version.clone();
             let project_file = job.project_file.clone();
@@ -251,7 +241,9 @@ impl Server {
             // of pieces and render each quadrant per node.
             // for now let's just try this and get this working again.
             let message = Message::LoadJob(render_queue);
-            self.send_to_target(node.endpoint, &message);
+            self.send_to_all(&message);
         }
+
+        self.job = Some(job);
     }
 }

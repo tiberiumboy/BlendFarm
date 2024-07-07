@@ -32,16 +32,17 @@ semver = "1.0.22"
 regex = "1.10.4"
 dirs = "5.0.1"
 anyhow = "1.0.86"
-uuid = { version = "1.9.1", features = ["serde"] }
+uuid = { version = "*", features = ["serde"] }
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]
 
+# TODO: I would like to know why this dependendies.uuid is any different than just using uuid = "1.9.1"?
 [dependendies.uuid]
-version = "1.7.0"
-features = ["v4", "fast-rng", "macro-diagnostics"]
+version = "1.9.1"
+features = ["v4", "fast-rng", "macro-diagnostics, serde"]
 
 [dependendies.pnet]
 version = "0.34"
