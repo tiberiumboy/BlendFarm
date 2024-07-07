@@ -1,9 +1,7 @@
+use super::{file_info::FileInfo, render_info::RenderInfo, render_queue::RenderQueue};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::PathBuf;
-
-use super::{file_info::FileInfo, render_info::RenderInfo, render_queue::RenderQueue};
 
 // I could make this as a trait?
 // that way I could have separate enum structs for different kind of message
@@ -44,4 +42,9 @@ pub enum Message {
     // have a look into concurrent http file transfer if possible?
     Chunk(Vec<u8>), // how exactly can I make this server expects chunk of files?
     CanReceive(bool),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Signal {
+    SendChunk,
 }

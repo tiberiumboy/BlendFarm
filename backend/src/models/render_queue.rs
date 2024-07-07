@@ -4,6 +4,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
+use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum RenderError {
@@ -20,14 +21,16 @@ pub struct RenderQueue {
     pub frame: i32,
     pub version: Version,
     pub project_file: ProjectFile,
+    pub job_id: Uuid,
 }
 
 impl RenderQueue {
-    pub fn new(frame: i32, version: Version, project_file: ProjectFile) -> Self {
+    pub fn new(frame: i32, version: Version, project_file: ProjectFile, job_id: Uuid) -> Self {
         Self {
             frame,
             version,
             project_file,
+            job_id,
         }
     }
 

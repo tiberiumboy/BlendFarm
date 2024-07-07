@@ -10,6 +10,7 @@ use super::{project_file::ProjectFile, render_info::RenderInfo, server_setting::
 use blender::{args::Args, mode::Mode};
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 // use std::collections::HashSet;
 use std::{collections::HashSet, io::Result, path::PathBuf};
 
@@ -45,6 +46,7 @@ pub enum JobStatus {
 /// A container to hold rendering job information. This will be used to send off jobs to all other rendering farm
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Job {
+    pub id: Uuid,
     /// Path to the output directory where final render image will be saved to
     pub output: PathBuf,
     /// What kind of mode should this job run as
@@ -74,6 +76,7 @@ impl Job {
             Mode::Section { start, .. } => start,
         };
         Job {
+            id: Uuid::new_v4(),
             output,
             version,
             project_file,

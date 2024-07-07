@@ -3,23 +3,29 @@
     - Do some research on concurrent http downloader for transferring project files and blender from one client to another.
 */
 use crate::models::{
-    file_info::FileInfo, message::Message, node::Node, render_queue::RenderQueue, server,
-    server_setting::ServerSetting,
+    file_info::FileInfo,
+    file_transfer::FileTransfer,
+    message::{Message, Signal},
+    node::Node,
+    render_queue::RenderQueue,
+    server,
 };
 use anyhow::Result;
-use blender::{args::Args, mode::Mode};
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
-use std::{collections::HashMap, net::SocketAddr, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, net::SocketAddr, str::FromStr};
+
+const CHUNK_SIZE: usize = 65536;
 
 pub struct Client {
-    handler: NodeHandler<()>,
-    listener: Option<NodeListener<()>>,
+    handler: NodeHandler<Signal>,
+    listener: Option<NodeListener<Signal>>,
     name: String,
     server_endpoint: Endpoint,
     public_addr: SocketAddr,
     nodes: Vec<Node>,
     is_connected: bool,
+    file_transfer: Option<FileTransfer>,
 }
 
 impl Client {
@@ -49,6 +55,7 @@ impl Client {
             public_addr: listen_addr,
             nodes: Vec::new(),
             is_connected: false,
+            file_transfer: None,
         })
     }
 
@@ -74,6 +81,7 @@ impl Client {
                         // TODO: How can we initialize another listening job? We definitely don't want the user to go through the trouble of figuring out which machine has stopped.
                         // Disconnected was call when server was shut down
                         println!("Lost connection to host! [{}]", endpoint.addr());
+                        self.is_connected = false;
                         // in the case of this node disconnecting, I would like to auto renew the connection if possible.
                         // how would I go about setting this up?
                     }
@@ -82,6 +90,22 @@ impl Client {
                 // client is sending self generated signals?
                 NodeEvent::Signal(signal) => match signal {
                     // Signal
+                    Signal::SendChunk => {
+                        let transfer = match self.file_transfer.as_mut() {
+                            Some(transfer) => transfer,
+                            None => return,
+                        };
+                        match transfer.transfer(&self.handler) {
+                            Some(size) => {
+                                println!("Sending {} bytes of data!", size);
+                            }
+                            None => {
+                                println!("File transfer completed!");
+                                // this means that we have completed our transfer!
+                                self.file_transfer = None;
+                            }
+                        }
+                    }
                     _ => todo!("Not yet implemented!"),
                 },
             }
@@ -99,7 +123,6 @@ impl Client {
         match message {
             // Client receives this message from the server
             Message::NodeList(nodes) => self.handle_node_list(nodes, endpoint),
-            // how did I do this part again? Let's review over to message io
             Message::RegisterNode { name, addr } => self.add_node(&name, addr, endpoint),
             Message::UnregisterNode { addr } => self.remove_node(addr),
             Message::LoadJob(render_queue) => self.load_job(render_queue),
@@ -164,24 +187,27 @@ impl Client {
             // but for now let's continue.
         }
 
+        // run the blender() - this will take some time. Could implement async/thread?
         match render_queue.run() {
-            Ok(path) => println!("{:?}", path),
-            Err(e) => println!("Fail to render on client! {:?}", e),
-        }
+            // returns frame and image path
+            Ok(render_info) => {
+                println!(
+                    "Render completed! Sending image to server! {:?}",
+                    render_info
+                );
+                let info = FileInfo::new(render_info.path.clone());
 
-        match blender.render(&args) {
-            Ok(str) => {
-                println!("Render completed! Sending job over to server! {}", str);
-                let image_path = PathBuf::from(str);
-                // let render_info = RenderInfo::new(1, &image_path);
-                // let msg = Message::JobResult(render_info);
-
-                // TODO - find a way to transfer file back to host!
-                let info = FileInfo::new(image_path);
-                let msg = Message::FileRequest(info);
+                // first notify the server that the job is completed and prepare to receive the file
+                let msg = Message::JobResult(render_info);
                 self.send_to_target(self.server_endpoint, msg);
+
+                // I need to set something to this client node? Maybe a placeholder to say "Queue to transfer"?
+                self.handler.signals().send(Signal::SendChunk);
+
+                // let msg = Message::FileRequest(info);
+                // self.send_to_target(self.server_endpoint, msg);
             }
-            Err(e) => println!("{}", e),
+            Err(e) => println!("Fail to render on client! {:?}", e),
         }
     }
 

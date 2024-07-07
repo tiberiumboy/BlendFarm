@@ -6,14 +6,15 @@ use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
 use semver::Version;
 use std::{net::SocketAddr, path::PathBuf};
 
+use super::message::Signal;
 use super::render_info::RenderInfo;
 use super::render_queue::RenderQueue;
 
 pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
 
 pub struct Server {
-    handler: NodeHandler<()>,
-    listeners: Option<NodeListener<()>>,
+    handler: NodeHandler<Signal>,
+    listeners: Option<NodeListener<Signal>>,
     nodes: Vec<Node>,
     job: Option<Job>,
     port: u16,
@@ -85,7 +86,7 @@ impl Server {
             Message::UnregisterNode { addr } => self.unregister_node(addr),
             // Client should not be sending us the jobs!
             //Message::LoadJob() => {}
-            Message::JobResult(render_info) => self.handle_job_result(render_info),
+            Message::JobResult(render_info) => self.handle_job_result(endpoint, render_info),
             Message::HaveBlender { .. } => self.ask_client_for_blender(endpoint, &msg),
 
             // confirmed to recived, but do absolutely nothing! Server shall not care!
@@ -169,11 +170,25 @@ impl Server {
         }
     }
 
-    fn handle_job_result(&mut self, render_info: RenderInfo) {
+    fn handle_job_result(&mut self, endpoint: Endpoint, render_info: RenderInfo) {
         println!("Job result received! {:?}", render_info);
         if let Some(job) = self.job.as_mut() {
             // TODO: Take a break and come back to this. try a different code block.
             job.renders.insert(render_info);
+            match job.next_frame() {
+                Some(frame) => {
+                    let version = job.version.clone();
+                    let project_file = job.project_file.clone();
+                    let render_queue = RenderQueue::new(frame, version, project_file, job.id);
+                    let message = Message::LoadJob(render_queue);
+                    self.send_to_target(endpoint, &message);
+                }
+                None => {
+                    // Job completed!
+                    println!("Job completed!");
+                    self.job = None; // eventually we will probably want to change this and make this better?
+                }
+            }
         }
     }
 
@@ -231,7 +246,7 @@ impl Server {
         if let Some(frame) = job.next_frame() {
             let version = job.version.clone();
             let project_file = job.project_file.clone();
-            let render_queue = RenderQueue::new(frame, version, project_file);
+            let render_queue = RenderQueue::new(frame, version, project_file, job.id);
             // If I want to get fancy and crafty - I could speed up render by splitting the frame into multiple
             // of pieces and render each quadrant per node.
             // for now let's just try this and get this working again.

@@ -3,6 +3,7 @@ pub(crate) mod common;
 pub(crate) mod data;
 pub mod error;
 pub(crate) mod file_info;
+pub(crate) mod file_transfer;
 pub(crate) mod job;
 pub(crate) mod message;
 pub(crate) mod node;

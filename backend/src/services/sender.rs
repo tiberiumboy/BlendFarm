@@ -10,6 +10,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::Duration;
 
+// eventually I will remove this file and sender/receiver will be merged with server/client.rs
 pub enum Signal {
     SendChunk,
 }
