@@ -68,6 +68,7 @@ impl Server {
     fn handle_connected(&mut self, endpoint: Endpoint, established: bool) {
         // Did I accidentially multi-cast myself?
         // todo!("Figure out how this is invoked, and then update the implmentation below.");
+        // this is getting invoked by a multicast address, but I am not sure why?
         println!(
             "Something connected to the server! {}, {}",
             endpoint, established
