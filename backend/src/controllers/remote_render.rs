@@ -122,6 +122,8 @@ pub fn create_job(
     let version = Version::parse(version).unwrap();
     let job = Job::new(project_file, output, version, mode);
     dbg!(&job);
+
+    // wouldbe interesting to see this working actually...
     // fetch me the server, and push new job to the server.
     let ctx = app.state::<Mutex<Server>>();
     let mut server = ctx.lock().unwrap();

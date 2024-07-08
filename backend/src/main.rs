@@ -23,14 +23,14 @@ use crate::controllers::settings::{
     add_blender_installation, get_server_settings, list_blender_installation,
     remove_blender_installation,
 };
-use crate::models::{data::Data, render_node::RenderNode, server::Server};
-use blender::blender::Blender;
+use crate::models::{data::Data, server::Server};
 use blender::{args::Args, mode::Mode};
 use gethostname::gethostname;
+// use models::server_setting;
 use models::{client::Client, server_setting::ServerSetting};
 use semver::Version;
 use std::path::{Path, PathBuf};
-use std::thread;
+// use std::thread;
 use std::{env, io::Result, sync::Mutex};
 use tauri::generate_handler;
 
@@ -38,35 +38,28 @@ pub mod controllers;
 pub mod models;
 pub mod services;
 
-// when the app starts up, I would need to have access to onfigs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
-// I will have to create a manager struct -this is self managed by user action. e.g. new node, edit project files, delete jobs, etc.
-fn client(server_setting: &ServerSetting) {
-    println!("About to run server!");
-
+fn start_server(port: u16) {
     // is there a clear and better way to get around this?
     // I do not want to have any dangling threads if we have to run async
-    let mut server = Server::new(server_setting.port).expect("Failed to create server");
+    let mut server = Server::new(port).expect("Failed to create server");
 
     // Find a way to hold reference to this struct, and keep that struct as long lived until server produce an error or the app shutdown
-    // let server = Arc::new(Mutex::new(server));
-    // let network_handle = NamespacedThread::spawn("Why do I need a name for this?", move || {
-    thread::spawn(move || {
-        server.run();
-    });
+    // thread::spawn(move || {
+    server.run();
+    // });
     // });
 
     println!("Successfully initialize the server");
+}
 
-    // panic!("This will never call until server finishes!");
-
-    let mut data = Data::default();
+// when the app starts up, I would need to have access to onfigs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
+// I will have to create a manager struct -this is self managed by user action. e.g. new node, edit project files, delete jobs, etc.
+fn client() {
+    let data = Data::default();
     // I would like to find a better way to update or append data to render_nodes,
     // but I need to review more context about handling context like this in rust.
     // I understand Mutex, but I do not know if it's any safe to create pointers inside data struct from mutex memory.
     // "Do not communicate with shared memory"
-    let localhost = RenderNode::default();
-    data.render_nodes.push(localhost);
-
     let ctx = Mutex::new(data);
 
     // why I can't dive into implementation details here?
@@ -74,11 +67,12 @@ fn client(server_setting: &ServerSetting) {
         // https://docs.rs/tauri/1.6.8/tauri/struct.Builder.html#method.manage
         // It is indeed possible to have more than one manage - which I will be taking advantage over how I can share and mutate configuration data across this platform.
         .manage(ctx)
-        // .setup(|app| {
-        //     // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.
-        //     println!("{}", app.package_info().version);
-        //     Ok(())
-        // })
+        .setup(|app| {
+            // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.
+            // it would be nice to include version number in title bar of the app.
+            println!("{}", app.package_info().version);
+            Ok(())
+        })
         .invoke_handler(generate_handler![
             import_project,
             // sync_project,
@@ -100,16 +94,6 @@ fn client(server_setting: &ServerSetting) {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-/// this code is only used to test and download blender version from the internet.
-#[allow(dead_code)]
-fn test_downloading_blender(version: Version) {
-    // fetch the server settings to identify where we can save blender installation to.
-    let server_setting = ServerSetting::load();
-    let blender = Blender::download(version, server_setting.blender_dir);
-    // verify that blender returned ok, otherwise fail if we have issues (internet connection/permission issue?)
-    assert!(blender.is_ok());
 }
 
 /// This code is only used to test out downloading blender from source or reuse existing installation of blender, render a test scene example, and output the result.
@@ -136,32 +120,48 @@ fn run_as_node(port: u16) {
     }
 }
 
+// going to install clap
+use clap::{command, Parser};
+
+#[derive(Parser)]
+#[command(name = "BlenderFarm")]
+#[command(version = "0.1.0")]
+#[command(
+    about = "BlenderFarm is a distributed rendering system that allows users to render blender files on multiple machines."
+)]
+#[command(propagate_version = true)]
+pub struct Cli {
+    #[arg(short, long)]
+    client: bool,
+    #[arg(short, long)]
+    port: Option<u16>,
+    #[arg(short, long)]
+    verbose: bool,
+}
+
 fn main() -> Result<()> {
-    let args = std::env::args().collect::<Vec<String>>();
+    let args = Cli::parse();
     // get the machine configuration here, and cache the result for poll request
     // we're making the assumption that the device card is available and ready when this app launches
-    // obtain configurations
-
-    // initialize service listener
-    // here we will ask for the user's blender file
-
-    // now that we have a unit test to cover whether we can actually run blender from the desire machine, we should now
-    // work on getting network stuff working together! yay!
-    // Assuming this code was compiled and run from ./backend dir
-    // let _ = test_reading_blender_files(PathBuf::from("./test.blend"), Version::new(4, 1, 0));
 
     // TODO: It would be nice to include command line utility to let the user add blender installation from remotely.
-    // TODO: consider looking into clap?
     // TOOD: If I build this application, how can I invoke commands directly? Do more search and test to see if there's a way for me to allow run this code if possible without having to separate the apps.
     // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.
-    // Just to run some test here - run as "cargo run -- test"
     let server_setting = ServerSetting::load();
 
-    if args.contains(&"test".to_owned()) {
-        run_as_node(server_setting.port);
+    // how do I provide the default value instead of just using the commands?
+    if args.client {
+        match args.port {
+            Some(p) => run_as_node(p),
+            None => run_as_node(server_setting.port),
+        };
     } else {
-        client(&server_setting);
-    }
+        match args.port {
+            Some(p) => start_server(p),
+            None => start_server(server_setting.port),
+        }
+        client();
+    };
 
     Ok(())
 }

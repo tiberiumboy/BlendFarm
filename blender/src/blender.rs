@@ -169,7 +169,7 @@ impl BlenderDownloadLink {
 
     // TODO: implement handler to unpack .zip files
     // TODO: Check and see if we need to return the .exe extension or not?
-    #[cfg(target_ps = "windows")]
+    #[cfg(target_os = "windows")]
     pub fn extract_content(
         download_path: impl AsRef<Path>,
         folder_name: &str,

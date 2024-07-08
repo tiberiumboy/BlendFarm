@@ -15,7 +15,7 @@ use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
 use std::{collections::HashMap, net::SocketAddr, str::FromStr};
 
-const CHUNK_SIZE: usize = 65536;
+// const CHUNK_SIZE: usize = 65536;
 
 pub struct Client {
     handler: NodeHandler<Signal>,

@@ -1,19 +1,14 @@
 use super::message::{Message, Signal};
 use message_io::{network::Endpoint, node::NodeHandler};
-use std::{
-    fs::{self, File},
-    io::Read,
-    path::PathBuf,
-    time::Duration,
-};
+use std::{fs::File, io::Read, path::PathBuf, time::Duration};
 
 const CHUNK_SIZE: usize = 65536;
 
 #[derive(Debug)]
 pub struct FileTransfer {
-    pub file_path: PathBuf,
+    // pub file_path: PathBuf,
     pub file: File,
-    pub size: usize,
+    // pub size: usize,
     pub destination: Endpoint,
     pub file_bytes_sent: usize,
 }
@@ -21,12 +16,12 @@ pub struct FileTransfer {
 impl FileTransfer {
     pub fn new(file_path: PathBuf, destination: Endpoint) -> Self {
         let file = File::open(&file_path).unwrap();
-        let size = fs::metadata(&file_path).unwrap().len() as usize;
+        // let size = fs::metadata(&file_path).unwrap().len() as usize;
 
         FileTransfer {
-            file_path,
+            // file_path,
             file,
-            size,
+            // size,
             destination,
             file_bytes_sent: 0,
         }

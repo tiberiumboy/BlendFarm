@@ -19,7 +19,7 @@ serde_json = "1.0"
 [dependencies]
 gethostname = "*"
 blender = { path = "../blender" }
-tauri = { version = "*", features = ["api-all"] }
+tauri = { version = "1.5.11", features = ["api-all"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 message-io = { version = "0.18", default-features = false, features = [
@@ -33,6 +33,7 @@ regex = "1.10.4"
 dirs = "5.0.1"
 anyhow = "1.0.86"
 uuid = { version = "*", features = ["serde"] }
+clap = { version = "4.5.8", features = ["derive"] }
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
