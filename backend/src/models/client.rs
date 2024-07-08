@@ -231,8 +231,6 @@ impl Client {
 
         // Currently this is a hack and I need to find a way to get a loopback rule working.
         // TODO: find a fix for this, this is only used for testing purpose only! DO NOT SHIP!
-        let server = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
-        println!("{}", endpoint);
         if !self.is_connected {
             // I am not sure why I am unable to send a register message back to the server?
             if let Ok((endpoint, _)) = self.handler.network().connect(Transport::FramedTcp, host) {
