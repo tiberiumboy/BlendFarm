@@ -69,17 +69,22 @@ impl Client {
         listener.for_each(move |event| {
             match event {
                 NodeEvent::Network(net_event) => match net_event {
-                    NetEvent::Connected(_, established) => {
+                    NetEvent::Connected(endpoint, established) => {
+                        // why and how is this not establishing the connection?
                         if established {
                             println!("Node connected! Sending register node!");
-                            self.send_to_target(self.server_endpoint, self.register_message());
+                            let msg = self.register_message();
+                            self.send_to_target(self.server_endpoint, msg);
                             self.is_connected = true;
                         } else {
-                            println!("Could not connect to the server!");
+                            println!("Could not connect to the server!?? {}", endpoint);
                             // is there any way I could just begin the listen process here?
                         }
                     }
-                    NetEvent::Accepted(_, _) => unreachable!(),
+                    NetEvent::Accepted(endpoint, id) => {
+                        // an tcp connection accepts the connection!
+                        println!("Accepted: {} | {}", endpoint, id);
+                    }
                     NetEvent::Message(endpoint, bytes) => self.handle_message(endpoint, bytes),
                     NetEvent::Disconnected(endpoint) => {
                         // TODO: How can we initialize another listening job? We definitely don't want the user to go through the trouble of figuring out which machine has stopped.
@@ -229,16 +234,24 @@ impl Client {
             &host, &endpoint
         );
 
+        if self.is_connected {
+            println!("Sorry, we're already connected to the host!");
+            return;
+        }
+
         // Currently this is a hack and I need to find a way to get a loopback rule working.
         // TODO: find a fix for this, this is only used for testing purpose only! DO NOT SHIP!
-        if !self.is_connected {
-            // I am not sure why I am unable to send a register message back to the server?
-            if let Ok((endpoint, _)) = self.handler.network().connect(Transport::FramedTcp, host) {
-                self.server_endpoint = endpoint;
-                self.send_to_target(endpoint, self.register_message())
+        // I am not sure why I am unable to send a register message back to the server?
+
+        match self.handler.network().connect(Transport::FramedTcp, host) {
+            Ok((new_endpoint, addr)) => {
+                println!("{} | {} | {}", &endpoint, &new_endpoint, &addr);
+
+                self.server_endpoint = new_endpoint;
+
+                self.send_to_target(self.server_endpoint, self.register_message())
             }
-        } else {
-            println!("Sorry, we're already connected to the host!");
+            Err(e) => println!("Something went wrong? {}", e),
         }
     }
 
