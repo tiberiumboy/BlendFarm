@@ -25,6 +25,7 @@ use crate::controllers::settings::{
 };
 use crate::models::{data::Data, server::Server};
 use blender::{args::Args, mode::Mode};
+use clap::{command, Parser};
 use gethostname::gethostname;
 // use models::server_setting;
 use models::{client::Client, server_setting::ServerSetting};
@@ -120,9 +121,6 @@ fn run_as_node(port: u16) {
     }
 }
 
-// going to install clap
-use clap::{command, Parser};
-
 #[derive(Parser)]
 #[command(name = "BlenderFarm")]
 #[command(version = "0.1.0")]
@@ -132,11 +130,10 @@ use clap::{command, Parser};
 #[command(propagate_version = true)]
 pub struct Cli {
     #[arg(short, long)]
+    #[arg(help = "Run the application as a rendering node")]
     client: bool,
-    #[arg(short, long)]
+    #[arg(short, long, default_value = None, help = "Override the default server config port")]
     port: Option<u16>,
-    #[arg(short, long)]
-    verbose: bool,
 }
 
 fn main() -> Result<()> {
