@@ -94,13 +94,14 @@ impl Server {
             Message::HaveBlender { .. } => self.ask_client_for_blender(endpoint, &msg),
 
             // confirmed to recived, but do absolutely nothing! Server shall not care!
-            Message::ServerPing { host } => {
-                if host.eq(&self.public_addr) {
-                    println!("Server pinged itself! {:?}", host);
+            Message::Ping { addr, host } => {
+                if host {
+                    println!("Server pinged itself! {:?}", addr);
                 } else {
-                    println!("Server pinged by {:?}", host);
-                    let msg = Message::ServerPing {
-                        host: self.public_addr,
+                    println!("Server pinged by {:?}", addr);
+                    let msg = Message::Ping {
+                        addr: self.public_addr,
+                        host: true,
                     };
                     self.send_to_target(endpoint, &msg);
                 }
@@ -129,7 +130,7 @@ impl Server {
     }
 
     /// Ping any inactive node to reconnect
-    pub fn ping(host: &SocketAddr, handler: &mut NodeHandler<Signal>) {
+    pub fn ping(addr: &SocketAddr, handler: &mut NodeHandler<Signal>) {
         // attempt to connect to multicast address
         // maybe this is the problem?
         let (endpoint, _) = handler
@@ -139,7 +140,10 @@ impl Server {
 
         // create a server ping
         // I feel like this is such a dangerous power move here?
-        let msg = Message::ServerPing { host: *host };
+        let msg = Message::Ping {
+            addr: *addr,
+            host: true,
+        };
         println!("Pinging inactive clients! {:?}", &msg);
 
         let data = bincode::serialize(&msg).unwrap();

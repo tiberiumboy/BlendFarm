@@ -11,9 +11,12 @@ use crate::models::{
     server,
 };
 use anyhow::Result;
+use local_ip_address::local_ip;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
 use std::{collections::HashMap, net::SocketAddr};
+
+use super::server::MULTICAST_ADDR;
 
 // const CHUNK_SIZE: usize = 65536;
 
@@ -21,18 +24,21 @@ pub struct Client {
     handler: NodeHandler<Signal>,
     listener: Option<NodeListener<Signal>>,
     name: String,
-    server_endpoint: Endpoint,
+    server_endpoint: Option<Endpoint>,
     public_addr: SocketAddr,
     // do I still need this?
     nodes: Vec<Node>,
-    is_connected: bool,
     file_transfer: Option<FileTransfer>,
     // Is there a way for me to hold struct objects while performing a transfer task?
 }
 
 impl Client {
     pub fn new(name: &str) -> Result<Client> {
-        let (handler, listener) = node::split();
+        let (mut handler, listener) = node::split();
+
+        let ip = local_ip().unwrap();
+        let public_addr = SocketAddr::new(ip, 0);
+        Self::ping(&public_addr, &mut handler);
 
         let listen_addr = "127.0.0.1:0";
         let (_, listen_addr) = handler
@@ -41,10 +47,10 @@ impl Client {
 
         // why did I need this?
         // TODO: Investigate this when you have time.
-        let discovery_addr = format!("127.0.0.1:15000",);
-        let (endpoint, _) = handler
-            .network()
-            .connect(Transport::FramedTcp, discovery_addr)?;
+        // let discovery_addr = format!("127.0.0.1:15000",);
+        // let (endpoint, _) = handler
+        //     .network()
+        //     .connect(Transport::FramedTcp, discovery_addr)?;
 
         // this will handle the multicast address channel
         handler
@@ -55,10 +61,9 @@ impl Client {
             handler,
             listener: Some(listener),
             name: name.to_string(),
-            server_endpoint: endpoint,
+            server_endpoint: None,
             public_addr: listen_addr,
             nodes: Vec::new(),
-            is_connected: false,
             file_transfer: None,
         })
     }
@@ -73,9 +78,9 @@ impl Client {
                         // why and how is this not establishing the connection?
                         if established {
                             println!("Node connected! Sending register node!");
+                            self.server_endpoint = Some(endpoint);
                             let msg = self.register_message();
-                            self.send_to_target(self.server_endpoint, msg);
-                            self.is_connected = true;
+                            self.send_to_target(endpoint, msg);
                         } else {
                             println!("Could not connect to the server!?? {}", endpoint);
                             // is there any way I could just begin the listen process here?
@@ -90,7 +95,7 @@ impl Client {
                         // TODO: How can we initialize another listening job? We definitely don't want the user to go through the trouble of figuring out which machine has stopped.
                         // Disconnected was call when server was shut down
                         println!("Lost connection to host! [{}]", endpoint.addr());
-                        self.is_connected = false;
+                        self.server_endpoint = None;
                         // in the case of this node disconnecting, I would like to auto renew the connection if possible.
                         // how would I go about setting this up?
                     }
@@ -120,6 +125,28 @@ impl Client {
         })
     }
 
+    fn ping(addr: &SocketAddr, handler: &mut NodeHandler<Signal>) {
+        let (endpoint, _) = handler
+            .network()
+            .connect(Transport::Udp, MULTICAST_ADDR)
+            .unwrap();
+
+        let msg = Message::Ping {
+            addr: *addr,
+            host: false,
+        };
+        let data = bincode::serialize(&msg).unwrap();
+        handler.network().send(endpoint, &data);
+    }
+
+    // may not be public? we'll see!
+    fn is_connected(&self) -> bool {
+        match self.server_endpoint {
+            Some(_) => true,
+            _ => false,
+        }
+    }
+
     fn handle_message(&mut self, endpoint: Endpoint, bytes: &[u8]) {
         // why did this part failed?
         let message: Message = match bincode::deserialize(bytes) {
@@ -145,7 +172,11 @@ impl Client {
             }
 
             // multicast
-            Message::ServerPing { host } => self.handle_server_ping(host, &endpoint),
+            Message::Ping { addr, host } => {
+                if host {
+                    self.handle_server_ping(addr, &endpoint)
+                }
+            }
             Message::FileRequest(file_info) => self.handle_file_request(endpoint, &file_info),
             Message::Chunk(_data) => todo!("Find a way to save data to temp?"),
             Message::CanReceive(accepted) => {
@@ -162,9 +193,7 @@ impl Client {
     // we're making a fine assumption that once we received the node back from the server, it means that the server have acknoledge the response.
     // TODO: See if this is a bad programming practice? Should I keep single responsibility implementation?
     fn handle_node_list(&mut self, nodes: HashMap<SocketAddr, String>, endpoint: Endpoint) {
-        // how come I don't receive event for this one?
         println!("Node list received! ({} nodes)", nodes.len());
-        self.is_connected = true;
         for (addr, name) in nodes {
             let node = Node::new(&name, addr, endpoint);
             self.nodes.push(node);
@@ -199,13 +228,15 @@ impl Client {
         match render_queue.run() {
             // returns frame and image path
             Ok(render_info) => {
+                // assuming that we have connection to the server? otherwise rendering job should abort immediately.
+                let endpoint = self.server_endpoint.unwrap();
+
                 println!(
                     "Render completed! Sending image to server! {:?}",
                     render_info
                 );
 
-                let mut file_transfer =
-                    FileTransfer::new(render_info.path.clone(), self.server_endpoint);
+                let mut file_transfer = FileTransfer::new(render_info.path.clone(), endpoint);
 
                 file_transfer.transfer(&self.handler);
                 // is there a way to convert mutable to immutable?
@@ -216,7 +247,7 @@ impl Client {
                 // then proceed to your job manager to move out to output destination.
                 // first notify the server that the job is completed and prepare to receive the file
                 let msg = Message::JobResult(render_info);
-                self.send_to_target(self.server_endpoint, msg);
+                self.send_to_target(endpoint, msg);
 
                 // I need to set something to this client node? Maybe a placeholder to say "Queue to transfer"?
                 self.handler.signals().send(Signal::SendChunk);
@@ -228,13 +259,13 @@ impl Client {
         }
     }
 
-    fn handle_server_ping(&mut self, host: SocketAddr, endpoint: &Endpoint) {
+    fn handle_server_ping(&mut self, addr: SocketAddr, endpoint: &Endpoint) {
         println!(
             "Hey! Client received a multicast ping signal! {} | {}",
-            &host, &endpoint
+            &addr, &endpoint
         );
 
-        if self.is_connected {
+        if self.is_connected() {
             println!("Sorry, we're already connected to the host!");
             return;
         }
@@ -243,13 +274,11 @@ impl Client {
         // TODO: find a fix for this, this is only used for testing purpose only! DO NOT SHIP!
         // I am not sure why I am unable to send a register message back to the server?
 
-        match self.handler.network().connect(Transport::FramedTcp, host) {
+        match self.handler.network().connect(Transport::FramedTcp, addr) {
             Ok((new_endpoint, addr)) => {
                 println!("{} | {} | {}", &endpoint, &new_endpoint, &addr);
-
-                self.server_endpoint = new_endpoint;
-
-                self.send_to_target(self.server_endpoint, self.register_message())
+                self.send_to_target(new_endpoint, self.register_message());
+                self.server_endpoint = Some(new_endpoint);
             }
             Err(e) => println!("Something went wrong? {}", e),
         }
@@ -279,16 +308,13 @@ impl Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        println!("About to drop!");
-        let message = Message::UnregisterNode {
-            addr: self.public_addr,
-        };
-        let output_data = bincode::serialize(&message).unwrap();
-
-        println!("Sending unregisternode packet to host before stopping!");
-        self.handler
-            .network()
-            .send(self.server_endpoint, &output_data);
+        if let Some(endpoint) = self.server_endpoint {
+            let message = Message::UnregisterNode {
+                addr: self.public_addr,
+            };
+            println!("Sending unregisternode packet to host before stopping!");
+            self.send_to_target(endpoint, message);
+        }
 
         println!("Stopping connection!");
         self.handler.stop();

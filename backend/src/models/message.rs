@@ -35,8 +35,11 @@ pub enum Message {
     },
 
     // From multicast
-    ServerPing {
-        host: SocketAddr,
+    Ping {
+        /// address in which to communicate from (LISTEN)
+        addr: SocketAddr,
+        /// determines if this is the server or node
+        host: bool,
     },
     FileRequest(FileInfo),
     // have a look into concurrent http file transfer if possible?
