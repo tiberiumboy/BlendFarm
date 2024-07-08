@@ -36,7 +36,7 @@ pub enum Message {
 
     // From multicast
     ServerPing {
-        port: u16,
+        host: SocketAddr,
     },
     FileRequest(FileInfo),
     // have a look into concurrent http file transfer if possible?

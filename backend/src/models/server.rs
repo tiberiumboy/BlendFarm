@@ -1,5 +1,6 @@
 use crate::models::{job::Job, message::Message, node::Node};
 use anyhow::Result;
+use local_ip_address::local_ip;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
 use std::net::SocketAddr;
@@ -15,14 +16,20 @@ pub struct Server {
     listeners: Option<NodeListener<Signal>>,
     nodes: Vec<Node>,
     job: Option<Job>,
-    port: u16,
+    public_addr: SocketAddr,
 }
 
 // Should I have a job manager here? Or should that be in it's own separate struct?
 
 impl Server {
     pub fn new(port: u16) -> Result<Server> {
-        let (handler, listeners) = node::split();
+        let (mut handler, listeners) = node::split();
+
+        let ip = local_ip().unwrap();
+        let public_addr = SocketAddr::new(ip, port);
+
+        Self::ping(&public_addr, &mut handler); // ping the inactive clients, if there are any
+
         let listen_addr = format!("127.0.0.1:{}", port);
         handler
             .network()
@@ -34,14 +41,12 @@ impl Server {
             listeners: Some(listeners),
             nodes: Vec::new(),
             job: None,
-            port,
+            public_addr,
         })
     }
 
     // Server listens
     pub fn run(&mut self) {
-        self.ping(); // ping the inactive clients, if there are any
-
         let listener = self.listeners.take().unwrap();
         listener.for_each(move |event| match event {
             // interface from the network status
@@ -88,7 +93,17 @@ impl Server {
             Message::HaveBlender { .. } => self.ask_client_for_blender(endpoint, &msg),
 
             // confirmed to recived, but do absolutely nothing! Server shall not care!
-            Message::ServerPing { .. } => {
+            Message::ServerPing { host } => {
+                if host.eq(&self.public_addr) {
+                    println!("Server pinged itself! {:?}", host);
+                } else {
+                    println!("Server pinged by {:?}", host);
+                    let msg = Message::ServerPing {
+                        host: self.public_addr,
+                    };
+                    self.send_to_target(endpoint, &msg);
+                }
+                // should a node be able to reply back to this?
                 // we do not care - we skip this. Log perhaps?
             }
             _ => println!("Unhandled case for {:?}", msg),
@@ -113,22 +128,21 @@ impl Server {
     }
 
     /// Ping any inactive node to reconnect
-    pub fn ping(&self) {
+    pub fn ping(host: &SocketAddr, handler: &mut NodeHandler<Signal>) {
         // attempt to connect to multicast address
-        let (endpoint, _) = self
-            .handler
+        // maybe this is the problem?
+        let (endpoint, _) = handler
             .network()
             .connect(Transport::Udp, MULTICAST_ADDR)
             .unwrap();
 
         // create a server ping
-        // it would be nice to send SocketAddress to connect back to us?
-        // TODO: Find a way to get client send a registration mode correctly back to us?
-        let msg = Message::ServerPing { port: self.port };
-        let data = bincode::serialize(&msg).unwrap();
+        // I feel like this is such a dangerous power move here?
+        let msg = Message::ServerPing { host: *host };
+        println!("Pinging inactive clients! {:?}", &msg);
 
-        // send
-        self.handler.network().send(endpoint, &data);
+        let data = bincode::serialize(&msg).unwrap();
+        handler.network().send(endpoint, &data);
     }
 
     /// Notify all clients a node has been registered (Connected)

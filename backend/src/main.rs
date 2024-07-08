@@ -39,7 +39,7 @@ pub mod controllers;
 pub mod models;
 pub mod services;
 
-fn start_server(port: u16) {
+fn run_as_server(port: u16) {
     // is there a clear and better way to get around this?
     // I do not want to have any dangling threads if we have to run async
     let mut server = Server::new(port).expect("Failed to create server");
@@ -113,9 +113,9 @@ fn test_reading_blender_files(file: impl AsRef<Path>, version: Version) {
     assert!(render_path.is_ok());
 }
 
-fn run_as_node(port: u16) {
+fn run_as_node() {
     let hostname = gethostname().into_string().unwrap();
-    match Client::new(&hostname, port) {
+    match Client::new(&hostname) {
         Ok(client) => client.run(),
         Err(err) => println!("Cannot run the client! {}", err),
     }
@@ -148,14 +148,11 @@ fn main() -> Result<()> {
 
     // how do I provide the default value instead of just using the commands?
     if args.client {
-        match args.port {
-            Some(p) => run_as_node(p),
-            None => run_as_node(server_setting.port),
-        };
+        run_as_node();
     } else {
         match args.port {
-            Some(p) => start_server(p),
-            None => start_server(server_setting.port),
+            Some(p) => run_as_server(p),
+            None => run_as_server(server_setting.port),
         }
         client();
     };

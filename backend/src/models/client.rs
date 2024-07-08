@@ -13,7 +13,7 @@ use crate::models::{
 use anyhow::Result;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
-use std::{collections::HashMap, net::SocketAddr, str::FromStr};
+use std::{collections::HashMap, net::SocketAddr};
 
 // const CHUNK_SIZE: usize = 65536;
 
@@ -31,7 +31,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(name: &str, port: u16) -> Result<Client> {
+    pub fn new(name: &str) -> Result<Client> {
         let (handler, listener) = node::split();
 
         let listen_addr = "127.0.0.1:0";
@@ -39,7 +39,9 @@ impl Client {
             .network()
             .listen(Transport::FramedTcp, listen_addr)?;
 
-        let discovery_addr = format!("127.0.0.1:{}", port);
+        // why did I need this?
+        // TODO: Investigate this when you have time.
+        let discovery_addr = format!("127.0.0.1:15000",);
         let (endpoint, _) = handler
             .network()
             .connect(Transport::FramedTcp, discovery_addr)?;
@@ -138,7 +140,7 @@ impl Client {
             }
 
             // multicast
-            Message::ServerPing { port } => self.handle_server_ping(port, &endpoint),
+            Message::ServerPing { host } => self.handle_server_ping(host, &endpoint),
             Message::FileRequest(file_info) => self.handle_file_request(endpoint, &file_info),
             Message::Chunk(_data) => todo!("Find a way to save data to temp?"),
             Message::CanReceive(accepted) => {
@@ -221,16 +223,17 @@ impl Client {
         }
     }
 
-    fn handle_server_ping(&mut self, port: u16, endpoint: &Endpoint) {
-        println!("Hey! Client received a multicast ping signal!");
+    fn handle_server_ping(&mut self, host: SocketAddr, endpoint: &Endpoint) {
+        println!(
+            "Hey! Client received a multicast ping signal! {} | {}",
+            &host, &endpoint
+        );
+
         // Currently this is a hack and I need to find a way to get a loopback rule working.
         // TODO: find a fix for this, this is only used for testing purpose only! DO NOT SHIP!
-        let server = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
-        println!("{}", endpoint);
         if !self.is_connected {
             // I am not sure why I am unable to send a register message back to the server?
-            if let Ok((endpoint, _)) = self.handler.network().connect(Transport::FramedTcp, server)
-            {
+            if let Ok((endpoint, _)) = self.handler.network().connect(Transport::FramedTcp, host) {
                 self.server_endpoint = endpoint;
             }
         } else {
