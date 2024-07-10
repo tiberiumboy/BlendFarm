@@ -14,7 +14,7 @@ use anyhow::Result;
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
-use std::{collections::HashMap, net::SocketAddr};
+use std::net::SocketAddr;
 
 use super::server::MULTICAST_ADDR;
 
@@ -34,23 +34,32 @@ pub struct Client {
 
 impl Client {
     pub fn new(name: &str) -> Result<Client> {
-        let (mut handler, listener) = node::split();
+        let (handler, listener) = node::split();
 
         let ip = local_ip().unwrap();
         let public_addr = SocketAddr::new(ip, 0);
-        Self::ping(&public_addr, &mut handler);
 
-        let listen_addr = "127.0.0.1:0";
-        let (_, listen_addr) = handler
+        // connect to multicast address
+        let (endpoint, _) = handler
             .network()
-            .listen(Transport::FramedTcp, listen_addr)?;
+            .connect(Transport::Udp, MULTICAST_ADDR)
+            .unwrap();
 
-        // why did I need this?
-        // TODO: Investigate this when you have time.
-        // let discovery_addr = format!("127.0.0.1:15000",);
-        // let (endpoint, _) = handler
-        //     .network()
-        //     .connect(Transport::FramedTcp, discovery_addr)?;
+        // send client ping to multicast address
+        let msg = Message::ClientPing {
+            name: name.to_owned(),
+        };
+        let data = bincode::serialize(&msg).unwrap();
+        handler.network().send(endpoint, &data);
+
+        // setup listener for client
+        let listen_addr = match handler.network().listen(Transport::FramedTcp, public_addr) {
+            Ok(conn) => conn.1, // don't care about Resource Id (0)
+            Err(e) => {
+                println!("Error listening to address [{}]! {:?}", public_addr, e);
+                return Err(anyhow::anyhow!("Error listening to port! {:?}", e));
+            }
+        };
 
         // this will handle the multicast address channel
         handler
@@ -75,68 +84,63 @@ impl Client {
             match event {
                 NodeEvent::Network(net_event) => match net_event {
                     NetEvent::Connected(endpoint, established) => {
-                        // why and how is this not establishing the connection?
-                        if established {
-                            println!("Node connected! Sending register node!");
-                            self.server_endpoint = Some(endpoint);
-                            let msg = self.register_message();
-                            self.send_to_target(endpoint, msg);
-                        } else {
-                            println!("Could not connect to the server!?? {}", endpoint);
-                            // is there any way I could just begin the listen process here?
-                        }
+                        self.handle_connected(endpoint, established)
                     }
-                    NetEvent::Accepted(endpoint, id) => {
-                        // an tcp connection accepts the connection!
-                        println!("Accepted: {} | {}", endpoint, id);
-                    }
+                    NetEvent::Accepted(endpoint, _) => self.handle_accepted(endpoint),
                     NetEvent::Message(endpoint, bytes) => self.handle_message(endpoint, bytes),
-                    NetEvent::Disconnected(endpoint) => {
-                        // TODO: How can we initialize another listening job? We definitely don't want the user to go through the trouble of figuring out which machine has stopped.
-                        // Disconnected was call when server was shut down
-                        println!("Lost connection to host! [{}]", endpoint.addr());
-                        self.server_endpoint = None;
-                        // in the case of this node disconnecting, I would like to auto renew the connection if possible.
-                        // how would I go about setting this up?
-                    }
+                    NetEvent::Disconnected(endpoint) => self.handle_disconnected(endpoint),
                 },
 
                 // client is sending self generated signals?
                 NodeEvent::Signal(signal) => match signal {
                     // Signal
-                    Signal::SendChunk => {
-                        let transfer = match self.file_transfer.as_mut() {
-                            Some(transfer) => transfer,
-                            None => return,
-                        };
-                        match transfer.transfer(&self.handler) {
-                            Some(size) => {
-                                println!("Sending {} bytes of data!", size);
-                            }
-                            None => {
-                                println!("File transfer completed!");
-                                // this means that we have completed our transfer!
-                                self.file_transfer = None;
-                            }
-                        }
-                    } //_ => todo!("Not yet implemented!"),
+                    Signal::SendChunk => self.handle_sending_chunk(),
+                    //_ => todo!("Not yet implemented!"),
                 },
             }
         })
     }
 
-    fn ping(addr: &SocketAddr, handler: &mut NodeHandler<Signal>) {
-        let (endpoint, _) = handler
-            .network()
-            .connect(Transport::Udp, MULTICAST_ADDR)
-            .unwrap();
+    // maybe we don't need this at all?
+    fn handle_connected(&self, endpoint: Endpoint, established: bool) {
+        // why and how is this not establishing the connection?
+        if established {
+            println!("Node connected! Sending register node!");
+        } else {
+            println!("Could not connect to the server!?? {}", endpoint);
+            // is there any way I could just begin the listen process here?
+        }
+    }
 
-        let msg = Message::Ping {
-            addr: *addr,
-            host: false,
+    fn handle_accepted(&mut self, endpoint: Endpoint) {
+        // an tcp connection accepts the connection!
+        println!("Client was accepted to server!");
+        self.server_endpoint = Some(endpoint);
+    }
+
+    fn handle_disconnected(&mut self, endpoint: Endpoint) {
+        // TODO: How can we initialize another listening job? We definitely don't want the user to go through the trouble of figuring out which machine has stopped.
+        // Disconnected was call when server was shut down
+        println!("Lost connection to host! [{}]", endpoint.addr());
+        self.server_endpoint = None;
+        // in the case of this node disconnecting, I would like to auto renew the connection if possible.
+    }
+
+    fn handle_sending_chunk(&mut self) {
+        let transfer = match self.file_transfer.as_mut() {
+            Some(transfer) => transfer,
+            None => return,
         };
-        let data = bincode::serialize(&msg).unwrap();
-        handler.network().send(endpoint, &data);
+        match transfer.transfer(&self.handler) {
+            Some(size) => {
+                println!("Sending {} bytes of data!", size);
+            }
+            None => {
+                println!("File transfer completed!");
+                // this means that we have completed our transfer!
+                self.file_transfer = None;
+            }
+        }
     }
 
     // may not be public? we'll see!
@@ -157,8 +161,7 @@ impl Client {
 
         match message {
             // Client receives this message from the server
-            Message::NodeList(nodes) => self.handle_node_list(nodes, endpoint),
-            Message::RegisterNode { name, addr } => self.add_node(&name, addr, endpoint),
+            Message::RegisterNode { name } => self.add_node(&name, endpoint),
             Message::UnregisterNode { addr } => self.remove_node(addr),
             Message::LoadJob(render_queue) => self.load_job(render_queue),
 
@@ -172,11 +175,7 @@ impl Client {
             }
 
             // multicast
-            Message::Ping { addr, host } => {
-                if host {
-                    self.handle_server_ping(addr, &endpoint)
-                }
-            }
+            Message::ServerPing { addr } => self.handle_server_ping(addr, &endpoint),
             Message::FileRequest(file_info) => self.handle_file_request(endpoint, &file_info),
             Message::Chunk(_data) => todo!("Find a way to save data to temp?"),
             Message::CanReceive(accepted) => {
@@ -189,28 +188,18 @@ impl Client {
         };
     }
 
-    // this function takes two parts. it handles the incoming list, and change the struct field is_connected to true.
-    // we're making a fine assumption that once we received the node back from the server, it means that the server have acknoledge the response.
-    // TODO: See if this is a bad programming practice? Should I keep single responsibility implementation?
-    fn handle_node_list(&mut self, nodes: HashMap<SocketAddr, String>, endpoint: Endpoint) {
-        println!("Node list received! ({} nodes)", nodes.len());
-        for (addr, name) in nodes {
-            let node = Node::new(&name, addr, endpoint);
-            self.nodes.push(node);
-            println!("{} [{}] is online", name, addr);
-        }
-    }
-
-    fn add_node(&mut self, name: &str, addr: SocketAddr, endpoint: Endpoint) {
-        let node = Node::new(name, addr, endpoint);
+    fn add_node(&mut self, name: &str, endpoint: Endpoint) {
+        let node = Node::new(name, endpoint);
         self.nodes.push(node);
-        println!("{} [{}] connected to the server", name, addr);
+        println!("{} [{}] connected to the server", name, endpoint.addr());
     }
 
     fn remove_node(&mut self, addr: SocketAddr) {
-        if let Some(index) = self.nodes.iter().position(|n| n.addr == addr) {
-            let element = self.nodes.remove(index);
-            println!("{} [{}] Disconnected", element.name, element.addr);
+        // can we try iter() downto instead? .remove(index) might be an issue if we start the iter at index 0.
+        if let Some(index) = self.nodes.iter().position(|x| x.endpoint.addr() == addr) {
+            // could this somehow break iteration?
+            let node = self.nodes.remove(index);
+            println!("{} [{}] Disconnected", node.name, node.endpoint.addr());
         }
     }
 
@@ -259,6 +248,7 @@ impl Client {
         }
     }
 
+    /// Handle server multi-cast ping signal
     fn handle_server_ping(&mut self, addr: SocketAddr, endpoint: &Endpoint) {
         println!(
             "Hey! Client received a multicast ping signal! {} | {}",
@@ -270,13 +260,9 @@ impl Client {
             return;
         }
 
-        // Currently this is a hack and I need to find a way to get a loopback rule working.
-        // TODO: find a fix for this, this is only used for testing purpose only! DO NOT SHIP!
-        // I am not sure why I am unable to send a register message back to the server?
-
+        // if the client_name is none, it means the ping originated from the host.
         match self.handler.network().connect(Transport::FramedTcp, addr) {
-            Ok((new_endpoint, addr)) => {
-                println!("{} | {} | {}", &endpoint, &new_endpoint, &addr);
+            Ok((new_endpoint, _)) => {
                 self.send_to_target(new_endpoint, self.register_message());
                 self.server_endpoint = Some(new_endpoint);
             }
@@ -295,7 +281,6 @@ impl Client {
     fn register_message(&self) -> Message {
         Message::RegisterNode {
             name: self.name.clone(),
-            addr: self.public_addr,
         }
     }
 

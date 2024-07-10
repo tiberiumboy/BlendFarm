@@ -1,22 +1,40 @@
-use crate::models::{job::Job, message::Message, node::Node};
+use crate::models::{
+    job::Job,
+    message::{Message, Signal},
+    node::Node,
+    project_file::ProjectFile,
+    render_info::RenderInfo,
+    render_queue::RenderQueue,
+    server_setting::ServerSetting,
+};
 use anyhow::Result;
+use blender::mode::Mode;
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
-use std::net::SocketAddr;
-
-use super::message::Signal;
-use super::render_info::RenderInfo;
-use super::render_queue::RenderQueue;
+use semver::Version;
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::PathBuf,
+};
 
 pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
 
+/*
+    Let me design this real quick here - I need to setup a way so that once the server is running, it sends out a ping signal to notify any and all inactive client node on the network.
+    Once the node receives the signal, it should try to re-connect to the server over TCP channel instead of UDP channel.
+
+    server:udp -> ping { server ip's address } -> client:udp
+    // currently client node is able to receive the server ping, but unable to connect to the server!
+    client:tcp -> connect ( server ip's address ) -> ??? Err?
+*/
+
 pub struct Server {
     handler: NodeHandler<Signal>,
+    // why is this optional?
     listeners: Option<NodeListener<Signal>>,
     nodes: Vec<Node>,
     job: Option<Job>,
-    public_addr: SocketAddr,
 }
 
 // Should I have a job manager here? Or should that be in it's own separate struct?
@@ -25,15 +43,30 @@ impl Server {
     pub fn new(port: u16) -> Result<Server> {
         let (mut handler, listeners) = node::split();
 
-        let ip = local_ip().unwrap();
+        let ip = match local_ip() {
+            Ok(addr) => addr,
+            Err(e) => {
+                println!("Are you connected to the internet? Please check your network configuration! using localhost\n{:?}", e);
+                IpAddr::V4(Ipv4Addr::LOCALHOST)
+            }
+        };
         let public_addr = SocketAddr::new(ip, port);
 
         Self::ping(&public_addr, &mut handler); // ping the inactive clients, if there are any
 
-        let listen_addr = format!("127.0.0.1:{}", port);
-        handler
+        // could this be the answer? Do I need to use the server's actual ip address instead? Could I not rely on the localhost ip?
+        // let listen_addr = format!("127.0.0.1:{}", port);
+        // unfortunately I would have to test this when I get back home. Currently, I cannot test this in the public network domain. I may ping other unwanted devices on the network.
+        if let Err(e) = handler
             .network()
-            .listen(Transport::FramedTcp, listen_addr)?;
+            .listen(Transport::FramedTcp, public_addr.to_string())
+        {
+            return Err(anyhow::anyhow!(
+                "Failed to listen on port {} | \nErr: {:?}",
+                port,
+                e
+            ));
+        }
         handler.network().listen(Transport::Udp, MULTICAST_ADDR)?;
 
         Ok(Self {
@@ -41,7 +74,6 @@ impl Server {
             listeners: Some(listeners),
             nodes: Vec::new(),
             job: None,
-            public_addr,
         })
     }
 
@@ -67,10 +99,9 @@ impl Server {
     /// Once the server connects to node? Maybe this will never get called?
     fn handle_connected(&mut self, endpoint: Endpoint, established: bool) {
         // Did I accidentially multi-cast myself?
-        // todo!("Figure out how this is invoked, and then update the implmentation below.");
         // this is getting invoked by a multicast address, but I am not sure why?
         println!(
-            "Something connected to the server! {}, {}",
+            "A entity connected to the server! {}, {}",
             endpoint, established
         );
     }
@@ -86,28 +117,13 @@ impl Server {
         let msg: Message = bincode::deserialize(bytes).unwrap();
         match msg {
             // a new node register itself to the network!
-            Message::RegisterNode { name, addr } => self.register_node(&name, addr, endpoint),
+            Message::RegisterNode { name } => self.register_node(&name, endpoint),
             Message::UnregisterNode { addr } => self.unregister_node(addr),
             // Client should not be sending us the jobs!
             //Message::LoadJob() => {}
             Message::JobResult(render_info) => self.handle_job_result(endpoint, render_info),
             Message::HaveBlender { .. } => self.ask_client_for_blender(endpoint, &msg),
-
-            // confirmed to recived, but do absolutely nothing! Server shall not care!
-            Message::Ping { addr, host } => {
-                if host {
-                    println!("Server pinged itself! {:?}", addr);
-                } else {
-                    println!("Server pinged by {:?}", addr);
-                    let msg = Message::Ping {
-                        addr: self.public_addr,
-                        host: true,
-                    };
-                    self.send_to_target(endpoint, &msg);
-                }
-                // should a node be able to reply back to this?
-                // we do not care - we skip this. Log perhaps?
-            }
+            Message::ClientPing { name } => self.handle_client_ping(endpoint, &name),
             _ => println!("Unhandled case for {:?}", msg),
         }
     }
@@ -116,70 +132,100 @@ impl Server {
     fn handle_disconnected(&mut self, endpoint: Endpoint) {
         // I believe there's a reason why I cannot use endpoint.addr()
         // Instead, I need to match endpoint to endpoint from node struct instead
-        match self.nodes.iter().position(|n| n.endpoint == endpoint) {
+        match self
+            .nodes
+            .iter()
+            .position(|n| n.endpoint.addr() == endpoint.addr())
+        {
             Some(index) => {
                 let unit = self.nodes.remove(index);
-                let msg = Message::UnregisterNode { addr: unit.addr };
+                let msg = Message::UnregisterNode {
+                    addr: unit.endpoint.addr(),
+                };
                 self.send_to_all(&msg);
-                println!("Unregistered node '{}' with ip {}", unit.name, unit.addr);
+                println!(
+                    "Unregistered node '{}' with ip {}",
+                    unit.name,
+                    unit.endpoint.addr()
+                );
             }
             None => {
+                dbg!(&self.nodes, endpoint);
                 panic!("This should never happen! Unless I got the address wrong again?");
             }
         }
     }
 
+    /// If a client send out signal - we should try to establish connection.
+    fn handle_client_ping(&mut self, endpoint: Endpoint, name: &str) {
+        // we should not attempt to connect to the host!
+        println!("Received ping from client '{}' [{}]", name, endpoint.addr());
+        self.register_node(&name, endpoint);
+    }
+
     /// Ping any inactive node to reconnect
     pub fn ping(addr: &SocketAddr, handler: &mut NodeHandler<Signal>) {
-        // attempt to connect to multicast address
-        // maybe this is the problem?
-        let (endpoint, _) = handler
-            .network()
-            .connect(Transport::Udp, MULTICAST_ADDR)
-            .unwrap();
+        match handler.network().connect(Transport::Udp, MULTICAST_ADDR) {
+            Ok((endpoint, _)) => {
+                // create a server ping
+                let msg = Message::ServerPing { addr: *addr };
+                println!("Pinging inactive clients! {:?}", &msg);
 
-        // create a server ping
-        // I feel like this is such a dangerous power move here?
-        let msg = Message::Ping {
-            addr: *addr,
-            host: true,
-        };
-        println!("Pinging inactive clients! {:?}", &msg);
+                let data = bincode::serialize(&msg).unwrap();
+                handler.network().send(endpoint, &data);
+            }
+            Err(e) => {
+                eprintln!(
+                    "Unable to send out ping signal! Check your internet configuration? {}",
+                    e
+                );
+                return;
+            }
+        }
+    }
 
-        let data = bincode::serialize(&msg).unwrap();
-        handler.network().send(endpoint, &data);
+    fn test_send_job_to_target_node(&mut self, _node: &Node) {
+        let blend_scene = PathBuf::from("./test.blend");
+        let project_file = ProjectFile::new(blend_scene);
+        let version = Version::new(4, 1, 0);
+        let mode = Mode::Section { start: 0, end: 2 };
+        let server_config = ServerSetting::load();
+        let job = Job::new(project_file, server_config.render_dir, version, mode);
+        self.set_job(job);
     }
 
     /// Notify all clients a node has been registered (Connected)
-    fn register_node(&mut self, name: &str, addr: SocketAddr, endpoint: Endpoint) {
-        let node = Node::new(name, addr, endpoint);
-        self.send_to_all(&Message::RegisterNode {
-            name: node.name.clone(),
-            addr: node.addr,
-        });
-
-        // here we can invoke new container to hold the incoming connection.
-        self.send_to_target(endpoint, &self.create_node_list());
+    fn register_node(&mut self, name: &str, endpoint: Endpoint) {
+        let node = Node::new(name, endpoint);
 
         // for testing purposes -
-        // let's start working from here
         // once we received a connection, we should give the node a new job if there's one available, or currently pending.
         // in this example here, we'll focus on sending a job to the connected node.
-        // self.send_job_to_node(&node);
+        self.test_send_job_to_target_node(&node);
+
+        println!(
+            "Node Registered successfully! '{}' [{}]",
+            name,
+            &node.endpoint.addr()
+        );
 
         self.nodes.push(node);
-
-        println!("Node Registered successfully! '{}' [{}]", name, addr);
     }
 
     /// received notification from node being disconnected from the server.
     fn unregister_node(&mut self, addr: SocketAddr) {
-        match self.nodes.iter().position(|n| n.addr == addr) {
+        match self.nodes.iter().position(|n| n.endpoint.addr() == addr) {
             Some(index) => {
                 let unit = self.nodes.remove(index);
-                let msg = Message::UnregisterNode { addr: unit.addr };
+                let msg = Message::UnregisterNode {
+                    addr: unit.endpoint.addr(),
+                };
                 self.send_to_all(&msg);
-                println!("Unregistered node '{}' with ip {}", unit.name, unit.addr);
+                println!(
+                    "Unregistered node '{}' with ip {}",
+                    unit.name,
+                    unit.endpoint.addr()
+                );
             }
             None => {
                 println!("Foreign/Rogue node received! {}", addr);
@@ -219,16 +265,6 @@ impl Server {
             .map(|n| self.send_to_target(n.endpoint, &msg));
     }
 
-    /// Generate a list of node message to send
-    fn create_node_list(&self) -> Message {
-        let list = self
-            .nodes
-            .iter()
-            .map(|n| (n.addr, n.name.clone()))
-            .collect();
-        Message::NodeList(list)
-    }
-
     /// send network message to specific endpoint
     fn send_to_target(&self, endpoint: Endpoint, message: &Message) {
         let data = bincode::serialize(&message).unwrap();
@@ -250,7 +286,8 @@ impl Server {
     pub fn set_job(&mut self, mut job: Job) {
         // create an example job we can use to work with this.
         if self.job.is_some() {
-            panic!("Job already exists! Cannot set a new job! Need to understand how this situation can arise?");
+            println!("Job already exists! Cannot set a new job! Need to understand how this situation can arise?");
+            return;
         };
 
         if let Some(frame) = job.next_frame() {

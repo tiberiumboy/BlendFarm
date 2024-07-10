@@ -1,6 +1,5 @@
 use super::{file_info::FileInfo, render_info::RenderInfo, render_queue::RenderQueue};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::net::SocketAddr;
 
 // I could make this as a trait?
@@ -10,7 +9,6 @@ pub enum Message {
     // From Client To Server
     RegisterNode {
         name: String,
-        addr: SocketAddr,
     },
     UnregisterNode {
         addr: SocketAddr,
@@ -24,7 +22,6 @@ pub enum Message {
     },
 
     // From Server to Client
-    NodeList(HashMap<SocketAddr, String>),
     LoadJob(RenderQueue), // TODO figure out what kind of type I need to load here.
     // PrepareJob(Job),
 
@@ -35,11 +32,12 @@ pub enum Message {
     },
 
     // From multicast
-    Ping {
-        /// address in which to communicate from (LISTEN)
+    // may need to split this?
+    ServerPing {
         addr: SocketAddr,
-        /// determines if this is the server or node
-        host: bool,
+    },
+    ClientPing {
+        name: String,
     },
     FileRequest(FileInfo),
     // have a look into concurrent http file transfer if possible?
