@@ -125,6 +125,8 @@ pub fn create_job(
 
     // wouldbe interesting to see this working actually...
     // fetch me the server, and push new job to the server.
+    // I need to create a manager to hold the state here.
+    // Find a way to create server manager context?
     let ctx = app.state::<Mutex<Server>>();
     let mut server = ctx.lock().unwrap();
     server.set_job(job);

@@ -62,13 +62,18 @@ fn client() {
     // but I need to review more context about handling context like this in rust.
     // I understand Mutex, but I do not know if it's any safe to create pointers inside data struct from mutex memory.
     // "Do not communicate with shared memory"
+    let port = data.server_setting.port;
     let ctx = Mutex::new(data);
+
+    let server = Server::new(port).unwrap();
+    let m_server = Mutex::new(server);
 
     // why I can't dive into implementation details here?
     tauri::Builder::default()
         // https://docs.rs/tauri/1.6.8/tauri/struct.Builder.html#method.manage
         // It is indeed possible to have more than one manage - which I will be taking advantage over how I can share and mutate configuration data across this platform.
         .manage(ctx)
+        .manage(m_server)
         // .setup(|app| {
         //     // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.
         //     // it would be nice to include version number in title bar of the app.
