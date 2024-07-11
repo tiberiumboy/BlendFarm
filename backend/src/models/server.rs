@@ -31,10 +31,9 @@ pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
 
 pub struct Server {
     handler: NodeHandler<Signal>,
-    // why is this optional?
     listeners: Option<NodeListener<Signal>>,
     nodes: Vec<Node>,
-    job: Option<Job>,
+    pub job: Option<Job>,
 }
 
 // Should I have a job manager here? Or should that be in it's own separate struct?
@@ -52,7 +51,7 @@ impl Server {
         };
         let public_addr = SocketAddr::new(ip, port);
 
-        Self::ping(&public_addr, &mut handler); // ping the inactive clients, if there are any
+        Self::ping(&mut handler); // ping the inactive clients, if there are any
 
         // could this be the answer? Do I need to use the server's actual ip address instead? Could I not rely on the localhost ip?
         // let listen_addr = format!("127.0.0.1:{}", port);
@@ -124,6 +123,9 @@ impl Server {
             Message::JobResult(render_info) => self.handle_job_result(endpoint, render_info),
             Message::HaveBlender { .. } => self.ask_client_for_blender(endpoint, &msg),
             Message::ClientPing { name } => self.handle_client_ping(endpoint, &name),
+            Message::ServerPing => {
+                println!("Received server ping, but server do not handle such conditions!")
+            }
             _ => println!("Unhandled case for {:?}", msg),
         }
     }
@@ -164,14 +166,12 @@ impl Server {
     }
 
     /// Ping any inactive node to reconnect
-    pub fn ping(addr: &SocketAddr, handler: &mut NodeHandler<Signal>) {
+    pub fn ping(handler: &mut NodeHandler<Signal>) {
         match handler.network().connect(Transport::Udp, MULTICAST_ADDR) {
             Ok((endpoint, _)) => {
                 // create a server ping
-                let msg = Message::ServerPing { addr: *addr };
-                println!("Pinging inactive clients! {:?}", &msg);
-
-                let data = bincode::serialize(&msg).unwrap();
+                println!("Pinging inactive clients!");
+                let data = bincode::serialize(&Message::ServerPing).unwrap();
                 handler.network().send(endpoint, &data);
             }
             Err(e) => {
@@ -184,24 +184,37 @@ impl Server {
         }
     }
 
-    fn test_send_job_to_target_node(&mut self, _node: &Node) {
+    fn test_send_job_to_target_node(&mut self) {
         let blend_scene = PathBuf::from("./test.blend");
         let project_file = ProjectFile::new(blend_scene);
         let version = Version::new(4, 1, 0);
         let mode = Mode::Section { start: 0, end: 2 };
         let server_config = ServerSetting::load();
         let job = Job::new(project_file, server_config.render_dir, version, mode);
-        self.set_job(job);
+        self.start_new_job(Some(job));
+    }
+
+    fn start_new_job(&mut self, new_job: Option<Job>) {
+        if self.job.is_some() {
+            println!("Uh oh there's previous job running at the moment!");
+            // TODO handle conditions on the ongoing active job. Let the rendering node aware of the new job poll.
+            let msg = Message::CancelJob;
+            self.send_to_all(&msg);
+        }
+
+        let j: &mut Job = self.job.as_mut().unwrap();
+        if let Some(frame) = &j.next_frame() {
+            let queue = RenderQueue::new(*frame, j.version.clone(), j.project_file.clone(), j.id);
+            let msg = Message::LoadJob(queue);
+            self.send_to_all(&msg);
+        }
+
+        self.job = new_job;
     }
 
     /// Notify all clients a node has been registered (Connected)
     fn register_node(&mut self, name: &str, endpoint: Endpoint) {
         let node = Node::new(name, endpoint);
-
-        // for testing purposes -
-        // once we received a connection, we should give the node a new job if there's one available, or currently pending.
-        // in this example here, we'll focus on sending a job to the connected node.
-        self.test_send_job_to_target_node(&node);
 
         println!(
             "Node Registered successfully! '{}' [{}]",
@@ -210,6 +223,11 @@ impl Server {
         );
 
         self.nodes.push(node);
+
+        // for testing purposes -
+        // once we received a connection, we should give the node a new job if there's one available, or currently pending.
+        // in this example here, we'll focus on sending a job to the connected node.
+        self.test_send_job_to_target_node();
     }
 
     /// received notification from node being disconnected from the server.
@@ -278,29 +296,5 @@ impl Server {
         for node in &self.nodes {
             self.handler.network().send(node.endpoint, &data);
         }
-    }
-
-    /// Test example: Send a example job to target node
-    /// TODO: Split this function up where we'll have a method to send a new job to the server, and allowing new node to get on-going job
-    // TODO: Find a way to call server.set_job to kick off the job process!
-    pub fn set_job(&mut self, mut job: Job) {
-        // create an example job we can use to work with this.
-        if self.job.is_some() {
-            println!("Job already exists! Cannot set a new job! Need to understand how this situation can arise?");
-            return;
-        };
-
-        if let Some(frame) = job.next_frame() {
-            let version = job.version.clone();
-            let project_file = job.project_file.clone();
-            let render_queue = RenderQueue::new(frame, version, project_file, job.id);
-            // If I want to get fancy and crafty - I could speed up render by splitting the frame into multiple
-            // of pieces and render each quadrant per node.
-            // for now let's just try this and get this working again.
-            let message = Message::LoadJob(render_queue);
-            self.send_to_all(&message);
-        }
-
-        self.job = Some(job);
     }
 }

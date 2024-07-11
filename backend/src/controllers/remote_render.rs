@@ -51,6 +51,15 @@ pub fn list_node(app: AppHandle) -> Result<String, Error> {
     Ok(data)
 }
 
+#[command]
+pub fn ping_node(_app: AppHandle) -> Result<String, Error> {
+    // TODO: get the server and invoke ping signal.
+    println!("Sending broadcast ping to the network!");
+    // throw error if something happen to the server -
+    // on front end side - play a small spinning animation, and return green check if pinged, otherwise an red "X" will appear with error in the console log or hint dialog
+    Ok("Ping sent!".to_string())
+}
+
 /// List all of the available blender version. (TODO - Impl. list of blender version available to download?)
 #[command]
 pub fn list_versions() -> Result<String, Error> {
@@ -129,7 +138,7 @@ pub fn create_job(
     // Find a way to create server manager context?
     let ctx = app.state::<Mutex<Server>>();
     let mut server = ctx.lock().unwrap();
-    server.set_job(job);
+    server.job = Some(job);
 }
 
 /// Abort the job if it's running and delete the entry from the collection list.

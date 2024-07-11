@@ -23,7 +23,7 @@
 
 use crate::controllers::remote_render::{
     create_job, create_node, delete_job, delete_node, delete_project, edit_node, import_project,
-    list_job, list_node, list_projects, list_versions,
+    list_job, list_node, list_projects, list_versions, ping_node,
 };
 use crate::controllers::settings::{
     add_blender_installation, get_server_settings, list_blender_installation,
@@ -62,18 +62,19 @@ fn client() {
     // but I need to review more context about handling context like this in rust.
     // I understand Mutex, but I do not know if it's any safe to create pointers inside data struct from mutex memory.
     // "Do not communicate with shared memory"
-    let port = data.server_setting.port;
+    // let port = data.server_setting.port;
     let ctx = Mutex::new(data);
 
-    let server = Server::new(port).unwrap();
-    let m_server = Mutex::new(server);
+    // currently this breaks. Will have to wait for the server to get back on this one. I need a server to continue to operate despite losing internet capability. I could instead just make a "local" version where it just connects to the localhost machine instead.
+    // let server = Server::new(port).unwrap();
+    // let m_server = Mutex::new(server);
 
     // why I can't dive into implementation details here?
     tauri::Builder::default()
         // https://docs.rs/tauri/1.6.8/tauri/struct.Builder.html#method.manage
         // It is indeed possible to have more than one manage - which I will be taking advantage over how I can share and mutate configuration data across this platform.
         .manage(ctx)
-        .manage(m_server)
+        // .manage(m_server)
         // .setup(|app| {
         //     // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.
         //     // it would be nice to include version number in title bar of the app.
@@ -82,7 +83,6 @@ fn client() {
         // })
         .invoke_handler(generate_handler![
             import_project,
-            // sync_project,
             create_node,
             create_job,
             delete_node,
@@ -94,7 +94,7 @@ fn client() {
             list_job,
             list_versions,
             get_server_settings,
-            // settings
+            ping_node,
             add_blender_installation,
             list_blender_installation,
             remove_blender_installation,

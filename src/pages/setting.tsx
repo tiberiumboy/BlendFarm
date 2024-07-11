@@ -26,6 +26,32 @@ export default function Setting() {
         Here we list out all possible configuration this tool can offer to user.
         Exposing rich and deep component to fit your production flow
       </p>
+      <h2>Local Settings</h2>
+      <div className="group">
+        {/* need to find a way to expose server configs to let the user personalize their node/server settings */}
+        {/* TODO: Find out how to get folder path and struct like in the other dialog form */}
+        <form>
+          Blender Installation Path:
+          <input
+            type="text"
+            placeholder="Blender Installation Path"
+            id="blender_dir"
+            name="blender_dir"
+            value={"/Users/Shared/"}
+            readOnly={true}
+            onClick={async (e: any) => {
+              const filePath = await open({
+                directory: true,
+                multiple: false,
+              });
+              if (filePath != null) {
+                // TODO: find a way to include the dash elsewhere
+                e.target.value = filePath + "/";  // this is quite annoying...
+              }
+            }}
+          />
+        </form>
+      </div>
       <h2>
         Blender Installation
         <CiCirclePlus

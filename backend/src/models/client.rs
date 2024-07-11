@@ -6,7 +6,6 @@ use crate::models::{
     file_info::FileInfo,
     file_transfer::FileTransfer,
     message::{Message, Signal},
-    node::Node,
     render_queue::RenderQueue,
     server,
 };
@@ -26,8 +25,6 @@ pub struct Client {
     name: String,
     server_endpoint: Option<Endpoint>,
     public_addr: SocketAddr,
-    // do I still need this?
-    nodes: Vec<Node>,
     file_transfer: Option<FileTransfer>,
     // Is there a way for me to hold struct objects while performing a transfer task?
 }
@@ -72,7 +69,6 @@ impl Client {
             name: name.to_string(),
             server_endpoint: None,
             public_addr: listen_addr,
-            nodes: Vec::new(),
             file_transfer: None,
         })
     }
@@ -118,6 +114,48 @@ impl Client {
         self.server_endpoint = Some(endpoint);
     }
 
+    fn handle_message(&mut self, endpoint: Endpoint, bytes: &[u8]) {
+        // why did this part failed?
+        let message: Message = match bincode::deserialize(bytes) {
+            Ok(data) => data,
+            // just for now we'll just panic. making the assumption that both side should have identical data type matches, it should be fine.
+            Err(e) => panic!("Error deserializing message input: \n{:?}", e),
+        };
+
+        match message {
+            // Client receives this message from the server
+            Message::RegisterNode { .. } => {
+                unreachable!("Client should not care about registering node!")
+            }
+            Message::UnregisterNode { .. } => {
+                unreachable!("Client should not care about unregistering nodes!")
+            }
+            Message::LoadJob(render_queue) => self.load_job(render_queue),
+            Message::CancelJob => self.cancel_job(),
+            // client to client
+            Message::ContainBlenderResponse { have_blender } => {
+                if have_blender {
+                    // there should be some kind of handler to reject any other potential response
+                    let msg = Message::CanReceive(true);
+                    self.send_to_target(endpoint, msg);
+                }
+            }
+
+            // multicast
+            Message::ServerPing => self.handle_server_ping(endpoint),
+            Message::ClientPing { name: _ } => self.handle_client_ping(),
+            Message::FileRequest(file_info) => self.handle_file_request(endpoint, &file_info),
+            Message::Chunk(_data) => todo!("Find a way to save data to temp?"),
+            Message::CanReceive(accepted) => {
+                if accepted {
+                    // accept receiving chunks of data
+                    // here we start sending the endpoint data?
+                }
+            }
+            _ => println!("Unhandled client message case condition for {:?}", message),
+        };
+    }
+
     fn handle_disconnected(&mut self, endpoint: Endpoint) {
         // TODO: How can we initialize another listening job? We definitely don't want the user to go through the trouble of figuring out which machine has stopped.
         // Disconnected was call when server was shut down
@@ -148,58 +186,6 @@ impl Client {
         match self.server_endpoint {
             Some(_) => true,
             _ => false,
-        }
-    }
-
-    fn handle_message(&mut self, endpoint: Endpoint, bytes: &[u8]) {
-        // why did this part failed?
-        let message: Message = match bincode::deserialize(bytes) {
-            Ok(data) => data,
-            // just for now we'll just panic. making the assumption that both side should have identical data type matches, it should be fine.
-            Err(e) => panic!("Error deserializing message input: \n{:?}", e),
-        };
-
-        match message {
-            // Client receives this message from the server
-            Message::RegisterNode { name } => self.add_node(&name, endpoint),
-            Message::UnregisterNode { addr } => self.remove_node(addr),
-            Message::LoadJob(render_queue) => self.load_job(render_queue),
-
-            // client to client
-            Message::ContainBlenderResponse { have_blender } => {
-                if have_blender {
-                    // there should be some kind of handler to reject any other potential response
-                    let msg = Message::CanReceive(true);
-                    self.send_to_target(endpoint, msg);
-                }
-            }
-
-            // multicast
-            Message::ServerPing { addr } => self.handle_server_ping(addr, &endpoint),
-            Message::FileRequest(file_info) => self.handle_file_request(endpoint, &file_info),
-            Message::Chunk(_data) => todo!("Find a way to save data to temp?"),
-            Message::CanReceive(accepted) => {
-                if accepted {
-                    // accept receiving chunks of data
-                    // here we start sending the endpoint data?
-                }
-            }
-            _ => println!("Unhandled client message case condition for {:?}", message),
-        };
-    }
-
-    fn add_node(&mut self, name: &str, endpoint: Endpoint) {
-        let node = Node::new(name, endpoint);
-        self.nodes.push(node);
-        println!("{} [{}] connected to the server", name, endpoint.addr());
-    }
-
-    fn remove_node(&mut self, addr: SocketAddr) {
-        // can we try iter() downto instead? .remove(index) might be an issue if we start the iter at index 0.
-        if let Some(index) = self.nodes.iter().position(|x| x.endpoint.addr() == addr) {
-            // could this somehow break iteration?
-            let node = self.nodes.remove(index);
-            println!("{} [{}] Disconnected", node.name, node.endpoint.addr());
         }
     }
 
@@ -248,11 +234,15 @@ impl Client {
         }
     }
 
+    fn cancel_job(&self) {
+        println!("Cancel active job!");
+    }
+
     /// Handle server multi-cast ping signal
-    fn handle_server_ping(&mut self, addr: SocketAddr, endpoint: &Endpoint) {
+    fn handle_server_ping(&mut self, endpoint: Endpoint) {
         println!(
-            "Hey! Client received a multicast ping signal! {} | {}",
-            &addr, &endpoint
+            "Hey! Client received a multicast ping signal! {}",
+            &endpoint.addr()
         );
 
         if self.is_connected() {
@@ -260,14 +250,12 @@ impl Client {
             return;
         }
 
-        // if the client_name is none, it means the ping originated from the host.
-        match self.handler.network().connect(Transport::FramedTcp, addr) {
-            Ok((new_endpoint, _)) => {
-                self.send_to_target(new_endpoint, self.register_message());
-                self.server_endpoint = Some(new_endpoint);
-            }
-            Err(e) => println!("Something went wrong? {}", e),
-        }
+        self.send_to_target(endpoint.clone(), self.register_message());
+        self.server_endpoint = Some(endpoint);
+    }
+
+    fn handle_client_ping(&self) {
+        println!("Received client ping! Ignoring!");
     }
 
     fn handle_file_request(&mut self, endpoint: Endpoint, file_info: &FileInfo) {

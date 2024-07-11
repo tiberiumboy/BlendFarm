@@ -24,6 +24,7 @@ pub enum Message {
     // From Server to Client
     LoadJob(RenderQueue), // TODO figure out what kind of type I need to load here.
     // PrepareJob(Job),
+    CancelJob,
 
     // From Client to Client
     // TODO: Future updates? - Let individual node module to share identical blender files over network instead of downloading from the server multiple of times.
@@ -33,9 +34,7 @@ pub enum Message {
 
     // From multicast
     // may need to split this?
-    ServerPing {
-        addr: SocketAddr,
-    },
+    ServerPing,
     ClientPing {
         name: String,
     },

@@ -15,7 +15,6 @@ const RENDER_DIR: &str = "RenderData/";
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerSetting {
     pub port: u16,
-    pub broadcast_port: u16,
     pub blender_dir: PathBuf,
     pub render_dir: PathBuf,
     pub blenders: Vec<Blender>, // list of installed blender versions on this machine.
@@ -31,7 +30,6 @@ impl Default for ServerSetting {
         fs::create_dir_all(&blender_data).unwrap();
         Self {
             port: 15000,
-            broadcast_port: 16342,
             blender_dir: blender_data,
             render_dir: render_data,
             blenders: vec![],

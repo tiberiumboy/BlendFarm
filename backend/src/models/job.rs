@@ -109,7 +109,7 @@ impl Job {
         Ok(info)
     }
 
-    fn internal_compare_and_fetch(&mut self, max: i32) -> Option<i32> {
+    fn compare_and_increment(&mut self, max: i32) -> Option<i32> {
         if self.current_frame < max {
             self.current_frame += 1;
             Some(self.current_frame)
@@ -120,8 +120,8 @@ impl Job {
 
     pub fn next_frame(&mut self) -> Option<i32> {
         match self.mode {
-            Mode::Frame(frame) => self.internal_compare_and_fetch(frame),
-            Mode::Section { start: _, end } => self.internal_compare_and_fetch(end),
+            Mode::Frame(frame) => self.compare_and_increment(frame),
+            Mode::Section { start: _, end } => self.compare_and_increment(end),
         }
     }
 }
