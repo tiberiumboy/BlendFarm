@@ -13,7 +13,7 @@ use anyhow::Result;
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use super::server::MULTICAST_ADDR;
 
@@ -33,23 +33,26 @@ impl Client {
     pub fn new(name: &str) -> Result<Client> {
         let (handler, listener) = node::split();
 
-        let ip = local_ip().unwrap();
+        // this would error if I am not connected to the internet. I need this to be able to run despite not connected to anything ( run as local host!)
+        let ip = local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
         let public_addr = SocketAddr::new(ip, 0);
 
-        // connect to multicast address
-        let (endpoint, _) = handler
+        // this will handle the multicast address channel
+        handler
             .network()
-            .connect(Transport::Udp, MULTICAST_ADDR)
-            .unwrap();
+            .listen(Transport::Udp, server::MULTICAST_ADDR)?;
 
-        // send client ping to multicast address
-        let msg = Message::ClientPing {
-            name: name.to_owned(),
-        };
-        let data = bincode::serialize(&msg).unwrap();
-        handler.network().send(endpoint, &data);
+        // connect to multicast address
+        if let Ok((endpoint, _)) = handler.network().connect(Transport::Udp, MULTICAST_ADDR) {
+            // send client ping to multicast address
+            let name = name.to_owned();
+            let msg = Message::ClientPing { name };
+            let data = bincode::serialize(&msg).unwrap();
+            handler.network().send(endpoint, &data);
+        }
 
         // setup listener for client
+        // I only got socket address from this?
         let listen_addr = match handler.network().listen(Transport::FramedTcp, public_addr) {
             Ok(conn) => conn.1, // don't care about Resource Id (0)
             Err(e) => {
@@ -57,11 +60,6 @@ impl Client {
                 return Err(anyhow::anyhow!("Error listening to port! {:?}", e));
             }
         };
-
-        // this will handle the multicast address channel
-        handler
-            .network()
-            .listen(Transport::Udp, server::MULTICAST_ADDR)?;
 
         Ok(Self {
             handler,
@@ -98,10 +96,10 @@ impl Client {
     }
 
     // maybe we don't need this at all?
-    fn handle_connected(&self, endpoint: Endpoint, established: bool) {
-        // why and how is this not establishing the connection?
+    fn handle_connected(&mut self, endpoint: Endpoint, established: bool) {
         if established {
-            println!("Node connected! Sending register node!");
+            println!("Node connected! [{}]", endpoint.addr());
+            self.server_endpoint = Some(endpoint);
         } else {
             println!("Could not connect to the server!?? {}", endpoint);
             // is there any way I could just begin the listen process here?
@@ -110,7 +108,7 @@ impl Client {
 
     fn handle_accepted(&mut self, endpoint: Endpoint) {
         // an tcp connection accepts the connection!
-        println!("Client was accepted to server!");
+        println!("Client was accepted to server! [{}]", endpoint.addr());
         self.server_endpoint = Some(endpoint);
     }
 
@@ -123,35 +121,21 @@ impl Client {
         };
 
         match message {
-            // Client receives this message from the server
-            Message::RegisterNode { .. } => {
-                unreachable!("Client should not care about registering node!")
-            }
-            Message::UnregisterNode { .. } => {
-                unreachable!("Client should not care about unregistering nodes!")
-            }
+            // server to client
+            Message::ServerPing => self.server_ping(endpoint),
             Message::LoadJob(render_queue) => self.load_job(render_queue),
             Message::CancelJob => self.cancel_job(),
+
             // client to client
+            Message::ClientPing { name: _ } => self.client_ping(),
             Message::ContainBlenderResponse { have_blender } => {
-                if have_blender {
-                    // there should be some kind of handler to reject any other potential response
-                    let msg = Message::CanReceive(true);
-                    self.send_to_target(endpoint, msg);
-                }
+                self.contain_blender_response(endpoint, have_blender)
             }
 
             // multicast
-            Message::ServerPing => self.handle_server_ping(endpoint),
-            Message::ClientPing { name: _ } => self.handle_client_ping(),
-            Message::FileRequest(file_info) => self.handle_file_request(endpoint, &file_info),
+            Message::FileRequest(file_info) => self.file_request(endpoint, &file_info),
             Message::Chunk(_data) => todo!("Find a way to save data to temp?"),
-            Message::CanReceive(accepted) => {
-                if accepted {
-                    // accept receiving chunks of data
-                    // here we start sending the endpoint data?
-                }
-            }
+            Message::CanReceive(accepted) => self.can_receive(accepted),
             _ => println!("Unhandled client message case condition for {:?}", message),
         };
     }
@@ -178,14 +162,6 @@ impl Client {
                 // this means that we have completed our transfer!
                 self.file_transfer = None;
             }
-        }
-    }
-
-    // may not be public? we'll see!
-    fn is_connected(&self) -> bool {
-        match self.server_endpoint {
-            Some(_) => true,
-            _ => false,
         }
     }
 
@@ -238,14 +214,26 @@ impl Client {
         println!("Cancel active job!");
     }
 
+    fn contain_blender_response(&self, endpoint: Endpoint, have_blender: bool) {
+        if !have_blender {
+            println!(
+                "Client [{}] does not have the right version of blender installed",
+                endpoint.addr()
+            );
+            return;
+        }
+
+        self.send_to_target(endpoint, Message::CanReceive(true));
+    }
+
     /// Handle server multi-cast ping signal
-    fn handle_server_ping(&mut self, endpoint: Endpoint) {
+    fn server_ping(&mut self, endpoint: Endpoint) {
         println!(
             "Hey! Client received a multicast ping signal! {}",
             &endpoint.addr()
         );
 
-        if self.is_connected() {
+        if self.server_endpoint.is_some() {
             println!("Sorry, we're already connected to the host!");
             return;
         }
@@ -254,16 +242,25 @@ impl Client {
         self.server_endpoint = Some(endpoint);
     }
 
-    fn handle_client_ping(&self) {
+    fn client_ping(&self) {
         println!("Received client ping! Ignoring!");
     }
 
-    fn handle_file_request(&mut self, endpoint: Endpoint, file_info: &FileInfo) {
+    fn file_request(&mut self, endpoint: Endpoint, file_info: &FileInfo) {
         println!("name: {:?} | size: {}", file_info.path, file_info.size);
         let message = Message::CanReceive(true);
         let data = bincode::serialize(&message).unwrap();
         self.handler.network().send(endpoint, &data);
         // TODO: Find a way to send file from one computer to another!
+    }
+
+    fn can_receive(&self, accepted: bool) {
+        if !accepted {
+            println!("Client cannot accept file transfer!");
+            return;
+        };
+
+        self.handler.signals().send(Signal::SendChunk);
     }
 
     fn register_message(&self) -> Message {

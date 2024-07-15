@@ -57,11 +57,11 @@ pub enum BlenderError {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct BlenderHandler {}
 
 /// Blender structure to hold path to executable and version of blender installed.
-#[derive(Debug, Eq, Serialize, Deserialize, Clone)]
+#[derive(Debug, PartialEq, Default, Serialize, Deserialize, Clone)]
 pub struct Blender {
     /// Path to blender executable on the system.
     executable: PathBuf, // Private immutable variable - Must validate before using!
@@ -71,8 +71,14 @@ pub struct Blender {
                           // handler: Option<JoinHandle<BlenderHandler>>, // thoughts about passing struct to JoinHandle instead of unit?
 }
 
+impl PartialEq for Blender {
+    fn eq(&self, other: &Self) -> bool {
+        self.version == other.version
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
-pub struct BlenderDownloadLink {
+struct BlenderDownloadLink {
     name: String,
     ext: String,
     url: Url,
@@ -330,6 +336,11 @@ impl Blender {
             Ok(version) => Ok(Self::new(path.to_path_buf(), version)),
             Err(e) => Err(e),
         }
+    }
+
+    pub fn from_content(path: impl AsRef<Path>, folder_name: &str) -> Result<Self, BlenderError> {
+        let path = BlenderDownloadLink::extract_content(&path, folder_name)?;
+        Blender::from_executable(path)
     }
 
     /// Download blender from the internet and install it to the provided path.

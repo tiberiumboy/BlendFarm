@@ -1,7 +1,7 @@
 // this is the settings controller section that will handle input from the setting page.
 use crate::models::server_setting::ServerSetting;
 // use blender::blender::Blender;
-use blender::blender::{Blender, BlenderDownloadLink};
+use blender::blender::Blender;
 use std::path::PathBuf;
 use tauri::{command, Error};
 
@@ -33,7 +33,7 @@ pub fn add_blender_installation(path: PathBuf) -> Result<(), Error> {
     let extension = Blender::get_extension().unwrap();
     let str_path = path.as_os_str().to_str().unwrap().to_owned();
 
-    let executable_path = if str_path.contains(&extension) {
+    let blender = if str_path.contains(&extension) {
         let folder_name = &path
             .file_name()
             .unwrap()
@@ -42,20 +42,15 @@ pub fn add_blender_installation(path: PathBuf) -> Result<(), Error> {
             .unwrap()
             .replace(&extension, "");
 
-        match BlenderDownloadLink::extract_content(&path, folder_name) {
-            Ok(link) => link,
-            Err(_) => panic!("Shouldn't happen?"),
-        }
+        // this feels wrong, should this be called from Blender instead of BlenderDownloadLink? I want to treat Blender as our only source of public API access to.
+        Blender::from_content(&path, folder_name).unwrap()
     } else {
         // for MacOS - for some unknown reason, user cannot navigate into the app bundle, therefore we must include the path ourselves here.
         if let "macos" = std::env::consts::OS {
             path = path.join("Contents/MacOS/Blender")
         }
-
-        path
+        Blender::from_executable(path).unwrap()
     };
-
-    let blender = Blender::from_executable(executable_path).unwrap();
 
     // Add to the server settings
     let mut server_settings = ServerSetting::load();

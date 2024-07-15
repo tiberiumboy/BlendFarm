@@ -202,18 +202,25 @@ impl Server {
             self.send_to_all(&msg);
         }
 
+        self.job = new_job;
+
         let j: &mut Job = self.job.as_mut().unwrap();
         if let Some(frame) = &j.next_frame() {
             let queue = RenderQueue::new(*frame, j.version.clone(), j.project_file.clone(), j.id);
             let msg = Message::LoadJob(queue);
             self.send_to_all(&msg);
         }
-
-        self.job = new_job;
     }
 
     /// Notify all clients a node has been registered (Connected)
     fn register_node(&mut self, name: &str, endpoint: Endpoint) {
+        let local_ip = local_ip().unwrap();
+        if endpoint.addr().ip() == local_ip {
+            // in this case, we're connected to the server locally?
+            // endpoint.set_addr(SocketAddr::new(local_ip, endpoint.addr().port()));
+            println!("A client on this localhost is trying to connect to the server!",);
+        }
+
         let node = Node::new(name, endpoint);
 
         println!(
@@ -291,10 +298,12 @@ impl Server {
 
     /// Send message to all clients that's connected to the host.
     fn send_to_all(&self, message: &Message) {
-        println!("Sending {:?} to all clients", &message);
+        println!("Sending {:?} to the following client", &message);
         let data = bincode::serialize(&message).unwrap();
         for node in &self.nodes {
-            self.handler.network().send(node.endpoint, &data);
+            let status = self.handler.network().send(node.endpoint, &data);
+            println!("{:?} to {} [{}]", status, node.name, node.endpoint.addr());
         }
+        println!("End sending data");
     }
 }
