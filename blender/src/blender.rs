@@ -61,7 +61,7 @@ pub enum BlenderError {
 pub struct BlenderHandler {}
 
 /// Blender structure to hold path to executable and version of blender installed.
-#[derive(Debug, PartialEq, Default, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Blender {
     /// Path to blender executable on the system.
     executable: PathBuf, // Private immutable variable - Must validate before using!
@@ -73,7 +73,7 @@ pub struct Blender {
 
 impl PartialEq for Blender {
     fn eq(&self, other: &Self) -> bool {
-        self.version == other.version
+        self.version.eq(&other.version)
     }
 }
 
@@ -478,11 +478,5 @@ impl Blender {
         });
 
         Ok(output)
-    }
-}
-
-impl PartialEq for Blender {
-    fn eq(&self, other: &Self) -> bool {
-        self.version.eq(&other.version)
     }
 }

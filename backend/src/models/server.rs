@@ -117,7 +117,7 @@ impl Server {
         match msg {
             // a new node register itself to the network!
             Message::RegisterNode { name } => self.register_node(&name, endpoint),
-            Message::UnregisterNode { addr } => self.unregister_node(addr),
+            Message::UnregisterNode => self.unregister_node(endpoint),
             // Client should not be sending us the jobs!
             //Message::LoadJob() => {}
             Message::JobResult(render_info) => self.handle_job_result(endpoint, render_info),
@@ -141,10 +141,6 @@ impl Server {
         {
             Some(index) => {
                 let unit = self.nodes.remove(index);
-                let msg = Message::UnregisterNode {
-                    addr: unit.endpoint.addr(),
-                };
-                self.send_to_all(&msg);
                 println!(
                     "Unregistered node '{}' with ip {}",
                     unit.name,
@@ -238,22 +234,17 @@ impl Server {
     }
 
     /// received notification from node being disconnected from the server.
-    fn unregister_node(&mut self, addr: SocketAddr) {
-        match self.nodes.iter().position(|n| n.endpoint.addr() == addr) {
+    fn unregister_node(&mut self, endpoint: Endpoint) {
+        match self
+            .nodes
+            .iter()
+            .position(|n| n.endpoint.addr() == endpoint.addr())
+        {
             Some(index) => {
-                let unit = self.nodes.remove(index);
-                let msg = Message::UnregisterNode {
-                    addr: unit.endpoint.addr(),
-                };
-                self.send_to_all(&msg);
-                println!(
-                    "Unregistered node '{}' with ip {}",
-                    unit.name,
-                    unit.endpoint.addr()
-                );
+                self.nodes.remove(index);
             }
             None => {
-                println!("Foreign/Rogue node received! {}", addr);
+                println!("Foreign/Rogue node received! {}", endpoint.addr());
             }
         }
     }

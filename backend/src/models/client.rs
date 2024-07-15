@@ -20,12 +20,13 @@ use super::server::MULTICAST_ADDR;
 // const CHUNK_SIZE: usize = 65536;
 
 pub struct Client {
-    handler: NodeHandler<Signal>,
+    handler: NodeHandler<Signal>, // maybe?
     listener: Option<NodeListener<Signal>>,
     name: String,
     server_endpoint: Option<Endpoint>,
-    public_addr: SocketAddr,
-    file_transfer: Option<FileTransfer>,
+    // public_addr: SocketAddr,    // I'm not sure what this one is used for?
+    // let's focus on getting the client connected for now.
+    // file_transfer: Option<FileTransfer>,
     // Is there a way for me to hold struct objects while performing a transfer task?
 }
 
@@ -66,8 +67,8 @@ impl Client {
             listener: Some(listener),
             name: name.to_string(),
             server_endpoint: None,
-            public_addr: listen_addr,
-            file_transfer: None,
+            // public_addr: listen_addr,
+            // file_transfer: None,
         })
     }
 
@@ -88,8 +89,8 @@ impl Client {
                 // client is sending self generated signals?
                 NodeEvent::Signal(signal) => match signal {
                     // Signal
-                    Signal::SendChunk => self.handle_sending_chunk(),
-                    //_ => todo!("Not yet implemented!"),
+                    // Signal::SendChunk => self.handle_sending_chunk(),
+                    _ => todo!("Not yet implemented!"),
                 },
             }
         })
@@ -148,6 +149,8 @@ impl Client {
         // in the case of this node disconnecting, I would like to auto renew the connection if possible.
     }
 
+    // Let's not worry about this for now...
+    /*
     fn handle_sending_chunk(&mut self) {
         let transfer = match self.file_transfer.as_mut() {
             Some(transfer) => transfer,
@@ -164,6 +167,7 @@ impl Client {
             }
         }
     }
+     */
 
     fn load_job(&mut self, render_queue: RenderQueue) {
         println!("Received a new render queue!\n{:?}", render_queue);
@@ -173,6 +177,7 @@ impl Client {
         if !render_queue.project_file.file_path().exists() {
             // here we will fetch the file path from the server
             // but for now let's continue.
+            println!("Path does not exist!");
         }
 
         // run the blender() - this will take some time. Could implement async/thread?
@@ -192,7 +197,7 @@ impl Client {
                 file_transfer.transfer(&self.handler);
                 // is there a way to convert mutable to immutable?
 
-                self.file_transfer = Some(file_transfer);
+                // self.file_transfer = Some(file_transfer);
                 // wonder if there's a way to say - hey I've completed my transfer,
                 // please go and look in your download folder with this exact file name,
                 // then proceed to your job manager to move out to output destination.
@@ -279,9 +284,7 @@ impl Client {
 impl Drop for Client {
     fn drop(&mut self) {
         if let Some(endpoint) = self.server_endpoint {
-            let message = Message::UnregisterNode {
-                addr: self.public_addr,
-            };
+            let message = Message::UnregisterNode;
             println!("Sending unregisternode packet to host before stopping!");
             self.send_to_target(endpoint, message);
         }

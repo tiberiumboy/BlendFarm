@@ -10,9 +10,7 @@ pub enum Message {
     RegisterNode {
         name: String,
     },
-    UnregisterNode {
-        addr: SocketAddr,
-    },
+    UnregisterNode,
     // need to find a way to associate the completion of the job?
     JobResult(RenderInfo), // return the result of the job
     HaveBlender {
