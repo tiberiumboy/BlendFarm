@@ -7,6 +7,8 @@ Developer blog:
 - Using thiserror to define custom error within this library and anyhow for main.rs function, eventually I will have to handle those situation of the error message.
 
 - Invoking blender should be called asyncronously on OS thread level. You have the ability to set priority for blender.
+- Had to add BlenderJSON because some fields I could not deserialize/serialize - Which make sense that I don't want to share information that is only exclusive for the running machine to have access to.
+    Instead BlenderJSON will only hold key information to initialize a new channel when accessed.
 */
 
 use crate::page_cache::PageCache;
@@ -14,7 +16,6 @@ use crate::{args::Args, blender_download_link::BlenderDownloadLink, page_cache::
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use serde_json::from_slice;
 use std::sync::mpsc::Sender;
 use std::{
     env::consts,
@@ -139,8 +140,7 @@ impl Blender {
     /// # Errors
     /// * InvalidData - executable path do not exist or is invalid. Please verify that the path provided exist and not compressed.
     ///  This error also serves where the executable is unable to provide the blender version.
-    // TODO: Find a better way to fetch version from stdout (Possibly regex? How would other do it?)
-    // Wonder if this is the better approach? Do not know! We'll find out more?
+    // TODO: Find a better way to fetch version from stdout (Research for best practice to parse data from stdout)
     fn check_version(executable_path: impl AsRef<Path>) -> Result<Version, BlenderError> {
         let output = match Command::new(executable_path.as_ref()).arg("-v").output() {
             Ok(output) => output,
@@ -220,10 +220,18 @@ impl Blender {
     /// ```
     pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self, BlenderError> {
         // check and verify that the executable exist.
-        let path = executable.as_ref();
+        let mut path = executable.as_ref();
         if !path.exists() {
             return Err(BlenderError::ExecutableNotFound(path.to_path_buf()));
         }
+
+        // macOS is special. To invoke the blender application, I need to navigate inside Blender.app, which is an app bundle that contains stuff to run blender.
+        // Command::Process needs to access the content inside app bundle to perform the operation correctly.
+        // To do this - I need to append additional path args to correctly invoke the right application for this to work.
+        let path = match std::env::consts::OS {
+            "macos" => &path.join("Contents/MacOS/Blender"),
+            _ => path,
+        };
 
         // currently need a path to the executable before executing the command.
         match Self::check_version(path) {
@@ -370,7 +378,6 @@ impl Blender {
                 // that the render is completed
                 // TODO: why this didn't work after second render?
                 let location = line.split('\'').collect::<Vec<&str>>();
-                dbg!(&line, &location);
                 output = location[1].trim().to_string();
             } else {
                 // TODO: find a way to show error code or other message if blender doesn't actually render!
