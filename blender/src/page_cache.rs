@@ -9,6 +9,7 @@ use url::Url;
 // rely the cache creation date on file metadata.
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct PageCache {
+    // Url is not serialized?
     cache: HashMap<Url, PathBuf>,
     was_modified: bool,
 }
@@ -31,16 +32,12 @@ pub enum PageCacheError {
     },
 }
 
-// consider using directories::UserDirs::document_dir()
-const CACHE_DIR: &str = "cache";
-const CACHE_CONFIG: &str = "cache.json";
-
 impl PageCache {
     // fetch cache directory
     fn get_dir() -> Result<PathBuf, PageCacheError> {
         // TODO: What should happen if I can't fetch cache_dir()?
         let mut tmp = dirs::cache_dir().ok_or(PageCacheError::CacheDirNotFound)?;
-        tmp.push(CACHE_DIR);
+        tmp.push("cache");
         if fs::create_dir_all(&tmp).is_err() {
             Err(PageCacheError::CannotCreate { path: tmp })
         } else {
@@ -51,7 +48,7 @@ impl PageCache {
     // fetch path to cache file
     fn get_cache_path() -> Result<PathBuf, PageCacheError> {
         match Self::get_dir() {
-            Ok(path) => Ok(path.join(CACHE_CONFIG)),
+            Ok(path) => Ok(path.join("cache.json")),
             Err(e) => Err(e),
         }
     }

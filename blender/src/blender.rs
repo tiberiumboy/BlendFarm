@@ -10,24 +10,23 @@ Developer blog:
 */
 
 use crate::page_cache::PageCache;
-use crate::{args::Args, page_cache::PageCacheError};
+use crate::{args::Args, blender_download_link::BlenderDownloadLink, page_cache::PageCacheError};
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use serde_json::from_slice;
+use std::sync::mpsc::Sender;
 use std::{
     env::consts,
     fs,
     io::{self, BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::mpsc::channel,
     time::SystemTime,
 };
 use thiserror::Error;
 use url::Url;
-
-const WINDOW_EXT: &str = ".zip";
-const LINUX_EXT: &str = ".tar.xz";
-const MACOS_EXT: &str = ".dmg";
 
 // TODO: consider making this private to make it easy to modify internally than affecting exposed APIs
 #[derive(Debug, Error)]
@@ -57,169 +56,39 @@ pub enum BlenderError {
     },
 }
 
+// I am not sure why I need this?
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct BlenderHandler {}
 
+pub enum BlenderStatus {
+    Idle,
+    Running { status: String },
+    Error { message: String },
+    Completed { result: PathBuf }, // should this be a pathbuf instead? or the actual image data?
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlenderJSON {
+    pub executable: PathBuf,
+    pub version: Version,
+}
+
 /// Blender structure to hold path to executable and version of blender installed.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug)]
 pub struct Blender {
     /// Path to blender executable on the system.
-    executable: PathBuf, // Private immutable variable - Must validate before using!
+    executable: PathBuf, // Must validate before usage!
     /// Version of blender installed on the system.
-    pub version: Version, // Private immutable variable - Must validate before using!
-                          // possibly a handler to proceed data?
-                          // handler: Option<JoinHandle<BlenderHandler>>, // thoughts about passing struct to JoinHandle instead of unit?
+    version: Version, // Private immutable variable - Must validate before using!
+    // possibly a handler to proceed data?
+    // handler: Option<JoinHandle<BlenderHandler>>, // thoughts about passing struct to JoinHandle instead of unit?
+    // listener: Receiver<BlenderStatus>,
+    handler: Sender<BlenderStatus>,
 }
 
 impl PartialEq for Blender {
     fn eq(&self, other: &Self) -> bool {
         self.version.eq(&other.version)
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct BlenderDownloadLink {
-    name: String,
-    ext: String,
-    url: Url,
-}
-
-impl BlenderDownloadLink {
-    pub fn new(name: String, ext: String, url: Url) -> Self {
-        Self { name, ext, url }
-    }
-
-    // Currently being used for MacOS (I wonder if I need to do the same for windows?)
-    #[cfg(target_os = "macos")]
-    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), BlenderError> {
-        fs::create_dir_all(&dst).unwrap();
-        for entry in fs::read_dir(src).unwrap() {
-            let entry = entry.unwrap();
-            if entry.file_type().unwrap().is_dir() {
-                Self::copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name())).unwrap();
-            } else {
-                fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Extract tar.xz file from destination path, and return blender executable path
-    #[cfg(target_os = "linux")]
-    pub fn extract_content(
-        download_path: impl AsRef<Path>,
-        folder_name: &str,
-    ) -> Result<PathBuf, BlenderError> {
-        use std::fs::File;
-        use tar::Archive;
-        use xz::read::XzDecoder;
-
-        // Get file handler to download location
-        let file = File::open(&download_path).unwrap();
-
-        // decode compressed xz file
-        let tar = XzDecoder::new(file);
-
-        // unarchive content from decompressed file
-        let mut archive = Archive::new(tar);
-
-        // generate destination path
-        let destination = download_path.as_ref().parent().unwrap();
-
-        // extract content to destination
-        archive.unpack(destination).unwrap();
-
-        // return extracted executable path
-        Ok(destination.join(folder_name).join("blender"))
-    }
-
-    // TODO: Test this on macos
-    /// Mounts dmg target to volume, then extract the contents to a new folder using the folder_name,
-    /// lastly, provide a path to the blender executable inside the content.
-    #[cfg(target_os = "macos")]
-    pub fn extract_content(
-        download_path: impl AsRef<Path>,
-        folder_name: &str,
-    ) -> Result<PathBuf, BlenderError> {
-        use dmg::Attach;
-
-        let source = download_path.as_ref();
-
-        // generate destination path
-        let dst = source
-            .parent()
-            .unwrap()
-            .join(folder_name)
-            .join("Blender.app");
-
-        // TODO: wonder if this is a good idea?
-        if !dst.exists() {
-            let _ = fs::create_dir_all(&dst)?;
-        }
-
-        // attach dmg to volume
-        let dmg = Attach::new(&source).attach()?;
-
-        // create source path from mount point
-        let src = PathBuf::from(&dmg.mount_point.join("Blender.app"));
-
-        // Extract content inside Blender.app to destination
-        let _ = Self::copy_dir_all(&src, &dst).unwrap();
-
-        // detach dmg volume
-        dmg.detach()?;
-
-        // return path with additional path to invoke blender directly
-        Ok(dst.join("Contents/MacOS/Blender"))
-    }
-
-    // TODO: implement handler to unpack .zip files
-    // TODO: Check and see if we need to return the .exe extension or not?
-    #[cfg(target_os = "windows")]
-    pub fn extract_content(
-        download_path: impl AsRef<Path>,
-        folder_name: &str,
-    ) -> Result<PathBuf, BlenderError> {
-        let output = download_path.parent().unwrap().join(folder_name);
-        todo!("Need to impl. window version of file extraction here");
-        Ok(output.join("/blender.exe"))
-    }
-
-    pub fn download_and_extract(
-        &self,
-        destination: impl AsRef<Path>,
-    ) -> Result<PathBuf, BlenderError> {
-        let dir = destination.as_ref();
-
-        // Download the file from the internet and save it to blender data folder
-        let body = match reqwest::blocking::get(self.url.as_str()) {
-            Ok(response) => match response.bytes() {
-                Ok(body) => body,
-                Err(e) => {
-                    return Err(BlenderError::FetchError(format!(
-                        "Error while fetching downloads: {}",
-                        e
-                    )))
-                }
-            },
-            Err(_) => {
-                return Err(BlenderError::DownloadNotFound {
-                    arch: consts::ARCH.to_string(),
-                    os: consts::OS.to_string(),
-                    url: self.url.to_string(),
-                })
-            }
-        };
-
-        let target = &dir.join(&self.name);
-
-        if let Err(e) = fs::write(target, &body) {
-            return Err(e.into());
-        }
-        let extract_folder = self.name.replace(&self.ext, "");
-
-        let executable_path = Self::extract_content(target, &extract_folder).unwrap();
-        Ok(executable_path)
     }
 }
 
@@ -232,11 +101,17 @@ impl Blender {
     /// let blender = Blender::new(PathBuf::from("path/to/blender"), Version::new(4,1,0));
     /// ```
     fn new(executable: PathBuf, version: Version) -> Self {
+        let (tx, _) = channel::<BlenderStatus>();
         Self {
             executable,
             version,
-            // handler: None,
+            // listener: rx,
+            handler: tx,
         }
+    }
+
+    pub fn from_json(json: BlenderJSON) -> Result<Self, BlenderError> {
+        Self::from_executable(json.executable)
     }
 
     /// Return the pattern matching to identify correct blender download link
@@ -291,24 +166,43 @@ impl Blender {
     pub fn get_extension() -> Result<String, BlenderError> {
         // TODO: Find a better way to re-write this - I assume we could take advantage of the compiler tags to return string literal without switch statement like this?
         let extension = match consts::OS {
-            "windows" => WINDOW_EXT,
-            "macos" => MACOS_EXT,
-            "linux" => LINUX_EXT,
+            "windows" => ".zip",
+            "macos" => ".dmg",
+            "linux" => ".tar.xz",
             os => return Err(BlenderError::UnsupportedOS(os.to_string())),
         };
 
         Ok(extension.to_owned())
     }
 
+    pub fn get_executable(&self) -> &PathBuf {
+        &self.executable
+    }
+
+    /// fetch the version of blender
+    pub fn get_version(&self) -> &Version {
+        &self.version
+    }
+
     /// fetch current architecture (Currently support x86_64 or aarch64 (apple silicon))
     pub fn get_valid_arch() -> Result<String, BlenderError> {
-        let arch = match consts::ARCH {
-            "x86_64" => "64",
-            "aarch64" => "arm64",
+        match consts::ARCH {
+            "x86_64" => Ok("64".to_owned()),
+            "aarch64" => Ok("arm64".to_owned()),
             value => return Err(BlenderError::UnsupportedArch(value.to_string())),
-        };
+        }
+    }
 
-        Ok(arch.to_owned())
+    pub fn get_serialized_data(&self) -> BlenderJSON {
+        BlenderJSON {
+            executable: self.executable.clone(),
+            version: self.version.clone(),
+        }
+    }
+
+    pub fn from_serialized_data(data: &[u8]) -> Result<Blender, BlenderError> {
+        let json: BlenderJSON = serde_json::from_slice(data).unwrap();
+        Ok(Blender::new(json.executable, json.version))
     }
 
     /// Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
@@ -444,7 +338,14 @@ impl Blender {
         reader.lines().for_each(|line| {
             // it would be nice to include verbose logs?
             let line = line.unwrap();
+            let status = BlenderStatus::Running {
+                status: line.clone(),
+            };
 
+            match self.handler.send(status) {
+                Ok(_) => {}
+                Err(_) => {}
+            };
             if line.contains("Warning:") {
                 println!("{}", line);
             } else if line.contains("Fra:") {

@@ -72,7 +72,8 @@ impl Job {
     ) -> Job {
         let current_frame = match mode {
             Mode::Frame(frame) => frame,
-            Mode::Section { start, .. } => start,
+            Mode::Animation { start, .. } => start,
+            _ => 0,
         };
         Job {
             id: Uuid::new_v4(),
@@ -121,7 +122,8 @@ impl Job {
     pub fn next_frame(&mut self) -> Option<i32> {
         match self.mode {
             Mode::Frame(frame) => self.compare_and_increment(frame),
-            Mode::Section { start: _, end } => self.compare_and_increment(end),
+            Mode::Animation { start: _, end } => self.compare_and_increment(end),
+            _ => None,
         }
     }
 }

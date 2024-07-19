@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 // ref: https://docs.blender.org/manual/en/latest/advanced/command_line/render.html
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Args {
     file: PathBuf,          // required
     output: PathBuf,        // optional
@@ -57,13 +57,14 @@ impl Args {
                 vec!["-f".to_owned(), frame.to_string()]
             }
             // Render the whole animation using all the settings saved in the blend-file.
-            Mode::Section { start, end } => vec![
+            Mode::Animation { start, end } => vec![
                 "-s".to_owned(),
                 start.to_string(),
                 "-e".to_owned(),
                 end.to_string(),
                 "-a".to_owned(),
             ],
+            Mode::None => vec![],
         };
 
         col.append(&mut additional_args);

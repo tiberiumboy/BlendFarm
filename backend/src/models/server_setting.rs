@@ -1,4 +1,4 @@
-use blender::blender::Blender;
+use blender::blender::{Blender, BlenderJSON};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
@@ -17,18 +17,27 @@ pub struct ServerSetting {
     pub port: u16,
     pub blender_dir: PathBuf,
     pub render_dir: PathBuf,
-    pub blenders: Vec<Blender>, // list of installed blender versions on this machine.
+    pub blenders: Vec<BlenderJSON>, // list of installed blender versions on this machine.
 }
 
 impl Default for ServerSetting {
     fn default() -> Self {
+        // This can be subject to change. Currently had it set to temporary directory
+        // due to the fact that we do not want to store image on the computer once we
+        // successfully transfer to the host machine. It would be used as backup archive
+        // in case the host machine went abruptly. (Maybe a feature?)
         let mut render_data = std::env::temp_dir();
         render_data.push(RENDER_DIR);
+        // ensure path exists
         fs::create_dir_all(&render_data).unwrap();
 
+        // Setting blender installation to user's download directory.
         let blender_data = dirs::download_dir().unwrap().join(BLENDER_DIR);
+        // ensure path exists
         fs::create_dir_all(&blender_data).unwrap();
+
         Self {
+            // subject to change - original number came from c# version of BlendFarm
             port: 15000,
             blender_dir: blender_data,
             render_dir: render_data,
@@ -51,20 +60,22 @@ impl ServerSetting {
         fs::write(config_path, data).expect("Unable to write file! Permission issue?");
     }
 
+    pub fn get_latest_blender(&mut self) -> Blender {
+        match self.blenders.
+    }
+
     pub fn get_blender(&mut self, version: Version) -> Blender {
         // eventually we would want to check if the version is already installed on the machine.
         // otherwise download and install the version prior to run this script.
-        let blender = match self.blenders.iter().find(|&x| x.version == version) {
-            Some(blender) => blender.to_owned(),
+        match self.blenders.iter().find(|&x| x.version == version) {
+            Some(json) => Blender::from_json(json.to_owned()).unwrap(),
             None => {
                 let blender = Blender::download(version, &self.blender_dir).unwrap();
-                self.blenders.push(blender.clone());
+                self.blenders.push(blender.get_serialized_data());
                 self.save();
                 blender
             }
-        };
-
-        blender
+        }
     }
 
     /// Load user configurations from the user's config directory

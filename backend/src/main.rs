@@ -39,7 +39,7 @@ use semver::Version;
 use std::path::{Path, PathBuf};
 // use std::thread;
 use std::{env, io::Result, sync::Mutex};
-use tauri::generate_handler;
+use tauri::{generate_handler, CustomMenuItem, Menu, MenuItem, Submenu};
 
 pub mod controllers;
 pub mod models;
@@ -69,11 +69,20 @@ fn client() {
     // let server = Server::new(port).unwrap();
     // let m_server = Mutex::new(server);
 
+    let quit = CustomMenuItem::new("quit".to_string(), "Quit");
+    let close = CustomMenuItem::new("close".to_string(), "Close");
+    let submenu = Submenu::new("File", Menu::new().add_item(quit).add_item(close));
+    let menu = Menu::new()
+        .add_native_item(MenuItem::Copy)
+        .add_item(CustomMenuItem::new("hide", "Hide"))
+        .add_submenu(submenu);
+
     // why I can't dive into implementation details here?
     tauri::Builder::default()
         // https://docs.rs/tauri/1.6.8/tauri/struct.Builder.html#method.manage
         // It is indeed possible to have more than one manage - which I will be taking advantage over how I can share and mutate configuration data across this platform.
         .manage(ctx)
+        .menu(menu)
         // .manage(m_server)
         // .setup(|app| {
         //     // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.

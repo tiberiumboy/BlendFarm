@@ -184,7 +184,7 @@ impl Server {
         let blend_scene = PathBuf::from("./test.blend");
         let project_file = ProjectFile::new(blend_scene);
         let version = Version::new(4, 1, 0);
-        let mode = Mode::Section { start: 0, end: 2 };
+        let mode = Mode::Animation { start: 0, end: 2 };
         let server_config = ServerSetting::load();
         let job = Job::new(project_file, server_config.render_dir, version, mode);
         self.start_new_job(Some(job));
