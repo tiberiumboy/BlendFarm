@@ -1,25 +1,35 @@
-use crate::blender::BlenderError;
+use crate::manager::ManagerError;
 use serde::{Deserialize, Serialize};
 use std::env::consts;
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::{fs, io};
+use thiserror::Error;
 use url::Url;
 
+#[derive(Error, Debug)]
+pub enum DownloadLinkError {
+    #[error("Io error: {source}")]
+    Io {
+        #[from]
+        source: io::Error,
+    },
+}
+
 #[derive(Debug, Serialize, Deserialize)]
-pub struct BlenderDownloadLink {
+pub struct DownloadLink {
     name: String,
     ext: String,
     url: Url,
 }
 
-impl BlenderDownloadLink {
+impl DownloadLink {
     pub fn new(name: String, ext: String, url: Url) -> Self {
         Self { name, ext, url }
     }
 
     // Currently being used for MacOS (I wonder if I need to do the same for windows?)
     #[cfg(target_os = "macos")]
-    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), BlenderError> {
+    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), DownloadLinkError> {
         fs::create_dir_all(&dst).unwrap();
         for entry in fs::read_dir(src).unwrap() {
             let entry = entry.unwrap();
@@ -37,7 +47,7 @@ impl BlenderDownloadLink {
     pub fn extract_content(
         download_path: impl AsRef<Path>,
         folder_name: &str,
-    ) -> Result<PathBuf, BlenderError> {
+    ) -> Result<PathBuf, ManagerError> {
         use std::fs::File;
         use tar::Archive;
         use xz::read::XzDecoder;
@@ -68,7 +78,7 @@ impl BlenderDownloadLink {
     pub fn extract_content(
         download_path: impl AsRef<Path>,
         folder_name: &str,
-    ) -> Result<PathBuf, BlenderError> {
+    ) -> Result<PathBuf, ManagerError> {
         use dmg::Attach;
 
         let source = download_path.as_ref();
@@ -107,7 +117,7 @@ impl BlenderDownloadLink {
     pub fn extract_content(
         download_path: impl AsRef<Path>,
         folder_name: &str,
-    ) -> Result<PathBuf, BlenderError> {
+    ) -> Result<PathBuf, ManagerError> {
         let output = download_path.parent().unwrap().join(folder_name);
         todo!("Need to impl. window version of file extraction here");
         Ok(output.join("/blender.exe"))
@@ -116,7 +126,7 @@ impl BlenderDownloadLink {
     pub fn download_and_extract(
         &self,
         destination: impl AsRef<Path>,
-    ) -> Result<PathBuf, BlenderError> {
+    ) -> Result<PathBuf, ManagerError> {
         let dir = destination.as_ref();
 
         // Download the file from the internet and save it to blender data folder
@@ -124,14 +134,14 @@ impl BlenderDownloadLink {
             Ok(response) => match response.bytes() {
                 Ok(body) => body,
                 Err(e) => {
-                    return Err(BlenderError::FetchError(format!(
+                    return Err(ManagerError::FetchError(format!(
                         "Error while fetching downloads: {}",
                         e
                     )))
                 }
             },
             Err(_) => {
-                return Err(BlenderError::DownloadNotFound {
+                return Err(ManagerError::DownloadNotFound {
                     arch: consts::ARCH.to_string(),
                     os: consts::OS.to_string(),
                     url: self.url.to_string(),

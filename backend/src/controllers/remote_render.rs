@@ -1,7 +1,7 @@
 use crate::models::{
     data::Data, job::Job, project_file::ProjectFile, render_node::RenderNode, server::Server,
 };
-use blender::mode::Mode;
+use blender::models::mode::Mode;
 use semver::Version;
 use std::{path::PathBuf, sync::Mutex};
 use tauri::{command, Manager};

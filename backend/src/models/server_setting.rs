@@ -1,4 +1,4 @@
-use blender::blender::{Blender, BlenderJSON};
+use blender::{blender::Blender, models::blender_data::BlenderData};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
@@ -17,7 +17,7 @@ pub struct ServerSetting {
     pub port: u16,
     pub blender_dir: PathBuf,
     pub render_dir: PathBuf,
-    pub blenders: Vec<BlenderJSON>, // list of installed blender versions on this machine.
+    pub blenders: Vec<BlenderData>, // list of installed blender versions on this machine.
 }
 
 impl Default for ServerSetting {
@@ -60,8 +60,19 @@ impl ServerSetting {
         fs::write(config_path, data).expect("Unable to write file! Permission issue?");
     }
 
+    // todo: Finish this part. We should utilize blenderdownloadlink and see if we can fetch the latest version available from
+    // the blender foundation organization. It would be nice to be able to take addvantage of using their API services to check and see what is our latest version of blender
+    // this will help remove a lot of code problems where client wants to download the latest version without asking for their input.
     pub fn get_latest_blender(&mut self) -> Blender {
-        match self.blenders.
+        match self.blenders.first() {
+            Some(item) => Blender::from_json(item.to_owned()).unwrap(),
+            None => {
+                // fetch a new copy of blender
+                // here it would be nice to fetch latest blender version?
+                let version = Blender::latest_version_available().unwrap();
+                Blender::download(version, self.blender_dir.clone()).unwrap()
+            }
+        }
     }
 
     pub fn get_blender(&mut self, version: Version) -> Blender {

@@ -1,19 +1,16 @@
-use crate::device::Device;
-use crate::engine::Engine;
-use crate::format::Format;
-use crate::mode::Mode;
+use crate::models::{device::Device, engine::Engine, format::Format, mode::Mode};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 // ref: https://docs.blender.org/manual/en/latest/advanced/command_line/render.html
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Args {
-    file: PathBuf,          // required
-    output: PathBuf,        // optional
-    mode: Mode,             // required
-    engine: Option<Engine>, // optional
-    device: Option<Device>, // optional
-    format: Option<Format>, // optional
+    file: PathBuf,              // required
+    output: PathBuf,            // optional
+    mode: Mode,                 // required
+    pub engine: Option<Engine>, // optional
+    pub device: Option<Device>, // optional
+    pub format: Option<Format>, // optional - default to Png
 }
 
 impl Args {
@@ -28,6 +25,7 @@ impl Args {
         }
     }
 
+    // could this just be used for the crate itself?
     pub fn create_arg_list(&self) -> Vec<String> {
         // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#argument-order
         // # is substitute to 0 pad, none will add to suffix four pounds (####)
@@ -39,6 +37,12 @@ impl Args {
             "-o".to_owned(),
             self.output.to_str().unwrap().to_string(),
         ];
+
+        // col.push("-E".to_owned());
+        // col.push(self.engine.to_string());
+        // col.push("F".to_owned());
+        // col.push(self.format.to_string());
+        // col.push("-X".to_owned());
 
         if let Some(engine) = &self.engine {
             col.push("-E".to_owned());
@@ -70,6 +74,11 @@ impl Args {
         col.append(&mut additional_args);
 
         // Cycles add-on options must be specified following a double dash.
+
+        // if self.engine == Engine::Cycles {
+        //     col.push("-- --cycles-device".to_owned());
+        //     col.push(self.device.to_string());
+        // }
         if Some(Engine::Cycles) == self.engine {
             if let Some(device) = &self.device {
                 col.push("-- --cycles-device".to_owned());

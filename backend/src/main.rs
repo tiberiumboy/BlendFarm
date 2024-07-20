@@ -30,7 +30,7 @@ use crate::controllers::settings::{
     remove_blender_installation,
 };
 use crate::models::{data::Data, server::Server};
-use blender::{args::Args, mode::Mode};
+use blender::models::{args::Args, mode::Mode};
 use clap::{command, Parser};
 use gethostname::gethostname;
 // use models::server_setting;

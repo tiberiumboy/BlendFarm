@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Copy, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Engine {
     Cycles,
+    #[default]
     Eevee,
     Workbench,
 }

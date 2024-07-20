@@ -8,7 +8,7 @@ use crate::models::{
     server_setting::ServerSetting,
 };
 use anyhow::Result;
-use blender::mode::Mode;
+use blender::models::mode::Mode;
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};

@@ -9,69 +9,57 @@ Developer blog:
 - Invoking blender should be called asyncronously on OS thread level. You have the ability to set priority for blender.
 - Had to add BlenderJSON because some fields I could not deserialize/serialize - Which make sense that I don't want to share information that is only exclusive for the running machine to have access to.
     Instead BlenderJSON will only hold key information to initialize a new channel when accessed.
+
+
+
+TODO:
+private and public method are unorganized.
+    - Consider reviewing them and see which method can be exposed publicly?
 */
 
-use crate::page_cache::PageCache;
-use crate::{args::Args, blender_download_link::BlenderDownloadLink, page_cache::PageCacheError};
+use crate::models::{
+    args::Args, blender_data::BlenderData, download_link::DownloadLink, status::Status,
+};
+use crate::{
+    manager::{Manager, ManagerError},
+    page_cache::PageCacheError,
+};
 use regex::Regex;
 use semver::Version;
-use serde::{Deserialize, Serialize};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender};
 use std::{
-    env::consts,
-    fs,
     io::{self, BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::mpsc::channel,
-    time::SystemTime,
 };
 use thiserror::Error;
-use url::Url;
 
 // TODO: consider making this private to make it easy to modify internally than affecting exposed APIs
 #[derive(Debug, Error)]
 pub enum BlenderError {
-    #[error("Unable to fetch download from the source! {0}")]
-    FetchError(String),
     #[error("Unsupported OS: {0}")]
     UnsupportedOS(String),
     #[error("Unsupported Architecture: {0}")]
     UnsupportedArch(String),
-    #[error("Cannot find target download link for blender! os: {os} | arch: {arch} | url: {url}")]
-    DownloadNotFound {
-        arch: String,
-        os: String,
-        url: String,
-    },
     #[error("Path to executable not found! {0}")]
     ExecutableNotFound(PathBuf),
     #[error("Unable to call blender!")]
     ExecutableInvalid,
     #[error(transparent)]
     PageCache(#[from] PageCacheError),
+    #[error("Unable to render! Error: {0}")]
+    RenderError(String),
     #[error("IO Error: {source}")]
     Io {
         #[from]
         source: io::Error,
     },
-}
-
-// I am not sure why I need this?
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct BlenderHandler {}
-
-pub enum BlenderStatus {
-    Idle,
-    Running { status: String },
-    Error { message: String },
-    Completed { result: PathBuf }, // should this be a pathbuf instead? or the actual image data?
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BlenderJSON {
-    pub executable: PathBuf,
-    pub version: Version,
+    #[error("Blender Manager error: {source}")]
+    ManagerError {
+        #[from]
+        source: ManagerError,
+    },
 }
 
 /// Blender structure to hold path to executable and version of blender installed.
@@ -83,8 +71,8 @@ pub struct Blender {
     version: Version, // Private immutable variable - Must validate before using!
     // possibly a handler to proceed data?
     // handler: Option<JoinHandle<BlenderHandler>>, // thoughts about passing struct to JoinHandle instead of unit?
-    // listener: Receiver<BlenderStatus>,
-    handler: Sender<BlenderStatus>,
+    pub listener: Receiver<Status>,
+    handler: Sender<Status>,
 }
 
 impl PartialEq for Blender {
@@ -102,37 +90,17 @@ impl Blender {
     /// let blender = Blender::new(PathBuf::from("path/to/blender"), Version::new(4,1,0));
     /// ```
     fn new(executable: PathBuf, version: Version) -> Self {
-        let (tx, _) = channel::<BlenderStatus>();
+        let (tx, rx) = channel::<Status>();
         Self {
             executable,
             version,
-            // listener: rx,
+            listener: rx,
             handler: tx,
         }
     }
 
-    pub fn from_json(json: BlenderJSON) -> Result<Self, BlenderError> {
+    pub fn from_json(json: BlenderData) -> Result<Self, BlenderError> {
         Self::from_executable(json.executable)
-    }
-
-    /// Return the pattern matching to identify correct blender download link
-    fn generate_blender_pattern_matching(version: &Version) -> Result<String, BlenderError> {
-        let extension = Self::get_extension()?;
-        let arch = Self::get_valid_arch()?;
-
-        // Regex rules - Find the url that matches version, computer os and arch, and the extension.
-        // - There should only be one entry matching for this. Otherwise return error stating unable to find download path
-        let match_pattern = format!(
-            r#"(<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.{}.*{}.*{}.*\.[{}].*)<\/a>)"#,
-            version.major,
-            version.minor,
-            version.patch,
-            consts::OS,
-            arch,
-            extension
-        );
-
-        Ok(match_pattern)
     }
 
     /// This function will invoke the -v command ot retrieve blender version information.
@@ -162,19 +130,7 @@ impl Blender {
         }
     }
 
-    /// Return extension matching to the current operating system (Only display Windows(zip), Linux(tar.xz), or macos(.dmg)).
-    pub fn get_extension() -> Result<String, BlenderError> {
-        // TODO: Find a better way to re-write this - I assume we could take advantage of the compiler tags to return string literal without switch statement like this?
-        let extension = match consts::OS {
-            "windows" => ".zip",
-            "macos" => ".dmg",
-            "linux" => ".tar.xz",
-            os => return Err(BlenderError::UnsupportedOS(os.to_string())),
-        };
-
-        Ok(extension.to_owned())
-    }
-
+    /// fetch the blender executable path, used to pass into Command::process implementation
     pub fn get_executable(&self) -> &PathBuf {
         &self.executable
     }
@@ -184,24 +140,25 @@ impl Blender {
         &self.version
     }
 
-    /// fetch current architecture (Currently support x86_64 or aarch64 (apple silicon))
-    pub fn get_valid_arch() -> Result<String, BlenderError> {
-        match consts::ARCH {
-            "x86_64" => Ok("64".to_owned()),
-            "aarch64" => Ok("arm64".to_owned()),
-            value => return Err(BlenderError::UnsupportedArch(value.to_string())),
+    /// Return the extension expected to run on this operating system
+    pub fn get_extension() -> Result<String, BlenderError> {
+        match Manager::get_extension() {
+            Ok(ext) => Ok(ext),
+            Err(e) => Err(BlenderError::ManagerError { source: e }),
         }
     }
 
-    pub fn get_serialized_data(&self) -> BlenderJSON {
-        BlenderJSON {
+    /// Return the json formatted struct for Blender
+    pub fn get_serialized_data(&self) -> BlenderData {
+        BlenderData {
             executable: self.executable.clone(),
             version: self.version.clone(),
         }
     }
 
+    /// Convert network byte into Blender serialized data - May not be in used at all?
     pub fn from_serialized_data(data: &[u8]) -> Result<Blender, BlenderError> {
-        let json: BlenderJSON = serde_json::from_slice(data).unwrap();
+        let json: BlenderData = serde_json::from_slice(data).unwrap();
         Ok(Blender::new(json.executable, json.version))
     }
 
@@ -220,7 +177,8 @@ impl Blender {
     /// ```
     pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self, BlenderError> {
         // check and verify that the executable exist.
-        let mut path = executable.as_ref();
+        // first line for validating blender executable.
+        let path = executable.as_ref();
         if !path.exists() {
             return Err(BlenderError::ExecutableNotFound(path.to_path_buf()));
         }
@@ -228,21 +186,39 @@ impl Blender {
         // macOS is special. To invoke the blender application, I need to navigate inside Blender.app, which is an app bundle that contains stuff to run blender.
         // Command::Process needs to access the content inside app bundle to perform the operation correctly.
         // To do this - I need to append additional path args to correctly invoke the right application for this to work.
+        // TODO: Verify this works for Linux/window OS?
         let path = match std::env::consts::OS {
             "macos" => &path.join("Contents/MacOS/Blender"),
             _ => path,
         };
 
-        // currently need a path to the executable before executing the command.
+        // Obtain the version by invoking version command to blender directly.
+        // This verify two things, we actually fetch blender's current version rather than arbitruary guessing it.
+        // this also validate that the executable is functional and operational. If we can launch blender and fetch version, then this part of the library should work as expected.
+        // Otherwise, return an error stating that we are unable to verify this blender integrity, and warn user about this incident.
         match Self::check_version(path) {
             Ok(version) => Ok(Self::new(path.to_path_buf(), version)),
             Err(e) => Err(e),
         }
     }
 
+    /// Create a blender struct from compressed content of the files
     pub fn from_content(path: impl AsRef<Path>, folder_name: &str) -> Result<Self, BlenderError> {
-        let path = BlenderDownloadLink::extract_content(&path, folder_name)?;
+        let path = match DownloadLink::extract_content(&path, folder_name) {
+            Ok(path) => path,
+            Err(e) => return Err(BlenderError::ManagerError { source: e }),
+        };
         Blender::from_executable(path)
+    }
+
+    pub fn latest_version_available() -> Result<Version, BlenderError> {
+        // in this case I need to contact Manager class or BlenderDownloadLink somewhere and fetch the latest blender information
+        // but for now let's just return default value of 4.1.0 until we return back to this at future later code.
+        Ok(Version::new(4, 1, 0))
+    }
+
+    pub fn stop(self) {
+        drop(self.handler);
     }
 
     /// Download blender from the internet and install it to the provided path.
@@ -266,52 +242,8 @@ impl Blender {
         version: Version,
         install_path: impl AsRef<Path>,
     ) -> Result<Blender, BlenderError> {
-        // TODO: As a extra security measure, I would like to verify the hash of the content before extracting the files.
-        let url = Url::parse("https://download.blender.org/release/").unwrap(); // I would hope that this line should never fail...? I would like to know how someone could possibly fail this line here.
-
-        // In the original code - there's a comment implying we should use cache as much as possible to avoid IP Blacklisted. TODO: Verify this in Blender community about this.
-        let mut cache = match PageCache::load(SystemTime::now()) {
-            Ok(cache) => cache,
-            Err(e) => return Err(BlenderError::PageCache(e)),
-        };
-
-        // TODO: How did BlendFarm fetch all blender version?
-        // working out a hack to rely on website availability for now. Would like to simply get the url I need to download and run blender.
-        // could this be made into a separate function?
-        let path = format!("Blender{}.{}/", version.major, version.minor);
-        let url = url.join(&path).unwrap();
-
-        // fetch the content of the subtree information
-        let content = cache.fetch(&url).unwrap();
-        let match_pattern = Self::generate_blender_pattern_matching(&version)?;
-
-        // unwrap() is used here explicitly because I know that the above regex command will not fail.
-        let regex = Regex::new(&match_pattern).unwrap();
-        let download_link = match regex.captures(&content) {
-            Some(info) => {
-                // remove extension from file name
-                let name = info["name"].to_string();
-                let path = info["url"].to_string();
-                let url = &url.join(&path).unwrap();
-                let ext = Self::get_extension().unwrap();
-                BlenderDownloadLink::new(name, ext, url.clone())
-            }
-            None => {
-                return Err(BlenderError::DownloadNotFound {
-                    arch: consts::ARCH.to_string(),
-                    os: consts::OS.to_string(),
-                    url: url.to_string(),
-                })
-            }
-        };
-
-        let destination = install_path.as_ref().join(&path);
-        fs::create_dir_all(&destination).unwrap();
-
-        // TODO: verify this is working for windows (.zip)?
-        let executable = download_link.download_and_extract(&destination)?;
-
-        // return the version of the blender
+        let mut manager = Manager::load();
+        let executable = manager.download(&version, install_path).unwrap();
         Ok(Blender::new(executable, version))
     }
 
@@ -324,7 +256,9 @@ impl Blender {
     /// let args = Args::new(PathBuf::from("path/to/project.blend"), PathBuf::from("path/to/output.png"));
     /// let final_output = blender.render(&args).unwrap();
     /// ```
-    pub fn render(&self, args: &Args) -> Result<String, BlenderError> {
+    // so instead of just returning the string of render result or blender error, we'll simply use the single producer to produce result from this class.
+    pub fn render(&self, args: &Args) {
+        //-> Result<String, BlenderError> {
         let col = args.create_arg_list();
 
         // seems conflicting, this api locks main thread. NOT GOOD!
@@ -335,56 +269,90 @@ impl Blender {
         let stdout = Command::new(&self.executable)
             .args(col)
             .stdout(Stdio::piped())
-            .spawn()?
+            .spawn()
+            .unwrap()
             .stdout
             .unwrap();
 
         let reader = BufReader::new(stdout);
-        let mut output: String = Default::default();
 
         // parse stdout for human to read
         reader.lines().for_each(|line| {
-            // it would be nice to include verbose logs?
             let line = line.unwrap();
-            let status = BlenderStatus::Running {
-                status: line.clone(),
-            };
 
-            match self.handler.send(status) {
-                Ok(_) => {}
-                Err(_) => {}
-            };
-            if line.contains("Warning:") {
-                println!("{}", line);
-            } else if line.contains("Fra:") {
-                let col = line.split('|').collect::<Vec<&str>>();
-                let last = col.last().unwrap().trim();
-                let slice = last.split(' ').collect::<Vec<&str>>();
-                match slice[0] {
-                    "Rendering" => {
-                        let current = slice[1].parse::<f32>().unwrap();
-                        let total = slice[3].parse::<f32>().unwrap();
-                        let percentage = current / total * 100.0;
-                        println!("{} {:.2}%", last, percentage);
-                    }
-                    _ => {
-                        println!("{}", last);
-                    }
+            // I feel like there's a better way of handling this? Yes!
+            match &line {
+                line if line.contains("Fra:") => {
+                    let col = line.split('|').collect::<Vec<&str>>();
+                    let last = col.last().unwrap().trim();
+                    let slice = last.split(' ').collect::<Vec<&str>>();
+                    let info = match slice[0] {
+                        "Rendering" => {
+                            let current = slice[1].parse::<f32>().unwrap();
+                            let total = slice[3].parse::<f32>().unwrap();
+                            let percentage = current / total * 100.0;
+                            let render_perc = format!("{} {:.2}%", last, percentage);
+                            render_perc
+                        }
+                        _ => last.to_owned(),
+                    };
+                    let msg = Status::Running { status: info };
+                    self.handler.send(msg).unwrap();
                 }
-                // this is where I can send signal back to the caller
-                // that the render is in progress
-            } else if line.contains("Saved:") {
-                // this is where I can send signal back to the caller
-                // that the render is completed
-                // TODO: why this didn't work after second render?
-                let location = line.split('\'').collect::<Vec<&str>>();
-                output = location[1].trim().to_string();
-            } else {
-                // TODO: find a way to show error code or other message if blender doesn't actually render!
-                println!("{}", &line);
-            }
+                // If blender completes the saving process then we should return the path
+                line if line.contains("Saved:") => {
+                    let location = line.split('\'').collect::<Vec<&str>>();
+                    let path = PathBuf::from(location[1]);
+                    let msg = Status::Completed { result: path };
+                    self.handler.send(msg).unwrap();
+                }
+                line if line.contains("Error:") => {
+                    let msg = Status::Error {
+                        message: line.to_owned(),
+                    };
+                    self.handler.send(msg).unwrap();
+                }
+                // ("Warning:"..) => println!("{}", line),
+                line if !line.is_empty() => {
+                    // do not send info if line is empty!
+                    let msg = Status::Running {
+                        status: line.to_owned(),
+                    };
+                    self.handler.send(msg).unwrap();
+                }
+                _ => {}
+            };
+            // if line.contains("Warning:") {
+            //     println!("{}", line);
+            // } else if line.contains("Fra:") {
+            //     let col = line.split('|').collect::<Vec<&str>>();
+            //     let last = col.last().unwrap().trim();
+            //     let slice = last.split(' ').collect::<Vec<&str>>();
+            //     match slice[0] {
+            //         "Rendering" => {
+            //             let current = slice[1].parse::<f32>().unwrap();
+            //             let total = slice[3].parse::<f32>().unwrap();
+            //             let percentage = current / total * 100.0;
+            //             println!("{} {:.2}%", last, percentage);
+            //         }
+            //         _ => {
+            //             println!("{}", last);
+            //         }
+            //     }
+            //     // this is where I can send signal back to the caller
+            //     // that the render is in progress
+            // } else if line.contains("Saved:") {
+            //     // this is where I can send signal back to the caller
+            //     // that the render is completed
+            //     // TODO: why this didn't work after second render?
+            //     let location = line.split('\'').collect::<Vec<&str>>();
+            //     output = location[1].trim().to_string();
+            // } else {
+            //     // TODO: find a way to show error code or other message if blender doesn't actually render!
+            //     println!("{}", &line);
+            // }
         });
 
-        Ok(output)
+        // Ok(())
     }
 }

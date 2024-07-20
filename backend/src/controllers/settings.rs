@@ -1,7 +1,7 @@
 // this is the settings controller section that will handle input from the setting page.
 use crate::models::server_setting::ServerSetting;
 // use blender::blender::Blender;
-use blender::blender::{Blender, BlenderJSON};
+use blender::{blender::Blender, models::blender_data::BlenderData};
 use std::path::PathBuf;
 use tauri::{command, Error};
 
@@ -60,7 +60,7 @@ pub fn add_blender_installation(path: PathBuf) -> Result<(), Error> {
 }
 
 #[command(async)]
-pub fn remove_blender_installation(blender: BlenderJSON) -> Result<(), Error> {
+pub fn remove_blender_installation(blender: BlenderData) -> Result<(), Error> {
     let mut server_setting = ServerSetting::load();
     let mut collection = server_setting.blenders;
     if let Some(index) = &collection.iter().position(|element| element == &blender) {

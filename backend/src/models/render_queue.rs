@@ -1,5 +1,5 @@
 use super::{project_file::ProjectFile, render_info::RenderInfo, server_setting::ServerSetting};
-use blender::{args::Args, mode::Mode};
+use blender::models::{args::Args, mode::Mode};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
