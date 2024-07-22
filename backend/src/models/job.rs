@@ -7,10 +7,14 @@
     - TODO: See about migrating Sender code into this module?
 */
 use super::{project_file::ProjectFile, render_info::RenderInfo, server_setting::ServerSetting};
-use blender::models::{args::Args, mode::Mode};
+use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, io::Result, path::PathBuf};
+use std::{
+    collections::HashSet,
+    io::{Error, ErrorKind, Result},
+    path::PathBuf,
+};
 use uuid::Uuid;
 
 use thiserror::Error;
@@ -103,11 +107,28 @@ impl Job {
         let blender = server_settings.get_blender(self.version.clone());
 
         // here's the question - if I'm on a network node, how do I send the host the image of the completed rendered job?
-        let path = PathBuf::from(blender.render(&args).unwrap());
+        // yeah here's a good question?
+        let listener = blender.render(args);
 
-        // Return completed render info to the caller
-        let info = RenderInfo { frame, path };
-        Ok(info)
+        while let Ok(status) = listener.recv() {
+            // Return completed render info to the caller
+            match status {
+                Status::Completed { result } => {
+                    let info = RenderInfo {
+                        frame,
+                        path: result,
+                    };
+                    return Ok(info);
+                }
+                Status::Error(e) => return Err(Error::new(ErrorKind::ConnectionAborted, e)),
+                _ => {}
+            }
+        }
+
+        Err(Error::new(
+            ErrorKind::ConnectionRefused,
+            "Unable to render!".to_owned(),
+        ))
     }
 
     fn compare_and_increment(&mut self, max: i32) -> Option<i32> {

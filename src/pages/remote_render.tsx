@@ -121,7 +121,6 @@ export default function RemoteRender() {
 
   const handleSubmitJobForm = (e: React.FormEvent) => {
     e.preventDefault(); // wonder if this does anything?
-    // why is this not working??
     const selectedMode = e.target.modes.value;
     let mode = generateMode(selectedMode, e.target);
     let data = {

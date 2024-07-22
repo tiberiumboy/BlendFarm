@@ -10,28 +10,30 @@ Developer blog:
 - Had to add BlenderJSON because some fields I could not deserialize/serialize - Which make sense that I don't want to share information that is only exclusive for the running machine to have access to.
     Instead BlenderJSON will only hold key information to initialize a new channel when accessed.
 
-
-
 TODO:
 private and public method are unorganized.
     - Consider reviewing them and see which method can be exposed publicly?
 */
 
-use crate::models::{
-    args::Args, blender_data::BlenderData, download_link::DownloadLink, status::Status,
-};
 use crate::{
     manager::{Manager, ManagerError},
+    models::{
+        args::Args, blender_peek_response::BlenderPeekResponse,
+        blender_render_setting::BlenderRenderSetting, download_link::DownloadLink, status::Status,
+    },
     page_cache::PageCacheError,
 };
 use regex::Regex;
 use semver::Version;
-use std::sync::mpsc::{Receiver, Sender};
+use serde::{Deserialize, Serialize};
 use std::{
+    env::temp_dir,
+    fs,
     io::{self, BufRead, BufReader},
-    path::{Path, PathBuf},
+    path::{self, Path, PathBuf},
     process::{Command, Stdio},
-    sync::mpsc::channel,
+    sync::mpsc::{self, Receiver},
+    thread,
 };
 use thiserror::Error;
 
@@ -50,6 +52,8 @@ pub enum BlenderError {
     PageCache(#[from] PageCacheError),
     #[error("Unable to render! Error: {0}")]
     RenderError(String),
+    #[error("Unable to launch blender! Received Python errors: {0}")]
+    PythonError(String),
     #[error("IO Error: {source}")]
     Io {
         #[from]
@@ -60,19 +64,20 @@ pub enum BlenderError {
         #[from]
         source: ManagerError,
     },
+    #[error("Serde Error: {source}")]
+    Serde {
+        #[from]
+        source: serde_json::Error,
+    },
 }
 
 /// Blender structure to hold path to executable and version of blender installed.
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialOrd, Eq, Ord)]
 pub struct Blender {
     /// Path to blender executable on the system.
     executable: PathBuf, // Must validate before usage!
     /// Version of blender installed on the system.
     version: Version, // Private immutable variable - Must validate before using!
-    // possibly a handler to proceed data?
-    // handler: Option<JoinHandle<BlenderHandler>>, // thoughts about passing struct to JoinHandle instead of unit?
-    pub listener: Receiver<Status>,
-    handler: Sender<Status>,
 }
 
 impl PartialEq for Blender {
@@ -90,17 +95,10 @@ impl Blender {
     /// let blender = Blender::new(PathBuf::from("path/to/blender"), Version::new(4,1,0));
     /// ```
     fn new(executable: PathBuf, version: Version) -> Self {
-        let (tx, rx) = channel::<Status>();
         Self {
             executable,
             version,
-            listener: rx,
-            handler: tx,
         }
-    }
-
-    pub fn from_json(json: BlenderData) -> Result<Self, BlenderError> {
-        Self::from_executable(json.executable)
     }
 
     /// This function will invoke the -v command ot retrieve blender version information.
@@ -110,24 +108,22 @@ impl Blender {
     ///  This error also serves where the executable is unable to provide the blender version.
     // TODO: Find a better way to fetch version from stdout (Research for best practice to parse data from stdout)
     fn check_version(executable_path: impl AsRef<Path>) -> Result<Version, BlenderError> {
-        let output = match Command::new(executable_path.as_ref()).arg("-v").output() {
-            Ok(output) => output,
-            Err(_) => return Err(BlenderError::ExecutableInvalid),
-        };
+        if let Ok(output) = Command::new(executable_path.as_ref()).arg("-v").output() {
+            // wonder if there's a better way to test this?
+            let regex =
+                Regex::new(r"(Blender (?<major>[0-9]).(?<minor>[0-9]).(?<patch>[0-9]))").unwrap();
 
-        // wonder if there's a better way to test this?
-        let regex =
-            Regex::new(r"(Blender (?<major>[0-9]).(?<minor>[0-9]).(?<patch>[0-9]))").unwrap();
-
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        match regex.captures(&stdout) {
-            Some(info) => Ok(Version::new(
-                info["major"].parse().unwrap(),
-                info["minor"].parse().unwrap(),
-                info["patch"].parse().unwrap(),
-            )),
-            None => Err(BlenderError::ExecutableInvalid),
+            let stdout = String::from_utf8(output.stdout).unwrap();
+            return match regex.captures(&stdout) {
+                Some(info) => Ok(Version::new(
+                    info["major"].parse().unwrap(),
+                    info["minor"].parse().unwrap(),
+                    info["patch"].parse().unwrap(),
+                )),
+                None => Err(BlenderError::ExecutableInvalid),
+            };
         }
+        Err(BlenderError::ExecutableInvalid)
     }
 
     /// fetch the blender executable path, used to pass into Command::process implementation
@@ -146,20 +142,6 @@ impl Blender {
             Ok(ext) => Ok(ext),
             Err(e) => Err(BlenderError::ManagerError { source: e }),
         }
-    }
-
-    /// Return the json formatted struct for Blender
-    pub fn get_serialized_data(&self) -> BlenderData {
-        BlenderData {
-            executable: self.executable.clone(),
-            version: self.version.clone(),
-        }
-    }
-
-    /// Convert network byte into Blender serialized data - May not be in used at all?
-    pub fn from_serialized_data(data: &[u8]) -> Result<Blender, BlenderError> {
-        let json: BlenderData = serde_json::from_slice(data).unwrap();
-        Ok(Blender::new(json.executable, json.version))
     }
 
     /// Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
@@ -217,10 +199,6 @@ impl Blender {
         Ok(Version::new(4, 1, 0))
     }
 
-    pub fn stop(self) {
-        drop(self.handler);
-    }
-
     /// Download blender from the internet and install it to the provided path.
     ///
     /// # Potential errors
@@ -247,6 +225,34 @@ impl Blender {
         Ok(Blender::new(executable, version))
     }
 
+    pub fn peek(&self, blend_file: impl AsRef<Path>) -> Result<BlenderPeekResponse, BlenderError> {
+        let peek_path = temp_dir().join("peek.py");
+        if !peek_path.exists() {
+            let bytes = include_bytes!("peek.py");
+            fs::write(&peek_path, bytes).unwrap();
+        }
+
+        let full_path = path::absolute(blend_file).unwrap();
+        let args = vec![
+            "--factory-startup".to_owned(),
+            "-noaudio".to_owned(),
+            "-b".to_owned(),
+            full_path.to_str().unwrap().to_owned(),
+            "-P".to_owned(),
+            peek_path.to_str().unwrap().to_owned(),
+        ];
+        if let Ok(output) = Command::new(&self.executable).args(args).output() {
+            let stdout = String::from_utf8(output.stdout).unwrap();
+            let parse = stdout.split("\n").collect::<Vec<&str>>();
+            let json = parse[0].to_owned();
+            return match serde_json::from_str(&json) {
+                Ok(response) => Ok(response),
+                Err(e) => Err(BlenderError::Serde { source: e }),
+            };
+        };
+        Err(BlenderError::ExecutableInvalid)
+    }
+
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
     /// # Examples
     /// ```
@@ -257,102 +263,93 @@ impl Blender {
     /// let final_output = blender.render(&args).unwrap();
     /// ```
     // so instead of just returning the string of render result or blender error, we'll simply use the single producer to produce result from this class.
-    pub fn render(&self, args: &Args) {
-        //-> Result<String, BlenderError> {
-        let col = args.create_arg_list();
+    pub fn render(self, args: Args) -> Receiver<Status> {
+        let (rx, tx) = mpsc::channel::<Status>();
+        thread::spawn(move || {
+            // So far this part of the code works - but I'm getting an unusual error
+            // I'm rececing an exception on stdout. [Errno 32] broken pipe?
+            let blend_info = &self.peek(&args.file).unwrap();
+            let setting = BlenderRenderSetting::parse_from(&args, blend_info);
+            let arr = vec![setting];
+            let data = serde_json::to_string(&arr).unwrap();
+            let tmp_path = temp_dir().join("blender_render.json");
+            fs::write(&tmp_path, data).unwrap();
+            let col = &args.create_arg_list(tmp_path);
 
-        // seems conflicting, this api locks main thread. NOT GOOD!
-        // Instead I need to find a way to send signal back to the class that called this
-        // and invoke other behaviour once this render has been completed
-        // in this case, I shouldn't have to return anything other than mutate itself that it's in progress.
-        // modify this struct to include handler for process
-        let stdout = Command::new(&self.executable)
-            .args(col)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap()
-            .stdout
-            .unwrap();
+            let stdout = Command::new(&self.executable)
+                .args(col)
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap()
+                .stdout
+                .unwrap();
 
-        let reader = BufReader::new(stdout);
+            let reader = BufReader::new(stdout);
 
-        // parse stdout for human to read
-        reader.lines().for_each(|line| {
-            let line = line.unwrap();
+            // parse stdout for human to read
+            reader.lines().for_each(|line| {
+                let line = line.unwrap();
 
-            // I feel like there's a better way of handling this? Yes!
-            match &line {
-                line if line.contains("Fra:") => {
-                    let col = line.split('|').collect::<Vec<&str>>();
-                    let last = col.last().unwrap().trim();
-                    let slice = last.split(' ').collect::<Vec<&str>>();
-                    let info = match slice[0] {
-                        "Rendering" => {
-                            let current = slice[1].parse::<f32>().unwrap();
-                            let total = slice[3].parse::<f32>().unwrap();
-                            let percentage = current / total * 100.0;
-                            let render_perc = format!("{} {:.2}%", last, percentage);
-                            render_perc
-                        }
-                        _ => last.to_owned(),
-                    };
-                    let msg = Status::Running { status: info };
-                    self.handler.send(msg).unwrap();
+                if line.is_empty() {
+                    return;
                 }
-                // If blender completes the saving process then we should return the path
-                line if line.contains("Saved:") => {
-                    let location = line.split('\'').collect::<Vec<&str>>();
-                    let path = PathBuf::from(location[1]);
-                    let msg = Status::Completed { result: path };
-                    self.handler.send(msg).unwrap();
-                }
-                line if line.contains("Error:") => {
-                    let msg = Status::Error {
-                        message: line.to_owned(),
-                    };
-                    self.handler.send(msg).unwrap();
-                }
-                // ("Warning:"..) => println!("{}", line),
-                line if !line.is_empty() => {
-                    // do not send info if line is empty!
-                    let msg = Status::Running {
-                        status: line.to_owned(),
-                    };
-                    self.handler.send(msg).unwrap();
-                }
-                _ => {}
-            };
-            // if line.contains("Warning:") {
-            //     println!("{}", line);
-            // } else if line.contains("Fra:") {
-            //     let col = line.split('|').collect::<Vec<&str>>();
-            //     let last = col.last().unwrap().trim();
-            //     let slice = last.split(' ').collect::<Vec<&str>>();
-            //     match slice[0] {
-            //         "Rendering" => {
-            //             let current = slice[1].parse::<f32>().unwrap();
-            //             let total = slice[3].parse::<f32>().unwrap();
-            //             let percentage = current / total * 100.0;
-            //             println!("{} {:.2}%", last, percentage);
-            //         }
-            //         _ => {
-            //             println!("{}", last);
-            //         }
-            //     }
-            //     // this is where I can send signal back to the caller
-            //     // that the render is in progress
-            // } else if line.contains("Saved:") {
-            //     // this is where I can send signal back to the caller
-            //     // that the render is completed
-            //     // TODO: why this didn't work after second render?
-            //     let location = line.split('\'').collect::<Vec<&str>>();
-            //     output = location[1].trim().to_string();
-            // } else {
-            //     // TODO: find a way to show error code or other message if blender doesn't actually render!
-            //     println!("{}", &line);
-            // }
+
+                // I feel like there's a better way of handling this? Yes!
+                match &line {
+                    line if line.contains("Fra:") => {
+                        let col = line.split('|').collect::<Vec<&str>>();
+                        let last = col.last().unwrap().trim();
+                        let slice = last.split(' ').collect::<Vec<&str>>();
+                        let msg = match slice[0] {
+                            "Rendering" => {
+                                let current = slice[1].parse::<f32>().unwrap();
+                                let total = slice[3].parse::<f32>().unwrap();
+                                let percentage = current / total * 100.0;
+                                let render_perc = format!("{} {:.2}%", last, percentage);
+                                Status::Running {
+                                    status: render_perc,
+                                }
+                            }
+                            "Sample" => Status::Running {
+                                status: last.to_owned(),
+                            },
+                            _ => Status::Log {
+                                status: last.to_owned(),
+                            },
+                        };
+                        rx.send(msg).unwrap();
+                    }
+                    // If blender completes the saving process then we should return the path
+                    line if line.contains("Saved:") => {
+                        let location = line.split('\'').collect::<Vec<&str>>();
+                        let path = PathBuf::from(location[1]);
+                        let msg = Status::Completed { result: path };
+                        rx.send(msg).unwrap();
+                    }
+                    line if line.contains("Warning:") => {
+                        let msg = Status::Warning {
+                            message: line.to_owned(),
+                        };
+                        rx.send(msg).unwrap();
+                    }
+                    line if line.contains("Error:") => {
+                        let msg = Status::Error(BlenderError::RenderError(line.to_owned()));
+                        rx.send(msg).unwrap();
+                    }
+                    // ("Warning:"..) => println!("{}", line),
+                    line if !line.is_empty() => {
+                        // do not send info if line is empty!
+                        let msg = Status::Running {
+                            status: line.to_owned(),
+                        };
+                        rx.send(msg).unwrap();
+                    }
+                    _ => {
+                        // Only empty log entry would show up here...
+                    }
+                };
+            });
         });
-
-        // Ok(())
+        tx
     }
 }

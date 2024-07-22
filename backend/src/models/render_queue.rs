@@ -1,13 +1,14 @@
 use super::{project_file::ProjectFile, render_info::RenderInfo, server_setting::ServerSetting};
-use blender::models::{args::Args, mode::Mode};
+use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use thiserror::Error;
 use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum RenderError {
+    #[error("Unable to complete command! Program unexpectly crashed and closed pipe?")]
+    BrokenPipe,
     #[error("Io error raised: {0}")]
     IoError(#[from] std::io::Error),
     #[error("Failed to render: {0}")]
@@ -44,13 +45,24 @@ impl RenderQueue {
 
         let blender = config.get_blender(self.version.clone());
 
-        match blender.render(&args) {
-            Ok(file_str) => {
-                let path = PathBuf::from(file_str);
-                let info = RenderInfo::new(self.frame, &path);
-                Ok(info)
+        let listener = blender.render(args);
+
+        while let Ok(event) = listener.recv() {
+            match event {
+                Status::Completed { result } => {
+                    let info = RenderInfo::new(self.frame, &result);
+                    return Ok(info);
+                }
+                Status::Error(e) => return Err(RenderError::BlenderError(e)),
+                _ => {} //
             }
-            Err(e) => Err(RenderError::BlenderError(e)),
+            // Ok(file_str) => {
+            //     let path = PathBuf::from(file_str);
+            //     let info = RenderInfo::new(self.frame, &path);
+            //     Ok(info)
+            // }
+            // Err(e) => Err(RenderError::BlenderError(e)),
         }
+        Err(RenderError::BrokenPipe)
     }
 }

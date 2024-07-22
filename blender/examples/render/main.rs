@@ -6,7 +6,7 @@ use std::path::PathBuf;
 fn main() {
     let args = std::env::args().collect::<Vec<String>>();
     let blend_path = match args.get(1) {
-        None => PathBuf::from("./examples/render/test.blend"),
+        None => PathBuf::from("./examples/assets/test.blend"),
         Some(p) => PathBuf::from(p),
     };
 
@@ -22,7 +22,7 @@ fn main() {
 
     // Here we ask for the output path, for now we set our path in the same directory as our executable path.
     // This information will be display after render has been completed successfully.
-    let output = PathBuf::from("./examples/render/");
+    let output = PathBuf::from("./examples/assets/");
     // Tells blender what kind of rendering mode are we performing, two options available, third one still in review for future impl.
     let mode = Mode::Frame(1);
     // let mode = Mode::Animation { start: 1, end: 2 };  // animation mode, requires two arguments, first frame to start render, and the last frame to end animation
@@ -31,22 +31,23 @@ fn main() {
     let args = Args::new(blend_path, output, mode);
 
     // render the frame. Completed render will return the path of the rendered frame, error indicates failure to render due to blender incompatible hardware settings or configurations. (CPU vs GPU / Metal vs OpenGL)
-    blender.render(&args);
+    let listener = blender.render(args);
     // problem is, mpsc is not async. Need to wait for blender to finish rendering! :cry:
-    while let Ok(status) = blender.listener.recv() {
+    while let Ok(status) = listener.recv() {
         match status {
             Status::Completed { result } => {
                 println!("[Completed] {:?}", result);
-                blender.stop();
-                break;
+                // break;
+            }
+            Status::Log { status } => {
+                println!("[Info] {}", status);
             }
             Status::Running { status } => {
                 println!("[Running] {}", status);
             }
-            Status::Error { message } => {
-                println!("[ERROR] {:?}", message);
-                blender.stop();
-                break;
+            Status::Error(e) => {
+                println!("[ERROR] {:?}", e);
+                // break;
             }
             _ => {
                 println!("unhandled blender status! {:?}", status);

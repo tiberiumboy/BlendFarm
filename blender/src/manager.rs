@@ -6,7 +6,8 @@
     - If user fetch for list of installation, verify all path exist before returning the list.
     - Implements download and install code
 */
-use crate::models::{blender_data::BlenderData, download_link::DownloadLink};
+use crate::blender::Blender;
+use crate::models::download_link::DownloadLink;
 use crate::page_cache::{PageCache, PageCacheError};
 use regex::Regex;
 use semver::Version;
@@ -60,7 +61,7 @@ pub enum ManagerError {
 // I wanted to keep this struct private only to this library crate?
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Manager {
-    blenders: Vec<BlenderData>,
+    blenders: Vec<Blender>,
 }
 
 impl Manager {
@@ -91,21 +92,19 @@ impl Manager {
         data
     }
 
-    #[allow(dead_code)]
     fn save(&self) -> Result<(), ManagerError> {
         let data = serde_json::to_string(&self).unwrap();
         let path = Self::get_config_path();
         fs::write(path, data).or_else(|e| Err(ManagerError::Io { source: e }))
     }
 
-    #[allow(dead_code)]
-    fn add(&mut self, blender: BlenderData) {
-        self.blenders.push(blender)
+    fn add(&mut self, blender: &Blender) {
+        self.blenders.push(blender.clone())
     }
 
     #[allow(dead_code)]
-    fn remove(&mut self, blender: BlenderData) {
-        self.blenders.retain(|x| x.eq(&blender));
+    fn remove(&mut self, blender: &Blender) {
+        self.blenders.retain(|x| x.eq(blender));
     }
 
     /// Return extension matching to the current operating system (Only display Windows(zip), Linux(tar.xz), or macos(.dmg)).
@@ -156,9 +155,9 @@ impl Manager {
         install_path: impl AsRef<Path>,
     ) -> Result<PathBuf, ManagerError> {
         // if the manager already have the blender version installed, use that instead of downloading a new instance of version.
-        if let Some(blender_data) = self.blenders.iter().find(|x| x.version == *version) {
+        if let Some(blender_data) = self.blenders.iter().find(|x| x.get_version() == version) {
             println!("Target version already installed! Using existing installation instead");
-            return Ok(blender_data.executable.clone());
+            return Ok(blender_data.get_executable().clone());
         }
 
         println!("Target version is not installed! Generating a new download link!");
@@ -219,6 +218,12 @@ impl Manager {
 
         // TODO: verify this is working for windows (.zip)?
         println!("Begin downloading blender and extract content!");
-        download_link.download_and_extract(&destination)
+        let path = download_link.download_and_extract(&destination);
+        if let Ok(destination) = &path {
+            let blender_data = Blender::from_executable(destination.to_owned()).unwrap();
+            self.add(&blender_data);
+            self.save().unwrap();
+        };
+        path
     }
 }

@@ -1,6 +1,5 @@
 use super::{file_info::FileInfo, render_info::RenderInfo, render_queue::RenderQueue};
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
 
 // I could make this as a trait?
 // that way I could have separate enum structs for different kind of message

@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Engine {
-    Cycles,
+    Cycles = 0,
     #[default]
-    Eevee,
-    Workbench,
+    Eevee = 1,
+    OptiX = 2,
 }
 
 impl ToString for Engine {
@@ -13,7 +13,8 @@ impl ToString for Engine {
         match self {
             Engine::Cycles => "CYCLES".to_owned(),
             Engine::Eevee => "EEVEE".to_owned(),
-            Engine::Workbench => "WORKBENCH".to_owned(),
+            // TODO: Is this correct?
+            Engine::OptiX => "WORKBENCH".to_owned(),
         }
     }
 }

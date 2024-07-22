@@ -1,4 +1,4 @@
-use blender::{blender::Blender, models::blender_data::BlenderData};
+use blender::blender::Blender;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
@@ -17,7 +17,7 @@ pub struct ServerSetting {
     pub port: u16,
     pub blender_dir: PathBuf,
     pub render_dir: PathBuf,
-    pub blenders: Vec<BlenderData>, // list of installed blender versions on this machine.
+    pub blenders: Vec<Blender>, // list of installed blender versions on this machine.
 }
 
 impl Default for ServerSetting {
@@ -65,7 +65,7 @@ impl ServerSetting {
     // this will help remove a lot of code problems where client wants to download the latest version without asking for their input.
     pub fn get_latest_blender(&mut self) -> Blender {
         match self.blenders.first() {
-            Some(item) => Blender::from_json(item.to_owned()).unwrap(),
+            Some(blender) => blender.clone(),
             None => {
                 // fetch a new copy of blender
                 // here it would be nice to fetch latest blender version?
@@ -78,11 +78,11 @@ impl ServerSetting {
     pub fn get_blender(&mut self, version: Version) -> Blender {
         // eventually we would want to check if the version is already installed on the machine.
         // otherwise download and install the version prior to run this script.
-        match self.blenders.iter().find(|&x| x.version == version) {
-            Some(json) => Blender::from_json(json.to_owned()).unwrap(),
+        match self.blenders.iter().find(|&x| x.get_version().eq(&version)) {
+            Some(blender) => blender.clone(),
             None => {
                 let blender = Blender::download(version, &self.blender_dir).unwrap();
-                self.blenders.push(blender.get_serialized_data());
+                self.blenders.push(blender.clone());
                 self.save();
                 blender
             }

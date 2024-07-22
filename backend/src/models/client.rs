@@ -54,7 +54,7 @@ impl Client {
 
         // setup listener for client
         // I only got socket address from this?
-        let listen_addr = match handler.network().listen(Transport::FramedTcp, public_addr) {
+        let _listen_addr = match handler.network().listen(Transport::FramedTcp, public_addr) {
             Ok(conn) => conn.1, // don't care about Resource Id (0)
             Err(e) => {
                 println!("Error listening to address [{}]! {:?}", public_addr, e);

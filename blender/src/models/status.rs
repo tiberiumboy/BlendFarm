@@ -1,3 +1,4 @@
+use crate::blender::BlenderError;
 use std::path::PathBuf;
 
 // TODO Find good use of this?
@@ -5,6 +6,8 @@ use std::path::PathBuf;
 pub enum Status {
     Idle,
     Running { status: String },
-    Error { message: String },
+    Log { status: String },
+    Warning { message: String },
+    Error(BlenderError),
     Completed { result: PathBuf }, // should this be a pathbuf instead? or the actual image data?
 }

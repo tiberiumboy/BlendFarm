@@ -30,14 +30,10 @@ use crate::controllers::settings::{
     remove_blender_installation,
 };
 use crate::models::{data::Data, server::Server};
-use blender::models::{args::Args, mode::Mode};
 use clap::{command, Parser};
 use gethostname::gethostname;
-// use models::server_setting;
 use models::{client::Client, server_setting::ServerSetting};
-use semver::Version;
-use std::path::{Path, PathBuf};
-// use std::thread;
+use std::thread;
 use std::{env, io::Result, sync::Mutex};
 use tauri::{generate_handler, CustomMenuItem, Menu, MenuItem, Submenu};
 
@@ -48,10 +44,10 @@ pub mod services;
 fn run_as_server(port: u16) {
     // is there a clear and better way to get around this?
     // I do not want to have any dangling threads if we have to run async
-    match Server::new(port) {
+    thread::spawn(move || match Server::new(port) {
         Ok(mut server) => server.run(),
         Err(e) => eprintln!("Failed to create server! {}", e),
-    }
+    });
 }
 
 // when the app starts up, I would need to have access to onfigs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
@@ -110,22 +106,6 @@ fn client() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-/// This code is only used to test out downloading blender from source or reuse existing installation of blender, render a test scene example, and output the result.
-#[allow(dead_code)]
-fn test_reading_blender_files(file: impl AsRef<Path>, version: Version) {
-    let mut server_settings = ServerSetting::load();
-
-    // eventually we would want to check if the version is already installed on the machine.
-    // otherwise download and install the version prior to run this script.
-    let blender = server_settings.get_blender(version);
-
-    // This part of the code is used to test and verify that we can successfully run blender
-    let output = file.as_ref().parent().unwrap();
-    let args = Args::new(file.as_ref(), PathBuf::from(output), Mode::Frame(1));
-    let render_path = blender.render(&args);
-    assert!(render_path.is_ok());
 }
 
 fn run_as_node() {
