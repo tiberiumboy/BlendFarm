@@ -77,6 +77,7 @@ export default function Setting() {
       </h2>
       <div className="group">
         {blenders.map((blender: BlenderProps) => (
+          (blender.onDelete = listBlenders),
           BlenderEntry(blender)
         ))}
       </div>

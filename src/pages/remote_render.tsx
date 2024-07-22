@@ -187,7 +187,8 @@ export default function RemoteRender() {
         </button>
         <div className="group">
           {projects.map(
-            (project: ProjectFileProps) => (
+            (project: ProjectFileProps, index: number) => (
+              (project.id = "ProjectFile_" + index),
               (project.onDataChanged = listProjects),
               (project.onRequestNewJob = openJobWindow),
               ProjectFile(project)

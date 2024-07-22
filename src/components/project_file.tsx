@@ -19,12 +19,10 @@ export default function (props: ProjectFileProps) {
   const deleteProject = () =>
     invoke("delete_project", { projectFile: props }).then(props.onDataChanged);
 
-  // this should really open a new dialog and asking for which machine to use for this job...
-  // but ok
   const createNewJob = () => props.onRequestNewJob(props);
 
   return (
-    <div className="item" key={props.id} id={props.id}>
+    <div className="item" key={props.id}>
       <table>
         <tbody>
           <tr>

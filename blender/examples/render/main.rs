@@ -1,4 +1,5 @@
 use blender::blender::Blender;
+use blender::manager::Manager as BlenderManager;
 use blender::models::status::Status;
 use blender::models::{args::Args, mode::Mode};
 use std::path::PathBuf;
@@ -10,15 +11,11 @@ fn main() {
         Some(p) => PathBuf::from(p),
     };
 
-    // fetch a blender installation somehow?
-    let blender_path = dirs::download_dir().expect("Unable to get your download path!");
-    // // because I'm hardcoding this path, I wanted to make sure this all still continue to work before I complete this example exercise.
-    // // This is a hack I want to get around. If we can't get blender installation, then we need to politely ask user to create one.
-    let blender_path = blender_path.join("blender");
-
     // // we reference blender by executable path. Version will be detected upon running command process. (Self validation)
     let version = Blender::latest_version_available().unwrap();
-    let blender = Blender::download(version, blender_path).unwrap();
+
+    let mut manager = BlenderManager::load();
+    let blender = manager.get_blender(&version).unwrap();
 
     // Here we ask for the output path, for now we set our path in the same directory as our executable path.
     // This information will be display after render has been completed successfully.

@@ -13,7 +13,10 @@ use anyhow::Result;
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{
+    env::temp_dir,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+};
 
 use super::server::MULTICAST_ADDR;
 
@@ -180,8 +183,10 @@ impl Client {
             println!("Path does not exist!");
         }
 
+        let output = temp_dir().join("render");
+
         // run the blender() - this will take some time. Could implement async/thread?
-        match render_queue.run() {
+        match render_queue.run(output) {
             // returns frame and image path
             Ok(render_info) => {
                 // assuming that we have connection to the server? otherwise rendering job should abort immediately.

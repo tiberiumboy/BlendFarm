@@ -27,7 +27,6 @@ use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
-    env::temp_dir,
     fs,
     io::{self, BufRead, BufReader},
     path::{self, Path, PathBuf},
@@ -36,6 +35,8 @@ use std::{
     thread,
 };
 use thiserror::Error;
+// this is ugly, and I want to get rid of this.
+const MACOS_PATH: &str = "Contents/MacOS/Blender";
 
 // TODO: consider making this private to make it easy to modify internally than affecting exposed APIs
 #[derive(Debug, Error)]
@@ -72,6 +73,7 @@ pub enum BlenderError {
 }
 
 /// Blender structure to hold path to executable and version of blender installed.
+/// Pretend this is the wrapper to interface with the actual blender program.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialOrd, Eq, Ord)]
 pub struct Blender {
     /// Path to blender executable on the system.
@@ -126,6 +128,10 @@ impl Blender {
         Err(BlenderError::ExecutableInvalid)
     }
 
+    /// Fetch the configuration path for blender. This is used to store temporary files and configuration files for blender.
+    fn get_config_path() -> PathBuf {
+        dirs::config_dir().unwrap().join("Blender")
+    }
     /// fetch the blender executable path, used to pass into Command::process implementation
     pub fn get_executable(&self) -> &PathBuf {
         &self.executable
@@ -170,7 +176,13 @@ impl Blender {
         // To do this - I need to append additional path args to correctly invoke the right application for this to work.
         // TODO: Verify this works for Linux/window OS?
         let path = match std::env::consts::OS {
-            "macos" => &path.join("Contents/MacOS/Blender"),
+            "macos" => {
+                if !path.ends_with(MACOS_PATH) {
+                    &path.join(MACOS_PATH)
+                } else {
+                    path
+                }
+            }
             _ => path,
         };
 
@@ -193,40 +205,17 @@ impl Blender {
         Blender::from_executable(path)
     }
 
+    /// Fetch the latest version of blender available from Blender.org
     pub fn latest_version_available() -> Result<Version, BlenderError> {
         // in this case I need to contact Manager class or BlenderDownloadLink somewhere and fetch the latest blender information
         // but for now let's just return default value of 4.1.0 until we return back to this at future later code.
         Ok(Version::new(4, 1, 0))
     }
 
-    /// Download blender from the internet and install it to the provided path.
-    ///
-    /// # Potential errors
-    ///
-    /// * Unable to fetch download from the source - You may have lost connection to the internet, or this computer is unable to fetch download.blender.org website.
-    ///  Please check and validate that you can access to the internet so that this program can download the correct version of blender on the system.
-    ///
-    /// * Unsupported OS - In some extreme case, this program cannot run on operating system or architecture outside of blender support. Curretnly supporting 64 bit architecture (Linux/Windows/Mac Intel) or Apple Silicon (arm64 base)
-    ///  Currently there are no plan to support different operating system (Freebird, Solaris, Android) with matching architecture (arm, x86_64, powerpc)
-    ///  It is possible to support these unsupported operating system / architecture by downloading the source code onto the target machine, and compile directly.
-    ///  However, for this scope of this project, I have no plans or intention on supporting that far of detail to make this possible. (Especially when I need to verify all other crates are compatible with the target platform/os)
-    ///
-    /// # Examples
-    /// ```
-    /// use blender::Blender;
-    /// let blender = Blender::download(Version::new(4,1,0), PathBuf::from("path/to/installation")).unwrap();
-    /// ```
-    pub fn download(
-        version: Version,
-        install_path: impl AsRef<Path>,
-    ) -> Result<Blender, BlenderError> {
-        let mut manager = Manager::load();
-        let executable = manager.download(&version, install_path).unwrap();
-        Ok(Blender::new(executable, version))
-    }
-
+    /// Peek is a function design to read and fetch information about the blender file.
+    /// To do this, we must have a valid blender executable path, and run the peek.py code to fetch a json response.
     pub fn peek(&self, blend_file: impl AsRef<Path>) -> Result<BlenderPeekResponse, BlenderError> {
-        let peek_path = temp_dir().join("peek.py");
+        let peek_path = Self::get_config_path().join("peek.py");
         if !peek_path.exists() {
             let bytes = include_bytes!("peek.py");
             fs::write(&peek_path, bytes).unwrap();
@@ -272,7 +261,7 @@ impl Blender {
             let setting = BlenderRenderSetting::parse_from(&args, blend_info);
             let arr = vec![setting];
             let data = serde_json::to_string(&arr).unwrap();
-            let tmp_path = temp_dir().join("blender_render.json");
+            let tmp_path = Self::get_config_path().join("blender_render.json");
             fs::write(&tmp_path, data).unwrap();
             let col = &args.create_arg_list(tmp_path);
 

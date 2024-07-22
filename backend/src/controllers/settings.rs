@@ -1,15 +1,21 @@
 // this is the settings controller section that will handle input from the setting page.
 use crate::models::server_setting::ServerSetting;
 // use blender::blender::Blender;
-use blender::blender::Blender;
+use blender::{blender::Blender, manager::Manager as BlenderManager};
 use std::path::PathBuf;
 use tauri::{command, Error};
+
+/*
+    Developer Blog
+    I'm slowly breaking apart serversettings because the name itself does not imply settings configuration for _all_ other services in this application.
+    TODO: Create ClientSettings, and create a BlendFarmConfiguration file to hold all settings and configurations
+*/
 
 /// List out currently saved blender installation on the machine
 #[command]
 pub fn list_blender_installation() -> Result<String, Error> {
-    let server_settings = ServerSetting::load();
-    let blenders = server_settings.blenders;
+    let manager = BlenderManager::load();
+    let blenders = manager.get_blenders();
     let data = serde_json::to_string(&blenders).unwrap();
     Ok(data)
 }
@@ -53,20 +59,14 @@ pub fn add_blender_installation(path: PathBuf) -> Result<(), Error> {
     };
 
     // Add to the server settings
-    let mut server_settings = ServerSetting::load();
-    server_settings.blenders.push(blender);
-    server_settings.save();
+    let mut manager = BlenderManager::load();
+    manager.add(&blender);
     Ok(())
 }
 
 #[command(async)]
 pub fn remove_blender_installation(blender: Blender) -> Result<(), Error> {
-    let mut server_setting = ServerSetting::load();
-    let mut collection = server_setting.blenders;
-    if let Some(index) = &collection.iter().position(|element| element == &blender) {
-        let _ = &collection.swap_remove(*index);
-        server_setting.blenders = collection;
-    }
-
+    let mut manager = BlenderManager::load();
+    manager.remove(&blender);
     Ok(())
 }

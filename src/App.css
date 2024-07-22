@@ -163,6 +163,10 @@ div.content {
   overflow: auto;
 }
 
+/* 
+This appears invisible in the dark mode, but perfect for light mode? 
+Do I need to make another .group class in @media (prefers-color-scheme: dark) ?
+*/
 .group {
   background-color: #2c2c2c0b;
   border: 1px solid rgba(63, 65, 68, 0.067);
@@ -171,7 +175,7 @@ div.content {
   padding: 12px;
 }
 
-.item:not(:last-child) {
+.group>.item:not(:last-child) {
   border-bottom: 1px solid rgb(63, 65, 68, 0.067);
 }
 

@@ -10,7 +10,7 @@ scn = bpy.context.scene
 
 try:
     peekObj = dict(
-        LastVersion = '.'.join(str(x) for x in bpy.data.version[:-1]) + ".0",
+        LastVersion = '.'.join(str(x) for x in bpy.data.version[:-1]) + ".0", # find a way to allow semvar version to accept a value higher than this patch.
         RenderWidth = scn.render.resolution_x,
         RenderHeight = scn.render.resolution_y,
         FrameStart = scn.frame_start,

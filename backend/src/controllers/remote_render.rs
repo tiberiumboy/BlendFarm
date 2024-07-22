@@ -107,11 +107,12 @@ pub fn delete_project(app: AppHandle, project_file: ProjectFile) {
     let mut data = ctx.lock().unwrap();
     let mut project = data.get_project_file(&project_file).unwrap().to_owned();
     project.clear_temp();
-    data.project_files.retain(|x| *x != project_file);
+    data.project_files.retain(|x| x != &project_file);
 }
 
 #[command]
 pub fn list_projects(app: AppHandle) -> Result<String, Error> {
+    // is it possible just to retrieve the state object directly instead of interfacing through apphandle?
     let ctx_mutex = app.state::<Mutex<Data>>();
     let ctx = ctx_mutex.lock().unwrap();
     let data = serde_json::to_string(&ctx.project_files).unwrap();

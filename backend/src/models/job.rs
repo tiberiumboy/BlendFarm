@@ -6,7 +6,8 @@
     - I need to fetch the handles so that I can maintain and monitor all node activity.
     - TODO: See about migrating Sender code into this module?
 */
-use super::{project_file::ProjectFile, render_info::RenderInfo, server_setting::ServerSetting};
+use super::{project_file::ProjectFile, render_info::RenderInfo};
+use blender::manager::Manager as BlenderManager;
 use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -103,8 +104,8 @@ impl Job {
 
         // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
         // TODO: This looks like I could move this code block somewhere else?
-        let mut server_settings = ServerSetting::load();
-        let blender = server_settings.get_blender(self.version.clone());
+        let mut manager = BlenderManager::load();
+        let blender = manager.get_blender(&self.version).unwrap();
 
         // here's the question - if I'm on a network node, how do I send the host the image of the completed rendered job?
         // yeah here's a good question?

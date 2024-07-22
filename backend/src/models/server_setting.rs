@@ -1,23 +1,30 @@
-use blender::blender::Blender;
-use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
+
+/*
+    Developer blog
+    - Initially when I created this class, I thought that this application would
+    have a manager of some sort to hold all blender installation installed on this
+    machine. It would then save those entry with the server configuration.
+        However, recently, I made blender into a separate cargo crate,
+    which means I need to migrate some of these code over to the newly created crate
+    and let blender crate handle the management of installing, finding version, and govern
+    of all blender associated items.
+
+    TODO: Mitigate blender manager logic to blender.rs crate - We no longer need that anymore, instead make blender manager a separate configuration to store.
+*/
 
 // path to config file name.
 const SETTINGS_PATH: &str = "BlendFarm/";
 const SETTINGS_FILE_NAME: &str = "ServerSettings.json";
-const BLENDER_DIR: &str = "BlenderData/";
 const RENDER_DIR: &str = "RenderData/";
-// const BLENDER_FILES: &str = "BlenderFiles";
 
 /// Server settings information that the user can load and configure for this program to operate.
 /// It will save the list of blender installation on the machine to avoid duplicate download and installation.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerSetting {
     pub port: u16,
-    pub blender_dir: PathBuf,
     pub render_dir: PathBuf,
-    pub blenders: Vec<Blender>, // list of installed blender versions on this machine.
 }
 
 impl Default for ServerSetting {
@@ -31,17 +38,10 @@ impl Default for ServerSetting {
         // ensure path exists
         fs::create_dir_all(&render_data).unwrap();
 
-        // Setting blender installation to user's download directory.
-        let blender_data = dirs::download_dir().unwrap().join(BLENDER_DIR);
-        // ensure path exists
-        fs::create_dir_all(&blender_data).unwrap();
-
         Self {
             // subject to change - original number came from c# version of BlendFarm
             port: 15000,
-            blender_dir: blender_data,
             render_dir: render_data,
-            blenders: vec![],
         }
     }
 }
@@ -58,35 +58,6 @@ impl ServerSetting {
         let data = serde_json::to_string(&self).expect("Unable to parse ServerSettings into json!");
         let config_path = Self::get_config_path();
         fs::write(config_path, data).expect("Unable to write file! Permission issue?");
-    }
-
-    // todo: Finish this part. We should utilize blenderdownloadlink and see if we can fetch the latest version available from
-    // the blender foundation organization. It would be nice to be able to take addvantage of using their API services to check and see what is our latest version of blender
-    // this will help remove a lot of code problems where client wants to download the latest version without asking for their input.
-    pub fn get_latest_blender(&mut self) -> Blender {
-        match self.blenders.first() {
-            Some(blender) => blender.clone(),
-            None => {
-                // fetch a new copy of blender
-                // here it would be nice to fetch latest blender version?
-                let version = Blender::latest_version_available().unwrap();
-                Blender::download(version, self.blender_dir.clone()).unwrap()
-            }
-        }
-    }
-
-    pub fn get_blender(&mut self, version: Version) -> Blender {
-        // eventually we would want to check if the version is already installed on the machine.
-        // otherwise download and install the version prior to run this script.
-        match self.blenders.iter().find(|&x| x.get_version().eq(&version)) {
-            Some(blender) => blender.clone(),
-            None => {
-                let blender = Blender::download(version, &self.blender_dir).unwrap();
-                self.blenders.push(blender.clone());
-                self.save();
-                blender
-            }
-        }
     }
 
     /// Load user configurations from the user's config directory

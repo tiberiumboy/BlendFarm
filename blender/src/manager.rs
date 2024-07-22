@@ -12,12 +12,7 @@ use crate::page_cache::{PageCache, PageCacheError};
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{
-    env::consts,
-    fs, io,
-    path::{Path, PathBuf},
-    time::SystemTime,
-};
+use std::{env::consts, fs, io, path::PathBuf, time::SystemTime};
 use thiserror::Error;
 use url::Url;
 
@@ -59,24 +54,48 @@ pub enum ManagerError {
 }
 
 // I wanted to keep this struct private only to this library crate?
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Manager {
+    /// Store all known installation of blender directory information
     blenders: Vec<Blender>,
+    install_path: PathBuf,
+    auto_save: bool,
+    #[serde(skip)]
+    has_modified: bool,
+}
+
+impl Default for Manager {
+    fn default() -> Self {
+        let install_path = dirs::download_dir().unwrap().join("Blender");
+        Self {
+            blenders: Vec::new(),
+            install_path,
+            auto_save: true,
+            has_modified: false,
+        }
+    }
 }
 
 impl Manager {
     // this path should always be fixed and stored under machine specific.
     // this path should not be shared across machines.
     fn get_config_path() -> PathBuf {
-        let path = dirs::config_dir().unwrap();
+        let path = dirs::config_dir().unwrap().join("Blender");
         fs::create_dir_all(&path).expect("Unable to create directory!");
         path.join("BlenderManager.json")
     }
 
+    /// Return a reference to the vector list of all known blender installations
+    pub fn get_blenders(&self) -> &Vec<Blender> {
+        &self.blenders
+    }
+
+    /// Load the manager data from the config file.
     pub fn load() -> Self {
         // load from a known file path (Maybe a persistence storage solution somewhere?)
         // if the config file does not exist on the system, create a new one and return a new struct instead.
         let path = Self::get_config_path();
+        dbg!(&path);
         if let Ok(content) = fs::read_to_string(&path) {
             if let Ok(manager) = serde_json::from_str(&content) {
                 return manager;
@@ -88,7 +107,11 @@ impl Manager {
         };
         // default case, create a new manager data and save it.
         let data = Self::default();
-        // data.save().unwrap();
+        match data.save() {
+            Ok(()) => println!("New manager data created and saved!"),
+            // TODO: Find a better way to handle this error.
+            Err(e) => println!("Unable to save new manager data! {:?}", e),
+        }
         data
     }
 
@@ -98,13 +121,16 @@ impl Manager {
         fs::write(path, data).or_else(|e| Err(ManagerError::Io { source: e }))
     }
 
-    fn add(&mut self, blender: &Blender) {
-        self.blenders.push(blender.clone())
+    /// Add a new blender installation to the manager list.
+    pub fn add(&mut self, blender: &Blender) {
+        self.blenders.push(blender.clone());
+        self.has_modified = true;
     }
 
-    #[allow(dead_code)]
-    fn remove(&mut self, blender: &Blender) {
+    /// Remove blender installation from the manager list.
+    pub fn remove(&mut self, blender: &Blender) {
         self.blenders.retain(|x| x.eq(blender));
+        self.has_modified = true;
     }
 
     /// Return extension matching to the current operating system (Only display Windows(zip), Linux(tar.xz), or macos(.dmg)).
@@ -149,18 +175,22 @@ impl Manager {
         Ok(match_pattern)
     }
 
-    pub(crate) fn download(
-        &mut self,
-        version: &Version,
-        install_path: impl AsRef<Path>,
-    ) -> Result<PathBuf, ManagerError> {
-        // if the manager already have the blender version installed, use that instead of downloading a new instance of version.
-        if let Some(blender_data) = self.blenders.iter().find(|x| x.get_version() == version) {
-            println!("Target version already installed! Using existing installation instead");
-            return Ok(blender_data.get_executable().clone());
+    pub fn get_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
+        match self.blenders.iter().find(|x| x.get_version() == version) {
+            Some(blender) => Ok(blender.to_owned()),
+            None => {
+                // could use as a warning message?
+                println!(
+                    "Target version is not installed! Downloading Blender {}!",
+                    version
+                );
+                self.download(version)
+            }
         }
+    }
 
-        println!("Target version is not installed! Generating a new download link!");
+    fn download(&mut self, version: &Version) -> Result<Blender, ManagerError> {
+        // if the manager already have the blender version installed, use that instead of downloading a new instance of version.
 
         // TODO: As a extra security measure, I would like to verify the hash of the content before extracting the files.
         // I would hope that this line should never fail...? Unless the user isn't connected to the internet, or the url path is blocked by IT infrastructure?
@@ -213,17 +243,28 @@ impl Manager {
             }
         };
 
-        let destination = install_path.as_ref().join(&path);
+        let destination = self.install_path.join(&path);
         fs::create_dir_all(&destination).unwrap();
 
         // TODO: verify this is working for windows (.zip)?
         println!("Begin downloading blender and extract content!");
-        let path = download_link.download_and_extract(&destination);
-        if let Ok(destination) = &path {
-            let blender_data = Blender::from_executable(destination.to_owned()).unwrap();
-            self.add(&blender_data);
+        match download_link.download_and_extract(&destination) {
+            Ok(destination) => {
+                dbg!(&destination);
+                let blender = Blender::from_executable(destination.to_owned()).unwrap();
+                self.add(&blender);
+                self.save().unwrap();
+                Ok(blender)
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
+impl Drop for Manager {
+    fn drop(&mut self) {
+        if self.has_modified || self.auto_save {
             self.save().unwrap();
-        };
-        path
+        }
     }
 }

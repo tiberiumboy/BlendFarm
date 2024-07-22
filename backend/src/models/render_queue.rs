@@ -1,4 +1,7 @@
-use super::{project_file::ProjectFile, render_info::RenderInfo, server_setting::ServerSetting};
+use std::path::Path;
+
+use super::{project_file::ProjectFile, render_info::RenderInfo};
+use blender::manager::Manager as BlenderManager;
 use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -35,16 +38,16 @@ impl RenderQueue {
         }
     }
 
-    pub fn run(&self) -> Result<RenderInfo, RenderError> {
-        let mut config = ServerSetting::load();
+    pub fn run(&self, output: impl AsRef<Path>) -> Result<RenderInfo, RenderError> {
         let args = Args::new(
             self.project_file.src.clone(),
-            config.render_dir.clone(),
+            // TODO: find a better way to handle target destination for render outputs
+            output,
             Mode::Frame(self.frame),
         );
 
-        let blender = config.get_blender(self.version.clone());
-
+        let mut manager = BlenderManager::load();
+        let blender = manager.get_blender(&self.version).unwrap();
         let listener = blender.render(args);
 
         while let Ok(event) = listener.recv() {
@@ -56,12 +59,6 @@ impl RenderQueue {
                 Status::Error(e) => return Err(RenderError::BlenderError(e)),
                 _ => {} //
             }
-            // Ok(file_str) => {
-            //     let path = PathBuf::from(file_str);
-            //     let info = RenderInfo::new(self.frame, &path);
-            //     Ok(info)
-            // }
-            // Err(e) => Err(RenderError::BlenderError(e)),
         }
         Err(RenderError::BrokenPipe)
     }

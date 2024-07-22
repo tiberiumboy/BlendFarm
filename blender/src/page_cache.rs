@@ -76,7 +76,7 @@ impl PageCache {
         let created_date = match fs::metadata(&path) {
             Ok(metadata) => {
                 if metadata.is_file() {
-                    println!("Cache file found! Fetching metadata creation date property!");
+                    println!("Cache file found! Fetching metadata...");
                     metadata.created().unwrap_or(SystemTime::now())
                 } else {
                     println!("Unable to find cache file, creating new one!");

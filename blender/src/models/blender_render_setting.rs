@@ -156,6 +156,7 @@ impl BlenderRenderSetting {
             _ => 0,
         };
         // it would be nice to get the formatting rules out of this but oh well?
+        // this args.output is the only place being used right now. I don't see any reason why I should have this?
         let output = args.output.join(format!("{:0>5}", frame)).to_owned();
         let compute_unit = args.device.clone().unwrap_or_default().to_owned();
         let border = Window {

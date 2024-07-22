@@ -1,17 +1,11 @@
 import { CiTrash, CiCircleMore } from "react-icons/ci"
+import { invoke } from "@tauri-apps/api/tauri";
+import { BlenderProps } from "../props/blender_props";
 
-export interface BlenderEntryProps {
-    executable: String,
-    version: String,
-    onDelete?: () => void,
-};
+export default function BlenderEntry(props: BlenderProps) {
 
-export default function BlenderEntry(props: BlenderEntryProps) {
-
-    function getFileName() {
-        const list = props.executable.split("/");
-        console.log(list);
-        return props.executable
+    function handleDelete() {
+        invoke("remove_blender_installation", { blender: props }).then(props.onDelete);
     }
 
     return (
@@ -27,7 +21,7 @@ export default function BlenderEntry(props: BlenderEntryProps) {
                             <CiCircleMore />
                         </td>
                         <td>
-                            <CiTrash onClick={props.onDelete} />
+                            <CiTrash onClick={handleDelete} />
                         </td>
                     </tr>
                 </tbody>
