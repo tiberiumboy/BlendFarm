@@ -4,11 +4,13 @@
 #Start
 import bpy # type: ignore
 import json
+import struct
 
 scn = bpy.context.scene
 
 try:
     peekObj = dict(
+        LastVersion = '.'.join(str(x) for x in bpy.data.version[:-1]) + ".0",
         RenderWidth = scn.render.resolution_x,
         RenderHeight = scn.render.resolution_y,
         FrameStart = scn.frame_start,
@@ -28,7 +30,7 @@ try:
     for scene in bpy.data.scenes:
         peekObj["Scenes"].append(scene.name)
 
-    print(""+json.dumps(peekObj)+"\n")
+    print(json.dumps(peekObj)+"\n")
 
 except Exception as e:
     print("EXCEPTION:" + str(e))

@@ -1,7 +1,10 @@
+use semver::Version;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlenderPeekResponse {
+    #[serde(rename = "LastVersion")]
+    pub last_version: Version,
     #[serde(rename = "RenderWidth")]
     pub render_width: i32,
     #[serde(rename = "RenderHeight")]
