@@ -95,7 +95,6 @@ impl Manager {
         // load from a known file path (Maybe a persistence storage solution somewhere?)
         // if the config file does not exist on the system, create a new one and return a new struct instead.
         let path = Self::get_config_path();
-        dbg!(&path);
         if let Ok(content) = fs::read_to_string(&path) {
             if let Ok(manager) = serde_json::from_str(&content) {
                 return manager;
