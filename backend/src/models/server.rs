@@ -8,7 +8,7 @@ use crate::models::{
     server_setting::ServerSetting,
 };
 use anyhow::Result;
-use blender::models::mode::Mode;
+use blender::{manager::Manager as BlenderManager, models::mode::Mode};
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
@@ -17,6 +17,8 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
 };
+
+use super::network::Network;
 
 pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
 
@@ -29,18 +31,37 @@ pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
     client:tcp -> connect ( server ip's address ) -> ??? Err?
 */
 
+// wish there was some ways to share Server and Client structs?
 pub struct Server {
     handler: NodeHandler<Signal>,
     listeners: Option<NodeListener<Signal>>,
     nodes: Vec<Node>,
+    public_addr: SocketAddr,
     pub job: Option<Job>,
 }
 
-// Should I have a job manager here? Or should that be in it's own separate struct?
+impl Network for Server {
+    /// send network message to specific endpoint
+    fn send_to_target(&self, target: Endpoint, message: &Message) {
+        self.handler.network().send(target, &message.ser());
+    }
 
+    /// Send message to all clients that's connected to the host.
+    fn send_to_all(&self, message: &Message) {
+        println!("Sending {:?} to the following client", &message);
+        let data = message.ser();
+        for node in &self.nodes {
+            let status = self.handler.network().send(node.endpoint, &data);
+            println!("{:?} to {} [{}]", status, node.name, node.endpoint.addr());
+        }
+        println!("End sending data");
+    }
+}
+
+// Should I have a job manager here? Or should that be in it's own separate struct?
 impl Server {
     pub fn new(port: u16) -> Result<Server> {
-        let (mut handler, listeners) = node::split();
+        let (handler, listeners) = node::split();
 
         let ip = match local_ip() {
             Ok(addr) => addr,
@@ -50,8 +71,6 @@ impl Server {
             }
         };
         let public_addr = SocketAddr::new(ip, port);
-
-        Self::ping(&mut handler); // ping the inactive clients, if there are any
 
         // could this be the answer? Do I need to use the server's actual ip address instead? Could I not rely on the localhost ip?
         // let listen_addr = format!("127.0.0.1:{}", port);
@@ -72,6 +91,7 @@ impl Server {
             handler,
             listeners: Some(listeners),
             nodes: Vec::new(),
+            public_addr,
             job: None,
         })
     }
@@ -99,10 +119,7 @@ impl Server {
     fn handle_connected(&mut self, endpoint: Endpoint, established: bool) {
         // Did I accidentially multi-cast myself?
         // this is getting invoked by a multicast address, but I am not sure why?
-        println!(
-            "A entity connected to the server! {}, {}",
-            endpoint, established
-        );
+        println!("A entity connected to the server! [{}]", endpoint.addr());
     }
 
     /// Server accepts connection if through TCP, UDP will always accept connection no matter what
@@ -112,26 +129,30 @@ impl Server {
 
     /// Receive message from client nodes
     fn handle_message(&mut self, endpoint: Endpoint, bytes: &[u8]) {
-        // problem here? I am trying to deserialize Job, but unwrap reports io error: Unexpected end of file message! Figure out why! String works?
-        let msg: Message = bincode::deserialize(bytes).unwrap();
-        match msg {
+        match Message::de(bytes) {
             // a new node register itself to the network!
             Message::RegisterNode { name } => self.register_node(&name, endpoint),
             Message::UnregisterNode => self.unregister_node(endpoint),
             // Client should not be sending us the jobs!
             //Message::LoadJob() => {}
             Message::JobResult(render_info) => self.handle_job_result(endpoint, render_info),
-            Message::HaveBlender { .. } => self.ask_client_for_blender(endpoint, &msg),
-            Message::ClientPing { name } => self.handle_client_ping(endpoint, &name),
-            Message::ServerPing => {
-                println!("Received server ping, but server do not handle such conditions!")
+            Message::CheckForBlender { os, version, arch } => {
+                self.check_for_blender(endpoint, &os, &arch, &version)
             }
-            _ => println!("Unhandled case for {:?}", msg),
+            Message::ClientPing { name } => self.handle_client_ping(endpoint, &name),
+            Message::ServerPing { socket } => {
+                println!(
+                    "Server received server ping! but server do not handle such conditions! [{}]",
+                    socket
+                )
+            }
+            msg => println!("Unhandled case for {:?}", msg),
         }
     }
 
     /// A node has been disconnected from the network
     fn handle_disconnected(&mut self, endpoint: Endpoint) {
+        println!("Disconnected event receieved! [{}]", endpoint.addr());
         // I believe there's a reason why I cannot use endpoint.addr()
         // Instead, I need to match endpoint to endpoint from node struct instead
         match self
@@ -158,17 +179,29 @@ impl Server {
     fn handle_client_ping(&mut self, endpoint: Endpoint, name: &str) {
         // we should not attempt to connect to the host!
         println!("Received ping from client '{}' [{}]", name, endpoint.addr());
-        self.register_node(&name, endpoint);
+        // self.register_node(&name, endpoint);
+        let msg = Message::ServerPing {
+            socket: self.public_addr,
+        };
+        self.send_to_target(endpoint, &msg);
     }
 
     /// Ping any inactive node to reconnect
-    pub fn ping(handler: &mut NodeHandler<Signal>) {
-        match handler.network().connect(Transport::Udp, MULTICAST_ADDR) {
+    pub fn ping(&self) {
+        match self
+            .handler
+            .network()
+            .connect(Transport::Udp, MULTICAST_ADDR)
+        {
             Ok((endpoint, _)) => {
                 // create a server ping
                 println!("Pinging inactive clients!");
-                let data = bincode::serialize(&Message::ServerPing).unwrap();
-                handler.network().send(endpoint, &data);
+                self.send_to_target(
+                    endpoint,
+                    &Message::ServerPing {
+                        socket: self.public_addr,
+                    },
+                );
             }
             Err(e) => {
                 eprintln!(
@@ -215,8 +248,10 @@ impl Server {
             // in this case, we're connected to the server locally?
             // endpoint.set_addr(SocketAddr::new(local_ip, endpoint.addr().port()));
             println!("A client on this localhost is trying to connect to the server!",);
+            endpoint.addr().set_ip(IpAddr::V4(Ipv4Addr::LOCALHOST));
         }
 
+        dbg!(&endpoint);
         let node = Node::new(name, endpoint);
 
         println!(
@@ -272,29 +307,67 @@ impl Server {
     }
 
     /// A client request if other client have identical blender version
-    fn ask_client_for_blender(&mut self, endpoint: Endpoint, msg: &Message) {
-        // in this case, the client is asking all other client if any one have the matching blender version type.
-        let _map = self
-            .nodes
-            .iter()
-            .filter(|n| n.endpoint != endpoint)
-            .map(|n| self.send_to_target(n.endpoint, &msg));
-    }
+    fn check_for_blender(&mut self, endpoint: Endpoint, os: &str, arch: &str, version: &Version) {
+        let current_os = std::env::consts::OS;
+        let current_arch = std::env::consts::ARCH;
+        let default_msg = Message::HaveMatchingBlenderRequirement {
+            have_blender: false,
+        };
 
-    /// send network message to specific endpoint
-    fn send_to_target(&self, endpoint: Endpoint, message: &Message) {
-        let data = bincode::serialize(&message).unwrap();
-        self.handler.network().send(endpoint, &data);
-    }
+        println!(
+            "Client [{}] have asked me if I have matching blender? OS: {} | Arch: {} | Version: {}",
+            endpoint.addr(),
+            os,
+            arch,
+            version
+        );
 
-    /// Send message to all clients that's connected to the host.
-    fn send_to_all(&self, message: &Message) {
-        println!("Sending {:?} to the following client", &message);
-        let data = bincode::serialize(&message).unwrap();
-        for node in &self.nodes {
-            let status = self.handler.network().send(node.endpoint, &data);
-            println!("{:?} to {} [{}]", status, node.name, node.endpoint.addr());
+        match (os, arch) {
+            (current_os, current_arch) => {
+                let manager = BlenderManager::load();
+                let blender = manager.have_blender(&version);
+                let msg = Message::HaveMatchingBlenderRequirement {
+                    have_blender: blender,
+                };
+                self.send_to_target(endpoint, &msg);
+            }
+            (os, _) => {
+                println!(
+                    "Client [{}] have incompatible Arch! (Client[{}] != Target[{}])! Ignoring!",
+                    endpoint.addr(),
+                    arch,
+                    current_arch
+                );
+                self.send_to_target(endpoint, &default_msg);
+                return;
+            }
+            (_, _) => {
+                println!(
+                    "Client [{}] have incompatible OS! (Client[{}] != Target[{}])! Ignoring!",
+                    endpoint.addr(),
+                    os,
+                    current_os
+                );
+                self.send_to_target(endpoint, &default_msg);
+                return;
+            }
         }
-        println!("End sending data");
+
+        if std::env::consts::OS != os {
+            println!(
+                "Client [{}] have incompatible OS (Client[{}] != Target[{}])! Ignoring!",
+                endpoint.addr(),
+                os,
+                std::env::consts::OS
+            );
+            return;
+        }
+
+        // in this case, the client is asking all other client if any one have the matching blender version type.
+        // let _map = self
+        //     .nodes
+        //     .iter()
+        //     .filter(|n| n.endpoint != endpoint)
+        //     .map(|n| self.send_to_target(n.endpoint, &msg));
     }
 }

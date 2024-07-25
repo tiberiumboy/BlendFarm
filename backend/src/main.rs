@@ -45,7 +45,10 @@ fn run_as_server(port: u16) {
     // is there a clear and better way to get around this?
     // I do not want to have any dangling threads if we have to run async
     thread::spawn(move || match Server::new(port) {
-        Ok(mut server) => server.run(),
+        Ok(mut server) => {
+            server.ping();
+            server.run();
+        }
         Err(e) => eprintln!("Failed to create server! {}", e),
     });
 }

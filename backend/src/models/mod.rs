@@ -6,6 +6,7 @@ pub(crate) mod file_info;
 pub(crate) mod file_transfer;
 pub(crate) mod job;
 pub(crate) mod message;
+pub(crate) mod network;
 pub(crate) mod node;
 pub(crate) mod project_file;
 pub(crate) mod render_info;

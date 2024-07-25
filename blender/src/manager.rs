@@ -188,6 +188,10 @@ impl Manager {
         }
     }
 
+    pub fn have_blender(&self, version: &Version) -> bool {
+        self.blenders.iter().any(|x| x.get_version() == version)
+    }
+
     fn download(&mut self, version: &Version) -> Result<Blender, ManagerError> {
         // if the manager already have the blender version installed, use that instead of downloading a new instance of version.
 

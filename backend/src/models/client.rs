@@ -13,17 +13,18 @@ use anyhow::Result;
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, NetEvent, Transport};
 use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
+use semver::Version;
 use std::{
     env::temp_dir,
     net::{IpAddr, Ipv4Addr, SocketAddr},
 };
 
-use super::server::MULTICAST_ADDR;
+use super::{message, network::Network, server::MULTICAST_ADDR};
 
 // const CHUNK_SIZE: usize = 65536;
 
 pub struct Client {
-    handler: NodeHandler<Signal>, // maybe?
+    handler: NodeHandler<Signal>,
     listener: Option<NodeListener<Signal>>,
     name: String,
     server_endpoint: Option<Endpoint>,
@@ -31,6 +32,19 @@ pub struct Client {
     // let's focus on getting the client connected for now.
     // file_transfer: Option<FileTransfer>,
     // Is there a way for me to hold struct objects while performing a transfer task?
+    // ^Yes, box heap the struct! See example - https://github.com/sigmaSd/LanChat/blob/master/net/src/lib.rs
+}
+
+impl Network for Client {
+    fn send_to_target(&self, endpoint: Endpoint, message: &Message) {
+        println!("Sending {:?} to target [{}]", message, endpoint.addr());
+        let data = bincode::serialize(&message).unwrap();
+        self.handler.network().send(endpoint, &data);
+    }
+
+    fn send_to_all(&self, _message: &Message) {
+        unreachable!("Client should not be sending to all!");
+    }
 }
 
 impl Client {
@@ -126,13 +140,13 @@ impl Client {
 
         match message {
             // server to client
-            Message::ServerPing => self.server_ping(endpoint),
+            Message::ServerPing { socket } => self.server_ping(socket),
             Message::LoadJob(render_queue) => self.load_job(render_queue),
             Message::CancelJob => self.cancel_job(),
 
             // client to client
             Message::ClientPing { name: _ } => self.client_ping(),
-            Message::ContainBlenderResponse { have_blender } => {
+            Message::HaveMatchingBlenderRequirement { have_blender } => {
                 self.contain_blender_response(endpoint, have_blender)
             }
 
@@ -170,7 +184,17 @@ impl Client {
             }
         }
     }
-     */
+    */
+
+    /// Send to all client asking for blender versions
+    pub fn ask_for_blender(&self, version: Version) {
+        if let Some(endpoint) = self.server_endpoint {
+            let os = std::env::consts::OS.to_owned();
+            let arch = std::env::consts::ARCH.to_owned();
+            let msg = Message::CheckForBlender { os, version, arch };
+            self.send_to_target(endpoint, &msg);
+        }
+    }
 
     fn load_job(&mut self, render_queue: RenderQueue) {
         println!("Received a new render queue!\n{:?}", render_queue);
@@ -208,7 +232,7 @@ impl Client {
                 // then proceed to your job manager to move out to output destination.
                 // first notify the server that the job is completed and prepare to receive the file
                 let msg = Message::JobResult(render_info);
-                self.send_to_target(endpoint, msg);
+                self.send_to_target(endpoint, &msg);
 
                 // I need to set something to this client node? Maybe a placeholder to say "Queue to transfer"?
                 self.handler.signals().send(Signal::SendChunk);
@@ -233,23 +257,31 @@ impl Client {
             return;
         }
 
-        self.send_to_target(endpoint, Message::CanReceive(true));
+        self.send_to_target(endpoint, &Message::CanReceive(true));
     }
 
     /// Handle server multi-cast ping signal
-    fn server_ping(&mut self, endpoint: Endpoint) {
-        println!(
-            "Hey! Client received a multicast ping signal! {}",
-            &endpoint.addr()
-        );
-
+    fn server_ping(&mut self, socket: SocketAddr) {
         if self.server_endpoint.is_some() {
             println!("Sorry, we're already connected to the host!");
             return;
+        } else {
+            println!(
+                "Hey! Client received a multicast ping signal from Server [{}]!",
+                &socket
+            );
         }
 
-        self.send_to_target(endpoint.clone(), self.register_message());
-        self.server_endpoint = Some(endpoint);
+        match self.handler.network().connect(Transport::FramedTcp, socket) {
+            Ok((endpoint, _)) => {
+                self.server_endpoint = Some(endpoint);
+                let message = self.register_message();
+                self.send_to_target(endpoint, &message);
+            }
+            Err(e) => {
+                println!("Error connecting to the server! \n{}", e);
+            }
+        }
     }
 
     fn client_ping(&self) {
@@ -278,12 +310,6 @@ impl Client {
             name: self.name.clone(),
         }
     }
-
-    fn send_to_target(&self, endpoint: Endpoint, message: Message) {
-        println!("Sending {:?} to target [{}]", message, endpoint.addr());
-        let data = bincode::serialize(&message).unwrap();
-        self.handler.network().send(endpoint, &data);
-    }
 }
 
 impl Drop for Client {
@@ -291,7 +317,7 @@ impl Drop for Client {
         if let Some(endpoint) = self.server_endpoint {
             let message = Message::UnregisterNode;
             println!("Sending unregisternode packet to host before stopping!");
-            self.send_to_target(endpoint, message);
+            self.send_to_target(endpoint, &message);
         }
 
         println!("Stopping connection!");
