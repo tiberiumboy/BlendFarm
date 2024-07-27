@@ -53,10 +53,10 @@ pub enum Signal {
 
 impl Message {
     pub fn ser(&self) -> Vec<u8> {
-        bincode::serialize(&self).unwrap()
+        bincode::serialize(self).unwrap()
     }
 
-    pub fn de(data: &[u8]) -> Self {
-        bincode::deserialize(&data).unwrap()
+    pub fn de(data: &[u8]) -> Result<Self, Box<bincode::ErrorKind>> {
+        bincode::deserialize(&data)
     }
 }

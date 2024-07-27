@@ -129,24 +129,34 @@ impl Server {
 
     /// Receive message from client nodes
     fn handle_message(&mut self, endpoint: Endpoint, bytes: &[u8]) {
+        // I wouldn't imagine having broken/defragmented packets within local network?
         match Message::de(bytes) {
-            // a new node register itself to the network!
-            Message::RegisterNode { name } => self.register_node(&name, endpoint),
-            Message::UnregisterNode => self.unregister_node(endpoint),
-            // Client should not be sending us the jobs!
-            //Message::LoadJob() => {}
-            Message::JobResult(render_info) => self.handle_job_result(endpoint, render_info),
-            Message::CheckForBlender { os, version, arch } => {
-                self.check_for_blender(endpoint, &os, &arch, &version)
-            }
-            Message::ClientPing { name } => self.handle_client_ping(endpoint, &name),
-            Message::ServerPing { socket } => {
-                println!(
-                    "Server received server ping! but server do not handle such conditions! [{}]",
-                    socket
-                )
-            }
-            msg => println!("Unhandled case for {:?}", msg),
+            Ok(msg) => match msg {
+                // a new node register itself to the network!
+                Message::RegisterNode { name } => self.register_node(&name, endpoint),
+                Message::UnregisterNode => self.unregister_node(endpoint),
+                // Client should not be sending us the jobs!
+                //Message::LoadJob() => {}
+                Message::JobResult(render_info) => self.handle_job_result(endpoint, render_info),
+                Message::CheckForBlender { os, version, arch } => {
+                    self.check_for_blender(endpoint, &os, &arch, &version)
+                }
+                Message::ClientPing { name } => self.handle_client_ping(endpoint, &name),
+                Message::ServerPing { socket } => {
+                    println!(
+                        "Server received server ping! but server do not handle such conditions! [{}]",
+                        socket
+                    )
+                }
+                // Message::LoadJob(_) => todo!(),
+                // Message::CancelJob => todo!(),
+                // Message::HaveMatchingBlenderRequirement { have_blender } => todo!(),
+                // Message::FileRequest(_) => todo!(),
+                // Message::Chunk(_) => todo!(),
+                // Message::CanReceive(_) => todo!(),
+                _ => println!("Unhandled case for {:?}", msg),
+            },
+            Err(_) => todo!(),
         }
     }
 
@@ -323,7 +333,7 @@ impl Server {
         );
 
         match (os, arch) {
-            (current_os, current_arch) => {
+            (current_os, current_arch) if current_os.eq(os) & current_arch.eq(arch) => {
                 let manager = BlenderManager::load();
                 let blender = manager.have_blender(&version);
                 let msg = Message::HaveMatchingBlenderRequirement {
