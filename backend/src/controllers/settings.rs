@@ -1,7 +1,6 @@
 // this is the settings controller section that will handle input from the setting page.
 use crate::models::server_setting::ServerSetting;
-// use blender::blender::Blender;
-use blender::{blender::Blender, manager::Manager as BlenderManager};
+use blender::blender::{Blender, Manager};
 use std::path::PathBuf;
 use tauri::{command, Error};
 
@@ -14,7 +13,7 @@ use tauri::{command, Error};
 /// List out currently saved blender installation on the machine
 #[command]
 pub fn list_blender_installation() -> Result<String, Error> {
-    let manager = BlenderManager::load();
+    let manager = Manager::load();
     let blenders = manager.get_blenders();
     let data = serde_json::to_string(&blenders).unwrap();
     Ok(data)
@@ -59,14 +58,14 @@ pub fn add_blender_installation(path: PathBuf) -> Result<(), Error> {
     };
 
     // Add to the server settings
-    let mut manager = BlenderManager::load();
+    let mut manager = Manager::load();
     manager.add(&blender);
     Ok(())
 }
 
 #[command(async)]
 pub fn remove_blender_installation(blender: Blender) -> Result<(), Error> {
-    let mut manager = BlenderManager::load();
+    let mut manager = Manager::load();
     manager.remove(&blender);
     Ok(())
 }

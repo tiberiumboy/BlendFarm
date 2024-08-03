@@ -7,18 +7,18 @@
     - TODO: See about migrating Sender code into this module?
 */
 use super::{project_file::ProjectFile, render_info::RenderInfo};
-use blender::manager::Manager as BlenderManager;
+use blender::blender::Manager;
 use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
+    hash::Hash,
     io::{Error, ErrorKind, Result},
     path::PathBuf,
 };
-use uuid::Uuid;
-
 use thiserror::Error;
+use uuid::Uuid;
 
 #[derive(Debug, Error, Serialize, Deserialize)]
 pub enum JobError {
@@ -50,7 +50,8 @@ pub enum JobStatus {
 /// A container to hold rendering job information. This will be used to send off jobs to all other rendering farm
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Job {
-    pub id: Uuid,
+    //TODO: should I keep this private instead? What impact does this make?
+    id: Uuid,
     /// Path to the output directory where final render image will be saved to
     pub output: PathBuf,
     /// What kind of mode should this job run as
@@ -60,7 +61,8 @@ pub struct Job {
     /// Path to blender files
     pub project_file: ProjectFile,
     // Path to completed image result - May not be needed?
-    pub renders: HashSet<RenderInfo>,
+    // how do I make hash ignore this?
+    renders: HashSet<RenderInfo>,
     // I should probably take responsibility for this, Once render is complete - I need to send a signal back to the host saying here's the frame, and here's the raw image data.
     // This would be nice to have to have some kind of historical copy, but then again, all of this value is being sent to the server directly. we should not retain any data behind on the node to remain lightweight and easy on storage space.
     // pub renders: HashSet<RenderInfo>, // frame, then path to completed image source.
@@ -104,11 +106,12 @@ impl Job {
 
         // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
         // TODO: This looks like I could move this code block somewhere else?
-        let mut manager = BlenderManager::load();
+        let mut manager = Manager::load();
         let blender = manager.get_blender(&self.version).unwrap();
 
         // here's the question - if I'm on a network node, how do I send the host the image of the completed rendered job?
         // yeah here's a good question?
+        // we can use the same principle as we were doing before :o!! Nice?
         let listener = blender.render(args);
 
         while let Ok(status) = listener.recv() {
@@ -152,6 +155,12 @@ impl Job {
 
 impl PartialEq for Job {
     fn eq(&self, other: &Self) -> bool {
-        self.project_file == other.project_file
+        self.id == other.id
+    }
+}
+
+impl Hash for Job {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
     }
 }

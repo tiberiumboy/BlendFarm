@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{env, fs::remove_file, path::PathBuf, str::FromStr};
 
 // TODO: this may ultimately get removed? We just need the pathbuf to the blender file specifically..
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Hash, Clone)]
 pub struct ProjectFile {
     pub src: PathBuf,
     pub tmp: Option<PathBuf>,

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 // context for serde: https://serde.rs/enum-representations.html
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Mode {
     #[default]
     None,

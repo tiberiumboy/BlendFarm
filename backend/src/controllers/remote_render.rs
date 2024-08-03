@@ -138,8 +138,9 @@ pub fn create_job(
     // I need to create a manager to hold the state here.
     // Find a way to create server manager context?
     let ctx = app.state::<Mutex<Server>>();
-    let mut server = ctx.lock().unwrap();
-    server.job = Some(job);
+    let server = ctx.lock().unwrap();
+    let data = server.send_job(job).unwrap();
+    dbg!(data);
 }
 
 /// Abort the job if it's running and delete the entry from the collection list.

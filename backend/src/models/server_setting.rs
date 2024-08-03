@@ -23,7 +23,6 @@ const RENDER_DIR: &str = "RenderData/";
 /// It will save the list of blender installation on the machine to avoid duplicate download and installation.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerSetting {
-    pub port: u16,
     pub render_dir: PathBuf,
 }
 
@@ -40,7 +39,6 @@ impl Default for ServerSetting {
 
         Self {
             // subject to change - original number came from c# version of BlendFarm
-            port: 15000,
             render_dir: render_data,
         }
     }

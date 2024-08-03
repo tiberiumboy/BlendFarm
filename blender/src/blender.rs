@@ -10,13 +10,16 @@ Developer blog:
 - Had to add BlenderJSON because some fields I could not deserialize/serialize - Which make sense that I don't want to share information that is only exclusive for the running machine to have access to.
     Instead BlenderJSON will only hold key information to initialize a new channel when accessed.
 
+Decided to merge Manager codebase here as accessing from crate would make more sense, e.g. blender::Manager, instead of manager::Manager
+- Although, I would like to know if it's possible to do mod alias so that I could continue to keep my manager class separate? Or should I just rely on mods?
+
 TODO:
 private and public method are unorganized.
     - Consider reviewing them and see which method can be exposed publicly?
+    - Find a way to make crate manager::Manager accessible via blender::Manager instead? This would make the code more clean and structured.
 */
-
+pub use crate::manager::{Manager, ManagerError};
 use crate::{
-    manager::{Manager, ManagerError},
     models::{
         args::Args, blender_peek_response::BlenderPeekResponse,
         blender_render_setting::BlenderRenderSetting, download_link::DownloadLink, status::Status,
@@ -35,10 +38,11 @@ use std::{
     thread,
 };
 use thiserror::Error;
-// this is ugly, and I want to get rid of this.
+// TODO: this is ugly, and I want to get rid of this. How can I improve this?
+// Backstory: Win and linux can be invoked via their direct app link. However, MacOS .app is just a bundle, which contains the executable inside.
+// To run process::Command, I must properly reference the executable path inside the blender.app on MacOS, using the hardcoded path below.
 const MACOS_PATH: &str = "Contents/MacOS/Blender";
 
-// TODO: consider making this private to make it easy to modify internally than affecting exposed APIs
 #[derive(Debug, Error)]
 pub enum BlenderError {
     #[error("Unsupported OS: {0}")]

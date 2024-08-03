@@ -2,170 +2,261 @@
     Developer blog:
     - Do some research on concurrent http downloader for transferring project files and blender from one client to another.
 */
-use crate::models::{
-    file_info::FileInfo,
-    file_transfer::FileTransfer,
-    message::{Message, Signal},
-    render_queue::RenderQueue,
-    server,
-};
-use anyhow::Result;
-use local_ip_address::local_ip;
-use message_io::network::{Endpoint, NetEvent, Transport};
-use message_io::node::{self, NodeEvent, NodeHandler, NodeListener};
-use semver::Version;
-use std::{
-    env::temp_dir,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-};
-
-use super::{message, network::Network, server::MULTICAST_ADDR};
+use super::{message::CmdMessage, node::Node, server::MULTICAST_ADDR};
+use crate::models::message::NetMessage;
+use dirs::public_dir;
+use gethostname::gethostname;
+use message_io::network::{Endpoint, Transport};
+use message_io::node::{self, StoredNetEvent, StoredNodeEvent};
+use std::{collections::HashSet, net::SocketAddr, sync::mpsc, thread, time::Duration};
 
 // const CHUNK_SIZE: usize = 65536;
 
 pub struct Client {
-    handler: NodeHandler<Signal>,
-    listener: Option<NodeListener<Signal>>,
-    name: String,
-    server_endpoint: Option<Endpoint>,
-    // public_addr: SocketAddr,    // I'm not sure what this one is used for?
+    tx: mpsc::Sender<CmdMessage>,
+    rx_recv: mpsc::Receiver<NetMessage>,
+    // name: String,
+    // public_addr: SocketAddr, // I'm    not sure what this one is used for?
     // let's focus on getting the client connected for now.
     // file_transfer: Option<FileTransfer>,
     // Is there a way for me to hold struct objects while performing a transfer task?
     // ^Yes, box heap the struct! See example - https://github.com/sigmaSd/LanChat/blob/master/net/src/lib.rs
 }
 
-impl Network for Client {
-    fn send_to_target(&self, endpoint: Endpoint, message: &Message) {
-        println!("Sending {:?} to target [{}]", message, endpoint.addr());
-        let data = bincode::serialize(&message).unwrap();
-        self.handler.network().send(endpoint, &data);
-    }
-
-    fn send_to_all(&self, _message: &Message) {
-        unreachable!("Client should not be sending to all!");
-    }
-}
-
+// I wonder if it's possible to combine server/client code together to form some kind of intristic networking solution?
 impl Client {
-    pub fn new(name: &str) -> Result<Client> {
-        let (handler, listener) = node::split();
+    fn generate_ping(socket: &SocketAddr) -> NetMessage {
+        NetMessage::Ping {
+            name: gethostname().into_string().unwrap(),
+            socket: socket.to_owned(),
+            is_client: true,
+        }
+    }
+
+    pub fn new() -> Client {
+        let (handler, listener) = node::split::<NetMessage>();
 
         // this would error if I am not connected to the internet. I need this to be able to run despite not connected to anything ( run as local host!)
-        let ip = local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
-        let public_addr = SocketAddr::new(ip, 0);
+        // let ip = local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
+        // let public_addr = SocketAddr::new(ip, 0);
 
-        // this will handle the multicast address channel
-        handler
-            .network()
-            .listen(Transport::Udp, server::MULTICAST_ADDR)?;
+        let (_task, mut receiver) = listener.enqueue();
+
+        // listen tcp
+        let public_addr = match handler.network().listen(Transport::FramedTcp, "0.0.0.0:0") {
+            Ok((_, addr)) => addr,
+            Err(e) => panic!("Unable to listen to tcp! \n{}", e),
+        };
+
+        // listen udp
+        if let Err(e) = handler.network().listen(Transport::Udp, MULTICAST_ADDR) {
+            println!("Unable to listen to udp! \n{}", e);
+        }
 
         // connect to multicast address
-        if let Ok((endpoint, _)) = handler.network().connect(Transport::Udp, MULTICAST_ADDR) {
-            // send client ping to multicast address
-            let name = name.to_owned();
-            let msg = Message::ClientPing { name };
-            let data = bincode::serialize(&msg).unwrap();
-            handler.network().send(endpoint, &data);
-        }
-
-        // setup listener for client
-        // I only got socket address from this?
-        let _listen_addr = match handler.network().listen(Transport::FramedTcp, public_addr) {
-            Ok(conn) => conn.1, // don't care about Resource Id (0)
-            Err(e) => {
-                println!("Error listening to address [{}]! {:?}", public_addr, e);
-                return Err(anyhow::anyhow!("Error listening to port! {:?}", e));
-            }
+        let udp_conn = match handler.network().connect(Transport::Udp, MULTICAST_ADDR) {
+            Ok(conn) => conn,
+            Err(e) => panic!("Somethiing terrible happen! {e:?}"),
         };
 
-        Ok(Self {
-            handler,
-            listener: Some(listener),
-            name: name.to_string(),
-            server_endpoint: None,
-            // public_addr: listen_addr,
-            // file_transfer: None,
-        })
-    }
+        let (tx, rx) = mpsc::channel();
+        let (tx_recv, rx_recv) = mpsc::channel();
 
-    // Client begin listening for server
-    pub fn run(mut self) {
-        let listener = self.listener.take().unwrap();
-        listener.for_each(move |event| {
-            match event {
-                NodeEvent::Network(net_event) => match net_event {
-                    NetEvent::Connected(endpoint, established) => {
-                        self.handle_connected(endpoint, established)
+        thread::spawn(move || {
+            let mut peers: HashSet<Node> = HashSet::new();
+            let mut server: Option<Endpoint> = None;
+
+            // this will help contain the job list I need info on.
+            // Feature: would this be nice to load any previous known job list prior to running this client?
+            // E.g. store in json file if client gets shutdown
+            // let mut jobs: HashSet<Job> = HashSet::new();
+
+            loop {
+                std::thread::sleep(Duration::from_millis(100));
+                if let Ok(msg) = rx.try_recv() {
+                    match msg {
+                        CmdMessage::AddPeer { name, socket } => {
+                            let (peer_endpoint, _) = handler
+                                .network()
+                                .connect(Transport::FramedTcp, socket)
+                                .unwrap();
+                            let node = Node::new(&name, peer_endpoint);
+                            peers.insert(node);
+                        }
+                        CmdMessage::SendJob(job) => {
+                            // TODO: Find a way to set a new job here and begin forth?
+                            dbg!(job);
+                            // jobs.insert(job);
+                        }
+                        CmdMessage::Ping => {
+                            // send a ping to the network
+                            println!("Received a ping request!");
+                            handler
+                                .network()
+                                .send(udp_conn.0, &Self::generate_ping(&public_addr).ser());
+                        }
+                        CmdMessage::Exit => {
+                            // Terminated signal received!
+                            // should we also close the receiver?
+                            handler.stop();
+                            break;
+                        }
                     }
-                    NetEvent::Accepted(endpoint, _) => self.handle_accepted(endpoint),
-                    NetEvent::Message(endpoint, bytes) => self.handle_message(endpoint, bytes),
-                    NetEvent::Disconnected(endpoint) => self.handle_disconnected(endpoint),
-                },
+                }
+                if let Some(StoredNodeEvent::Network(event)) = receiver.try_receive() {
+                    match event {
+                        StoredNetEvent::Connected(endpoint, _) => {
+                            // we connected via udp channel!
+                            if endpoint == udp_conn.0 {
+                                println!("Connected via UDP channel! [{}]", endpoint.addr());
 
-                // client is sending self generated signals?
-                NodeEvent::Signal(signal) => match signal {
-                    // Signal
-                    // Signal::SendChunk => self.handle_sending_chunk(),
-                    _ => todo!("Not yet implemented!"),
-                },
+                                // we then send out a ping signal on udp channel
+                                handler
+                                    .network()
+                                    .send(udp_conn.0, &Self::generate_ping(&public_addr).ser());
+                            }
+                            // we connected via tcp channel!
+                            else {
+                                println!("Connected via TCP channel! [{}]", endpoint.addr());
+                                server = Some(endpoint);
+                                // here we can established that the server has made connection?
+                                // dbg!(handler.network().send(endpoint, ))
+                            }
+                        }
+                        StoredNetEvent::Accepted(endpoint, _) => {
+                            // an tcp connection accepts the connection!
+                            println!("Client was accepted to server! [{}]", endpoint.addr());
+                            // self.server_endpoint = Some(endpoint);
+                        }
+                        StoredNetEvent::Message(endpoint, bytes) => {
+                            // why did this part failed?
+                            println!("Message received from [{}]!", endpoint);
+                            let message = match NetMessage::de(&bytes) {
+                                Ok(msg) => msg,
+                                Err(e) => {
+                                    println!("unable to deserialize net message! \n{}", e);
+                                    continue;
+                                }
+                            };
+
+                            match message {
+                                // server to client
+                                // we received a ping signal from the server that accepted our ping signal.
+                                // this means that either the server send out a broadcast signal to identify lost node connections on the network
+                                NetMessage::Ping {
+                                    name,
+                                    socket,
+                                    is_client: false,
+                                } => {
+                                    println!(
+                                        "Hey! Client received a multicast ping signal from Server [{}]!",
+                                        &socket
+                                    );
+
+                                    if server.is_some() {
+                                        println!("this node is already connected to the server! Ignoring!");
+                                        continue;
+                                    }
+
+                                    match handler.network().connect(Transport::FramedTcp, socket) {
+                                        Ok((endpoint, _)) => {
+                                            peers.insert(Node::new(&name, endpoint));
+                                        }
+                                        Err(e) => {
+                                            println!("Error connecting to the server! \n{}", e);
+                                        }
+                                    }
+                                }
+                                NetMessage::SendJob(render_queue) => {
+                                    println!("Received a new render queue!\n{:?}", render_queue);
+
+                                    /*
+                                    // First let's check if we hvae the correct blender installation
+                                    // then check and see if we have the files?
+                                    if !render_queue.project_file.file_path().exists() {
+                                        // here we will fetch the file path from the server
+                                        // but for now let's continue.
+                                        println!("Path does not exist!");
+                                    }
+
+                                    // run the blender() - this will take some time. Could implement async/thread?
+                                    match render_queue.run(1) {
+                                        // returns frame and image path
+                                        Ok(render_info) => {
+                                            println!(
+                                                "Render completed! Sending image to server! {:?}",
+                                                render_info
+                                            );
+
+                                            let mut file_transfer = FileTransfer::new(
+                                                render_info.path.clone(),
+                                                endpoint,
+                                            );
+
+                                            // yeah gonna have to revisit this part...
+                                            // file_transfer.transfer(&handler);
+                                            // is there a way to convert mutable to immutable?
+
+                                            // self.file_transfer = Some(file_transfer);
+                                            // wonder if there's a way to say - hey I've completed my transfer,
+                                            // please go and look in your download folder with this exact file name,
+                                            // then proceed to your job manager to move out to output destination.
+                                            // first notify the server that the job is completed and prepare to receive the file
+                                            let msg = NetMessage::JobResult(render_info);
+                                            handler.network().send(endpoint, &msg.ser());
+
+                                            // let msg = Message::FileRequest(info);
+                                            // self.send_to_target(self.server_endpoint, msg);
+                                        }
+                                        Err(e) => println!("Fail to render on client! {:?}", e),
+                                    }
+                                    */
+                                }
+
+                                // client to client
+                                _ => {
+                                    println!(
+                                        "Unhandled client message case condition for {:?}",
+                                        message
+                                    );
+                                    tx_recv.send(message).unwrap();
+                                }
+                            };
+                        }
+                        StoredNetEvent::Disconnected(endpoint) => {
+                            // TODO: How can we initialize another listening job? We definitely don't want the user to go through the trouble of figuring out which machine has stopped.
+                            // Disconnected was call when server was shut down
+                            println!("Lost connection to host! [{}]", endpoint.addr());
+                            server = None;
+                            // self.server_endpoint = None;
+                            // in the case of this node disconnecting, I would like to auto renew the connection if possible.
+                        }
+                    }
+                }
             }
-        })
-    }
+        });
 
-    // maybe we don't need this at all?
-    fn handle_connected(&mut self, endpoint: Endpoint, established: bool) {
-        if established {
-            println!("Node connected! [{}]", endpoint.addr());
-            self.server_endpoint = Some(endpoint);
-        } else {
-            println!("Could not connect to the server!?? {}", endpoint);
-            // is there any way I could just begin the listen process here?
+        Self {
+            tx,
+            rx_recv,
+            // name: gethostname().into_string().unwrap(),
+            // server_endpoint: None,
+            // public_addr,
+            // file_transfer: None,
         }
     }
 
-    fn handle_accepted(&mut self, endpoint: Endpoint) {
-        // an tcp connection accepts the connection!
-        println!("Client was accepted to server! [{}]", endpoint.addr());
-        self.server_endpoint = Some(endpoint);
+    // TODO: find a way to set up invoking mechanism to auto ping out if we do not have any connection to the server
+    pub fn ping(&self) {
+        println!("Sending ping command from client");
+        self.tx.send(CmdMessage::Ping).unwrap();
     }
 
-    fn handle_message(&mut self, endpoint: Endpoint, bytes: &[u8]) {
-        // why did this part failed?
-        let message: Message = match bincode::deserialize(bytes) {
-            Ok(data) => data,
-            // just for now we'll just panic. making the assumption that both side should have identical data type matches, it should be fine.
-            Err(e) => panic!("Error deserializing message input: \n{:?}", e),
-        };
-
-        match message {
-            // server to client
-            Message::ServerPing { socket } => self.server_ping(socket),
-            Message::LoadJob(render_queue) => self.load_job(render_queue),
-            Message::CancelJob => self.cancel_job(),
-
-            // client to client
-            Message::ClientPing { name: _ } => self.client_ping(),
-            Message::HaveMatchingBlenderRequirement { have_blender } => {
-                self.contain_blender_response(endpoint, have_blender)
-            }
-
-            // multicast
-            Message::FileRequest(file_info) => self.file_request(endpoint, &file_info),
-            Message::Chunk(_data) => todo!("Find a way to save data to temp?"),
-            Message::CanReceive(accepted) => self.can_receive(accepted),
-            _ => println!("Unhandled client message case condition for {:?}", message),
-        };
+    pub fn poll_recv_msg(&self) -> Option<NetMessage> {
+        self.rx_recv.try_recv().ok()
     }
 
-    fn handle_disconnected(&mut self, endpoint: Endpoint) {
-        // TODO: How can we initialize another listening job? We definitely don't want the user to go through the trouble of figuring out which machine has stopped.
-        // Disconnected was call when server was shut down
-        println!("Lost connection to host! [{}]", endpoint.addr());
-        self.server_endpoint = None;
-        // in the case of this node disconnecting, I would like to auto renew the connection if possible.
-    }
-
+    // same here...Why am I'm unsure of everything in my life?
     // Let's not worry about this for now...
     /*
     fn handle_sending_chunk(&mut self) {
@@ -184,68 +275,16 @@ impl Client {
             }
         }
     }
-    */
+
 
     /// Send to all client asking for blender versions
     pub fn ask_for_blender(&self, version: Version) {
         if let Some(endpoint) = self.server_endpoint {
             let os = std::env::consts::OS.to_owned();
             let arch = std::env::consts::ARCH.to_owned();
-            let msg = Message::CheckForBlender { os, version, arch };
-            self.send_to_target(endpoint, &msg);
+            let msg = NetMessage::CheckForBlender { os, version, arch };
+            self.tx.network().send(&msg.ser());
         }
-    }
-
-    fn load_job(&mut self, render_queue: RenderQueue) {
-        println!("Received a new render queue!\n{:?}", render_queue);
-
-        // First let's check if we hvae the correct blender installation
-        // then check and see if we have the files?
-        if !render_queue.project_file.file_path().exists() {
-            // here we will fetch the file path from the server
-            // but for now let's continue.
-            println!("Path does not exist!");
-        }
-
-        let output = temp_dir().join("render");
-
-        // run the blender() - this will take some time. Could implement async/thread?
-        match render_queue.run(output) {
-            // returns frame and image path
-            Ok(render_info) => {
-                // assuming that we have connection to the server? otherwise rendering job should abort immediately.
-                let endpoint = self.server_endpoint.unwrap();
-
-                println!(
-                    "Render completed! Sending image to server! {:?}",
-                    render_info
-                );
-
-                let mut file_transfer = FileTransfer::new(render_info.path.clone(), endpoint);
-
-                file_transfer.transfer(&self.handler);
-                // is there a way to convert mutable to immutable?
-
-                // self.file_transfer = Some(file_transfer);
-                // wonder if there's a way to say - hey I've completed my transfer,
-                // please go and look in your download folder with this exact file name,
-                // then proceed to your job manager to move out to output destination.
-                // first notify the server that the job is completed and prepare to receive the file
-                let msg = Message::JobResult(render_info);
-                self.send_to_target(endpoint, &msg);
-
-                // I need to set something to this client node? Maybe a placeholder to say "Queue to transfer"?
-                self.handler.signals().send(Signal::SendChunk);
-
-                // let msg = Message::FileRequest(info);
-                // self.send_to_target(self.server_endpoint, msg);
-            }
-            Err(e) => println!("Fail to render on client! {:?}", e),
-        }
-    }
-
-    fn cancel_job(&self) {
-        println!("Cancel active job!");
     }
 
     fn contain_blender_response(&self, endpoint: Endpoint, have_blender: bool) {
@@ -257,70 +296,25 @@ impl Client {
             return;
         }
 
-        self.send_to_target(endpoint, &Message::CanReceive(true));
-    }
-
-    /// Handle server multi-cast ping signal
-    fn server_ping(&mut self, socket: SocketAddr) {
-        if self.server_endpoint.is_some() {
-            println!("Sorry, we're already connected to the host!");
-            return;
-        } else {
-            println!(
-                "Hey! Client received a multicast ping signal from Server [{}]!",
-                &socket
-            );
-        }
-
-        match self.handler.network().connect(Transport::FramedTcp, socket) {
-            Ok((endpoint, _)) => {
-                self.server_endpoint = Some(endpoint);
-                let message = self.register_message();
-                self.send_to_target(endpoint, &message);
-            }
-            Err(e) => {
-                println!("Error connecting to the server! \n{}", e);
-            }
-        }
-    }
-
-    fn client_ping(&self) {
-        println!("Received client ping! Ignoring!");
+        self.handler
+            .network()
+            .send(endpoint, &NetMessage::CanReceive(true).ser());
     }
 
     fn file_request(&mut self, endpoint: Endpoint, file_info: &FileInfo) {
         println!("name: {:?} | size: {}", file_info.path, file_info.size);
-        let message = Message::CanReceive(true);
+        let message = NetMessage::CanReceive(true);
         let data = bincode::serialize(&message).unwrap();
         self.handler.network().send(endpoint, &data);
         // TODO: Find a way to send file from one computer to another!
     }
-
-    fn can_receive(&self, accepted: bool) {
-        if !accepted {
-            println!("Client cannot accept file transfer!");
-            return;
-        };
-
-        self.handler.signals().send(Signal::SendChunk);
-    }
-
-    fn register_message(&self) -> Message {
-        Message::RegisterNode {
-            name: self.name.clone(),
-        }
-    }
+    */
 }
 
+// TODO: I do need to implement a Drop method to handle threaded task. Making sure they're close is critical!
 impl Drop for Client {
     fn drop(&mut self) {
-        if let Some(endpoint) = self.server_endpoint {
-            let message = Message::UnregisterNode;
-            println!("Sending unregisternode packet to host before stopping!");
-            self.send_to_target(endpoint, &message);
-        }
-
-        println!("Stopping connection!");
-        self.handler.stop();
+        // TODO: Research how to stop thread::spawn?
+        self.tx.send(CmdMessage::Exit).unwrap();
     }
 }

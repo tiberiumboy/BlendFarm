@@ -31,9 +31,7 @@ use crate::controllers::settings::{
 };
 use crate::models::{data::Data, server::Server};
 use clap::{command, Parser};
-use gethostname::gethostname;
-use models::{client::Client, server_setting::ServerSetting};
-use std::thread;
+use models::client::Client;
 use std::{env, io::Result, sync::Mutex};
 use tauri::{generate_handler, CustomMenuItem, Menu, MenuItem, Submenu};
 
@@ -41,32 +39,28 @@ pub mod controllers;
 pub mod models;
 pub mod services;
 
-fn run_as_server(port: u16) {
-    // is there a clear and better way to get around this?
-    // I do not want to have any dangling threads if we have to run async
-    thread::spawn(move || match Server::new(port) {
-        Ok(mut server) => {
-            server.ping();
-            server.run();
-        }
-        Err(e) => eprintln!("Failed to create server! {}", e),
-    });
-}
-
 // when the app starts up, I would need to have access to onfigs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
 // I will have to create a manager struct -this is self managed by user action. e.g. new node, edit project files, delete jobs, etc.
 fn client() {
+    println!("Building UI");
     let data = Data::default();
     // I would like to find a better way to update or append data to render_nodes,
     // but I need to review more context about handling context like this in rust.
     // I understand Mutex, but I do not know if it's any safe to create pointers inside data struct from mutex memory.
-    // "Do not communicate with shared memory"
-    // let port = data.server_setting.port;
+    // "Do not communicate with shared memory"\
     let ctx = Mutex::new(data);
 
-    // currently this breaks. Will have to wait for the server to get back on this one. I need a server to continue to operate despite losing internet capability. I could instead just make a "local" version where it just connects to the localhost machine instead.
-    // let server = Server::new(port).unwrap();
-    // let m_server = Mutex::new(server);
+    // currently this breaks. Will have to wait for the server to get back on this one.
+    // I need a server to continue to operate despite losing internet capability.
+    // I could just make a "local" server where it just connects to the localhost.
+
+    // somewhere here, a thread was blocked?
+    // note: I was able to print from the end of server::new, but it does not let me invoke anything below.
+    let server = Server::new();
+    println!("{:?}", &server);
+    let m_server = Mutex::new(server);
+
+    println!("created mutex");
 
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");
     let close = CustomMenuItem::new("close".to_string(), "Close");
@@ -76,13 +70,14 @@ fn client() {
         .add_item(CustomMenuItem::new("hide", "Hide"))
         .add_submenu(submenu);
 
+    println!("Building tauri");
     // why I can't dive into implementation details here?
     tauri::Builder::default()
         // https://docs.rs/tauri/1.6.8/tauri/struct.Builder.html#method.manage
         // It is indeed possible to have more than one manage - which I will be taking advantage over how I can share and mutate configuration data across this platform.
         .manage(ctx)
+        .manage(m_server)
         .menu(menu)
-        // .manage(m_server)
         // .setup(|app| {
         //     // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.
         //     // it would be nice to include version number in title bar of the app.
@@ -111,14 +106,6 @@ fn client() {
         .expect("error while running tauri application");
 }
 
-fn run_as_node() {
-    let hostname = gethostname().into_string().unwrap();
-    match Client::new(&hostname) {
-        Ok(client) => client.run(),
-        Err(err) => println!("Cannot run the client! {}", err),
-    }
-}
-
 #[derive(Parser)]
 #[command(name = "BlenderFarm")]
 #[command(version = "0.1.0")]
@@ -130,8 +117,6 @@ pub struct Cli {
     #[arg(short, long)]
     #[arg(help = "Run the application as a rendering node")]
     client: bool,
-    #[arg(short, long, default_value = None, help = "Override the default server config port")]
-    port: Option<u16>,
 }
 
 fn main() -> Result<()> {
@@ -142,18 +127,15 @@ fn main() -> Result<()> {
     // TODO: It would be nice to include command line utility to let the user add blender installation from remotely.
     // TOOD: If I build this application, how can I invoke commands directly? Do more search and test to see if there's a way for me to allow run this code if possible without having to separate the apps.
     // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.
-    let server_setting = ServerSetting::load();
 
     // how do I provide the default value instead of just using the commands?
     if args.client {
-        run_as_node();
+        println!("Running as client");
+        let _client = Client::new();
     } else {
-        match args.port {
-            Some(p) => run_as_server(p),
-            None => run_as_server(server_setting.port),
-        }
         client();
     };
+    println!("end of program!");
 
     Ok(())
 }
