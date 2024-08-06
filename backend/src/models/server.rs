@@ -73,7 +73,7 @@ impl Server {
 
         thread::spawn(move || {
             let mut peers: HashSet<Node> = HashSet::new();
-            let mut current_job: Option<Job> = None;
+            // let mut current_job: Option<Job> = None;
 
             loop {
                 std::thread::sleep(Duration::from_millis(INTERVAL_MS));
@@ -168,7 +168,8 @@ impl Server {
                                     // do nothing for now
                                 }
                                 NetMessage::SendJob(job) => {
-                                    current_job = Some(job);
+                                    println!("Received job from [{}]\n{:?}", endpoint.addr(), job);
+                                    // current_job = Some(job);
                                 }
                                 //         // Message::CancelJob => todo!(),
                                 _ => println!("Unhandled case for {:?}", msg),

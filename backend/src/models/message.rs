@@ -11,9 +11,8 @@ pub enum CmdMessage {
     SendJob(Job),
     AskForBlender { version: Version },
     // SetJobStatus(Uuid, NodeStatus), // target specific job to apply status to.
-    Render, // start the render process
-    Ping,   // send a ping to the network
-    Exit,   // stop the thread process
+    Ping, // send a ping to the network
+    Exit, // stop the thread process
 }
 
 // I could make this as a trait?

@@ -9,7 +9,6 @@ use gethostname::gethostname;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, StoredNetEvent, StoredNodeEvent};
 use semver::Version;
-use std::thread::current;
 use std::{collections::HashSet, net::SocketAddr, sync::mpsc, thread, time::Duration};
 
 const INTERVAL_MS: u64 = 500;
@@ -65,7 +64,7 @@ impl Client {
         thread::spawn(move || {
             let mut peers: HashSet<Node> = HashSet::new();
             let mut server: Option<Endpoint> = None;
-            let mut current_job: Option<Job> = None;
+            let mut _current_job: Option<Job> = None;
 
             // this will help contain the job list I need info on.
             // Feature: would this be nice to load any previous known job list prior to running this client?
@@ -112,16 +111,15 @@ impl Client {
                             // should we also close the receiver?
                             handler.stop();
                             break;
-                        }
-                        CmdMessage::Render => {
-                            // Begin the render process!
-                            if let Some(job) = current_job {
-                                let mut manager = blender::Manager::load();
-                                // eventually I will need to find a way to change this so that I could use the network to ask other client for version of blender.
-                                // if no other client are available then download blender from the web.
-                                let blender = manager.get_blender(&job.version).unwrap();
-                            }
-                        }
+                        } // CmdMessage::Render => {
+                          //     // Begin the render process!
+                          //     if let Some(ref job) = current_job {
+                          //         let mut manager = blender::Manager::load();
+                          //         // eventually I will need to find a way to change this so that I could use the network to ask other client for version of blender.
+                          //         // if no other client are available then download blender from the web.
+                          //         // let blender = manager.get_blender(&job.version).unwrap();
+                          //     }
+                          // }
                     }
                 }
 
@@ -203,8 +201,7 @@ impl Client {
                                 }
                                 NetMessage::SendJob(job) => {
                                     println!("Received a new job!\n{:?}", job);
-                                    current_job = Some(job);
-                                    tx.send(CmdMessage::Render);
+                                    _current_job = Some(job);
 
                                     // First let's check if we have the correct blender installation
                                     // then check and see if we have the files?
