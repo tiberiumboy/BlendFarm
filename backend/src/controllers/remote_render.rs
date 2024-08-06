@@ -6,13 +6,6 @@ use semver::Version;
 use std::{net::SocketAddr, path::PathBuf, sync::Mutex};
 use tauri::{command, AppHandle, Error, Manager};
 
-// We'll use this to organize and collect render nodes information
-// pub struct Context {
-//     pub nodes: Mutex<Vec<RenderNode>>,
-//     pub projects: Mutex<Vec<ProjectFile>>,
-//     pub jobs: Mutex<Vec<Job>>,
-// }
-
 /// Create a node
 #[command]
 pub fn create_node(app: AppHandle, name: &str, host: &str) -> Result<String, Error> {

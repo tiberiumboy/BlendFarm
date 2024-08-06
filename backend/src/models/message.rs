@@ -16,6 +16,14 @@ pub enum CmdMessage {
     Exit, // stop the thread process
 }
 
+#[derive(Debug)]
+pub enum NetResponse {
+    ClientJoined { socket: SocketAddr },
+    ClientLeft { socket: SocketAddr },
+    ClientInfo { socket: SocketAddr, name: String }, // TODO: provide more context and list here once we get this working
+    ClientStatus { socket: SocketAddr, status: String },
+}
+
 // I could make this as a trait?
 // that way I could have separate enum structs for different kind of message
 #[derive(Serialize, Deserialize, Debug)]
@@ -38,9 +46,8 @@ pub enum NetMessage {
 
     // From multicast
     Ping {
-        name: String,
-        socket: SocketAddr,
-        is_client: bool,
+        // server would provide the address
+        server_addr: Option<SocketAddr>,
     },
 }
 

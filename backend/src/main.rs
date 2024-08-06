@@ -54,6 +54,8 @@ fn client() {
     // I could just make a "local" server where it just connects to the localhost.
 
     let server = Server::new(1500);
+    // so does this just becomes a loop problem then?
+    // how do I receive the events?
     let m_server = Mutex::new(server);
 
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");

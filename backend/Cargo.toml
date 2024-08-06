@@ -17,7 +17,6 @@ serde_json = "1.0"
 
 # I'm getting warning message that this manifest is unused?
 [dependencies]
-gethostname = "*"
 blender = { path = "../blender" }
 tauri = { version = "1.5.11", features = ["api-all"] }
 serde = { version = "1.0", features = ["derive"] }

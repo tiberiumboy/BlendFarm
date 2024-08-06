@@ -2,16 +2,15 @@
     Developer blog:
     - Do some research on concurrent http downloader for transferring project files and blender from one client to another.
 */
-use super::{job::Job, message::CmdMessage, node::Node, server::MULTICAST_ADDR};
+use super::{job::Job, message::CmdMessage, server::MULTICAST_ADDR};
 use crate::models::message::NetMessage;
 use blender::blender;
-use gethostname::gethostname;
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, StoredNetEvent, StoredNodeEvent};
 use semver::Version;
 use std::net::{IpAddr, Ipv4Addr};
-use std::{collections::HashSet, net::SocketAddr, sync::mpsc, thread, time::Duration};
+use std::{net::SocketAddr, sync::mpsc, thread, time::Duration};
 
 const INTERVAL_MS: u64 = 500;
 
@@ -26,14 +25,6 @@ pub struct Client {
 
 // I wonder if it's possible to combine server/client code together to form some kind of intristic networking solution?
 impl Client {
-    fn generate_ping(socket: &SocketAddr) -> NetMessage {
-        NetMessage::Ping {
-            name: gethostname().into_string().unwrap(),
-            socket: socket.to_owned(),
-            is_client: true,
-        }
-    }
-
     pub fn new() -> Client {
         let (handler, listener) = node::split::<NetMessage>();
         let public_addr = SocketAddr::new(local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), 0);
@@ -59,7 +50,7 @@ impl Client {
         // let (tx_recv, rx_recv) = mpsc::channel::<RequestMessage>();
 
         thread::spawn(move || {
-            let mut peers: HashSet<Node> = HashSet::new();
+            // client should only have a connection to the server, maybe a connection to transfer files?
             let mut server: Option<Endpoint> = None;
             let mut _current_job: Option<Job> = None;
 
@@ -72,13 +63,8 @@ impl Client {
                 std::thread::sleep(Duration::from_millis(INTERVAL_MS));
                 if let Ok(msg) = rx.try_recv() {
                     match msg {
-                        CmdMessage::AddPeer { name, socket } => {
-                            let (peer_endpoint, _) = handler
-                                .network()
-                                .connect(Transport::FramedTcp, socket)
-                                .unwrap();
-                            let node = Node::new(&name, peer_endpoint);
-                            peers.insert(node);
+                        CmdMessage::AddPeer { .. } => {
+                            // client should not have the ability to add peers.
                         }
                         CmdMessage::SendJob(job) => {
                             // TODO: Find a way to set a new job here and begin forth?
@@ -90,7 +76,7 @@ impl Client {
                             println!("Received a ping request!");
                             handler
                                 .network()
-                                .send(udp_conn.0, &Self::generate_ping(&public_addr).ser());
+                                .send(udp_conn.0, &NetMessage::Ping { server_addr: None }.ser());
                         }
                         CmdMessage::AskForBlender { version } => {
                             if let Some(conn) = server {
@@ -128,9 +114,10 @@ impl Client {
                                 println!("Connected via UDP channel! [{}]", endpoint.addr());
 
                                 // we then send out a ping signal on udp channel
-                                handler
-                                    .network()
-                                    .send(udp_conn.0, &Self::generate_ping(&public_addr).ser());
+                                handler.network().send(
+                                    udp_conn.0,
+                                    &NetMessage::Ping { server_addr: None }.ser(),
+                                );
                             }
                             // we connected via tcp channel!
                             else {
@@ -169,32 +156,19 @@ impl Client {
                                 // we received a ping signal from the server that accepted our ping signal.
                                 // this means that either the server send out a broadcast signal to identify lost node connections on the network
                                 NetMessage::Ping {
-                                    name,
-                                    socket,
-                                    is_client: false,
-                                } => {
-                                    println!(
-                                        "Hey! Client received a multicast ping signal from Server [{}]!",
-                                        &socket
-                                    );
-
-                                    if server.is_some() {
-                                        println!("This node is already connected to the server! Ignoring!");
-                                        continue;
-                                    }
-
+                                    server_addr: Some(socket),
+                                } if server == None => {
                                     match handler.network().connect(Transport::FramedTcp, socket) {
                                         Ok((endpoint, _)) => {
-                                            peers.insert(Node::new(&name, endpoint));
+                                            server = Some(endpoint);
+                                            println!("Connected to server! [{}]", endpoint.addr());
                                         }
                                         Err(e) => {
                                             println!("Error connecting to the server! \n{}", e);
                                         }
                                     }
                                 }
-                                NetMessage::Ping {
-                                    is_client: true, ..
-                                } => {
+                                NetMessage::Ping { .. } => {
                                     // ignore the ping signal from the client
                                 }
                                 NetMessage::SendJob(job) => {

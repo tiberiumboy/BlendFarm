@@ -1,10 +1,9 @@
-use super::message::CmdMessage;
+use super::message::{CmdMessage, NetResponse};
 use super::project_file::ProjectFile;
 use super::server_setting::ServerSetting;
 use crate::models::{job::Job, message::NetMessage, node::Node};
 use anyhow::Result;
 use blender::models::mode::Mode;
-use gethostname::gethostname;
 use local_ip_address::local_ip;
 use message_io::network::Transport;
 use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
@@ -30,7 +29,7 @@ const INTERVAL_MS: u64 = 500;
 // Issue: Cannot derive debug because NodeTask doesn't derive Debug! Omit NodeTask if you need to Debug!
 pub struct Server {
     tx: mpsc::Sender<CmdMessage>,
-    // rx_recv: mpsc::Receiver<RequestMessage>,
+    pub rx_recv: mpsc::Receiver<NetResponse>,
     // public_addr: SocketAddr,
     _task: NodeTask,
 }
@@ -38,9 +37,7 @@ pub struct Server {
 impl Server {
     fn generate_ping(socket: &SocketAddr) -> NetMessage {
         NetMessage::Ping {
-            name: gethostname().into_string().unwrap(),
-            socket: socket.to_owned(),
-            is_client: false,
+            server_addr: Some(socket.to_owned()),
         }
     }
 
@@ -73,13 +70,11 @@ impl Server {
         // this is starting to feel like event base driven programming?
         // is this really the best way to handle network messaging?
         let (tx, rx) = mpsc::channel();
-
-        // use tx_recv to receive signal commands from the network
-        // let (tx_recv, rx_recv) = mpsc::channel();
+        let (tx_recv, rx_recv) = mpsc::channel();
 
         thread::spawn(move || {
             let mut peers: HashSet<Node> = HashSet::new();
-            let mut current_job: Option<Job> = None;
+            let current_job: Option<Job> = None;
 
             loop {
                 std::thread::sleep(Duration::from_millis(INTERVAL_MS));
@@ -87,11 +82,9 @@ impl Server {
                     match msg {
                         CmdMessage::SendJob(job) => {
                             // send new job to all clients
-                            dbg!(&peers);
                             let info = &NetMessage::SendJob(job);
                             // send to all connected clients on udp channel
                             for peer in peers.iter() {
-                                dbg!(peer.endpoint.addr());
                                 handler.network().send(peer.endpoint, &info.ser());
                             }
                         }
@@ -100,7 +93,7 @@ impl Server {
                             match handler.network().connect(Transport::FramedTcp, socket) {
                                 Ok((peer, _)) => {
                                     println!("Connected to peer `{}` [{}]", name, peer.addr());
-                                    peers.insert(Node::new(&name, peer));
+                                    peers.insert(Node::new(peer));
                                 }
                                 Err(e) => {
                                     println!("Error connecting to peer! {}", e);
@@ -159,13 +152,11 @@ impl Server {
                                         handler.network().send(peer.endpoint, &msg.ser());
                                     }
                                 }
-                                NetMessage::Ping {
-                                    name,
-                                    is_client: true,
-                                    ..
-                                } => {
+                                NetMessage::Ping { server_addr: None } => {
                                     // we should not attempt to connect to the host!
-                                    println!("Received ping from client '{}'", name);
+                                    println!(
+                                        "Received ping from client! Sending broadcast signal!"
+                                    );
 
                                     // maybe I should just send out a server ping signal instead?
                                     handler
@@ -173,7 +164,7 @@ impl Server {
                                         .send(udp_conn.0, &Self::generate_ping(&public_addr).ser());
                                 }
                                 NetMessage::Ping {
-                                    is_client: false, ..
+                                    server_addr: Some(_),
                                 } => {
                                     // do nothing for now
                                 }
@@ -212,12 +203,19 @@ impl Server {
                         // wonder what I can do with resource id?
                         StoredNetEvent::Accepted(endpoint, _) => {
                             println!("Server accepts connection: [{}]", endpoint);
+                            let node = Node::new(endpoint);
+                            peers.insert(node);
+                            tx_recv
+                                .send(NetResponse::ClientJoined {
+                                    socket: endpoint.addr(),
+                                })
+                                .unwrap();
                         }
                         StoredNetEvent::Disconnected(endpoint) => {
                             println!("Disconnected event receieved! [{}]", endpoint.addr());
                             // I believe there's a reason why I cannot use endpoint.addr()
                             // Instead, I need to match endpoint to endpoint from node struct instead
-                            let target = Node::new(&String::new(), endpoint);
+                            let target = Node::new(endpoint);
                             if peers.remove(&target) {
                                 println!("[{}] has disconnected", endpoint.addr());
                             }
@@ -229,7 +227,7 @@ impl Server {
 
         Self {
             tx,
-            // rx_recv,
+            rx_recv,
             // public_addr,
             _task,
         }
