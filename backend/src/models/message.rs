@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 // this command is provide by the User to the server.
 // this interface acts as API - where we want to send command to the server node, and start taking actions.
+#[derive(Debug)]
 pub enum CmdMessage {
     AddPeer { name: String, socket: SocketAddr },
     SendJob(Job),

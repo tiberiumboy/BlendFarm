@@ -52,22 +52,22 @@ impl Server {
         let public_addr =
             SocketAddr::new(local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), port);
 
-        // listen to tcp
+        // listen tcp
         handler
             .network()
             .listen(Transport::FramedTcp, public_addr)
             .unwrap();
 
-        // listen to udp
-        handler
-            .network()
-            .listen(Transport::Udp, MULTICAST_ADDR)
-            .unwrap();
-
-        // connect to udp
+        // connect udp
         let udp_conn = handler
             .network()
             .connect(Transport::Udp, MULTICAST_ADDR)
+            .unwrap();
+
+        // listen udp
+        handler
+            .network()
+            .listen(Transport::Udp, MULTICAST_ADDR)
             .unwrap();
 
         // this is starting to feel like event base driven programming?
@@ -87,12 +87,12 @@ impl Server {
                     match msg {
                         CmdMessage::SendJob(job) => {
                             // send new job to all clients
-                            let info = &NetMessage::SendJob(job).ser();
-                            dbg!(&info);
+                            dbg!(&peers);
+                            let info = &NetMessage::SendJob(job);
                             // send to all connected clients on udp channel
                             for peer in peers.iter() {
                                 dbg!(peer.endpoint.addr());
-                                handler.network().send(peer.endpoint, &info);
+                                handler.network().send(peer.endpoint, &info.ser());
                             }
                         }
                         CmdMessage::AddPeer { name, socket } => {
@@ -137,9 +137,7 @@ impl Server {
                 // check and process network events
                 if let Some(StoredNodeEvent::Network(event)) = receiver.try_receive() {
                     match event {
-                        StoredNetEvent::Message(endpoint, bytes)
-                            if endpoint.addr().ip() != public_addr.ip() =>
-                        {
+                        StoredNetEvent::Message(endpoint, bytes) => {
                             let msg = match NetMessage::de(&bytes) {
                                 Ok(msg) => msg,
                                 Err(e) => {
@@ -153,6 +151,7 @@ impl Server {
                             // I wouldn't imagine having broken/defragmented packets within local network?
                             match msg {
                                 // I'm working on something I don't know if it'll work or not...
+                                // this I can omit, but how do I make this code better?
                                 NetMessage::CheckForBlender { caller, .. } => {
                                     // omit the caller from the list of peers
                                     for peer in peers.iter().filter(|p| p.endpoint.addr() != caller)
@@ -196,14 +195,6 @@ impl Server {
                                 _ => println!("Unhandled case for {:?}", msg),
                             }
                         }
-                        StoredNetEvent::Message(_, data) => match NetMessage::de(&data) {
-                            Ok(msg) => {
-                                println!("Message received from self! {:?}", msg);
-                            }
-                            Err(e) => {
-                                println!("Fail to decrypt message!\n{e}");
-                            }
-                        },
                         StoredNetEvent::Connected(endpoint, _) => {
                             // we connected via udp channel!
                             if endpoint == udp_conn.0 {
@@ -217,10 +208,10 @@ impl Server {
                             else {
                                 println!("Connected via TCP channel! [{}]", endpoint.addr());
                             }
-                            println!("end of Connected");
                         }
+                        // wonder what I can do with resource id?
                         StoredNetEvent::Accepted(endpoint, _) => {
-                            println!("Server acccepts connection: [{}]", endpoint.addr());
+                            println!("Server accepts connection: [{}]", endpoint);
                         }
                         StoredNetEvent::Disconnected(endpoint) => {
                             println!("Disconnected event receieved! [{}]", endpoint.addr());
@@ -257,7 +248,10 @@ impl Server {
         let job = Job::new(project_file, server_config.render_dir, version, mode);
 
         // begin api invocation test
-        self.send_job(job);
+        match self.send_job(job) {
+            Ok(_) => println!("Job sent successfully!"),
+            Err(e) => println!("Error sending job! {:?}", e),
+        }
     }
 
     pub fn ping(&self) {

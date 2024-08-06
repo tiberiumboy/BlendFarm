@@ -6,9 +6,11 @@ use super::{job::Job, message::CmdMessage, node::Node, server::MULTICAST_ADDR};
 use crate::models::message::NetMessage;
 use blender::blender;
 use gethostname::gethostname;
+use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, StoredNetEvent, StoredNodeEvent};
 use semver::Version;
+use std::net::{IpAddr, Ipv4Addr};
 use std::{collections::HashSet, net::SocketAddr, sync::mpsc, thread, time::Duration};
 
 const INTERVAL_MS: u64 = 500;
@@ -34,27 +36,20 @@ impl Client {
 
     pub fn new() -> Client {
         let (handler, listener) = node::split::<NetMessage>();
-
-        // this would error if I am not connected to the internet. I need this to be able to run despite not connected to anything ( run as local host!)
-        // let ip = local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
-        // let public_addr = SocketAddr::new(ip, 0);
-
+        let public_addr = SocketAddr::new(local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), 0);
         let (_task, mut receiver) = listener.enqueue();
 
         // listen tcp
-        let public_addr = match handler.network().listen(Transport::FramedTcp, "0.0.0.0:0") {
-            Ok((_, addr)) => addr,
-            Err(e) => panic!("Unable to listen to tcp! \n{}", e),
+        if let Err(e) = handler.network().listen(Transport::FramedTcp, public_addr) {
+            panic!("Unable to listen to tcp! \n{}", e);
         };
-
-        dbg!(public_addr);
 
         // listen udp
         if let Err(e) = handler.network().listen(Transport::Udp, MULTICAST_ADDR) {
             println!("Unable to listen to udp! \n{}", e);
         }
 
-        // connect to multicast address
+        // connect udp
         let udp_conn = match handler.network().connect(Transport::Udp, MULTICAST_ADDR) {
             Ok(conn) => conn,
             Err(e) => panic!("Somethiing terrible happen! {e:?}"),

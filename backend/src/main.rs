@@ -42,7 +42,6 @@ pub mod services;
 // when the app starts up, I would need to have access to onfigs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
 // I will have to create a manager struct -this is self managed by user action. e.g. new node, edit project files, delete jobs, etc.
 fn client() {
-    println!("Building UI");
     let data = Data::default();
     // I would like to find a better way to update or append data to render_nodes,
     // but I need to review more context about handling context like this in rust.
@@ -55,7 +54,6 @@ fn client() {
     // I could just make a "local" server where it just connects to the localhost.
 
     let server = Server::new(1500);
-    server.test_send_job_to_target_node();
     let m_server = Mutex::new(server);
 
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");
