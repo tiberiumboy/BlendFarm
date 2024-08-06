@@ -55,6 +55,7 @@ fn client() {
     // I could just make a "local" server where it just connects to the localhost.
 
     let server = Server::new(1500);
+    server.test_send_job_to_target_node();
     let m_server = Mutex::new(server);
 
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");

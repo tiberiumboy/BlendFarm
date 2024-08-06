@@ -47,6 +47,8 @@ impl Client {
             Err(e) => panic!("Unable to listen to tcp! \n{}", e),
         };
 
+        dbg!(public_addr);
+
         // listen udp
         if let Err(e) = handler.network().listen(Transport::Udp, MULTICAST_ADDR) {
             println!("Unable to listen to udp! \n{}", e);

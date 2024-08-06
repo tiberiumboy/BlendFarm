@@ -1,12 +1,16 @@
 use super::message::CmdMessage;
+use super::project_file::ProjectFile;
+use super::server_setting::ServerSetting;
 use crate::models::{job::Job, message::NetMessage, node::Node};
 use anyhow::Result;
+use blender::models::mode::Mode;
 use gethostname::gethostname;
 use local_ip_address::local_ip;
 use message_io::network::Transport;
 use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
 use semver::Version;
 use std::net::{IpAddr, Ipv4Addr};
+use std::path::PathBuf;
 use std::sync::mpsc::{self, SendError};
 use std::{collections::HashSet, net::SocketAddr, thread, time::Duration};
 
@@ -75,7 +79,7 @@ impl Server {
 
         thread::spawn(move || {
             let mut peers: HashSet<Node> = HashSet::new();
-            // let mut current_job: Option<Job> = None;
+            let mut current_job: Option<Job> = None;
 
             loop {
                 std::thread::sleep(Duration::from_millis(INTERVAL_MS));
@@ -84,8 +88,10 @@ impl Server {
                         CmdMessage::SendJob(job) => {
                             // send new job to all clients
                             let info = &NetMessage::SendJob(job).ser();
+                            dbg!(&info);
                             // send to all connected clients on udp channel
                             for peer in peers.iter() {
+                                dbg!(peer.endpoint.addr());
                                 handler.network().send(peer.endpoint, &info);
                             }
                         }
@@ -176,7 +182,17 @@ impl Server {
                                     println!("Received job from [{}]\n{:?}", endpoint.addr(), job);
                                     // current_job = Some(job);
                                 }
-                                //         // Message::CancelJob => todo!(),
+                                NetMessage::RequestJob => {
+                                    // at this point here, client is asking us for a new job.
+                                    if let Some(ref job) = current_job {
+                                        let job = job.clone();
+                                        handler
+                                            .network()
+                                            .send(endpoint, &NetMessage::SendJob(job).ser());
+                                    } else {
+                                        println!("No job available to send!");
+                                    }
+                                }
                                 _ => println!("Unhandled case for {:?}", msg),
                             }
                         }
@@ -232,17 +248,17 @@ impl Server {
         self.tx.send(CmdMessage::SendJob(job))
     }
 
-    // fn test_send_job_to_target_node(&self) {
-    //     let blend_scene = PathBuf::from("./test.blend");
-    //     let project_file = ProjectFile::new(blend_scene);
-    //     let version = Version::new(4, 1, 0);
-    //     let mode = Mode::Animation { start: 0, end: 2 };
-    //     let server_config = ServerSetting::load();
-    //     let job = Job::new(project_file, server_config.render_dir, version, mode);
+    pub fn test_send_job_to_target_node(&self) {
+        let blend_scene = PathBuf::from("./test.blend");
+        let project_file = ProjectFile::new(blend_scene);
+        let version = Version::new(4, 1, 0);
+        let mode = Mode::Animation { start: 0, end: 2 };
+        let server_config = ServerSetting::load();
+        let job = Job::new(project_file, server_config.render_dir, version, mode);
 
-    //     // begin api invocation test
-    //     self.send_job(job);
-    // }
+        // begin api invocation test
+        self.send_job(job);
+    }
 
     pub fn ping(&self) {
         self.tx.send(CmdMessage::Ping).unwrap();

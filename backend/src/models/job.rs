@@ -48,7 +48,7 @@ pub enum JobStatus {
 // how do I make this job extend it's lifespan? I need to monitor and regulate all on-going job method?
 // if a node joins the server, we automatically assign a new active job to the node.
 /// A container to hold rendering job information. This will be used to send off jobs to all other rendering farm
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Job {
     //TODO: should I keep this private instead? What impact does this make?
     id: Uuid,
