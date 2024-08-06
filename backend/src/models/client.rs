@@ -142,6 +142,7 @@ impl Client {
                                 println!("Connected via TCP channel! [{}]", endpoint.addr());
                                 server = Some(endpoint);
 
+                                // sending job request
                                 handler
                                     .network()
                                     .send(endpoint, &NetMessage::RequestJob.ser());
@@ -262,8 +263,7 @@ impl Client {
                                     if manager
                                         .get_blenders()
                                         .iter()
-                                        .find(|b| b.get_version().eq(&version))
-                                        .is_some()
+                                        .any(|b| b.get_version().eq(&version))
                                     {
                                         // send a reply back!
                                         match handler
