@@ -2,6 +2,7 @@ use super::message::CmdMessage;
 use crate::models::{job::Job, message::NetMessage, node::Node};
 use anyhow::Result;
 use gethostname::gethostname;
+use local_ip_address::local_ip;
 use message_io::network::Transport;
 use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
 use semver::Version;
@@ -44,7 +45,8 @@ impl Server {
         let (handler, listener) = node::split::<NetMessage>();
 
         let (_task, mut receiver) = listener.enqueue();
-        let public_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+        let public_addr =
+            SocketAddr::new(local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), port);
 
         // listen to tcp
         handler
@@ -129,7 +131,9 @@ impl Server {
                 // check and process network events
                 if let Some(StoredNodeEvent::Network(event)) = receiver.try_receive() {
                     match event {
-                        StoredNetEvent::Message(endpoint, bytes) => {
+                        StoredNetEvent::Message(endpoint, bytes)
+                            if endpoint.addr().ip() != public_addr.ip() =>
+                        {
                             let msg = match NetMessage::de(&bytes) {
                                 Ok(msg) => msg,
                                 Err(e) => {
@@ -137,6 +141,7 @@ impl Server {
                                     continue;
                                 }
                             };
+
                             println!("Message received from [{}]\n{:?}", endpoint.addr(), &msg);
 
                             // I wouldn't imagine having broken/defragmented packets within local network?
@@ -175,6 +180,14 @@ impl Server {
                                 _ => println!("Unhandled case for {:?}", msg),
                             }
                         }
+                        StoredNetEvent::Message(_, data) => match NetMessage::de(&data) {
+                            Ok(msg) => {
+                                println!("Message received from self! {:?}", msg);
+                            }
+                            Err(e) => {
+                                println!("Fail to decrypt message!\n{e}");
+                            }
+                        },
                         StoredNetEvent::Connected(endpoint, _) => {
                             // we connected via udp channel!
                             if endpoint == udp_conn.0 {
