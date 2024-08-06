@@ -1,21 +1,16 @@
-use crate::models::{
-    job::Job, message::NetMessage, node::Node, project_file::ProjectFile,
-    server_setting::ServerSetting,
-};
+use super::message::CmdMessage;
+use crate::models::{job::Job, message::NetMessage, node::Node};
 use anyhow::Result;
-use blender::models::mode::Mode;
 use gethostname::gethostname;
 use message_io::network::Transport;
-use message_io::node::{self, StoredNetEvent, StoredNodeEvent};
+use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
 use semver::Version;
-use std::collections::HashSet;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::mpsc::{self, SendError};
-use std::time::Duration;
-use std::{net::SocketAddr, path::PathBuf, thread};
-
-use super::message::CmdMessage;
+use std::{collections::HashSet, net::SocketAddr, thread, time::Duration};
 
 pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
+const INTERVAL_MS: u64 = 500;
 
 /*
     Let me design this real quick here - I need to setup a way so that once the server is running, it sends out a ping signal to notify any and all inactive client node on the network.
@@ -27,11 +22,12 @@ pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
 */
 
 // wish there was some ways to share Server and Client structs?
-#[derive(Debug)]
+// Issue: Cannot derive debug because NodeTask doesn't derive Debug! Omit NodeTask if you need to Debug!
 pub struct Server {
     tx: mpsc::Sender<CmdMessage>,
-    rx_recv: mpsc::Receiver<NetMessage>,
-    public_addr: SocketAddr,
+    // rx_recv: mpsc::Receiver<RequestMessage>,
+    // public_addr: SocketAddr,
+    _task: NodeTask,
 }
 
 impl Server {
@@ -44,15 +40,16 @@ impl Server {
     }
 
     // wonder do I need to make this return an actual raw mutable pointer to heap?
-    pub fn new() -> Server {
+    pub fn new(port: u16) -> Server {
         let (handler, listener) = node::split::<NetMessage>();
 
         let (_task, mut receiver) = listener.enqueue();
+        let public_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
 
         // listen to tcp
-        let (_, public_addr) = handler
+        handler
             .network()
-            .listen(Transport::FramedTcp, "0.0.0.0:0")
+            .listen(Transport::FramedTcp, public_addr)
             .unwrap();
 
         // listen to udp
@@ -62,7 +59,6 @@ impl Server {
             .unwrap();
 
         // connect to udp
-        // what if this is the culprit?
         let udp_conn = handler
             .network()
             .connect(Transport::Udp, MULTICAST_ADDR)
@@ -71,13 +67,16 @@ impl Server {
         // this is starting to feel like event base driven programming?
         // is this really the best way to handle network messaging?
         let (tx, rx) = mpsc::channel();
-        let (_tx_recv, rx_recv) = mpsc::channel();
+
+        // use tx_recv to receive signal commands from the network
+        // let (tx_recv, rx_recv) = mpsc::channel();
 
         thread::spawn(move || {
             let mut peers: HashSet<Node> = HashSet::new();
+            let mut current_job: Option<Job> = None;
 
             loop {
-                std::thread::sleep(Duration::from_millis(500));
+                std::thread::sleep(Duration::from_millis(INTERVAL_MS));
                 if let Ok(msg) = rx.try_recv() {
                     match msg {
                         CmdMessage::SendJob(job) => {
@@ -90,10 +89,14 @@ impl Server {
                         }
                         CmdMessage::AddPeer { name, socket } => {
                             // hmm wonder what this'll do?
-                            if let Ok((peer, _)) =
-                                handler.network().connect(Transport::FramedTcp, socket)
-                            {
-                                peers.insert(Node::new(&name, peer));
+                            match handler.network().connect(Transport::FramedTcp, socket) {
+                                Ok((peer, _)) => {
+                                    println!("Connected to peer `{}` [{}]", name, peer.addr());
+                                    peers.insert(Node::new(&name, peer));
+                                }
+                                Err(e) => {
+                                    println!("Error connecting to peer! {}", e);
+                                }
                             }
                         }
                         CmdMessage::Ping => {
@@ -101,6 +104,18 @@ impl Server {
                             handler
                                 .network()
                                 .send(udp_conn.0, &Self::generate_ping(&public_addr).ser());
+                        }
+                        CmdMessage::AskForBlender { version } => {
+                            // send out a request to all clients to check for blender version
+                            let info = &NetMessage::CheckForBlender {
+                                os: std::env::consts::OS.to_owned(),
+                                version,
+                                arch: std::env::consts::ARCH.to_owned(),
+                                caller: public_addr,
+                            };
+                            for peer in peers.iter() {
+                                handler.network().send(peer.endpoint, &info.ser());
+                            }
                         }
                         CmdMessage::Exit => {
                             // Wonder why I can't see this? Does it not stop?
@@ -114,7 +129,7 @@ impl Server {
                 // check and process network events
                 if let Some(StoredNodeEvent::Network(event)) = receiver.try_receive() {
                     match event {
-                        StoredNetEvent::Message(_endpoint, bytes) => {
+                        StoredNetEvent::Message(endpoint, bytes) => {
                             let msg = match NetMessage::de(&bytes) {
                                 Ok(msg) => msg,
                                 Err(e) => {
@@ -122,96 +137,39 @@ impl Server {
                                     continue;
                                 }
                             };
+                            println!("Message received from [{}]\n{:?}", endpoint.addr(), &msg);
 
                             // I wouldn't imagine having broken/defragmented packets within local network?
                             match msg {
-                                //         // a new node register itself to the network!
-                                //         NetMessage::RegisterNode { name } => {
-                                //             let local_ip = local_ip().unwrap();
-                                //             if endpoint.addr().ip() == local_ip {
-                                //                 // in this case, we're connected to the server locally?
-                                //                 // endpoint.set_addr(SocketAddr::new(local_ip, endpoint.addr().port()));
-                                //                 println!("A client on this localhost is trying to connect to the server!",);
-                                //                 endpoint.addr().set_ip(IpAddr::V4(Ipv4Addr::LOCALHOST));
-                                //             }
-
-                                //             let node = Node::new(&name, endpoint);
-
-                                //             println!(
-                                //                 "Node Registered successfully! '{}' [{}]",
-                                //                 &name,
-                                //                 &endpoint.addr()
-                                //             );
-
-                                //             peers.insert(node);
-
-                                //             // for testing purposes -
-                                //             // once we received a connection, we should give the node a new job if there's one available, or currently pending.
-                                //             // in this example here, we'll focus on sending a job to the connected node.
-                                //             // self.test_send_job_to_target_node();
-                                //         }
-                                //         NetMessage::UnregisterNode => {}
-                                //         // Client should not be sending us the jobs!
-                                //         //Message::LoadJob() => {}
-                                //         NetMessage::JobResult(render_info) => {
-                                //             // println!("Job result received! {:?}", render_info);
-                                //             // // yeahhhh about this... I need to do something about this..
-                                //             // if let Some(job) = self.job.as_mut() {
-                                //             //     // TODO: Take a break and come back to this. try a different code block.
-                                //             //     job.renders.insert(render_info);
-                                //             //     match job.next_frame() {
-                                //             //         Some(frame) => {
-                                //             //             let version = job.version.clone();
-                                //             //             let project_file = job.project_file.clone();
-                                //             //             let render_queue = RenderQueue::new(frame, version, project_file, job.id);
-                                //             //             let message = Message::LoadJob(render_queue);
-                                //             //             dbg!(handler.network().send(endpoint, &message.ser()));
-
-                                //             //         }
-                                //             //         None => {
-                                //             //             // Job completed!
-                                //             //             println!("Job completed!");
-                                //             //             self.job = None; // eventually we will probably want to change this and make this better?
-                                //             //         }
-                                //             //     }
-                                //             // }
-                                //         }
-                                //         NetMessage::CheckForBlender { os, version, arch } => {
-                                //             let msg =
-                                //                 Self::check_for_blender(endpoint, &os, &arch, &version);
-                                //             handler.network().send(endpoint, &msg.ser());
-                                //         }
+                                // I'm working on something I don't know if it'll work or not...
+                                NetMessage::CheckForBlender { caller, .. } => {
+                                    // omit the caller from the list of peers
+                                    for peer in peers.iter().filter(|p| p.endpoint.addr() != caller)
+                                    {
+                                        handler.network().send(peer.endpoint, &msg.ser());
+                                    }
+                                }
                                 NetMessage::Ping {
                                     name,
-                                    socket,
                                     is_client: true,
+                                    ..
                                 } => {
                                     // we should not attempt to connect to the host!
-                                    println!("Received ping from client '{}' [{}]", name, socket);
+                                    println!("Received ping from client '{}'", name);
 
                                     // maybe I should just send out a server ping signal instead?
                                     handler
                                         .network()
-                                        .send(udp_conn.0, &Self::generate_ping(&socket).ser());
-
-                                    // so what happen here?
-                                    // if let Ok((peer, _)) =
-                                    //     handler.network().connect(Transport::FramedTcp, socket)
-                                    // {
-                                    //     println!("Connected to peer! [{}]", peer.addr());
-                                    //     peers.insert(Node::new(&name, peer));
-                                    // } else {
-                                    //     println!("Unable to connect to {}", &socket);
-                                    // }
+                                        .send(udp_conn.0, &Self::generate_ping(&public_addr).ser());
                                 }
                                 NetMessage::Ping {
-                                    name,
-                                    socket,
-                                    is_client: false,
+                                    is_client: false, ..
                                 } => {
-                                    println!("Received server ping! {}, {}", socket, name);
+                                    // do nothing for now
                                 }
-                                //         // Message::LoadJob(_) => todo!(),
+                                NetMessage::SendJob(job) => {
+                                    current_job = Some(job);
+                                }
                                 //         // Message::CancelJob => todo!(),
                                 _ => println!("Unhandled case for {:?}", msg),
                             }
@@ -229,6 +187,7 @@ impl Server {
                             else {
                                 println!("Connected via TCP channel! [{}]", endpoint.addr());
                             }
+                            println!("end of Connected");
                         }
                         StoredNetEvent::Accepted(endpoint, _) => {
                             println!("Server acccepts connection: [{}]", endpoint.addr());
@@ -239,7 +198,7 @@ impl Server {
                             // Instead, I need to match endpoint to endpoint from node struct instead
                             let target = Node::new(&String::new(), endpoint);
                             if peers.remove(&target) {
-                                println!("[{}] has disconnected", target.endpoint.addr());
+                                println!("[{}] has disconnected", endpoint.addr());
                             }
                         }
                     }
@@ -249,8 +208,9 @@ impl Server {
 
         Self {
             tx,
-            rx_recv,
-            public_addr,
+            // rx_recv,
+            // public_addr,
+            _task,
         }
     }
 
@@ -258,16 +218,33 @@ impl Server {
         self.tx.send(CmdMessage::SendJob(job))
     }
 
-    fn test_send_job_to_target_node(&self) {
-        let blend_scene = PathBuf::from("./test.blend");
-        let project_file = ProjectFile::new(blend_scene);
-        let version = Version::new(4, 1, 0);
-        let mode = Mode::Animation { start: 0, end: 2 };
-        let server_config = ServerSetting::load();
-        let job = Job::new(project_file, server_config.render_dir, version, mode);
+    // fn test_send_job_to_target_node(&self) {
+    //     let blend_scene = PathBuf::from("./test.blend");
+    //     let project_file = ProjectFile::new(blend_scene);
+    //     let version = Version::new(4, 1, 0);
+    //     let mode = Mode::Animation { start: 0, end: 2 };
+    //     let server_config = ServerSetting::load();
+    //     let job = Job::new(project_file, server_config.render_dir, version, mode);
 
-        // begin api invocation test
-        self.send_job(job);
+    //     // begin api invocation test
+    //     self.send_job(job);
+    // }
+
+    pub fn ping(&self) {
+        self.tx.send(CmdMessage::Ping).unwrap();
+    }
+
+    pub fn connect(&self, name: &str, socket: SocketAddr) {
+        self.tx
+            .send(CmdMessage::AddPeer {
+                name: name.to_owned(),
+                socket,
+            })
+            .unwrap();
+    }
+
+    pub fn ask_for_blender(&self, version: Version) {
+        self.tx.send(CmdMessage::AskForBlender { version }).unwrap();
     }
 
     // going to have to put a hold on this for now...

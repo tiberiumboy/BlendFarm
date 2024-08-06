@@ -3,13 +3,13 @@ use message_io::network::Endpoint;
 // TODO: I wonder if I should keep it strongly named like NodeStatus, or loosely named Status under node::Status respectively?
 #[derive(Debug, PartialEq, Eq, Hash, Default)]
 pub(crate) enum NodeStatus {
-    Disconnected,
+    // Disconnected,
     #[default]
     Idle,
-    Running,
-    Paused,
-    Completed,
-    Error(String),
+    // Running,
+    // Paused,
+    // Completed,
+    // Error(String),
 }
 
 // TODO: I'm worry about name ambiguous here

@@ -54,13 +54,8 @@ fn client() {
     // I need a server to continue to operate despite losing internet capability.
     // I could just make a "local" server where it just connects to the localhost.
 
-    // somewhere here, a thread was blocked?
-    // note: I was able to print from the end of server::new, but it does not let me invoke anything below.
-    let server = Server::new();
-    println!("{:?}", &server);
+    let server = Server::new(1500);
     let m_server = Mutex::new(server);
-
-    println!("created mutex");
 
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");
     let close = CustomMenuItem::new("close".to_string(), "Close");
@@ -70,7 +65,6 @@ fn client() {
         .add_item(CustomMenuItem::new("hide", "Hide"))
         .add_submenu(submenu);
 
-    println!("Building tauri");
     // why I can't dive into implementation details here?
     tauri::Builder::default()
         // https://docs.rs/tauri/1.6.8/tauri/struct.Builder.html#method.manage
@@ -121,14 +115,9 @@ pub struct Cli {
 
 fn main() -> Result<()> {
     let args = Cli::parse();
-    // get the machine configuration here, and cache the result for poll request
-    // we're making the assumption that the device card is available and ready when this app launches
-
     // TODO: It would be nice to include command line utility to let the user add blender installation from remotely.
-    // TOOD: If I build this application, how can I invoke commands directly? Do more search and test to see if there's a way for me to allow run this code if possible without having to separate the apps.
     // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.
 
-    // how do I provide the default value instead of just using the commands?
     if args.client {
         println!("Running as client");
         let _client = Client::new();

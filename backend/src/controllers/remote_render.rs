@@ -3,9 +3,8 @@ use crate::models::{
 };
 use blender::models::mode::Mode;
 use semver::Version;
-use std::{path::PathBuf, sync::Mutex};
-use tauri::{command, Manager};
-use tauri::{AppHandle, Error};
+use std::{net::SocketAddr, path::PathBuf, sync::Mutex};
+use tauri::{command, AppHandle, Error, Manager};
 
 // We'll use this to organize and collect render nodes information
 // pub struct Context {
@@ -16,30 +15,16 @@ use tauri::{AppHandle, Error};
 
 /// Create a node
 #[command]
-pub fn create_node(_app: AppHandle, name: &str, host: &str) -> Result<String, Error> {
+pub fn create_node(app: AppHandle, name: &str, host: &str) -> Result<String, Error> {
     // Got an invalid socket address syntax from this line?
-    let socket = host.parse().expect("Unable to parse socket address!");
-    let mut node = RenderNode::new(name, socket);
+    let socket: SocketAddr = host.parse().unwrap();
 
-    println!("created our node successfully! {:?}", &node);
-    // hmm would this become a problem?
-    let _ = node.listen();
+    let mutex = app.state::<Mutex<Server>>();
+    let server = mutex.lock().unwrap();
+    server.connect(name, socket);
 
-    println!("Successfully listened!");
-
-    // let data = serde_json::to_string(&node).unwrap();
-    // match node.connect() {
-    //     Ok(node) => {
-    // let node_mutex = app.state::<Mutex<Data>>();
-    // let mut col = node_mutex.lock().unwrap();
-    //         col.render_nodes.push(node);
+    println!("parsed socket successfully! {:?}", &socket);
     Ok("Node created successfully".to_string())
-    //     }
-    //     Err(e) => {
-    //         println!("Error: {}", e);
-    //         Err(Error::from(e))
-    //     }
-    // }
 }
 
 /// List out all available node for this blendfarm.
@@ -52,9 +37,12 @@ pub fn list_node(app: AppHandle) -> Result<String, Error> {
 }
 
 #[command]
-pub fn ping_node(_app: AppHandle) -> Result<String, Error> {
+pub fn ping_node(app: AppHandle) -> Result<String, Error> {
     // TODO: get the server and invoke ping signal.
     println!("Sending broadcast ping to the network!");
+    let mutex = app.state::<Mutex<Server>>();
+    let server = mutex.lock().unwrap();
+    server.ping();
     // throw error if something happen to the server -
     // on front end side - play a small spinning animation, and return green check if pinged, otherwise an red "X" will appear with error in the console log or hint dialog
     Ok("Ping sent!".to_string())

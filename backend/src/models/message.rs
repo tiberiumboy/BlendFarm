@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
-use super::{job::Job, render_info::RenderInfo, render_queue::RenderQueue};
+use super::job::Job;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 
 // this command is provide by the User to the server.
@@ -8,27 +9,32 @@ use serde::{Deserialize, Serialize};
 pub enum CmdMessage {
     AddPeer { name: String, socket: SocketAddr },
     SendJob(Job),
+    AskForBlender { version: Version },
     // SetJobStatus(Uuid, NodeStatus), // target specific job to apply status to.
-    Ping, // send a ping to the network
-    Exit, // stop the thread process
+    Render, // start the render process
+    Ping,   // send a ping to the network
+    Exit,   // stop the thread process
 }
 
 // I could make this as a trait?
 // that way I could have separate enum structs for different kind of message
 #[derive(Serialize, Deserialize, Debug)]
 pub enum NetMessage {
-    // From Client To Server
-    RegisterNode {
-        name: String,
-    },
-    UnregisterNode,
-
     // need to find a way to associate the completion of the job?
-    JobResult(RenderInfo), // return the result of the job]
+    // JobResult(RenderInfo), // return the result of the job]
+    // From Clietn to Client
+    CheckForBlender {
+        os: String,
+        arch: String,
+        version: Version,
+        caller: SocketAddr,
+    },
+    CanReceive(bool),
 
     // From Server to Client
     SendJob(Job),
-    RenderJob(RenderQueue),
+    // RenderJob(RenderQueue),
+    RequestJob,
 
     // From multicast
     Ping {

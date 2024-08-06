@@ -2,23 +2,23 @@
     Developer blog:
     - Do some research on concurrent http downloader for transferring project files and blender from one client to another.
 */
-use super::{message::CmdMessage, node::Node, server::MULTICAST_ADDR};
+use super::{job::Job, message::CmdMessage, node::Node, server::MULTICAST_ADDR};
 use crate::models::message::NetMessage;
-use dirs::public_dir;
+use blender::blender;
 use gethostname::gethostname;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, StoredNetEvent, StoredNodeEvent};
+use semver::Version;
+use std::thread::current;
 use std::{collections::HashSet, net::SocketAddr, sync::mpsc, thread, time::Duration};
 
-// const CHUNK_SIZE: usize = 65536;
+const INTERVAL_MS: u64 = 500;
 
 pub struct Client {
     tx: mpsc::Sender<CmdMessage>,
-    rx_recv: mpsc::Receiver<NetMessage>,
     // name: String,
     // public_addr: SocketAddr, // I'm    not sure what this one is used for?
     // let's focus on getting the client connected for now.
-    // file_transfer: Option<FileTransfer>,
     // Is there a way for me to hold struct objects while performing a transfer task?
     // ^Yes, box heap the struct! See example - https://github.com/sigmaSd/LanChat/blob/master/net/src/lib.rs
 }
@@ -60,11 +60,12 @@ impl Client {
         };
 
         let (tx, rx) = mpsc::channel();
-        let (tx_recv, rx_recv) = mpsc::channel();
+        // let (tx_recv, rx_recv) = mpsc::channel::<RequestMessage>();
 
         thread::spawn(move || {
             let mut peers: HashSet<Node> = HashSet::new();
             let mut server: Option<Endpoint> = None;
+            let mut current_job: Option<Job> = None;
 
             // this will help contain the job list I need info on.
             // Feature: would this be nice to load any previous known job list prior to running this client?
@@ -72,7 +73,7 @@ impl Client {
             // let mut jobs: HashSet<Job> = HashSet::new();
 
             loop {
-                std::thread::sleep(Duration::from_millis(100));
+                std::thread::sleep(Duration::from_millis(INTERVAL_MS));
                 if let Ok(msg) = rx.try_recv() {
                     match msg {
                         CmdMessage::AddPeer { name, socket } => {
@@ -95,14 +96,35 @@ impl Client {
                                 .network()
                                 .send(udp_conn.0, &Self::generate_ping(&public_addr).ser());
                         }
+                        CmdMessage::AskForBlender { version } => {
+                            if let Some(conn) = server {
+                                let msg = NetMessage::CheckForBlender {
+                                    os: std::env::consts::OS.to_owned(),
+                                    version,
+                                    arch: std::env::consts::ARCH.to_owned(),
+                                    caller: public_addr,
+                                };
+                                handler.network().send(conn, &msg.ser());
+                            }
+                        }
                         CmdMessage::Exit => {
                             // Terminated signal received!
                             // should we also close the receiver?
                             handler.stop();
                             break;
                         }
+                        CmdMessage::Render => {
+                            // Begin the render process!
+                            if let Some(job) = current_job {
+                                let mut manager = blender::Manager::load();
+                                // eventually I will need to find a way to change this so that I could use the network to ask other client for version of blender.
+                                // if no other client are available then download blender from the web.
+                                let blender = manager.get_blender(&job.version).unwrap();
+                            }
+                        }
                     }
                 }
+
                 if let Some(StoredNodeEvent::Network(event)) = receiver.try_receive() {
                     match event {
                         StoredNetEvent::Connected(endpoint, _) => {
@@ -119,7 +141,10 @@ impl Client {
                             else {
                                 println!("Connected via TCP channel! [{}]", endpoint.addr());
                                 server = Some(endpoint);
-                                // here we can established that the server has made connection?
+
+                                handler
+                                    .network()
+                                    .send(endpoint, &NetMessage::RequestJob.ser());
                                 // dbg!(handler.network().send(endpoint, ))
                             }
                         }
@@ -129,8 +154,6 @@ impl Client {
                             // self.server_endpoint = Some(endpoint);
                         }
                         StoredNetEvent::Message(endpoint, bytes) => {
-                            // why did this part failed?
-                            println!("Message received from [{}]!", endpoint);
                             let message = match NetMessage::de(&bytes) {
                                 Ok(msg) => msg,
                                 Err(e) => {
@@ -138,6 +161,12 @@ impl Client {
                                     continue;
                                 }
                             };
+
+                            println!(
+                                "Message received from [{}] \n{:?}!",
+                                endpoint.addr(),
+                                &message
+                            );
 
                             match message {
                                 // server to client
@@ -154,7 +183,7 @@ impl Client {
                                     );
 
                                     if server.is_some() {
-                                        println!("this node is already connected to the server! Ignoring!");
+                                        println!("This node is already connected to the server! Ignoring!");
                                         continue;
                                     }
 
@@ -167,17 +196,24 @@ impl Client {
                                         }
                                     }
                                 }
-                                NetMessage::SendJob(render_queue) => {
-                                    println!("Received a new render queue!\n{:?}", render_queue);
+                                NetMessage::Ping {
+                                    is_client: true, ..
+                                } => {
+                                    // ignore the ping signal from the client
+                                }
+                                NetMessage::SendJob(job) => {
+                                    println!("Received a new job!\n{:?}", job);
+                                    current_job = Some(job);
+                                    tx.send(CmdMessage::Render);
 
-                                    /*
-                                    // First let's check if we hvae the correct blender installation
+                                    // First let's check if we have the correct blender installation
                                     // then check and see if we have the files?
-                                    if !render_queue.project_file.file_path().exists() {
-                                        // here we will fetch the file path from the server
-                                        // but for now let's continue.
-                                        println!("Path does not exist!");
-                                    }
+                                    // if !.project_file.file_path().exists() {
+                                    //     // here we will fetch the file path from the server
+                                    //     // but for now let's continue.
+                                    //     println!("Path does not exist!");
+                                    // }
+                                    /*
 
                                     // run the blender() - this will take some time. Could implement async/thread?
                                     match render_queue.run(1) {
@@ -212,14 +248,49 @@ impl Client {
                                     }
                                     */
                                 }
+                                NetMessage::CheckForBlender {
+                                    os,
+                                    version,
+                                    arch,
+                                    caller,
+                                } if os == std::env::consts::OS
+                                    && arch == std::env::consts::ARCH =>
+                                {
+                                    println!("Received a blender check request from [{}]", caller);
 
+                                    // here we will check and see if we have blender installed
+                                    let manager = blender::Manager::load();
+                                    if manager
+                                        .get_blenders()
+                                        .iter()
+                                        .find(|b| b.get_version().eq(&version))
+                                        .is_some()
+                                    {
+                                        // send a reply back!
+                                        match handler
+                                            .network()
+                                            .connect(Transport::FramedTcp, caller)
+                                        {
+                                            Ok((endpoint, _)) => {
+                                                handler.network().send(
+                                                    endpoint,
+                                                    &NetMessage::CanReceive(true).ser(),
+                                                );
+                                            }
+                                            Err(e) => {
+                                                println!("Error connecting to the client! \n{}", e);
+                                            }
+                                        }
+                                    }
+                                    // let have_blender = check_blender(&os, &version, &arch);
+                                    // self.contain_blender_response(endpoint, have_blender);
+                                }
                                 // client to client
                                 _ => {
                                     println!(
                                         "Unhandled client message case condition for {:?}",
                                         message
                                     );
-                                    tx_recv.send(message).unwrap();
                                 }
                             };
                         }
@@ -228,7 +299,6 @@ impl Client {
                             // Disconnected was call when server was shut down
                             println!("Lost connection to host! [{}]", endpoint.addr());
                             server = None;
-                            // self.server_endpoint = None;
                             // in the case of this node disconnecting, I would like to auto renew the connection if possible.
                         }
                     }
@@ -238,11 +308,9 @@ impl Client {
 
         Self {
             tx,
-            rx_recv,
+            // rx_recv,
             // name: gethostname().into_string().unwrap(),
-            // server_endpoint: None,
             // public_addr,
-            // file_transfer: None,
         }
     }
 
@@ -252,40 +320,13 @@ impl Client {
         self.tx.send(CmdMessage::Ping).unwrap();
     }
 
-    pub fn poll_recv_msg(&self) -> Option<NetMessage> {
-        self.rx_recv.try_recv().ok()
+    pub fn ask_for_blender(&self, version: Version) {
+        self.tx.send(CmdMessage::AskForBlender { version }).unwrap();
     }
 
     // same here...Why am I'm unsure of everything in my life?
     // Let's not worry about this for now...
     /*
-    fn handle_sending_chunk(&mut self) {
-        let transfer = match self.file_transfer.as_mut() {
-            Some(transfer) => transfer,
-            None => return,
-        };
-        match transfer.transfer(&self.handler) {
-            Some(size) => {
-                println!("Sending {} bytes of data!", size);
-            }
-            None => {
-                println!("File transfer completed!");
-                // this means that we have completed our transfer!
-                self.file_transfer = None;
-            }
-        }
-    }
-
-
-    /// Send to all client asking for blender versions
-    pub fn ask_for_blender(&self, version: Version) {
-        if let Some(endpoint) = self.server_endpoint {
-            let os = std::env::consts::OS.to_owned();
-            let arch = std::env::consts::ARCH.to_owned();
-            let msg = NetMessage::CheckForBlender { os, version, arch };
-            self.tx.network().send(&msg.ser());
-        }
-    }
 
     fn contain_blender_response(&self, endpoint: Endpoint, have_blender: bool) {
         if !have_blender {
@@ -314,7 +355,6 @@ impl Client {
 // TODO: I do need to implement a Drop method to handle threaded task. Making sure they're close is critical!
 impl Drop for Client {
     fn drop(&mut self) {
-        // TODO: Research how to stop thread::spawn?
         self.tx.send(CmdMessage::Exit).unwrap();
     }
 }

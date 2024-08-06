@@ -21,6 +21,11 @@ export default function NodeWindow() {
     invoke("ping_node");
   }
 
+  function addNode() {
+    // try to add the node, then refresh the list
+    invoke("add_node").then(() => listNodes());
+  }
+
   function nodeWindow() {
     return (
       <div>
@@ -28,6 +33,8 @@ export default function NodeWindow() {
         <h2>Computer Nodes</h2>
         {/* TODO: change this button to send out a ping instead. */}
         <button onClick={pingNode}>Ping</button>
+        {/* TODO: Bring up a dialog to prompt the user the IP and port to connect to */}
+        {/* <button onClick={addNode}>Connect</button> */}
         <div className="group" id="RenderNodes">
           {nodes.map(
             (node: RenderNodeProps, index: Number) => (
