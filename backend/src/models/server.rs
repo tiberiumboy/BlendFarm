@@ -5,7 +5,7 @@ use crate::models::{job::Job, message::NetMessage, node::Node};
 use anyhow::Result;
 use blender::models::mode::Mode;
 use local_ip_address::local_ip;
-use message_io::network::Transport;
+use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
 use semver::Version;
 use std::net::{IpAddr, Ipv4Addr};
@@ -73,7 +73,7 @@ impl Server {
         let (tx_recv, rx_recv) = mpsc::channel();
 
         thread::spawn(move || {
-            let mut peers: HashSet<Node> = HashSet::new();
+            let mut peers: HashSet<Endpoint> = HashSet::new();
             let current_job: Option<Job> = None;
 
             loop {
@@ -85,7 +85,7 @@ impl Server {
                             let info = &NetMessage::SendJob(job);
                             // send to all connected clients on udp channel
                             for peer in peers.iter() {
-                                handler.network().send(peer.endpoint, &info.ser());
+                                handler.network().send(*peer, &info.ser());
                             }
                         }
                         CmdMessage::AddPeer { name, socket } => {
@@ -93,7 +93,7 @@ impl Server {
                             match handler.network().connect(Transport::FramedTcp, socket) {
                                 Ok((peer, _)) => {
                                     println!("Connected to peer `{}` [{}]", name, peer.addr());
-                                    peers.insert(Node::new(peer));
+                                    peers.insert(peer);
                                 }
                                 Err(e) => {
                                     println!("Error connecting to peer! {}", e);
@@ -115,7 +115,7 @@ impl Server {
                                 caller: public_addr,
                             };
                             for peer in peers.iter() {
-                                handler.network().send(peer.endpoint, &info.ser());
+                                handler.network().send(*peer, &info.ser());
                             }
                         }
                         CmdMessage::Exit => {
@@ -147,9 +147,8 @@ impl Server {
                                 // this I can omit, but how do I make this code better?
                                 NetMessage::CheckForBlender { caller, .. } => {
                                     // omit the caller from the list of peers
-                                    for peer in peers.iter().filter(|p| p.endpoint.addr() != caller)
-                                    {
-                                        handler.network().send(peer.endpoint, &msg.ser());
+                                    for peer in peers.iter().filter(|p| p.addr() != caller) {
+                                        handler.network().send(*peer, &msg.ser());
                                     }
                                 }
                                 NetMessage::Ping { server_addr: None } => {
@@ -203,20 +202,16 @@ impl Server {
                         // wonder what I can do with resource id?
                         StoredNetEvent::Accepted(endpoint, _) => {
                             println!("Server accepts connection: [{}]", endpoint);
-                            let node = Node::new(endpoint);
-                            peers.insert(node);
+                            peers.insert(endpoint);
                             tx_recv
-                                .send(NetResponse::ClientJoined {
+                                .send(NetResponse::Joined {
                                     socket: endpoint.addr(),
                                 })
                                 .unwrap();
                         }
                         StoredNetEvent::Disconnected(endpoint) => {
                             println!("Disconnected event receieved! [{}]", endpoint.addr());
-                            // I believe there's a reason why I cannot use endpoint.addr()
-                            // Instead, I need to match endpoint to endpoint from node struct instead
-                            let target = Node::new(endpoint);
-                            if peers.remove(&target) {
+                            if peers.remove(&endpoint) {
                                 println!("[{}] has disconnected", endpoint.addr());
                             }
                         }
@@ -233,8 +228,8 @@ impl Server {
         }
     }
 
-    pub fn send_job(&self, job: Job) -> Result<(), SendError<CmdMessage>> {
-        self.tx.send(CmdMessage::SendJob(job))
+    pub fn send_job(&self, job: Job) {
+        self.tx.send(CmdMessage::SendJob(job)).unwrap();
     }
 
     pub fn test_send_job_to_target_node(&self) {
@@ -246,10 +241,7 @@ impl Server {
         let job = Job::new(project_file, server_config.render_dir, version, mode);
 
         // begin api invocation test
-        match self.send_job(job) {
-            Ok(_) => println!("Job sent successfully!"),
-            Err(e) => println!("Error sending job! {:?}", e),
-        }
+        self.send_job(job);
     }
 
     pub fn ping(&self) {

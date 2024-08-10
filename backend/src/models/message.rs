@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 // this command is provide by the User to the server.
 // this interface acts as API - where we want to send command to the server node, and start taking actions.
-#[derive(Debug)]
 pub enum CmdMessage {
     AddPeer { name: String, socket: SocketAddr },
     SendJob(Job),
@@ -18,10 +17,10 @@ pub enum CmdMessage {
 
 #[derive(Debug)]
 pub enum NetResponse {
-    ClientJoined { socket: SocketAddr },
-    ClientLeft { socket: SocketAddr },
+    Joined { socket: SocketAddr },
+    Left { socket: SocketAddr },
     ClientInfo { socket: SocketAddr, name: String }, // TODO: provide more context and list here once we get this working
-    ClientStatus { socket: SocketAddr, status: String },
+    Status { socket: SocketAddr, status: String },
 }
 
 // I could make this as a trait?
