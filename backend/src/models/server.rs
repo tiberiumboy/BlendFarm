@@ -29,7 +29,7 @@ const INTERVAL_MS: u64 = 500;
 // Issue: Cannot derive debug because NodeTask doesn't derive Debug! Omit NodeTask if you need to Debug!
 pub struct Server {
     tx: mpsc::Sender<CmdMessage>,
-    pub rx_recv: mpsc::Receiver<NetResponse>,
+    pub rx_recv: Option<mpsc::Receiver<NetResponse>>,
     // public_addr: SocketAddr,
     _task: NodeTask,
 }
@@ -222,14 +222,16 @@ impl Server {
 
         Self {
             tx,
-            rx_recv,
+            rx_recv: Some(rx_recv),
             // public_addr,
             _task,
         }
     }
 
     pub fn send_job(&self, job: Job) {
-        self.tx.send(CmdMessage::SendJob(job)).unwrap();
+        if let Err(e) = self.tx.send(CmdMessage::SendJob(job)) {
+            println!("Issue sending job request to server! {e}");
+        }
     }
 
     pub fn test_send_job_to_target_node(&self) {
@@ -239,7 +241,6 @@ impl Server {
         let mode = Mode::Animation { start: 0, end: 2 };
         let server_config = ServerSetting::load();
         let job = Job::new(project_file, server_config.render_dir, version, mode);
-
         // begin api invocation test
         self.send_job(job);
     }

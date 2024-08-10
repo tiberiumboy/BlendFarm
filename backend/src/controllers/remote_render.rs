@@ -1,10 +1,51 @@
 use crate::models::{
-    data::Data, job::Job, project_file::ProjectFile, render_node::RenderNode, server::Server,
+    data::Data, job::Job, message::NetResponse, project_file::ProjectFile, render_node::RenderNode,
+    server::Server,
 };
 use blender::models::mode::Mode;
 use semver::Version;
 use std::{net::SocketAddr, path::PathBuf, sync::Mutex};
 use tauri::{command, AppHandle, Error, Manager};
+
+// so problem here - I need to find a way to initialize a listener for any status update changes from the network node.
+// Call it watcher?
+
+struct NetworkWatcher {
+    thread: std::thread::JoinHandle<()>,
+}
+
+impl NetworkWatcher {
+    fn new(server: &Server) -> Self {
+        let rx = server.rx_recv.take().unwrap();
+        let thread = std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            match rx.recv() {
+                Ok(response) => {
+                    match response {
+                        NetResponse::Joined { socket } => {
+                            println!("A peer joined! {}", socket);
+                        }
+                        NetResponse::Disconnected { socket } => {
+                            println!("A peer disconnected! {}", socket);
+                        }
+                        NetResponse::Info { socket, name } => {
+                            println!("Received info from peer [{socket}]: {:?}", name);
+                        }
+                        NetResponse::Status { socket, status } => {
+                            println!("Received status from peer [{socket}]: {:?}", status);
+                        }
+                    };
+                }
+                Err(e) => {
+                    println!("Error receiving response from network: {:?}", e);
+                    continue;
+                }
+            };
+        });
+
+        Self { thread }
+    }
+}
 
 /// Create a node
 #[command]
@@ -115,7 +156,6 @@ pub fn create_job(
     let output: PathBuf = PathBuf::from(output);
     let version = Version::parse(version).unwrap();
     let job = Job::new(project_file, output, version, mode);
-    dbg!(&job);
 
     // wouldbe interesting to see this working actually...
     // fetch me the server, and push new job to the server.
@@ -123,8 +163,7 @@ pub fn create_job(
     // Find a way to create server manager context?
     let ctx = app.state::<Mutex<Server>>();
     let server = ctx.lock().unwrap();
-    let data = server.send_job(job).unwrap();
-    dbg!(data);
+    server.send_job(job);
 }
 
 /// Abort the job if it's running and delete the entry from the collection list.

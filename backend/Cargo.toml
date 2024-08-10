@@ -28,7 +28,6 @@ message-io = { version = "0.18", default-features = false, features = [
 bincode = "1.3.3"
 thiserror = "1.0.58"
 semver = "1.0.22"
-regex = "1.10.4"
 dirs = "5.0.1"
 anyhow = "1.0.86"
 uuid = { version = "*", features = ["serde"] }

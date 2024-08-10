@@ -18,8 +18,8 @@ pub enum CmdMessage {
 #[derive(Debug)]
 pub enum NetResponse {
     Joined { socket: SocketAddr },
-    Left { socket: SocketAddr },
-    ClientInfo { socket: SocketAddr, name: String }, // TODO: provide more context and list here once we get this working
+    Disconnected { socket: SocketAddr },
+    Info { socket: SocketAddr, name: String }, // TODO: provide more context and list here once we get this working
     Status { socket: SocketAddr, status: String },
 }
 
