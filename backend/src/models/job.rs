@@ -135,6 +135,7 @@ impl Job {
         ))
     }
 
+    #[allow(dead_code)]
     fn compare_and_increment(&mut self, max: i32) -> Option<i32> {
         if self.current_frame < max {
             self.current_frame += 1;
@@ -144,6 +145,7 @@ impl Job {
         }
     }
 
+    #[allow(dead_code)]
     pub fn next_frame(&mut self) -> Option<i32> {
         match self.mode {
             Mode::Frame(frame) => self.compare_and_increment(frame),

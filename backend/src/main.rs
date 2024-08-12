@@ -30,11 +30,15 @@ use crate::controllers::settings::{
     remove_blender_installation,
 };
 use crate::models::{data::Data, server::Server};
-use clap::{command, Parser};
+use clap::Parser;
+use cli::Cli;
 use models::client::Client;
+use models::message::NetResponse;
+use std::thread;
 use std::{env, io::Result, sync::Mutex};
 use tauri::{generate_handler, CustomMenuItem, Menu, MenuItem, Submenu};
 
+pub mod cli;
 pub mod controllers;
 pub mod models;
 pub mod services;
@@ -49,11 +53,31 @@ fn client() {
     // "Do not communicate with shared memory"\
     let ctx = Mutex::new(data);
 
-    // currently this breaks. Will have to wait for the server to get back on this one.
-    // I need a server to continue to operate despite losing internet capability.
-    // I could just make a "local" server where it just connects to the localhost.
+    let mut server = Server::new(1500);
 
-    let server = Server::new(1500);
+    let listen = server.rx_recv.take().unwrap();
+
+    // need to figure out how I can destroy this thread?
+    // unless I could just return this object with the thread attached? Send it up to main for responsibility
+    let _thread = thread::spawn(move || {
+        while let Ok(event) = listen.recv() {
+            match event {
+                NetResponse::Joined { socket } => {
+                    println!("Net Response: [{}] joined!", socket);
+                }
+                NetResponse::Disconnected { socket } => {
+                    println!("Net Response: [{}] disconnected!", socket);
+                }
+                NetResponse::Info { socket, name } => {
+                    println!("Net Response: [{}] - {}", socket, name);
+                }
+                NetResponse::Status { socket, status } => {
+                    println!("Net Response: [{}] - {}", socket, status);
+                }
+            }
+        }
+    });
+
     // so does this just becomes a loop problem then?
     // how do I receive the events?
     let m_server = Mutex::new(server);
@@ -99,19 +123,8 @@ fn client() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-#[derive(Parser)]
-#[command(name = "BlenderFarm")]
-#[command(version = "0.1.0")]
-#[command(
-    about = "BlenderFarm is a distributed rendering system that allows users to render blender files on multiple machines."
-)]
-#[command(propagate_version = true)]
-pub struct Cli {
-    #[arg(short, long)]
-    #[arg(help = "Run the application as a rendering node")]
-    client: bool,
+    // the idea here is that once the app goes out of scope, it is no longer up and running. I should then terminate the job.
+    // TODO - how do I keep the service alive? Is it possible to run the app as service mode? cli mode? Would be interesting.
 }
 
 fn main() -> Result<()> {
@@ -119,7 +132,7 @@ fn main() -> Result<()> {
     // TODO: It would be nice to include command line utility to let the user add blender installation from remotely.
     // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.
 
-    if args.client {
+    if args.is_client() {
         println!("Running as client");
         let _client = Client::new();
     } else {

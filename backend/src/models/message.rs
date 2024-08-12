@@ -16,6 +16,7 @@ pub enum CmdMessage {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum NetResponse {
     Joined { socket: SocketAddr },
     Disconnected { socket: SocketAddr },

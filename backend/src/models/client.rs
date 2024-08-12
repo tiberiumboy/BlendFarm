@@ -24,6 +24,7 @@ pub struct Client {
 }
 
 // I wonder if it's possible to combine server/client code together to form some kind of intristic networking solution?
+
 impl Client {
     pub fn new() -> Client {
         let (handler, listener) = node::split::<NetMessage>();
@@ -283,11 +284,13 @@ impl Client {
     }
 
     // TODO: find a way to set up invoking mechanism to auto ping out if we do not have any connection to the server
+    #[allow(dead_code)]
     pub fn ping(&self) {
         println!("Sending ping command from client");
         self.tx.send(CmdMessage::Ping).unwrap();
     }
 
+    #[allow(dead_code)]
     pub fn ask_for_blender(&self, version: Version) {
         self.tx.send(CmdMessage::AskForBlender { version }).unwrap();
     }

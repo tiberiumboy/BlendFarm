@@ -1,8 +1,7 @@
 use super::message::{CmdMessage, NetResponse};
 use super::project_file::ProjectFile;
 use super::server_setting::ServerSetting;
-use crate::models::{job::Job, message::NetMessage, node::Node};
-use anyhow::Result;
+use crate::models::{job::Job, message::NetMessage};
 use blender::models::mode::Mode;
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
@@ -10,7 +9,7 @@ use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
 use semver::Version;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, SendError};
+use std::sync::mpsc::{self};
 use std::{collections::HashSet, net::SocketAddr, thread, time::Duration};
 
 pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
@@ -212,6 +211,11 @@ impl Server {
                         StoredNetEvent::Disconnected(endpoint) => {
                             println!("Disconnected event receieved! [{}]", endpoint.addr());
                             if peers.remove(&endpoint) {
+                                tx_recv
+                                    .send(NetResponse::Disconnected {
+                                        socket: endpoint.addr(),
+                                    })
+                                    .unwrap();
                                 println!("[{}] has disconnected", endpoint.addr());
                             }
                         }
@@ -223,7 +227,6 @@ impl Server {
         Self {
             tx,
             rx_recv: Some(rx_recv),
-            // public_addr,
             _task,
         }
     }
@@ -245,6 +248,7 @@ impl Server {
         self.send_job(job);
     }
 
+    #[allow(dead_code)]
     pub fn ping(&self) {
         self.tx.send(CmdMessage::Ping).unwrap();
     }
@@ -258,6 +262,7 @@ impl Server {
             .unwrap();
     }
 
+    #[allow(dead_code)]
     pub fn ask_for_blender(&self, version: Version) {
         self.tx.send(CmdMessage::AskForBlender { version }).unwrap();
     }
