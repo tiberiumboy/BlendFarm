@@ -33,7 +33,7 @@ pub enum ManagerError {
     #[error("Unable to fetch blender! {source}")]
     Reqwest {
         #[from]
-        source: reqwest::Error,
+        source: ureq::Error,
     },
     //     // TODO: Find meaningful error message to represent from this struct class?
     #[error("IO Error: {source}")]

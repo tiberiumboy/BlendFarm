@@ -130,16 +130,16 @@ impl DownloadLink {
         let dir = destination.as_ref();
 
         // Download the file from the internet and save it to blender data folder
-        let body = match reqwest::blocking::get(self.url.as_str()) {
-            Ok(response) => match response.bytes() {
-                Ok(body) => body,
-                Err(e) => {
-                    return Err(ManagerError::FetchError(format!(
-                        "Error while fetching downloads: {}",
-                        e
-                    )))
-                }
-            },
+        let body = match ureq::get(&self.url.as_str()).call() {
+            Ok(response) => {
+                let len: usize = response
+                    .header("Content-Length")
+                    .unwrap()
+                    .parse()
+                    .unwrap_or(0);
+                let mut body: Vec<u8> = Vec::with_capacity(len);
+                response.into_reader().take(len).read_to_end(&body);
+            }
             Err(_) => {
                 return Err(ManagerError::DownloadNotFound {
                     arch: consts::ARCH.to_string(),

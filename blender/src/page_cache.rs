@@ -28,7 +28,7 @@ pub enum PageCacheError {
     #[error("Reqwest Error: {source}")]
     Reqwest {
         #[from]
-        source: reqwest::Error,
+        source: ureq::Error,
     },
 }
 
@@ -121,8 +121,8 @@ impl PageCache {
         tmp.push(Self::generate_file_name(url));
 
         // fetch the content from the url
-        let response = reqwest::blocking::get(url.to_string())?;
-        let content = response.text()?;
+        let response = ureq::get(&url.to_string()).call()?;
+        let content = response.into_string()?;
 
         // write the content to the file
         fs::write(&tmp, content)?;
