@@ -129,6 +129,8 @@ impl DownloadLink {
     ) -> Result<PathBuf, ManagerError> {
         let dir = destination.as_ref();
 
+        // TODO: figure out why I can't fetch the bytes from the url?
+        /*
         // Download the file from the internet and save it to blender data folder
         let body = match ureq::get(&self.url.as_str()).call() {
             Ok(response) => {
@@ -137,6 +139,7 @@ impl DownloadLink {
                     .unwrap()
                     .parse()
                     .unwrap_or(0);
+
                 let mut body: Vec<u8> = Vec::with_capacity(len);
                 response
                     .into_reader()
@@ -153,11 +156,14 @@ impl DownloadLink {
             }
         };
 
+        */
         let target = &dir.join(&self.name);
+        /*
 
         if let Err(e) = fs::write(target, &body) {
             return Err(e.into());
         }
+        */
         let extract_folder = self.name.replace(&self.ext, "");
 
         let executable_path = Self::extract_content(target, &extract_folder).unwrap();
