@@ -18,7 +18,6 @@ use url::Url;
 
 // I would like this to be a feature only crate. blender by itself should be lightweight and interface with the program directly.
 // could also implement serde as optionals?
-#[cfg(feature = "manager")]
 #[derive(Debug, Error)]
 pub enum ManagerError {
     #[error("Unsupported OS: {0}")]
@@ -53,6 +52,11 @@ pub enum ManagerError {
     PageCacheError {
         #[from]
         source: PageCacheError,
+    },
+    #[error("Blender error: {source}")]
+    BlenderError {
+        #[from]
+        source: crate::blender::BlenderError,
     },
 }
 
@@ -138,19 +142,6 @@ impl Manager {
         self.has_modified = true;
     }
 
-    /// Return extension matching to the current operating system (Only display Windows(zip), Linux(tar.xz), or macos(.dmg)).
-    pub fn get_extension() -> Result<String, ManagerError> {
-        // TODO: Find a better way to re-write this - I assume we could take advantage of the compiler tags to return string literal without switch statement like this?
-        let extension = match consts::OS {
-            "windows" => ".zip",
-            "macos" => ".dmg",
-            "linux" => ".tar.xz",
-            os => return Err(ManagerError::UnsupportedOS(os.to_string())),
-        };
-
-        Ok(extension.to_owned())
-    }
-
     /// fetch current architecture (Currently support x86_64 or aarch64 (apple silicon))
     fn get_valid_arch() -> Result<String, ManagerError> {
         match consts::ARCH {
@@ -162,7 +153,7 @@ impl Manager {
 
     /// Return the pattern matching to identify correct blender download link
     fn generate_blender_pattern_matching(version: &Version) -> Result<String, ManagerError> {
-        let extension = Self::get_extension()?;
+        let extension = Blender::get_extension()?;
         let arch = Self::get_valid_arch()?;
 
         // Regex rules - Find the url that matches version, computer os and arch, and the extension.
@@ -239,7 +230,7 @@ impl Manager {
                 let name = info["name"].to_string();
                 let path = info["url"].to_string();
                 let url = &url.join(&path).unwrap();
-                let ext = Self::get_extension().unwrap();
+                let ext = Blender::get_extension().unwrap();
                 println!("Download link generated!");
                 DownloadLink::new(name, ext, url.clone())
             }

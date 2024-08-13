@@ -47,13 +47,13 @@ impl DownloadLink {
     pub fn extract_content(
         download_path: impl AsRef<Path>,
         folder_name: &str,
-    ) -> Result<PathBuf, ManagerError> {
+    ) -> Result<PathBuf, io::Error> {
         use std::fs::File;
         use tar::Archive;
         use xz::read::XzDecoder;
 
         // Get file handler to download location
-        let file = File::open(&download_path).unwrap();
+        let file = File::open(&download_path)?;
 
         // decode compressed xz file
         let tar = XzDecoder::new(file);
@@ -65,7 +65,7 @@ impl DownloadLink {
         let destination = download_path.as_ref().parent().unwrap();
 
         // extract content to destination
-        archive.unpack(destination).unwrap();
+        archive.unpack(destination)?;
 
         // return extracted executable path
         Ok(destination.join(folder_name).join("blender"))
@@ -78,7 +78,7 @@ impl DownloadLink {
     pub fn extract_content(
         download_path: impl AsRef<Path>,
         folder_name: &str,
-    ) -> Result<PathBuf, ManagerError> {
+    ) -> Result<PathBuf, io::Error> {
         use dmg::Attach;
 
         let source = download_path.as_ref();
@@ -117,7 +117,7 @@ impl DownloadLink {
     pub fn extract_content(
         download_path: impl AsRef<Path>,
         folder_name: &str,
-    ) -> Result<PathBuf, ManagerError> {
+    ) -> Result<PathBuf, io::Error> {
         let output = download_path.parent().unwrap().join(folder_name);
         todo!("Need to impl. window version of file extraction here");
         Ok(output.join("/blender.exe"))
@@ -138,7 +138,11 @@ impl DownloadLink {
                     .parse()
                     .unwrap_or(0);
                 let mut body: Vec<u8> = Vec::with_capacity(len);
-                response.into_reader().take(len).read_to_end(&body);
+                response
+                    .into_reader()
+                    .take(len)
+                    .read_to_end(&mut body)
+                    .unwrap()
             }
             Err(_) => {
                 return Err(ManagerError::DownloadNotFound {

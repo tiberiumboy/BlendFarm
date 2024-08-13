@@ -18,18 +18,20 @@ private and public method are unorganized.
     - Consider reviewing them and see which method can be exposed publicly?
     - Find a way to make crate manager::Manager accessible via blender::Manager instead? This would make the code more clean and structured.
 */
+#[cfg(feature = "manager")]
 pub use crate::manager::{Manager, ManagerError};
-use crate::{
-    models::{
-        args::Args, blender_peek_response::BlenderPeekResponse,
-        blender_render_setting::BlenderRenderSetting, download_link::DownloadLink, status::Status,
-    },
-    page_cache::PageCacheError,
+#[cfg(feature = "manager")]
+use crate::{models::download_link::DownloadLink, page_cache::PageCacheError};
+
+use crate::models::{
+    args::Args, blender_peek_response::BlenderPeekResponse,
+    blender_render_setting::BlenderRenderSetting, status::Status,
 };
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
+    env::consts,
     fs,
     io::{self, BufRead, BufReader},
     path::{self, Path, PathBuf},
@@ -53,6 +55,7 @@ pub enum BlenderError {
     ExecutableNotFound(PathBuf),
     #[error("Unable to call blender!")]
     ExecutableInvalid,
+    #[cfg(feature = "manager")]
     #[error(transparent)]
     PageCache(#[from] PageCacheError),
     #[error("Unable to render! Error: {0}")]
@@ -63,11 +66,6 @@ pub enum BlenderError {
     Io {
         #[from]
         source: io::Error,
-    },
-    #[error("Blender Manager error: {source}")]
-    ManagerError {
-        #[from]
-        source: ManagerError,
     },
     #[error("Serde Error: {source}")]
     Serde {
@@ -146,12 +144,16 @@ impl Blender {
         &self.version
     }
 
-    /// Return the extension expected to run on this operating system
+    /// Return extension matching to the current operating system (Only display Windows(zip), Linux(tar.xz), or macos(.dmg)).
     pub fn get_extension() -> Result<String, BlenderError> {
-        match Manager::get_extension() {
-            Ok(ext) => Ok(ext),
-            Err(e) => Err(BlenderError::ManagerError { source: e }),
-        }
+        let extension = match consts::OS {
+            "windows" => ".zip",
+            "macos" => ".dmg",
+            "linux" => ".tar.xz",
+            os => return Err(BlenderError::UnsupportedOS(os.to_string())),
+        };
+
+        Ok(extension.to_owned())
     }
 
     /// Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
@@ -200,11 +202,12 @@ impl Blender {
         }
     }
 
+    #[cfg(feature = "manager")]
     /// Create a blender struct from compressed content of the files
     pub fn from_content(path: impl AsRef<Path>, folder_name: &str) -> Result<Self, BlenderError> {
         let path = match DownloadLink::extract_content(&path, folder_name) {
             Ok(path) => path,
-            Err(e) => return Err(BlenderError::ManagerError { source: e }),
+            Err(e) => return Err(BlenderError::Io { source: e }),
         };
         Blender::from_executable(path)
     }
@@ -345,4 +348,12 @@ impl Blender {
         });
         tx
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn should_render() {}
 }

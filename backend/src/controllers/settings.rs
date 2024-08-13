@@ -1,6 +1,7 @@
 // this is the settings controller section that will handle input from the setting page.
 use crate::models::server_setting::ServerSetting;
-use blender::blender::{Blender, Manager};
+use blender::blender::Blender;
+use blender::blender::Manager;
 use std::path::PathBuf;
 use tauri::{command, Error};
 
