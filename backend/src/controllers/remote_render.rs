@@ -37,10 +37,9 @@ pub fn ping_node(app: AppHandle) -> Result<String, Error> {
     // I should try here?
     let mutex = app.state::<Mutex<Server>>();
     let server = mutex.lock().unwrap();
-    server.test_send_job_to_target_node();
-    // server.ping();
-    // throw error if something happen to the server -
-    // on front end side - play a small spinning animation, and return green check if pinged, otherwise an red "X" will appear with error in the console log or hint dialog
+    // server.test_send_job_to_target_node();
+
+    server.ping();
     Ok("Ping sent!".to_string())
 }
 
@@ -116,10 +115,7 @@ pub fn create_job(
     let version = Version::parse(version).unwrap();
     let job = Job::new(project_file, output, version, mode);
 
-    // wouldbe interesting to see this working actually...
-    // fetch me the server, and push new job to the server.
-    // I need to create a manager to hold the state here.
-    // Find a way to create server manager context?
+    // TODO: Find a way to send the job to the clients and render the job.
     let ctx = app.state::<Mutex<Server>>();
     let server = ctx.lock().unwrap();
     server.send_job(job);

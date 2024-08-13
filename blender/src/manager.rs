@@ -16,6 +16,9 @@ use std::{env::consts, fs, io, path::PathBuf, time::SystemTime};
 use thiserror::Error;
 use url::Url;
 
+// I would like this to be a feature only crate. blender by itself should be lightweight and interface with the program directly.
+// could also implement serde as optionals?
+#[cfg(feature = "manager")]
 #[derive(Debug, Error)]
 pub enum ManagerError {
     #[error("Unsupported OS: {0}")]
@@ -53,6 +56,7 @@ pub enum ManagerError {
     },
 }
 
+#[cfg(feature = "manager")]
 // I wanted to keep this struct private only to this library crate?
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Manager {
@@ -64,6 +68,7 @@ pub struct Manager {
     has_modified: bool,
 }
 
+#[cfg(feature = "manager")]
 impl Default for Manager {
     fn default() -> Self {
         let install_path = dirs::download_dir().unwrap().join("Blender");
@@ -76,6 +81,7 @@ impl Default for Manager {
     }
 }
 
+#[cfg(feature = "manager")]
 impl Manager {
     // this path should always be fixed and stored under machine specific.
     // this path should not be shared across machines.
@@ -264,6 +270,7 @@ impl Manager {
     }
 }
 
+#[cfg(feature = "manager")]
 impl Drop for Manager {
     fn drop(&mut self) {
         if self.has_modified || self.auto_save {

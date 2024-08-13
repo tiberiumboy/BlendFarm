@@ -16,3 +16,6 @@ xz = "0.1.0"
 thiserror = "1.0.29"
 uuid = { version = "1.10.0", features = ["serde", "v4"] }
 ureq = "2.10.1"
+
+[features]
+manager = []
