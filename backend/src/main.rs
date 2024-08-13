@@ -13,9 +13,13 @@
         verify all packet works as intended while I can run the code in parallel to see if there's any issue I need to work overhead.
         This might be another big project to work over the summer to understand how network works in Rust.
 
-[F] - Take a look into multiple producer single consumer - See how we can handle newly connected node or other node property into subscribable state to send to tauri front end.
-        It would be nice to dynamically see new node appended to the list as they become active on the network. Otherwise, we would have the user to manually type the ip address and
-        hopefully the node can connect to the host.
+[F] - Take a look into multiple producer single consumer (std::sync::mpsc):
+        See how we can handle newly connected node or other node property into subscribable
+        state to send notification to tauri front end.
+
+
+[F] - find a way to allow GUI interface to run as client mode for non cli users.
+
 */
 
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!

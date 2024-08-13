@@ -13,11 +13,46 @@ Developer blog:
 Decided to merge Manager codebase here as accessing from crate would make more sense, e.g. blender::Manager, instead of manager::Manager
 - Although, I would like to know if it's possible to do mod alias so that I could continue to keep my manager class separate? Or should I just rely on mods?
 
+Trial:
+- Try docker?
+- try loading .dll from blender? See if it's possible?
+
+Advantage:
+- can support M-series ARM processor.
+- Original tool Doesn't composite video for you - We can make ffmpeg wrapper?
+-
+Disadvantage:
+- Currently rely on python script to do custom render within blender.
+    No interops/additional cli commands other than interops through bpy (blender python) package
+    Currently using Command::Process to invoke commands to blender. Would like to see if there's public API or .dll to interface into.
+        - Currently learning Low Level Programming to understand assembly and C interfaces.
+
+
+WARN:
+    From LogicReinc FAQ's:
+        Q: Render fails due to Gdip
+        A: You're running Linux or Mac but did not install libgdiplus and libc6-dev,
+            install these and you should be good.
+
+        Q:Render fails on Linux
+        A:You may not have the required blender system dependencies. Easiest way to cover them all is to just run `apt-get install blender` to fetch them all.
+            (It does not have to be an up2date blender package, its just for dependencies)
+
 TODO:
 private and public method are unorganized.
     - Consider reviewing them and see which method can be exposed publicly?
     - Find a way to make crate manager::Manager accessible via blender::Manager instead? This would make the code more clean and structured.
-*/
+
+    Q: My Blendfile requires special addons to be active while rendering, can I add these?
+    A: Blendfarm has its own versions of Blender in the BlenderData directory, and it runs
+        these versions always in factory startup, thus without any added addons. This is done
+        on purpose to make sure the environment is not altered. Most addons don't have to be
+        active during rendering as they generate geometry etc. If you really need this, make
+        an issue and I see what I can do. However do realise that this may make the workflow
+        less smooth. (As you may need to set up these plugins for every Blender version instead
+        of just letting BlendFarm do all the work.
+
+    */
 #[cfg(feature = "manager")]
 pub use crate::manager::{Manager, ManagerError};
 #[cfg(feature = "manager")]
