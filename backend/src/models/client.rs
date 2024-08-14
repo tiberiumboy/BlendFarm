@@ -75,9 +75,10 @@ impl Client {
                         CmdMessage::Ping => {
                             // send a ping to the network
                             println!("Received a ping request!");
-                            handler
-                                .network()
-                                .send(udp_conn.0, &NetMessage::Ping { server_addr: None }.ser());
+                            handler.network().send(
+                                udp_conn.0,
+                                &NetMessage::Ping { server_addr: None }.serialize(),
+                            );
                         }
                         CmdMessage::AskForBlender { version } => {
                             if let Some(conn) = server {
@@ -87,7 +88,7 @@ impl Client {
                                     arch: std::env::consts::ARCH.to_owned(),
                                     caller: public_addr,
                                 };
-                                handler.network().send(conn, &msg.ser());
+                                handler.network().send(conn, &msg.serialize());
                             }
                         }
                         CmdMessage::Exit => {
@@ -117,7 +118,7 @@ impl Client {
                                 // we then send out a ping signal on udp channel
                                 handler.network().send(
                                     udp_conn.0,
-                                    &NetMessage::Ping { server_addr: None }.ser(),
+                                    &NetMessage::Ping { server_addr: None }.serialize(),
                                 );
                             }
                             // we connected via tcp channel!
@@ -128,7 +129,7 @@ impl Client {
                                 // sending job request
                                 handler
                                     .network()
-                                    .send(endpoint, &NetMessage::RequestJob.ser());
+                                    .send(endpoint, &NetMessage::RequestJob.serialize());
                                 // dbg!(handler.network().send(endpoint, ))
                             }
                         }
@@ -138,7 +139,7 @@ impl Client {
                             // self.server_endpoint = Some(endpoint);
                         }
                         StoredNetEvent::Message(endpoint, bytes) => {
-                            let message = match NetMessage::de(&bytes) {
+                            let message = match NetMessage::deserialize(&bytes) {
                                 Ok(msg) => msg,
                                 Err(e) => {
                                     println!("unable to deserialize net message! \n{}", e);
@@ -243,7 +244,7 @@ impl Client {
                                             Ok((endpoint, _)) => {
                                                 handler.network().send(
                                                     endpoint,
-                                                    &NetMessage::CanReceive(true).ser(),
+                                                    &NetMessage::CanReceive(true).serialize(),
                                                 );
                                             }
                                             Err(e) => {

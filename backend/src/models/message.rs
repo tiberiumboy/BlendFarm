@@ -52,11 +52,11 @@ pub enum NetMessage {
 }
 
 impl NetMessage {
-    pub fn ser(&self) -> Vec<u8> {
+    pub fn serialize(&self) -> Vec<u8> {
         bincode::serialize(self).unwrap()
     }
 
-    pub fn de(data: &[u8]) -> Result<Self, Box<bincode::ErrorKind>> {
+    pub fn deserialize(data: &[u8]) -> Result<Self, Box<bincode::ErrorKind>> {
         bincode::deserialize(&data)
     }
 }

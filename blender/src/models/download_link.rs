@@ -1,6 +1,5 @@
 use crate::manager::ManagerError;
 use serde::{Deserialize, Serialize};
-use std::env::consts;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 use thiserror::Error;

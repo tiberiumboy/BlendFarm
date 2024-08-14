@@ -1,14 +1,10 @@
 use super::message::{CmdMessage, NetResponse};
-use super::project_file::ProjectFile;
-use super::server_setting::ServerSetting;
 use crate::models::{job::Job, message::NetMessage};
-use blender::models::mode::Mode;
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
 use semver::Version;
 use std::net::{IpAddr, Ipv4Addr};
-use std::path::PathBuf;
 use std::sync::mpsc::{self};
 use std::{collections::HashSet, net::SocketAddr, thread, time::Duration};
 
@@ -16,20 +12,17 @@ pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
 const INTERVAL_MS: u64 = 500;
 
 /*
-    Let me design this real quick here - I need to setup a way so that once the server is running, it sends out a ping signal to notify any and all inactive client node on the network.
-    Once the node receives the signal, it should try to re-connect to the server over TCP channel instead of UDP channel.
-
     server:udp -> ping { server ip's address } -> client:udp
     // currently client node is able to receive the server ping, but unable to connect to the server!
     client:tcp -> connect ( server ip's address ) -> ??? Err?
 */
 
-// wish there was some ways to share Server and Client structs?
 // Issue: Cannot derive debug because NodeTask doesn't derive Debug! Omit NodeTask if you need to Debug!
+// TODO: provide documentation explaining what this function does.
+/// A server struct that holds the receiver transmission of Net Responses from other clients on the network, and a thread to process and run network packets in the background.
 pub struct Server {
     tx: mpsc::Sender<CmdMessage>,
     pub rx_recv: Option<mpsc::Receiver<NetResponse>>,
-    // public_addr: SocketAddr,
     _task: NodeTask,
 }
 
@@ -84,7 +77,7 @@ impl Server {
                             let info = &NetMessage::SendJob(job);
                             // send to all connected clients on udp channel
                             for peer in peers.iter() {
-                                handler.network().send(*peer, &info.ser());
+                                handler.network().send(*peer, &info.serialize());
                             }
                         }
                         CmdMessage::AddPeer { name, socket } => {
@@ -103,7 +96,7 @@ impl Server {
                             // send ping to all clients
                             handler
                                 .network()
-                                .send(udp_conn.0, &Self::generate_ping(&public_addr).ser());
+                                .send(udp_conn.0, &Self::generate_ping(&public_addr).serialize());
                         }
                         CmdMessage::AskForBlender { version } => {
                             // send out a request to all clients to check for blender version
@@ -114,7 +107,7 @@ impl Server {
                                 caller: public_addr,
                             };
                             for peer in peers.iter() {
-                                handler.network().send(*peer, &info.ser());
+                                handler.network().send(*peer, &info.serialize());
                             }
                         }
                         CmdMessage::Exit => {
@@ -130,7 +123,7 @@ impl Server {
                 if let Some(StoredNodeEvent::Network(event)) = receiver.try_receive() {
                     match event {
                         StoredNetEvent::Message(endpoint, bytes) => {
-                            let msg = match NetMessage::de(&bytes) {
+                            let msg = match NetMessage::deserialize(&bytes) {
                                 Ok(msg) => msg,
                                 Err(e) => {
                                     println!("Error deserializing net message data! \n{e}");
@@ -147,7 +140,7 @@ impl Server {
                                 NetMessage::CheckForBlender { caller, .. } => {
                                     // omit the caller from the list of peers
                                     for peer in peers.iter().filter(|p| p.addr() != caller) {
-                                        handler.network().send(*peer, &msg.ser());
+                                        handler.network().send(*peer, &msg.serialize());
                                     }
                                 }
                                 NetMessage::Ping { server_addr: None } => {
@@ -157,9 +150,10 @@ impl Server {
                                     );
 
                                     // maybe I should just send out a server ping signal instead?
-                                    handler
-                                        .network()
-                                        .send(udp_conn.0, &Self::generate_ping(&public_addr).ser());
+                                    handler.network().send(
+                                        udp_conn.0,
+                                        &Self::generate_ping(&public_addr).serialize(),
+                                    );
                                 }
                                 NetMessage::Ping {
                                     server_addr: Some(_),
@@ -176,7 +170,7 @@ impl Server {
                                         let job = job.clone();
                                         handler
                                             .network()
-                                            .send(endpoint, &NetMessage::SendJob(job).ser());
+                                            .send(endpoint, &NetMessage::SendJob(job).serialize());
                                     } else {
                                         println!("No job available to send!");
                                     }
@@ -191,14 +185,13 @@ impl Server {
                                 // could I send them back to connect?
                                 handler
                                     .network()
-                                    .send(endpoint, &Self::generate_ping(&public_addr).ser());
+                                    .send(endpoint, &Self::generate_ping(&public_addr).serialize());
                             }
                             // we connected via tcp channel!
                             else {
                                 println!("Connected via TCP channel! [{}]", endpoint.addr());
                             }
                         }
-                        // wonder what I can do with resource id?
                         StoredNetEvent::Accepted(endpoint, _) => {
                             println!("Server accepts connection: [{}]", endpoint);
                             peers.insert(endpoint);
@@ -237,18 +230,6 @@ impl Server {
         }
     }
 
-    pub fn test_send_job_to_target_node(&self) {
-        let blend_scene = PathBuf::from("./test.blend");
-        let project_file = ProjectFile::new(blend_scene);
-        let version = Version::new(4, 1, 0);
-        let mode = Mode::Animation { start: 0, end: 2 };
-        let server_config = ServerSetting::load();
-        let job = Job::new(project_file, server_config.render_dir, version, mode);
-        // begin api invocation test
-        self.send_job(job);
-    }
-
-    #[allow(dead_code)]
     pub fn ping(&self) {
         self.tx.send(CmdMessage::Ping).unwrap();
     }

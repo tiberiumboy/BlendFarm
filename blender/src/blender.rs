@@ -385,10 +385,16 @@ impl Blender {
     }
 }
 
+// TODO: impl unit test for blender specifically.
+/*
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
+    fn should_run() {}
+
+    #[test]
     fn should_render() {}
 }
+*/
