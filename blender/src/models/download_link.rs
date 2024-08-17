@@ -126,11 +126,10 @@ impl DownloadLink {
     pub fn download_and_extract(
         &self,
         destination: impl AsRef<Path>,
+        // TODO: Find out why the warning appears - It seems like I might be wrapping something huge inside error?
     ) -> Result<PathBuf, ManagerError> {
         let dir = destination.as_ref();
 
-        // TODO: figure out why I can't fetch the bytes from the url?
-        /*
         // Download the file from the internet and save it to blender data folder
         let body = match ureq::get(&self.url.as_str()).call() {
             Ok(response) => {
@@ -141,11 +140,10 @@ impl DownloadLink {
                     .unwrap_or(0);
 
                 let mut body: Vec<u8> = Vec::with_capacity(len);
-                response
-                    .into_reader()
-                    .take(len)
-                    .read_to_end(&mut body)
-                    .unwrap()
+                let mut heap = response.into_reader();
+                // TODO: Maybe this is the culprit?
+                let _size = heap.read_to_end(&mut body)?;
+                body
             }
             Err(_) => {
                 return Err(ManagerError::DownloadNotFound {
@@ -156,14 +154,12 @@ impl DownloadLink {
             }
         };
 
-        */
         let target = &dir.join(&self.name);
-        /*
 
         if let Err(e) = fs::write(target, &body) {
             return Err(e.into());
         }
-        */
+
         let extract_folder = self.name.replace(&self.ext, "");
 
         let executable_path = Self::extract_content(target, &extract_folder).unwrap();

@@ -48,11 +48,13 @@ pub enum ManagerError {
         #[from]
         source: url::ParseError,
     },
+    // TODO: may contain at least 272 bytes?
     #[error("Page cache error: {source}")]
     PageCacheError {
         #[from]
         source: PageCacheError,
     },
+    // TODO: may contain at least 272 bytes?
     #[error("Blender error: {source}")]
     BlenderError {
         #[from]
