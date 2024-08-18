@@ -1,7 +1,10 @@
 use crate::manager::ManagerError;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
-use std::{fs, io};
+use std::{
+    env::consts,
+    fs, io,
+    path::{Path, PathBuf},
+};
 use thiserror::Error;
 use url::Url;
 

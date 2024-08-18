@@ -86,6 +86,7 @@ fn client() {
     // how do I receive the events?
     let m_server = Mutex::new(server);
 
+    let client = CustomMenuItem::new("client_mode".to_string(), "Run as Client");
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");
     let close = CustomMenuItem::new("close".to_string(), "Close");
     let submenu = Submenu::new("File", Menu::new().add_item(quit).add_item(close));
@@ -96,6 +97,20 @@ fn client() {
 
     // why I can't dive into implementation details here?
     tauri::Builder::default()
+        .setup(|app| {
+            match app.get_cli_matches() {
+                // `matches` here is a Struct with { args, subcommand }.
+                // `args` is `HashMap<String, ArgData>` where `ArgData` is a struct with { value, occurrences }.
+                // `subcommand` is `Option<Box<SubcommandMatches>>` where `SubcommandMatches` is a struct with { name, matches }.
+                Ok(matches) => {
+                    dbg!(matches);
+                }
+                Err(e) => {
+                    dbg!(e);
+                }
+            }
+            Ok(())
+        })
         // https://docs.rs/tauri/1.6.8/tauri/struct.Builder.html#method.manage
         // It is indeed possible to have more than one manage - which I will be taking advantage over how I can share and mutate configuration data across this platform.
         .manage(ctx)
@@ -132,6 +147,7 @@ fn client() {
 }
 
 fn main() -> Result<()> {
+    // no longer need this... Tauri have cli built in.
     let args = Cli::parse();
     // TODO: It would be nice to include command line utility to let the user add blender installation from remotely.
     // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.

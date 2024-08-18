@@ -7,11 +7,12 @@ export interface ProjectFileProps {
   file_name: string;
   src: string;
   onDataChanged?: () => void;
-  onRequestNewJob: (project: ProjectFileProps) => void;
+  onRequestNewJob?: (project: ProjectFileProps) => void;
+
 }
 
 // todo: expose function controls here. props event handler?
-export default function (props: ProjectFileProps) {
+export default function ProjectFile(props: ProjectFileProps) {
   const getFileName = () => {
     return props.src?.split("/").pop()?.split("\\").pop();
   };
@@ -19,7 +20,7 @@ export default function (props: ProjectFileProps) {
   const deleteProject = () =>
     invoke("delete_project", { projectFile: props }).then(props.onDataChanged);
 
-  const createNewJob = () => props.onRequestNewJob(props);
+  const createNewJob = () => props.onRequestNewJob ? props.onRequestNewJob(props) : null;
 
   return (
     <div className="item" key={props.id}>

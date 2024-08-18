@@ -1,7 +1,7 @@
 import { open } from "@tauri-apps/api/dialog";
 import { invoke } from "@tauri-apps/api/tauri";
 import { listen, once } from "@tauri-apps/api/event";
-import { useEffect, useState } from "react";
+import { ChangeEvent, useEffect, useState } from "react";
 import RenderJob, { RenderJobProps } from "../components/render_job";
 import ProjectFile, { ProjectFileProps } from "../components/project_file";
 import RenderNode, { RenderNodeProps } from "../components/render_node";
@@ -91,14 +91,14 @@ export default function RemoteRender() {
 
   //#region Dialogs
   function showDialog() {
-    let dialog = document.getElementById("create_process");
-    // TODO: Find a better way to fix this?
-    dialog.showModal();
+    // Is there a way I could just reference this directly? Or just create a new component for this?
+    let dialog = document.getElementById("create_process") as HTMLDialogElement;
+    dialog?.showModal();
   }
 
   function closeDialog() {
-    let dialog = document.getElementById("create_process");
-    dialog.close();
+    let dialog = document.getElementById("create_process") as HTMLDialogElement;
+    dialog?.close();
   }
 
   function generateMode(mode: any, target: any) {
@@ -121,16 +121,17 @@ export default function RemoteRender() {
 
   const handleSubmitJobForm = (e: React.FormEvent) => {
     e.preventDefault(); // wonder if this does anything?
-    const selectedMode = e.target.modes.value;
+    // How do I structure this?
+    const info = e.target as HTMLFormElement;
+    const selectedMode = info.modes.value;
     let mode = generateMode(selectedMode, e.target);
     let data = {
-      output: e.target.output.value,
-      version: e.target.version.value,
+      output: info.output.value,
+      version: info.version.value,
       projectFile: selectedProject,
       mode,
     };
 
-    // so does this actually works?
     invoke("create_job", data).then(listJobs);
     closeDialog();
   }
@@ -215,6 +216,13 @@ export default function RemoteRender() {
     );
   }
 
+  function handleRenderModeChange(e: ChangeEvent<HTMLSelectElement>) {
+    const index = parseInt(e.target.value);
+    const mode = components[index]() as JSX.Element;
+    setMode(mode);
+  }
+
+  // This should really be a separate React component for handling custom HTMLDialogElement
   function jobCreationDialog() {
     /*
       Display this window with a list of available nodes to select from,
@@ -232,23 +240,21 @@ export default function RemoteRender() {
         <form method="dialog" onSubmit={handleSubmitJobForm}>
           <h1>Create new Render Job</h1>
           <label>Choose rendering mode</label>
-          <select
-            name="modes"
-            onChange={(e) => setMode(components[e.target.value]())}
-          >
+          <select name="modes" onChange={handleRenderModeChange} >
             {Object.entries(components).map((item) => (
               <option value={item[0]}>{item[0]}</option>
             ))}
           </select>
           <br />
-          Blender Version:
+          <label>Blender Version:</label>
+          {/* TODO: Find a way to fetch default blender version by user preference? */}
           <select name="version" value={"4.1.0"}>
             {versions.map((item) => (
               <option value={item}>{item}</option>
             ))}
           </select>
           {mode}
-          Output destination:
+          <label>Output destination:</label>
           <input
             type="text"
             placeholder="Output Path"

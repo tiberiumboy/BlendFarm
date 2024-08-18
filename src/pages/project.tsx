@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/tauri";
-import { ProjectFileProps } from "./project_file";
-import ProjectFile from "./project_file";
+import { ProjectFileProps } from "../components/project_file";
+import ProjectFile from "../components/project_file";
 import { useState, useEffect } from "react";
 
 export default function Project() {
+  // TODO: Find out how I can explicitly set the state to accept ProjectFileProps[] instead?
   const [collection, setCollection] = useState([]);
   // here we will hold the application context and inforamtion to make modification
   // this is where we will store our data state
@@ -33,16 +34,12 @@ export default function Project() {
   // Todo find a way to load previous project settings here!
   async function loadProjectList() {
     let message: string = await invoke("load_project_list");
-    let col: ProjectFileProps[] = JSON.parse(message);
+    let col: ProjectFileProps[] = JSON.parse(message) as ProjectFileProps[];
     setCollection(col);
     // from here we can setCollection()
   }
 
-  function handleProjectDelete(id: String) {
-    invoke("delete_project", { id }).then(loadProjectList);
-  }
-
-  function handleProjectEdit(file: ProjectFileProps) {}
+  function handleProjectEdit(file: ProjectFileProps) { }
 
   function drawProjectFileItem(file: ProjectFileProps) {
     return (
@@ -50,7 +47,7 @@ export default function Project() {
         key={file.id}
         id={file.id}
         src={file.src}
-        delete={handleProjectDelete}
+        onDataChanged={loadProjectList}
       />
     );
   }
