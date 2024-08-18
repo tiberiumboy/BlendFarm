@@ -9,6 +9,7 @@ lerna-debug.log*
 
 # Debugs
 *.mm_profdata
+rustc-ice-*.txt
 
 node_modules
 dist
