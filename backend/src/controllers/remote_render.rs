@@ -76,6 +76,11 @@ pub fn import_project(app: AppHandle, path: &str) {
     let file_path = PathBuf::from(path);
     let mut project_file = ProjectFile::new(file_path);
 
+    let ctx_server = app.state::<Mutex<Server>>();
+    let server = ctx_server.lock().unwrap();
+    server.send_file(&project_file.file_path());
+
+    // Hmm here we could do something here...
     let ctx_mutex = app.state::<Mutex<Data>>();
     let mut ctx = ctx_mutex.lock().unwrap();
     project_file.move_to_temp();

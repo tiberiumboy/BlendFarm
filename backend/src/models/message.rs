@@ -1,14 +1,23 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::PathBuf};
 
 use super::job::Job;
+use message_io::network::Endpoint;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+
+pub enum Destination {
+    #[allow(dead_code)]
+    // the idea behind this is that we want to let our client send blender version to another client that request it.
+    Target(Endpoint), // might be spaghetti code?
+    All,
+}
 
 // this command is provide by the User to the server.
 // this interface acts as API - where we want to send command to the server node, and start taking actions.
 pub enum CmdMessage {
     AddPeer { name: String, socket: SocketAddr },
     SendJob(Job),
+    SendFile(PathBuf, Destination),
     AskForBlender { version: Version },
     // SetJobStatus(Uuid, NodeStatus), // target specific job to apply status to.
     Ping, // send a ping to the network
@@ -41,7 +50,7 @@ pub enum NetMessage {
 
     // From Server to Client
     SendJob(Job),
-    // RenderJob(RenderQueue),
+    SendFile(String, Vec<u8>), // might be expensive?
     RequestJob,
 
     // From multicast

@@ -58,9 +58,11 @@ pub use crate::manager::{Manager, ManagerError};
 #[cfg(feature = "manager")]
 use crate::{models::download_link::DownloadLink, page_cache::PageCacheError};
 
+pub use crate::models::args::Args;
+
 use crate::models::{
-    args::Args, blender_peek_response::BlenderPeekResponse,
-    blender_render_setting::BlenderRenderSetting, status::Status,
+    blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderRenderSetting,
+    status::Status,
 };
 use regex::Regex;
 use semver::Version;

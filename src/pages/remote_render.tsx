@@ -13,7 +13,7 @@ interface RenderComposedPayload {
   src: string;
 }
 
-// hmmmm?
+// TODO: Figure out if this works or not, Need to re-read Tauri documentation again to understand event bridge between frontend and backend
 const unlisten = await once<RenderComposedPayload>("image_update", (event) => {
   console.log(event);
 });

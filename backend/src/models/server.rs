@@ -1,10 +1,18 @@
-use super::message::{CmdMessage, NetResponse};
+use super::message::{
+    CmdMessage,
+    Destination::{self, All, Target},
+    NetResponse,
+};
 use crate::models::{job::Job, message::NetMessage};
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
 use semver::Version;
+use std::fs::File;
+use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr};
+use std::os::unix::fs::MetadataExt;
+use std::path::PathBuf;
 use std::sync::mpsc::{self};
 use std::{collections::HashSet, net::SocketAddr, thread, time::Duration};
 
@@ -79,6 +87,29 @@ impl Server {
                             for peer in peers.iter() {
                                 handler.network().send(*peer, &info.serialize());
                             }
+                        }
+                        CmdMessage::SendFile(file_path, destination) => {
+                            // TODO: find a way to fetch the file name better?
+                            let mut file = File::open(&file_path).unwrap();
+                            let file_name = file_path.file_name().unwrap().to_str().unwrap();
+                            let size = file.metadata().unwrap().size() as usize;
+                            let mut data: Vec<u8> = Vec::with_capacity(size);
+                            let bytes = file.read_to_end(&mut data).unwrap();
+                            if bytes != size {
+                                println!("Warning! File might be corrupted! read size not the same as file size!");
+                            }
+                            let msg = NetMessage::SendFile(file_name.to_owned(), data).serialize();
+
+                            match destination {
+                                Target(target) => {
+                                    handler.network().send(target, &msg);
+                                }
+                                All => {
+                                    for peer in peers.iter() {
+                                        handler.network().send(*peer, &msg);
+                                    }
+                                }
+                            };
                         }
                         CmdMessage::AddPeer { name, socket } => {
                             // hmm wonder what this'll do?
@@ -182,10 +213,8 @@ impl Server {
                             // we connected via udp channel!
                             if endpoint == udp_conn.0 {
                                 println!("Connected via UDP channel! [{}]", endpoint.addr());
-                                // could I send them back to connect?
-                                handler
-                                    .network()
-                                    .send(endpoint, &Self::generate_ping(&public_addr).serialize());
+                                let msg = Self::generate_ping(&public_addr);
+                                handler.network().send(endpoint, &msg.serialize());
                             }
                             // we connected via tcp channel!
                             else {
@@ -227,6 +256,16 @@ impl Server {
     pub fn send_job(&self, job: Job) {
         if let Err(e) = self.tx.send(CmdMessage::SendJob(job)) {
             println!("Issue sending job request to server! {e}");
+        }
+    }
+
+    /// Send a file to all network nodes.
+    pub fn send_file(&self, file_path: &PathBuf) {
+        if let Err(e) = self
+            .tx
+            .send(CmdMessage::SendFile(file_path.clone(), Destination::All))
+        {
+            println!("Failed to send file request to server! {e}");
         }
     }
 

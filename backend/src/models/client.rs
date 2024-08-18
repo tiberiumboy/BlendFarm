@@ -1,15 +1,23 @@
+use super::server_setting;
 /*
     Developer blog:
     - Do some research on concurrent http downloader for transferring project files and blender from one client to another.
 */
-use super::{job::Job, message::CmdMessage, server::MULTICAST_ADDR};
+use super::{
+    job::Job,
+    message::{CmdMessage, Destination},
+    server::MULTICAST_ADDR,
+};
 use crate::models::message::NetMessage;
-use blender::blender;
+use blender::blender::{Args, Manager};
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, StoredNetEvent, StoredNodeEvent};
 use semver::Version;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr};
+use std::os::unix::fs::MetadataExt;
 use std::{net::SocketAddr, sync::mpsc, thread, time::Duration};
 
 const INTERVAL_MS: u64 = 500;
@@ -69,8 +77,35 @@ impl Client {
                         }
                         CmdMessage::SendJob(job) => {
                             // TODO: Find a way to set a new job here and begin forth?
-                            dbg!(job);
+                            // assume that we have the files already download and available, we should then run the job here?
                             // jobs.insert(job);
+                            let mut manager = Manager::load();
+                            let blender = manager.get_blender(&job.version).unwrap();
+                            let settings = server_setting::ServerSetting::load();
+                            let args = Args::new(
+                                job.project_file.file_path(),
+                                settings.render_dir,
+                                job.mode,
+                            );
+                            let _receiver = blender.render(args);
+                            // hmm.... what should I do here?
+                        }
+                        // function duplicated in server struct - may need to move this code block to a separate struct to handle network protocol between server/client
+                        CmdMessage::SendFile(file_path, Destination::Target(target)) => {
+                            // here the client is sending the file to either the server or client.
+                            let mut file = File::open(&file_path).unwrap();
+                            let file_name = file_path.file_name().unwrap().to_str().unwrap();
+                            let size = file.metadata().unwrap().size() as usize;
+                            let mut data: Vec<u8> = Vec::with_capacity(size);
+                            let bytes = file.read_to_end(&mut data).unwrap();
+                            if bytes != size {
+                                println!("Something wrong! buffer not the same size as file size!");
+                            }
+                            let msg = NetMessage::SendFile(file_name.to_owned(), data).serialize();
+                            handler.network().send(target, &msg);
+                        }
+                        CmdMessage::SendFile(_, Destination::All) => {
+                            println!("Unable to send files to all, can only send to server!");
                         }
                         CmdMessage::Ping => {
                             // send a ping to the network
@@ -147,11 +182,7 @@ impl Client {
                                 }
                             };
 
-                            println!(
-                                "Message received from [{}] \n{:?}!",
-                                endpoint.addr(),
-                                &message
-                            );
+                            println!("Message received from [{}]!", endpoint.addr());
 
                             match message {
                                 // server to client
@@ -230,7 +261,7 @@ impl Client {
                                     println!("Received a blender check request from [{}]", caller);
 
                                     // here we will check and see if we have blender installed
-                                    let manager = blender::Manager::load();
+                                    let manager = Manager::load();
                                     if manager
                                         .get_blenders()
                                         .iter()
@@ -254,6 +285,14 @@ impl Client {
                                     }
                                     // let have_blender = check_blender(&os, &version, &arch);
                                     // self.contain_blender_response(endpoint, have_blender);
+                                }
+                                NetMessage::SendFile(file_name, data) => {
+                                    // create a directory to save the file to.
+                                    // we'll use the download directory because this is the intended directory to download files to.
+                                    // todo: find a way to delete the file after we're done with the job.
+                                    let output = dirs::download_dir().unwrap().join(file_name);
+                                    let mut file = File::create_new(output).unwrap();
+                                    file.write(&data).unwrap();
                                 }
                                 // client to client
                                 _ => {
