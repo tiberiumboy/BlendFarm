@@ -25,11 +25,8 @@ pub enum PageCacheError {
         #[from]
         source: std::io::Error,
     },
-    #[error("Reqwest Error: {source}")]
-    Reqwest {
-        #[from]
-        source: ureq::Error,
-    },
+    #[error("Request Error: {code} : {message}")]
+    Request { code: u8, message: String },
 }
 
 impl PageCache {
@@ -121,7 +118,16 @@ impl PageCache {
         tmp.push(Self::generate_file_name(url));
 
         // fetch the content from the url
-        let response = ureq::get(&url.to_string()).call()?;
+        let response = ureq::get(url.as_ref()).call();
+        let response = match response {
+            Ok(r) => r,
+            Err(e) => {
+                return Err(PageCacheError::Request {
+                    code: 0,
+                    message: e.to_string(),
+                });
+            }
+        };
         let content = response.into_string()?;
 
         // write the content to the file

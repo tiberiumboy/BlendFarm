@@ -33,7 +33,7 @@ pub enum ManagerError {
         url: String,
     },
     #[error("Unable to fetch blender! {source}")]
-    Reqwest {
+    Request {
         #[from]
         source: ureq::Error,
     },

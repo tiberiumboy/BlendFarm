@@ -1,8 +1,21 @@
+/*  DEV BLOG
+    Had a brainfart thinking about this file for a second. I would like to know if it's possible to gather scene information by running
+    python script on the blend file, and extract out whatever information necessary. ((plugins?Eevee/cycle?Cameras?Sample size?))
+        - Consider this as a feature for future implementation - but now I need to ask tester for valuable information to extract from blender.
+
+
+*/
+
 use serde::{Deserialize, Serialize};
-use std::{env, fs::remove_file, path::PathBuf, str::FromStr};
+use std::{
+    env,
+    fs::{self, remove_file},
+    path::PathBuf,
+    str::FromStr,
+};
 
 // TODO: this may ultimately get removed? We just need the pathbuf to the blender file specifically..
-#[derive(Debug, Serialize, Deserialize, Hash, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProjectFile {
     pub src: PathBuf,
     pub tmp: Option<PathBuf>,
@@ -20,18 +33,13 @@ impl ProjectFile {
         Self { src, tmp: None }
     }
 
-    // pub fn parse(src: &str) -> Result<ProjectFile, Error> {
-    //     let path = PathBuf::from(src);
-    //     Ok(ProjectFile::new(path))
-    // }
-
     pub(crate) fn move_to_temp(&mut self) {
         // TODO: Do not use temp_dir() - MacOS clear the temp directory after a restart! BAD!
         let mut dir = env::temp_dir();
         let file_name = self.src.file_name().unwrap();
         dir.push(file_name);
-        if let Ok(_) = std::fs::copy(&self.src, &dir) {
-            // self.tmp = Some(dir);
+        if fs::copy(&self.src, &dir).is_ok() {
+            self.tmp = Some(dir);
         }
     }
 
