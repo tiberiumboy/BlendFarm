@@ -14,7 +14,7 @@ use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, StoredNetEvent, StoredNodeEvent};
 use semver::Version;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr};
 use std::os::unix::fs::MetadataExt;
@@ -288,12 +288,47 @@ impl Client {
                                     // self.contain_blender_response(endpoint, have_blender);
                                 }
                                 NetMessage::SendFile(file_name, data) => {
-                                    // create a directory to save the file to.
-                                    // we'll use the download directory because this is the intended directory to download files to.
-                                    // todo: find a way to delete the file after we're done with the job.
+                                    // Problem - program crash if the file already exist -
+                                    // need to save the file in temp location first, then move into the directory when completed.
+                                    // if duplicated file exist - find the best mitigate plan? e.g. metadata comparison
+                                    let tmp = std::env::temp_dir().join(&file_name);
+
+                                    if tmp.exists() {
+                                        if let Err(e) = fs::remove_file(&tmp) {
+                                            println!("Unable to delete existing file in tmp?\n{tmp:?}\n{e}");
+                                        }
+                                    }
+
+                                    // this should be fine... I hope?
+                                    let mut file = File::create_new(&tmp).unwrap();
+                                    if let Err(e) = file.write_all(&data) {
+                                        println!("Fail to create new temp file! \n{e}");
+                                    }
+                                    // generaet download path.
                                     let output = dirs::download_dir().unwrap().join(file_name);
-                                    let mut file = File::create_new(output).unwrap();
-                                    file.write_all(&data).unwrap();
+
+                                    if output.exists() {
+                                        let src = fs::metadata(&tmp).unwrap();
+                                        let dst = fs::metadata(&output).unwrap();
+
+                                        // if tmp is newer than dst, replace - otherwise send notification to client/server stating we somehow have a file newer than the host?
+                                        // should we just delete the file there and replace it anyway?
+                                        if src.modified().unwrap() > dst.modified().unwrap() {
+                                            if let Err(e) = fs::remove_file(&output) {
+                                                println!("Problem removing file!\n{e}");
+                                            }
+                                            if let Err(e) = fs::rename(&tmp, &output) {
+                                                println!("Fail to move the file from temp to download location | src:{tmp:?} | dst: {output:?}\n{e}");
+                                            }
+                                        } else {
+                                            println!("Something wrong, we have a file that's newer than the host?");
+                                        }
+                                    }
+
+                                    // if the file doesn't exist then we can simply move it to output path.
+                                    if let Err(e) = fs::rename(&tmp, &output) {
+                                        println!("Fail to move the file from temp to download location: {tmp:?} | {output:?}\n{e}");
+                                    }
                                 }
                                 // client to client
                                 _ => {
