@@ -95,7 +95,6 @@ impl Job {
 
     // TODO: consider about how I can invoke this command from network protocol?
     /// Invoke blender to run the job
-    #[allow(dead_code)]
     pub fn run(&mut self, frame: i32) -> Result<RenderInfo> {
         // TODO: How can I split this up to run async task? E.g. Keep this task running while we still have frames left over.
         let args = Args::new(
@@ -135,7 +134,6 @@ impl Job {
         ))
     }
 
-    #[allow(dead_code)]
     fn compare_and_increment(&mut self, max: i32) -> Option<i32> {
         if self.current_frame < max {
             self.current_frame += 1;
@@ -145,7 +143,6 @@ impl Job {
         }
     }
 
-    #[allow(dead_code)]
     pub fn next_frame(&mut self) -> Option<i32> {
         match self.mode {
             Mode::Frame(frame) => self.compare_and_increment(frame),

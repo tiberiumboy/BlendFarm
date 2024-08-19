@@ -36,19 +36,16 @@ use crate::controllers::settings::{
 use crate::models::{data::Data, server::Server};
 use clap::Parser;
 use cli::Cli;
-use models::client::Client;
-use models::message::NetResponse;
-use std::thread;
-use std::{env, io::Result, sync::Mutex};
-use tauri::{generate_handler, CustomMenuItem, Menu, MenuItem, Submenu};
+use models::{client::Client, message::NetResponse};
+use std::{env, io::Result, sync::Mutex, thread};
+use tauri::{generate_handler, CustomMenuItem, Menu};
 
 pub mod cli;
 pub mod controllers;
 pub mod models;
 pub mod services;
 
-// when the app starts up, I would need to have access to onfigs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
-// I will have to create a manager struct -this is self managed by user action. e.g. new node, edit project files, delete jobs, etc.
+// when the app starts up, I would need to have access to configs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
 fn client() {
     let data = Data::default();
     // I would like to find a better way to update or append data to render_nodes,
@@ -61,8 +58,7 @@ fn client() {
 
     let listen = server.rx_recv.take().unwrap();
 
-    // need to figure out how I can destroy this thread?
-    // unless I could just return this object with the thread attached? Send it up to main for responsibility
+    // need to figure out how I can destroy this thread? Simple - Leave it in Main.rs, and as soon as the function goes out of scope, thread will be dropped.
     let _thread = thread::spawn(move || {
         while let Ok(event) = listen.recv() {
             match event {
@@ -88,16 +84,15 @@ fn client() {
 
     let client = CustomMenuItem::new("client_mode".to_string(), "Run as Client");
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");
-    let close = CustomMenuItem::new("close".to_string(), "Close");
-    let submenu = Submenu::new("File", Menu::new().add_item(quit).add_item(close));
-    let menu = Menu::new()
-        .add_native_item(MenuItem::Copy)
-        .add_item(CustomMenuItem::new("hide", "Hide"))
-        .add_submenu(submenu);
+    // let submenu = Submenu::new("File", Menu::new().add_item(quit).add_item(close));
+    let menu = Menu::new().add_item(quit).add_item(client);
 
     // why I can't dive into implementation details here?
     tauri::Builder::default()
         .setup(|app| {
+            //     // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.
+            //     // it would be nice to include version number in title bar of the app.
+            //     println!("{}", app.package_info().version);
             match app.get_cli_matches() {
                 // `matches` here is a Struct with { args, subcommand }.
                 // `args` is `HashMap<String, ArgData>` where `ArgData` is a struct with { value, occurrences }.
@@ -116,12 +111,15 @@ fn client() {
         .manage(ctx)
         .manage(m_server)
         .menu(menu)
-        // .setup(|app| {
-        //     // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.
-        //     // it would be nice to include version number in title bar of the app.
-        //     println!("{}", app.package_info().version);
-        //     Ok(())
-        // })
+        .on_menu_event(|event| match event.menu_item_id() {
+            "quit" => {
+                std::process::exit(0);
+            }
+            "client_mode" => {
+                println!("Run this program as client mode - How should the GUI change for this?");
+            }
+            _ => {}
+        })
         .invoke_handler(generate_handler![
             import_project,
             create_node,

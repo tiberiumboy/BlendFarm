@@ -6,9 +6,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 
 pub enum Destination {
-    #[allow(dead_code)]
-    // the idea behind this is that we want to let our client send blender version to another client that request it.
-    Target(Endpoint), // might be spaghetti code?
+    Target(Endpoint),
     All,
 }
 
@@ -25,7 +23,6 @@ pub enum CmdMessage {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub enum NetResponse {
     Joined { socket: SocketAddr },
     Disconnected { socket: SocketAddr },

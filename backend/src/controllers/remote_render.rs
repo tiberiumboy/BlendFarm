@@ -57,7 +57,7 @@ pub fn list_versions() -> Result<String, Error> {
 /// Edit target node and update config with the new configuration set for the target node
 #[command]
 pub fn edit_node(_app: AppHandle, _update_node: RenderNode) {
-    todo!();
+    todo!("Not yet implemented!");
 }
 
 /// Delete target node from the configuration
@@ -78,7 +78,7 @@ pub fn import_project(app: AppHandle, path: &str) {
 
     let ctx_server = app.state::<Mutex<Server>>();
     let server = ctx_server.lock().unwrap();
-    server.send_file(&project_file.file_path());
+    server.send_file(project_file.file_path());
 
     // Hmm here we could do something here...
     let ctx_mutex = app.state::<Mutex<Data>>();

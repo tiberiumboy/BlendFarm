@@ -8,12 +8,10 @@ use std::fs::File;
     TODO: Find a way to receive and send data across network
 */
 
-#[allow(dead_code)]
 pub struct LiveView {
     file: File,
 }
 
-#[allow(dead_code)]
 #[tauri::command]
 pub fn load_file(_app: tauri::AppHandle) {
     // load the project file

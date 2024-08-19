@@ -58,7 +58,6 @@ impl ProjectFile {
     }
 
     // I find this useful to return the path of the recent file location.
-    #[allow(dead_code)]
     pub(crate) fn file_path(&self) -> &PathBuf {
         self.tmp.as_ref().unwrap_or(&self.src)
     }

@@ -8,13 +8,18 @@ use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
 use semver::Version;
-use std::fs::File;
-use std::io::Read;
-use std::net::{IpAddr, Ipv4Addr};
-use std::os::unix::fs::MetadataExt;
-use std::path::PathBuf;
-use std::sync::mpsc::{self};
-use std::{collections::HashSet, net::SocketAddr, thread, time::Duration};
+use std::os::unix::fs::MetadataExt; // hmm I'm concern about this one? Why is this any different than regular fs::metadata?
+use std::{
+    collections::HashSet,
+    fs::File,
+    io::Read,
+    net::SocketAddr,
+    net::{IpAddr, Ipv4Addr},
+    path::PathBuf,
+    sync::mpsc::{self},
+    thread,
+    time::Duration,
+};
 
 pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
 const INTERVAL_MS: u64 = 500;
@@ -89,7 +94,6 @@ impl Server {
                             }
                         }
                         CmdMessage::SendFile(file_path, destination) => {
-                            // TODO: find a way to fetch the file name better?
                             let mut file = File::open(&file_path).unwrap();
                             let file_name = file_path.file_name().unwrap().to_str().unwrap();
                             let size = file.metadata().unwrap().size() as usize;
@@ -263,7 +267,7 @@ impl Server {
     pub fn send_file(&self, file_path: &PathBuf) {
         if let Err(e) = self
             .tx
-            .send(CmdMessage::SendFile(file_path.clone(), Destination::All))
+            .send(CmdMessage::SendFile(file_path.to_owned(), Destination::All))
         {
             println!("Failed to send file request to server! {e}");
         }
@@ -282,7 +286,6 @@ impl Server {
             .unwrap();
     }
 
-    #[allow(dead_code)]
     pub fn ask_for_blender(&self, version: Version) {
         self.tx.send(CmdMessage::AskForBlender { version }).unwrap();
     }

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 
-#[allow(dead_code)]
+// may no longer needed?
 pub struct Transfer {
     file: File,
     name: String,
@@ -14,7 +14,7 @@ pub struct Transfer {
     expected_size: usize,
 }
 
-#[allow(dead_code)]
+// may no longer needed?
 pub fn receive() {
     let (handler, listener) = node::split::<()>();
     let server = "0.0.0.0:15000";

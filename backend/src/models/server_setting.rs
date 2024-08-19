@@ -10,8 +10,6 @@ use std::{fs, path::PathBuf};
     which means I need to migrate some of these code over to the newly created crate
     and let blender crate handle the management of installing, finding version, and govern
     of all blender associated items.
-
-    TODO: Mitigate blender manager logic to blender.rs crate - We no longer need that anymore, instead make blender manager a separate configuration to store.
 */
 
 // path to config file name.

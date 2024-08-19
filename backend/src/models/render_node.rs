@@ -11,7 +11,7 @@ pub struct RenderNode {
     pub host: SocketAddr,
 }
 
-#[allow(dead_code)]
+// this code may be dead?
 impl RenderNode {
     pub fn new(name: &str, host: SocketAddr) -> Self {
         Self {

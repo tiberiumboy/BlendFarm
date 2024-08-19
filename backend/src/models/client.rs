@@ -24,9 +24,6 @@ const INTERVAL_MS: u64 = 500;
 
 pub struct Client {
     tx: mpsc::Sender<CmdMessage>,
-    // name: String,
-    // public_addr: SocketAddr, // I'm    not sure what this one is used for?
-    // let's focus on getting the client connected for now.
     // Is there a way for me to hold struct objects while performing a transfer task?
     // ^Yes, box heap the struct! See example - https://github.com/sigmaSd/LanChat/blob/master/net/src/lib.rs
 }
@@ -56,6 +53,7 @@ impl Client {
         };
 
         let (tx, rx) = mpsc::channel();
+        let tx_owned = tx.clone();
         // let (tx_recv, rx_recv) = mpsc::channel::<RequestMessage>();
 
         thread::spawn(move || {
@@ -76,9 +74,7 @@ impl Client {
                             // client should not have the ability to add peers.
                         }
                         CmdMessage::SendJob(job) => {
-                            // TODO: Find a way to set a new job here and begin forth?
                             // assume that we have the files already download and available, we should then run the job here?
-                            // jobs.insert(job);
                             let mut manager = Manager::load();
                             let blender = manager.get_blender(&job.version).unwrap();
                             let settings = server_setting::ServerSetting::load();
@@ -87,8 +83,9 @@ impl Client {
                                 settings.render_dir,
                                 job.mode,
                             );
+                            // eventually, I'd like to get to the point where I could render this?
+                            println!("Rendering!");
                             let _receiver = blender.render(args);
-                            // hmm.... what should I do here?
                         }
                         // function duplicated in server struct - may need to move this code block to a separate struct to handle network protocol between server/client
                         CmdMessage::SendFile(file_path, Destination::Target(target)) => {
@@ -190,7 +187,7 @@ impl Client {
                                 // this means that either the server send out a broadcast signal to identify lost node connections on the network
                                 NetMessage::Ping {
                                     server_addr: Some(socket),
-                                } if server == None => {
+                                } if server.is_none() => {
                                     match handler.network().connect(Transport::FramedTcp, socket) {
                                         Ok((endpoint, _)) => {
                                             server = Some(endpoint);
@@ -206,7 +203,11 @@ impl Client {
                                 }
                                 NetMessage::SendJob(job) => {
                                     println!("Received a new job!\n{:?}", job);
-                                    _current_job = Some(job);
+                                    let msg = CmdMessage::SendJob(job);
+                                    if let Err(e) = tx_owned.send(msg) {
+                                        println!("Fail to send job command internally!\n{e}");
+                                    }
+                                    // current_job = Some(job);
 
                                     // First let's check if we have the correct blender installation
                                     // then check and see if we have the files?
@@ -292,7 +293,7 @@ impl Client {
                                     // todo: find a way to delete the file after we're done with the job.
                                     let output = dirs::download_dir().unwrap().join(file_name);
                                     let mut file = File::create_new(output).unwrap();
-                                    file.write(&data).unwrap();
+                                    file.write_all(&data).unwrap();
                                 }
                                 // client to client
                                 _ => {
@@ -324,13 +325,11 @@ impl Client {
     }
 
     // TODO: find a way to set up invoking mechanism to auto ping out if we do not have any connection to the server
-    #[allow(dead_code)]
     pub fn ping(&self) {
         println!("Sending ping command from client");
         self.tx.send(CmdMessage::Ping).unwrap();
     }
 
-    #[allow(dead_code)]
     pub fn ask_for_blender(&self, version: Version) {
         self.tx.send(CmdMessage::AskForBlender { version }).unwrap();
     }

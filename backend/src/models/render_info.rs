@@ -8,7 +8,6 @@ pub struct RenderInfo {
 }
 
 impl RenderInfo {
-    #[allow(dead_code)]
     pub fn new(frame: i32, path: &PathBuf) -> Self {
         Self {
             frame,
