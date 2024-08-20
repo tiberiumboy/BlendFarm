@@ -3,63 +3,52 @@
     python script on the blend file, and extract out whatever information necessary. ((plugins?Eevee/cycle?Cameras?Sample size?))
         - Consider this as a feature for future implementation - but now I need to ask tester for valuable information to extract from blender.
 
-
+    I'm running into issue where sending this project file over to other network node server - doesn't recognize the source of the project file anymore.
+    To fix this - I will need to extract the file name, and then send this information over.
+    I will need to ask the server configuration to load user desire path for blender file location.
 */
 
 use serde::{Deserialize, Serialize};
-use std::{
-    env,
-    fs::{self, remove_file},
-    path::PathBuf,
-    str::FromStr,
-};
+use std::{ffi::OsStr, io, path::PathBuf, str::FromStr};
+
+use super::server_setting::ServerSetting;
 
 // TODO: this may ultimately get removed? We just need the pathbuf to the blender file specifically..
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProjectFile {
-    pub src: PathBuf,
-    pub tmp: Option<PathBuf>,
+    file_name: OsStr,
 }
 
 impl PartialEq for ProjectFile {
     fn eq(&self, other: &Self) -> bool {
-        *self.src == *other.src
+        self.file_name == other.file_name
     }
 }
 
 impl ProjectFile {
-    pub fn new(src: PathBuf) -> Self {
-        // in the path, I need to remove .blend from the path.
-        Self { src, tmp: None }
-    }
+    pub fn new(src: PathBuf) -> Result<Self, io::Error> {
+        // Here - we need to do two things-
+        // one, we need to make a copy of this file, and put it in the blender working directory
+        // then save the blender file name instead of the full path to the source.
+        if let Some(file_name) = src.file_name() {
+            let server = ServerSetting::load();
+            let mut dst = server.blend_dir;
+            dst.push(&src.file_name().unwrap());
 
-    pub(crate) fn move_to_temp(&mut self) {
-        // TODO: Do not use temp_dir() - MacOS clear the temp directory after a restart! BAD!
-        let mut dir = env::temp_dir();
-        let file_name = self.src.file_name().unwrap();
-        dir.push(file_name);
-        if fs::copy(&self.src, &dir).is_ok() {
-            self.tmp = Some(dir);
-        }
-    }
+            std::fs::copy(src, dst);
 
-    /// Retrieve the file name from source path
-    // pub fn get_file_name(&self) -> String {
-    //     self.src.file_stem().unwrap().to_str().unwrap().to_owned()
-    // }
-
-    pub(crate) fn clear_temp(&mut self) {
-        if let Some(tmp) = &self.tmp {
-            match remove_file(tmp) {
-                Ok(_) => self.tmp = None,
-                Err(e) => eprintln!("Error: {}", e),
-            }
+            return Self { file_name };
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "source is not a file type!",
+            ))
         }
     }
 
     // I find this useful to return the path of the recent file location.
     pub(crate) fn file_path(&self) -> &PathBuf {
-        self.tmp.as_ref().unwrap_or(&self.src)
+        &self.src
     }
 }
 

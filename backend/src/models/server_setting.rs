@@ -16,12 +16,14 @@ use std::{fs, path::PathBuf};
 const SETTINGS_PATH: &str = "BlendFarm/";
 const SETTINGS_FILE_NAME: &str = "ServerSettings.json";
 const RENDER_DIR: &str = "RenderData/";
+const BLEND_DIR: &str = "BlendFiles/";
 
 /// Server settings information that the user can load and configure for this program to operate.
 /// It will save the list of blender installation on the machine to avoid duplicate download and installation.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerSetting {
     pub render_dir: PathBuf,
+    pub blend_dir: PathBuf,
 }
 
 impl Default for ServerSetting {
@@ -32,12 +34,18 @@ impl Default for ServerSetting {
         // in case the host machine went abruptly. (Maybe a feature?)
         let mut render_data = std::env::temp_dir();
         render_data.push(RENDER_DIR);
+
+        let mut blend_file = std::env::temp_dir();
+        blend_file.push(BLEND_DIR);
+
         // ensure path exists
         fs::create_dir_all(&render_data).unwrap();
+        fs::create_dir_all(&blend_file).unwrap();
 
         Self {
             // subject to change - original number came from c# version of BlendFarm
             render_dir: render_data,
+            blend_dir: blend_file,
         }
     }
 }

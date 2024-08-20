@@ -31,14 +31,8 @@ pub fn list_node(app: AppHandle) -> Result<String, Error> {
 
 #[command]
 pub fn ping_node(app: AppHandle) -> Result<String, Error> {
-    // TODO: get the server and invoke ping signal.
-    // println!("Sending broadcast ping to the network!");
-
-    // I should try here?
     let mutex = app.state::<Mutex<Server>>();
     let server = mutex.lock().unwrap();
-    // server.test_send_job_to_target_node();
-
     server.ping();
     Ok("Ping sent!".to_string())
 }
@@ -47,7 +41,7 @@ pub fn ping_node(app: AppHandle) -> Result<String, Error> {
 #[command]
 pub fn list_versions() -> Result<String, Error> {
     // let cache = PageCache::load();
-    // TODO: Find a way to load blender version here? See how Blendfarm does it?
+    // TODO: Find a way to load all existing blender version here? See how Blendfarm does it?
     let versions = vec![Version::new(3, 0, 1), Version::new(4, 1, 0)];
     // let contents = cache.fetch(url);
     let contents = serde_json::to_string(&versions).unwrap();
@@ -94,6 +88,7 @@ pub fn delete_project(app: AppHandle, project_file: ProjectFile) {
     let ctx = app.state::<Mutex<Data>>();
     let mut data = ctx.lock().unwrap();
     let mut project = data.get_project_file(&project_file).unwrap().to_owned();
+    // bet you there's something wrong with this guy here..
     project.clear_temp();
     data.project_files.retain(|x| x != &project_file);
 }

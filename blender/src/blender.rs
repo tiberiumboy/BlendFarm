@@ -13,6 +13,11 @@ Developer blog:
 Decided to merge Manager codebase here as accessing from crate would make more sense, e.g. blender::Manager, instead of manager::Manager
 - Although, I would like to know if it's possible to do mod alias so that I could continue to keep my manager class separate? Or should I just rely on mods?
 
+Currently, there is no error handling situation from blender side of things. If blender crash, we will resume the rest of the code in attempt to parse the data.
+    This will eventually lead to a program crash because we couldn't parse the information we expect from stdout.
+    Todo peek into stderr and see if
+
+
 Trial:
 - Try docker?
 - try loading .dll from blender? See if it's possible?
@@ -171,6 +176,7 @@ impl Blender {
     fn get_config_path() -> PathBuf {
         dirs::config_dir().unwrap().join("Blender")
     }
+
     /// fetch the blender executable path, used to pass into Command::process implementation
     pub fn get_executable(&self) -> &PathBuf {
         &self.executable
@@ -260,6 +266,8 @@ impl Blender {
     /// To do this, we must have a valid blender executable path, and run the peek.py code to fetch a json response.
     pub fn peek(&self, blend_file: impl AsRef<Path>) -> Result<BlenderPeekResponse, BlenderError> {
         let peek_path = Self::get_config_path().join("peek.py");
+
+        // if peek file does not exist - create one.
         if !peek_path.exists() {
             let bytes = include_bytes!("peek.py");
             fs::write(&peek_path, bytes).unwrap();
@@ -301,6 +309,7 @@ impl Blender {
         thread::spawn(move || {
             // So far this part of the code works - but I'm getting an unusual error
             // I'm rececing an exception on stdout. [Errno 32] broken pipe?
+            // thread panic here - err - Serde { source: Error("expected value", line: 1, column: 1) } ??
             let blend_info = &self.peek(&args.file).unwrap();
             let setting = BlenderRenderSetting::parse_from(&args, blend_info);
             let arr = vec![setting];

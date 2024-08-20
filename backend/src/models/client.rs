@@ -9,6 +9,7 @@ use super::{
     server::MULTICAST_ADDR,
 };
 use crate::models::message::NetMessage;
+use crate::models::server_setting::ServerSetting;
 use blender::blender::{Args, Manager};
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
@@ -299,36 +300,29 @@ impl Client {
                                         }
                                     }
 
-                                    // this should be fine... I hope?
                                     let mut file = File::create_new(&tmp).unwrap();
                                     if let Err(e) = file.write_all(&data) {
                                         println!("Fail to create new temp file! \n{e}");
                                     }
-                                    // generaet download path.
-                                    let output = dirs::download_dir().unwrap().join(file_name);
 
+                                    // generate destination path.
+                                    let server = ServerSetting::load();
+                                    let output = server.blend_dir.join(file_name);
                                     if output.exists() {
-                                        let src = fs::metadata(&tmp).unwrap();
-                                        let dst = fs::metadata(&output).unwrap();
-
-                                        // if tmp is newer than dst, replace - otherwise send notification to client/server stating we somehow have a file newer than the host?
-                                        // should we just delete the file there and replace it anyway?
-                                        if src.modified().unwrap() > dst.modified().unwrap() {
-                                            if let Err(e) = fs::remove_file(&output) {
-                                                println!("Problem removing file!\n{e}");
-                                            }
-                                            if let Err(e) = fs::rename(&tmp, &output) {
-                                                println!("Fail to move the file from temp to download location | src:{tmp:?} | dst: {output:?}\n{e}");
-                                            }
-                                        } else {
-                                            println!("Something wrong, we have a file that's newer than the host?");
+                                        if let Err(e) = fs::remove_file(&output) {
+                                            println!("Problem removing file!\n{e}");
                                         }
                                     }
 
                                     // if the file doesn't exist then we can simply move it to output path.
                                     if let Err(e) = fs::rename(&tmp, &output) {
-                                        println!("Fail to move the file from temp to download location: {tmp:?} | {output:?}\n{e}");
+                                        println!("Fail to move the file from temp [{tmp:?}] to destination [{output:?}]\n{e}");
                                     }
+
+                                    println!(
+                                        "Successfully received a file from {}",
+                                        endpoint.addr()
+                                    );
                                 }
                                 // client to client
                                 _ => {
