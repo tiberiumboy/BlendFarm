@@ -14,6 +14,7 @@ export default function NodeWindow() {
   }
 
   function listNodes() {
+    // TODO: I don't like this hacky string cast. It was a solution to make json work, but prefer to do this properly sanitized. Security instinct: Feels unwise to feed arbitruary malicious code injection to the json parser. 
     invoke("list_node").then((ctx: any) => setNodes(JSON.parse(ctx + "")));
   }
 

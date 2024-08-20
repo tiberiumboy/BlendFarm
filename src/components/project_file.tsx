@@ -3,8 +3,9 @@ import { MdOutlineMovie } from "react-icons/md";
 import { invoke } from "@tauri-apps/api/tauri";
 
 export interface ProjectFileProps {
+  // do I need this?
   id: string;
-  file_name: string;
+  // extract file name from src instead.
   src: string;
   onDataChanged?: () => void;
   onRequestNewJob?: (project: ProjectFileProps) => void;
