@@ -94,11 +94,13 @@ impl Job {
     }
 
     // TODO: consider about how I can invoke this command from network protocol?
-    /// Invoke blender to run the job
+    // Invoke blender to run the job
+    // Find out if I need to run this locally, or just rely on the server to perform the operation?
+    #[allow(dead_code)]
     pub fn run(&mut self, frame: i32) -> Result<RenderInfo> {
         // TODO: How can I split this up to run async task? E.g. Keep this task running while we still have frames left over.
         let args = Args::new(
-            self.project_file.src.clone(),
+            self.project_file.file_path(),
             self.output.clone(),
             Mode::Frame(frame),
         );
@@ -134,6 +136,8 @@ impl Job {
         ))
     }
 
+    // TOOD: These commented out function appears best to be implemented in a manager class of some sort.
+    /*
     fn compare_and_increment(&mut self, max: i32) -> Option<i32> {
         if self.current_frame < max {
             self.current_frame += 1;
@@ -150,6 +154,7 @@ impl Job {
             _ => None,
         }
     }
+    */
 }
 
 impl PartialEq for Job {

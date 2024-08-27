@@ -31,7 +31,7 @@ use crate::controllers::remote_render::{
 };
 use crate::controllers::settings::{
     add_blender_installation, get_server_settings, list_blender_installation,
-    remove_blender_installation,
+    remove_blender_installation, set_server_settings,
 };
 use crate::models::{data::Data, server::Server};
 use clap::Parser;
@@ -58,7 +58,7 @@ fn client() {
 
     let listen = server.rx_recv.take().unwrap();
 
-    // need to figure out how I can destroy this thread? Simple - Leave it in Main.rs, and as soon as the function goes out of scope, thread will be dropped.
+    // As soon as the function goes out of scope, thread will be drop.
     let _thread = thread::spawn(move || {
         while let Ok(event) = listen.recv() {
             match event {
@@ -74,11 +74,14 @@ fn client() {
                 NetResponse::Status { socket, status } => {
                     println!("Net Response: [{}] - {}", socket, status);
                 }
+                NetResponse::PeerList { addrs } => {
+                    // TODO: Send a notification to front end containing peer data information
+                    println!("Received peer list! {:?}", addrs);
+                }
             }
         }
     });
 
-    // so does this just becomes a loop problem then?
     // how do I receive the events?
     let m_server = Mutex::new(server);
 
@@ -90,13 +93,15 @@ fn client() {
     // why I can't dive into implementation details here?
     tauri::Builder::default()
         .setup(|app| {
-            //     // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.
-            //     // it would be nice to include version number in title bar of the app.
-            //     println!("{}", app.package_info().version);
+            // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.
+            // it would be nice to include version number in title bar of the app.
+            println!("{}", app.package_info().version);
             match app.get_cli_matches() {
                 // `matches` here is a Struct with { args, subcommand }.
-                // `args` is `HashMap<String, ArgData>` where `ArgData` is a struct with { value, occurrences }.
-                // `subcommand` is `Option<Box<SubcommandMatches>>` where `SubcommandMatches` is a struct with { name, matches }.
+                // `args` is `HashMap<String, ArgData>` where `ArgData`
+                // is a struct with { value, occurrences }.
+                // `subcommand` is `Option<Box<SubcommandMatches>>`
+                // where `SubcommandMatches` is a struct with { name, matches }.
                 Ok(matches) => {
                     dbg!(matches);
                 }
@@ -117,6 +122,8 @@ fn client() {
             }
             "client_mode" => {
                 println!("Run this program as client mode - How should the GUI change for this?");
+                // Hide the application to traybar - until the user decided to restart as a server.
+                let _client = Client::new();
             }
             _ => {}
         })
@@ -133,6 +140,7 @@ fn client() {
             list_job,
             list_versions,
             get_server_settings,
+            set_server_settings,
             ping_node,
             add_blender_installation,
             list_blender_installation,

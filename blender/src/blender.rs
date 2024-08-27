@@ -310,6 +310,7 @@ impl Blender {
             // So far this part of the code works - but I'm getting an unusual error
             // I'm rececing an exception on stdout. [Errno 32] broken pipe?
             // thread panic here - err - Serde { source: Error("expected value", line: 1, column: 1) } ??
+            // why are we having issue trying to peek into this?
             let blend_info = &self.peek(&args.file).unwrap();
             let setting = BlenderRenderSetting::parse_from(&args, blend_info);
             let arr = vec![setting];

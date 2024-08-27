@@ -1,9 +1,13 @@
 use crate::models::{
-    data::Data, job::Job, project_file::ProjectFile, render_node::RenderNode, server::Server,
+    data::Data,
+    job::Job,
+    project_file::{self, ProjectFile},
+    render_node::RenderNode,
+    server::Server,
 };
 use blender::models::mode::Mode;
 use semver::Version;
-use std::{net::SocketAddr, path::PathBuf, sync::Mutex};
+use std::{fs, net::SocketAddr, path::PathBuf, sync::Mutex};
 use tauri::{command, AppHandle, Error, Manager};
 
 /// Create a node
@@ -22,11 +26,13 @@ pub fn create_node(app: AppHandle, name: &str, host: &str) -> Result<String, Err
 
 /// List out all available node for this blendfarm.
 #[command]
-pub fn list_node(app: AppHandle) -> Result<String, Error> {
-    let node_mutex = app.state::<Mutex<Data>>();
-    let col = node_mutex.lock().unwrap();
-    let data = serde_json::to_string(&col.render_nodes).unwrap();
-    Ok(data)
+pub fn list_node(app: AppHandle) /*-> Result<String, Error> */
+{
+    let node_mutex = app.state::<Mutex<Server>>();
+    let server = node_mutex.lock().unwrap();
+    server.get_peer_list(); // hmm might be a problem here?
+                            // let data = serde_json::to_string(&col.render_nodes).unwrap();
+                            // Ok(data)
 }
 
 #[command]
@@ -56,11 +62,12 @@ pub fn edit_node(_app: AppHandle, _update_node: RenderNode) {
 
 /// Delete target node from the configuration
 #[command]
-pub fn delete_node(app: AppHandle, target_node: RenderNode) -> Result<(), Error> {
+pub fn delete_node(_app: AppHandle, target_node: String) -> Result<(), Error> {
+    dbg!(target_node);
     // delete node from list and refresh the app?
-    let node_mutex = &app.state::<Mutex<Data>>();
-    let mut node = node_mutex.lock().unwrap();
-    node.render_nodes.retain(|x| x != &target_node);
+    // let node_mutex = &app.state::<Mutex<Data>>();
+    // let mut node = node_mutex.lock().unwrap();
+    // node.render_nodes.retain(|x| x != &target_node);
     Ok(())
 }
 
@@ -68,37 +75,27 @@ pub fn delete_node(app: AppHandle, target_node: RenderNode) -> Result<(), Error>
 #[command]
 pub fn import_project(app: AppHandle, path: &str) {
     let file_path = PathBuf::from(path);
-    let mut project_file = ProjectFile::new(file_path);
+    let project_file = ProjectFile::new(file_path).unwrap();
 
     let ctx_server = app.state::<Mutex<Server>>();
     let server = ctx_server.lock().unwrap();
-    server.send_file(project_file.file_path());
-
-    // Hmm here we could do something here...
-    let ctx_mutex = app.state::<Mutex<Data>>();
-    let mut ctx = ctx_mutex.lock().unwrap();
-    project_file.move_to_temp();
-    ctx.project_files.push(project_file);
+    server.send_file(&project_file.file_path());
 }
 
 /// Delete target project file from the collection. Note - this does not mean delete the original source file, it simply remove the project entry from the list
 #[command]
-pub fn delete_project(app: AppHandle, project_file: ProjectFile) {
-    // retain the project from the collection.
-    let ctx = app.state::<Mutex<Data>>();
-    let mut data = ctx.lock().unwrap();
-    let mut project = data.get_project_file(&project_file).unwrap().to_owned();
-    // bet you there's something wrong with this guy here..
-    project.clear_temp();
-    data.project_files.retain(|x| x != &project_file);
+pub fn delete_project(project_file: ProjectFile) -> Result<(), String> {
+    if let Err(e) = fs::remove_file(project_file.file_path()) {
+        println!("Error deleting project file from local system: {e}");
+        return Err(format!("Unable to delete file!\n{}", e));
+    };
+    Ok(())
 }
 
 #[command]
-pub fn list_projects(app: AppHandle) -> Result<String, Error> {
-    // is it possible just to retrieve the state object directly instead of interfacing through apphandle?
-    let ctx_mutex = app.state::<Mutex<Data>>();
-    let ctx = ctx_mutex.lock().unwrap();
-    let data = serde_json::to_string(&ctx.project_files).unwrap();
+pub fn list_projects() -> Result<String, Error> {
+    let project_files = project_file::get_project_collections();
+    let data = serde_json::to_string(&project_files).unwrap();
     Ok(data)
 }
 

@@ -13,6 +13,7 @@ pub struct RenderNode {
 
 // this code may be dead?
 impl RenderNode {
+    #[allow(dead_code)]
     pub fn new(name: &str, host: SocketAddr) -> Self {
         Self {
             name: name.to_string(),

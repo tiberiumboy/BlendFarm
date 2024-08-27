@@ -126,10 +126,19 @@ impl Manager {
         data
     }
 
+    // Save the configuration to local
     fn save(&self) -> Result<(), ManagerError> {
         let data = serde_json::to_string(&self).unwrap();
         let path = Self::get_config_path();
         fs::write(path, data).or_else(|e| Err(ManagerError::Io { source: e }))
+    }
+
+    /// Allow user to set path for blender download and installation
+    pub fn set_install_path(&mut self, new_path: &PathBuf) {
+        // we should consider the design behind this.
+        // I would like to transfer blender installation over to the new path if we can?
+        self.install_path = new_path.clone();
+        self.has_modified = true;
     }
 
     /// Add a new blender installation to the manager list.

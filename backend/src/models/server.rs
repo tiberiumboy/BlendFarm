@@ -7,7 +7,6 @@ use crate::models::{job::Job, message::NetMessage};
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
-use semver::Version;
 use std::os::unix::fs::MetadataExt; // hmm I'm concern about this one? Why is this any different than regular fs::metadata?
 use std::{
     collections::HashSet,
@@ -61,10 +60,12 @@ impl Server {
             .unwrap();
 
         // connect udp
-        let udp_conn = handler
-            .network()
-            .connect(Transport::Udp, MULTICAST_ADDR)
-            .unwrap();
+        let (udp_conn, _) = match handler.network().connect(Transport::Udp, MULTICAST_ADDR) {
+            Ok(data) => data,
+            Err(e) => {
+                panic!("{e}");
+            }
+        };
 
         // listen udp
         handler
@@ -131,7 +132,7 @@ impl Server {
                             // send ping to all clients
                             handler
                                 .network()
-                                .send(udp_conn.0, &Self::generate_ping(&public_addr).serialize());
+                                .send(udp_conn, &Self::generate_ping(&public_addr).serialize());
                         }
                         CmdMessage::AskForBlender { version } => {
                             // send out a request to all clients to check for blender version
@@ -150,6 +151,13 @@ impl Server {
                             println!("Terminate signal received!");
                             handler.stop();
                             break;
+                        }
+                        CmdMessage::GetPeers => {
+                            if let Err(e) = tx_recv.send(NetResponse::PeerList {
+                                addrs: peers.clone(),
+                            }) {
+                                println!("Fail to send notification back to subscribers\n{e}");
+                            }
                         }
                     }
                 }
@@ -186,15 +194,13 @@ impl Server {
 
                                     // maybe I should just send out a server ping signal instead?
                                     handler.network().send(
-                                        udp_conn.0,
+                                        udp_conn,
                                         &Self::generate_ping(&public_addr).serialize(),
                                     );
                                 }
                                 NetMessage::Ping {
                                     server_addr: Some(_),
-                                } => {
-                                    // do nothing for now
-                                }
+                                } => { /* Server should ignore other server ping */ }
                                 NetMessage::SendJob(job) => {
                                     println!("Received job from [{}]\n{:?}", endpoint.addr(), job);
                                     // current_job = Some(job);
@@ -215,7 +221,7 @@ impl Server {
                         }
                         StoredNetEvent::Connected(endpoint, _) => {
                             // we connected via udp channel!
-                            if endpoint == udp_conn.0 {
+                            if endpoint == udp_conn {
                                 println!("Connected via UDP channel! [{}]", endpoint.addr());
                                 let msg = Self::generate_ping(&public_addr);
                                 handler.network().send(endpoint, &msg.serialize());
@@ -265,9 +271,30 @@ impl Server {
 
     /// Send a file to all network nodes.
     pub fn send_file(&self, file_path: &PathBuf) {
+        if !file_path.is_file() {
+            println!("file path is not a file! Aborting operation!");
+            return;
+        }
+
         if let Err(e) = self
             .tx
             .send(CmdMessage::SendFile(file_path.to_owned(), Destination::All))
+        {
+            println!("Failed to send file request to server! {e}");
+        }
+    }
+
+    pub fn get_peer_list(&self) {
+        if let Err(e) = self.tx.send(CmdMessage::GetPeers) {
+            println!("Unable to send server command message!\n{e}");
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn send_file_to_target(&self, file_path: &PathBuf, target: Endpoint) {
+        if let Err(e) = self
+            .tx
+            .send(CmdMessage::SendFile(file_path.to_owned(), Target(target)))
         {
             println!("Failed to send file request to server! {e}");
         }
@@ -284,10 +311,6 @@ impl Server {
                 socket,
             })
             .unwrap();
-    }
-
-    pub fn ask_for_blender(&self, version: Version) {
-        self.tx.send(CmdMessage::AskForBlender { version }).unwrap();
     }
 
     // going to have to put a hold on this for now...

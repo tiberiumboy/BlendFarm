@@ -1,3 +1,4 @@
+/*
 use crate::models::common::SenderMsg;
 
 use message_io::network::{Endpoint, NetEvent, Transport};
@@ -81,3 +82,4 @@ pub fn receive() {
         }
     })
 }
+    */

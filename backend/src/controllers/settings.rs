@@ -1,7 +1,6 @@
 // this is the settings controller section that will handle input from the setting page.
 use crate::models::server_setting::ServerSetting;
-use blender::blender::Blender;
-use blender::blender::Manager;
+use blender::blender::{Blender, Manager};
 use std::path::PathBuf;
 use tauri::{command, Error};
 
@@ -26,6 +25,12 @@ pub fn get_server_settings() -> Result<String, Error> {
     let server_settings = ServerSetting::load();
     let data = serde_json::to_string(&server_settings).unwrap();
     Ok(data)
+}
+
+#[command]
+pub fn set_server_settings(new_settings: ServerSetting) -> Result<(), String> {
+    new_settings.save();
+    Ok(())
 }
 
 /// Add a new blender entry to the system, but validate it first!

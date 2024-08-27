@@ -22,7 +22,9 @@ const BLEND_DIR: &str = "BlendFiles/";
 /// It will save the list of blender installation on the machine to avoid duplicate download and installation.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerSetting {
+    /// Public directory to store all finished render image.
     pub render_dir: PathBuf,
+    /// Public directory of blender working copy of files.
     pub blend_dir: PathBuf,
 }
 
@@ -43,7 +45,6 @@ impl Default for ServerSetting {
         fs::create_dir_all(&blend_file).unwrap();
 
         Self {
-            // subject to change - original number came from c# version of BlendFarm
             render_dir: render_data,
             blend_dir: blend_file,
         }

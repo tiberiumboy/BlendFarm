@@ -8,11 +8,10 @@
   },
   "package": {
     "productName": "BlendFarm",
-    "version": "0.0.1"
+    "version": "0.1.0"
   },
   "tauri": {
     "cli": {
-      "description": "",
       "subcommands": {
         "client": {
           "args": []
@@ -49,6 +48,9 @@
     },
     "security": {
       "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost"
+    },
+    "updater": {
+      "active": false
     },
     "windows": [
       {

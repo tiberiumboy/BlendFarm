@@ -14,7 +14,6 @@ use blender::blender::{Args, Manager};
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, StoredNetEvent, StoredNodeEvent};
-use semver::Version;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr};
@@ -48,7 +47,7 @@ impl Client {
         }
 
         // connect udp
-        let udp_conn = match handler.network().connect(Transport::Udp, MULTICAST_ADDR) {
+        let (udp_conn, _) = match handler.network().connect(Transport::Udp, MULTICAST_ADDR) {
             Ok(conn) => conn,
             Err(e) => panic!("Somethiing terrible happen! {e:?}"),
         };
@@ -87,6 +86,29 @@ impl Client {
                             // eventually, I'd like to get to the point where I could render this?
                             println!("Rendering!");
                             let _receiver = blender.render(args);
+                            while let Ok(status) = _receiver.recv() {
+                                match status {
+                                    blender::models::status::Status::Idle => {
+                                        println!("Blender[IDL]")
+                                    }
+                                    blender::models::status::Status::Running { status } => {
+                                        println!("Blender[MSG]: {status}")
+                                    }
+                                    blender::models::status::Status::Log { status } => {
+                                        println!("Blender[LOG]: {status}");
+                                    }
+                                    blender::models::status::Status::Warning { message } => {
+                                        println!("Blender[WAR]: {message}");
+                                    }
+                                    blender::models::status::Status::Error(e) => {
+                                        println!("Blender[ERR]: {e}");
+                                    }
+                                    blender::models::status::Status::Completed { result } => {
+                                        println!("Render completed! {:?}", result);
+                                        break;
+                                    }
+                                }
+                            }
                         }
                         // function duplicated in server struct - may need to move this code block to a separate struct to handle network protocol between server/client
                         CmdMessage::SendFile(file_path, Destination::Target(target)) => {
@@ -109,7 +131,7 @@ impl Client {
                             // send a ping to the network
                             println!("Received a ping request!");
                             handler.network().send(
-                                udp_conn.0,
+                                udp_conn,
                                 &NetMessage::Ping { server_addr: None }.serialize(),
                             );
                         }
@@ -129,15 +151,10 @@ impl Client {
                             // should we also close the receiver?
                             handler.stop();
                             break;
-                        } // CmdMessage::Render => {
-                          //     // Begin the render process!
-                          //     if let Some(ref job) = current_job {
-                          //         let mut manager = blender::Manager::load();
-                          //         // eventually I will need to find a way to change this so that I could use the network to ask other client for version of blender.
-                          //         // if no other client are available then download blender from the web.
-                          //         // let blender = manager.get_blender(&job.version).unwrap();
-                          //     }
-                          // }
+                        }
+                        CmdMessage::GetPeers => {
+                            // do nothing, this command is reserve for the server only.
+                        }
                     }
                 }
 
@@ -145,12 +162,12 @@ impl Client {
                     match event {
                         StoredNetEvent::Connected(endpoint, _) => {
                             // we connected via udp channel!
-                            if endpoint == udp_conn.0 {
+                            if endpoint == udp_conn {
                                 println!("Connected via UDP channel! [{}]", endpoint.addr());
 
                                 // we then send out a ping signal on udp channel
                                 handler.network().send(
-                                    udp_conn.0,
+                                    udp_conn,
                                     &NetMessage::Ping { server_addr: None }.serialize(),
                                 );
                             }
@@ -354,19 +371,21 @@ impl Client {
     }
 
     // TODO: find a way to set up invoking mechanism to auto ping out if we do not have any connection to the server
+    /// Manually invoke the ping code (I.e. internet restore, Network restarted, interrupted, etc)
+    #[allow(dead_code)]
     pub fn ping(&self) {
         println!("Sending ping command from client");
         self.tx.send(CmdMessage::Ping).unwrap();
     }
 
-    pub fn ask_for_blender(&self, version: Version) {
-        self.tx.send(CmdMessage::AskForBlender { version }).unwrap();
-    }
+    // Call to the server and ask other node on the network if anyone have identical hardware machine that we can obtain blender from
+    // If some time pass - we will begin downloading blender from the internet. Fail-safe
+    // pub fn ask_for_blender(&self, version: Version) {
+    //     self.tx.send(CmdMessage::AskForBlender { version }).unwrap();
+    // }
 
-    // same here...Why am I'm unsure of everything in my life?
     // Let's not worry about this for now...
     /*
-
     fn contain_blender_response(&self, endpoint: Endpoint, have_blender: bool) {
         if !have_blender {
             println!(

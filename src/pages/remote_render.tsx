@@ -28,12 +28,12 @@ const Frame = () => (
 
 // must deserialize into this format: "Section": { "start": i32, "end": i32 }
 const Section = () => (
-  <div>
+  <div key="frameRangeEntry">
     Section
-    <label htmlFor="start">Start</label>
-    <input name="start" type="number" value={1} />
-    <label htmlFor="end">End</label>
-    <input name="end" type="number" value={2} />
+    <label key="frameStartLabel" htmlFor="start">Start</label>
+    <input key="frameStartField" name="start" type="number" value={1} />
+    <label key="frameEndLabel" htmlFor="end">End</label>
+    <input key="frameEndField" name="end" type="number" value={2} />
   </div>
 );
 
@@ -43,6 +43,7 @@ const components = {
 };
 
 export default function RemoteRender() {
+  // something went terribly wrong here?
   const [projects, setProjects] = useState(fetchProjects);
   const [jobs, setJobs] = useState(fetchJobs);
   const [versions, setVersions] = useState(fetchVersions);
@@ -76,7 +77,9 @@ export default function RemoteRender() {
 
   //#region API Calls to fetch Data
   function listProjects() {
-    invoke("list_projects").then((ctx) => setProjects(JSON.parse(ctx + "")));
+    invoke("list_projects").then((ctx) => {
+      setProjects(JSON.parse(ctx + ""));
+    });
   }
 
   function listJobs() {
@@ -188,8 +191,7 @@ export default function RemoteRender() {
         </button>
         <div className="group">
           {projects.map(
-            (project: ProjectFileProps, index: number) => (
-              (project.id = "ProjectFile_" + index),
+            (project: ProjectFileProps) => (
               (project.onDataChanged = listProjects),
               (project.onRequestNewJob = openJobWindow),
               ProjectFile(project)
