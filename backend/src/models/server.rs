@@ -78,7 +78,10 @@ impl Server {
         let (tx, rx) = mpsc::channel();
         let (tx_recv, rx_recv) = mpsc::channel();
 
+        // I wonder if there's a way to simply this implementation code?
+        // it would be nice if I could just provide a callback function to poll this?
         thread::spawn(move || {
+            // ultimately, I would need to find a way to lock this for thread safety.
             let mut peers: HashSet<Endpoint> = HashSet::new();
             let current_job: Option<Job> = None;
 

@@ -97,20 +97,11 @@ impl DownloadLink {
             let _ = fs::create_dir_all(&dst)?;
         }
 
-        // attach dmg to volume
-        let dmg = Attach::new(&source).attach()?;
-
-        // create source path from mount point
-        let src = PathBuf::from(&dmg.mount_point.join("Blender.app"));
-
-        // Extract content inside Blender.app to destination
-        let _ = Self::copy_dir_all(&src, &dst).unwrap();
-
-        // detach dmg volume
-        dmg.detach()?;
-
-        // return path with additional path to invoke blender directly
-        Ok(dst.join("Contents/MacOS/Blender"))
+        let dmg = Attach::new(&source).attach()?; // attach dmg to volume
+        let src = PathBuf::from(&dmg.mount_point.join("Blender.app")); // create source path from mount point
+        let _ = Self::copy_dir_all(&src, &dst).unwrap(); // Extract content inside Blender.app to destination
+        dmg.detach()?; // detach dmg volume
+        Ok(dst.join("Contents/MacOS/Blender")) // return path with additional path to invoke blender directly
     }
 
     // TODO: implement handler to unpack .zip files

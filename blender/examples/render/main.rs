@@ -1,10 +1,10 @@
 use blender::blender::Blender;
-use blender::manager::Manager as BlenderManager;
+use blender::blender::Manager;
 use blender::models::status::Status;
 use blender::models::{args::Args, mode::Mode};
 use std::path::PathBuf;
 
-fn main() {
+fn render_with_manager() {
     let args = std::env::args().collect::<Vec<String>>();
     let blend_path = match args.get(1) {
         None => PathBuf::from("./examples/assets/test.blend"),
@@ -14,7 +14,8 @@ fn main() {
     // // we reference blender by executable path. Version will be detected upon running command process. (Self validation)
     let version = Blender::latest_version_available().unwrap();
 
-    let mut manager = BlenderManager::load();
+    // if we have the manager available here...
+    let mut manager = Manager::load();
     let blender = manager.get_blender(&version).unwrap();
 
     // Here we ask for the output path, for now we set our path in the same directory as our executable path.
@@ -51,4 +52,8 @@ fn main() {
             }
         }
     }
+}
+
+fn main() {
+    render_with_manager();
 }

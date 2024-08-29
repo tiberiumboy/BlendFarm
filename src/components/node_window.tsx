@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke } from "@tauri-apps/api/core";
 import { RenderNodeProps } from "./render_node";
 import { useState } from "react";
 import RenderNode from "./render_node";

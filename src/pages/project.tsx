@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke } from "@tauri-apps/api/core";
 import { ProjectFileProps } from "../components/project_file";
 import ProjectFile from "../components/project_file";
 import { useState, useEffect } from "react";

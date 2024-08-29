@@ -58,9 +58,9 @@ private and public method are unorganized.
         of just letting BlendFarm do all the work.
 
     */
-#[cfg(feature = "manager")]
+// #[cfg(feature = "manager")]
 pub use crate::manager::{Manager, ManagerError};
-#[cfg(feature = "manager")]
+// #[cfg(feature = "manager")]
 use crate::{models::download_link::DownloadLink, page_cache::PageCacheError};
 
 pub use crate::models::args::Args;
@@ -97,7 +97,7 @@ pub enum BlenderError {
     ExecutableNotFound(PathBuf),
     #[error("Unable to call blender!")]
     ExecutableInvalid,
-    #[cfg(feature = "manager")]
+    // #[cfg(feature = "manager")]
     #[error(transparent)]
     PageCache(#[from] PageCacheError),
     #[error("Unable to render! Error: {0}")]
@@ -133,7 +133,7 @@ impl PartialEq for Blender {
 }
 
 impl Blender {
-    /// Create a new blender struct with provided path and version. Note this is not checked and enforced!
+    /// Create a new blender struct with provided path and version. This does not checked and enforced!
     ///
     /// # Examples
     /// ```
@@ -189,14 +189,12 @@ impl Blender {
 
     /// Return extension matching to the current operating system (Only display Windows(zip), Linux(tar.xz), or macos(.dmg)).
     pub fn get_extension() -> Result<String, BlenderError> {
-        let extension = match consts::OS {
-            "windows" => ".zip",
-            "macos" => ".dmg",
-            "linux" => ".tar.xz",
+        match consts::OS {
+            "windows" => Ok(".zip".to_owned()),
+            "macos" => Ok(".dmg".to_owned()),
+            "linux" => Ok(".tar.xz".to_owned()),
             os => return Err(BlenderError::UnsupportedOS(os.to_string())),
-        };
-
-        Ok(extension.to_owned())
+        }
     }
 
     /// Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
@@ -236,16 +234,17 @@ impl Blender {
         };
 
         // Obtain the version by invoking version command to blender directly.
-        // This verify two things, we actually fetch blender's current version rather than arbitruary guessing it.
-        // this also validate that the executable is functional and operational. If we can launch blender and fetch version, then this part of the library should work as expected.
-        // Otherwise, return an error stating that we are unable to verify this blender integrity, and warn user about this incident.
+        // This validate two things,
+        // 1: Fetch blender's current version rather than arbitruary guessing it.
+        // 2: The executable is functional and operational.
+        // Otherwise, return an error that we were unable to verify this custom blender integrity.
         match Self::check_version(path) {
             Ok(version) => Ok(Self::new(path.to_path_buf(), version)),
             Err(e) => Err(e),
         }
     }
 
-    #[cfg(feature = "manager")]
+    // #[cfg(feature = "manager")]
     /// Create a blender struct from compressed content of the files
     pub fn from_content(path: impl AsRef<Path>, folder_name: &str) -> Result<Self, BlenderError> {
         let path = match DownloadLink::extract_content(&path, folder_name) {

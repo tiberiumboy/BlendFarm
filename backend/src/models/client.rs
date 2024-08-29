@@ -22,6 +22,10 @@ use std::{net::SocketAddr, sync::mpsc, thread, time::Duration};
 
 const INTERVAL_MS: u64 = 500;
 
+/*
+    In C - the best way to allow application API exposed for other application to rely on this information is through handler context.
+    provide a pointer in heap of information stored to fetch information about network information and use the library implementation to perform action on those set of information.
+*/
 pub struct Client {
     tx: mpsc::Sender<CmdMessage>,
     // Is there a way for me to hold struct objects while performing a transfer task?

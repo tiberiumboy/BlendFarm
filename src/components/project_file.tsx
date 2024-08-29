@@ -1,6 +1,6 @@
 import { CiTrash } from "react-icons/ci";
 import { MdOutlineMovie } from "react-icons/md";
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke } from "@tauri-apps/api/core";
 
 export interface ProjectFileProps {
   // do I need this?

@@ -1,6 +1,6 @@
 import { ProjectFileProps } from "../components/project_file";
 import { CiCircleMore, CiTrash } from "react-icons/ci";
-import { invoke, convertFileSrc } from "@tauri-apps/api/tauri";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 
 export interface RenderJobProps {
   id: string;

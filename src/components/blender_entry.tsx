@@ -1,5 +1,5 @@
 import { CiTrash, CiCircleMore } from "react-icons/ci"
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke } from "@tauri-apps/api/core";
 import { BlenderProps } from "../props/blender_props";
 
 export default function BlenderEntry(props: BlenderProps) {
