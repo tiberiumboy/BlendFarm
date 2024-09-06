@@ -14,7 +14,6 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{env::consts, fs, io, path::PathBuf, time::SystemTime};
 use thiserror::Error;
-use ureq::Error;
 use url::Url;
 
 // I would like this to be a feature only crate. blender by itself should be lightweight and interface with the program directly.
@@ -277,7 +276,9 @@ impl Manager {
 impl Drop for Manager {
     fn drop(&mut self) {
         if self.has_modified || self.auto_save {
-            self.save().unwrap();
+            if let Err(e) = self.save() {
+                println!("Error saving manager file: {}", e);
+            }
         }
     }
 }

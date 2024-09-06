@@ -21,17 +21,19 @@
   "identifier": "com.blendfarm.dev",
   "plugins": {
     "cli": {
+      "description": "BlenderFarm is a distributed rendering system that allows users to render blender files on multiple machines.",
+      "args": [
+        {
+          "short": "c",
+          "name": "client",
+          "description": "Run blender farm as client node (Worker)."
+        }
+      ],
       "subcommands": {
-        "client": {
-          "args": []
-        },
-        "server": {
-          "args": []
+        "config": {
+          "description": "Modify Blender Manager configurations"
         }
       }
-    },
-    "dialog": {
-      "all": true
     }
   },
   "app": {
@@ -39,17 +41,13 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "Blender Farm",
+        "title": "Blender Farm Manager",
         "width": 800,
         "height": 600
       }
     ],
     "withGlobalTauri": false,
     "security": {
-      "capabilities": [
-        "shell:allow-execute",
-        "shell:allow-open"
-      ],
       "assetProtocol": {
         "scope": [
           "*/**"

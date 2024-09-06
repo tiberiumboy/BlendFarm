@@ -1,7 +1,7 @@
 import { BlenderProps } from "../props/blender_props";
 import { invoke } from "@tauri-apps/api/core";
 import { ReactElement, useEffect, useState } from "react";
-import { open } from "@tauri-apps/api/dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { CiCirclePlus } from "react-icons/ci";
 import BlenderEntry from "../components/blender_entry";
 

@@ -160,7 +160,9 @@ impl PageCache {
 impl Drop for PageCache {
     fn drop(&mut self) {
         if self.was_modified {
-            self.save().unwrap();
+            if let Err(e) = self.save() {
+                println!("Error saving cache file: {}", e);
+            }
         }
     }
 }
