@@ -130,7 +130,7 @@ impl Manager {
     fn save(&self) -> Result<(), ManagerError> {
         let data = serde_json::to_string(&self).unwrap();
         let path = Self::get_config_path();
-        fs::write(path, data).or_else(|e| Err(ManagerError::Io { source: e }))
+        fs::write(path, data).map_err(|e| ManagerError::Io { source: e })
     }
 
     /// Allow user to set path for blender download and installation
