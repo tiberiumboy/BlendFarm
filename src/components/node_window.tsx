@@ -14,15 +14,17 @@ export default function NodeWindow() {
   }
 
   function listNodes() {
-    // TODO: I don't like this hacky string cast. It was a solution to make json work, but prefer to do this properly sanitized. Security instinct: Feels unwise to feed arbitruary malicious code injection to the json parser. 
     invoke("list_node").then((ctx: any) => {
       console.log(ctx);
-      setNodes(JSON.parse(ctx + ""));
-    });
-  }
+      if (ctx == null) {
+        return;
+      }
 
-  function pingNode() {
-    invoke("ping_node").then((ctx) => console.log(ctx));
+      // TODO: I don't like this hacky string cast. It was a solution to make json work, but prefer to do this properly sanitized. Security instinct: Feels unwise to feed arbitruary malicious code injection to the json parser. 
+      const data = JSON.parse(ctx + "");
+      data.forEach((node: RenderNodeProps) => { node.onDataChanged = listNodes; })
+      setNodes(data);
+    });
   }
 
   function nodeWindow() {
@@ -30,13 +32,8 @@ export default function NodeWindow() {
       <div>
         {/* Show the activity of the computer progress */}
         <h2>Computer Nodes</h2>
-        <button onClick={pingNode}>Ping</button>
         <div className="group" id="RenderNodes">
-          { /*nodes.map(
-            (node: RenderNodeProps, index: Number) => (
-              (node.onDataChanged = listNodes), RenderNode(node)
-            ),
-          ) */}
+          {nodes.map((node: RenderNodeProps) => RenderNode(node))}
         </div>
       </div>
     );

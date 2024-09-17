@@ -49,7 +49,7 @@ fn client() {
     // I would like to find a better way to update or append data to render_nodes,
     // but I need to review more context about handling context like this in rust.
     // I understand Mutex, but I do not know if it's any safe to create pointers inside data struct from mutex memory.
-    // "Do not communicate with shared memory"\
+    // "Do not communicate with shared memory"
     let ctx = Mutex::new(data);
 
     let mut server = Server::new(1500);

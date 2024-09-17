@@ -77,8 +77,9 @@ export default function RemoteRender() {
 
   //#region API Calls to fetch Data
   function listProjects() {
-    invoke("list_projects").then((ctx) => {
-      setProjects(JSON.parse(ctx + ""));
+    invoke("list_projects").then((ctx: any) => {
+      const data: ProjectFileProps[] = JSON.parse(ctx);
+      setProjects(data);
     });
   }
 

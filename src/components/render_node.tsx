@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api";
+import { invoke } from "@tauri-apps/api/core";
 import { CiTrash, CiCircleMore } from "react-icons/ci";
 
 export interface RenderNodeProps {
