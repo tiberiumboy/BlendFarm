@@ -21,7 +21,7 @@
   "identifier": "com.blendfarm.dev",
   "plugins": {
     "cli": {
-      "description": "BlenderFarm is a distributed rendering system that allows users to render blender files on multiple machines.",
+      "description": "BlenderFarm is a distribute rendering system that allows users to render blender files on multiple machines.",
       "args": [
         {
           "short": "c",
