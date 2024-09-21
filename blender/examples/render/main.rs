@@ -1,4 +1,3 @@
-use blender::blender::Blender;
 use blender::blender::Manager;
 use blender::models::status::Status;
 use blender::models::{args::Args, mode::Mode};
@@ -12,11 +11,13 @@ fn render_with_manager() {
     };
 
     // // we reference blender by executable path. Version will be detected upon running command process. (Self validation)
-    let version = Blender::latest_version_available().unwrap();
 
     // if we have the manager available here...
     let mut manager = Manager::load();
-    let blender = manager.get_blender(&version).unwrap();
+    let blender = match manager.latest_local_avail() {
+        Some(blender) => blender,
+        None => manager.download_latest_version().unwrap(),
+    }; // change this so that if none arise - download latest version and install that
 
     // Here we ask for the output path, for now we set our path in the same directory as our executable path.
     // This information will be display after render has been completed successfully.

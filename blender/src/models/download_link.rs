@@ -1,39 +1,35 @@
-use crate::manager::ManagerError;
+use regex::Regex;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
     env::consts,
-    fs, io,
+    fs,
+    io::{Error, ErrorKind},
     path::{Path, PathBuf},
 };
-use thiserror::Error;
 use url::Url;
 
-#[derive(Error, Debug)]
-pub enum DownloadLinkError {
-    #[error("Io error: {source}")]
-    Io {
-        #[from]
-        source: io::Error,
-    },
-}
+use crate::page_cache::PageCache;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DownloadLink {
-    name: String,
-    ext: String,
+    pub name: String,
     url: Url,
+    version: Version,
 }
 
 impl DownloadLink {
-    pub fn new(name: String, ext: String, url: Url) -> Self {
-        Self { name, ext, url }
+    /* private function impl */
+
+    pub fn new(name: String, url: Url, version: Version) -> Self {
+        Self { name, url, version }
     }
 
     // Currently being used for MacOS (I wonder if I need to do the same for windows?)
     #[cfg(target_os = "macos")]
-    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), DownloadLinkError> {
-        fs::create_dir_all(&dst).unwrap();
-        for entry in fs::read_dir(src).unwrap() {
+    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
+        fs::create_dir_all(&dst)?;
+        for entry in fs::read_dir(src)? {
             let entry = entry.unwrap();
             if entry.file_type().unwrap().is_dir() {
                 Self::copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name())).unwrap();
@@ -49,7 +45,7 @@ impl DownloadLink {
     pub fn extract_content(
         download_path: impl AsRef<Path>,
         folder_name: &str,
-    ) -> Result<PathBuf, io::Error> {
+    ) -> Result<PathBuf, Error> {
         use std::fs::File;
         use tar::Archive;
         use xz::read::XzDecoder;
@@ -80,7 +76,7 @@ impl DownloadLink {
     pub fn extract_content(
         download_path: impl AsRef<Path>,
         folder_name: &str,
-    ) -> Result<PathBuf, io::Error> {
+    ) -> Result<PathBuf, Error> {
         use dmg::Attach;
 
         let source = download_path.as_ref();
@@ -110,52 +106,185 @@ impl DownloadLink {
     pub fn extract_content(
         download_path: impl AsRef<Path>,
         folder_name: &str,
-    ) -> Result<PathBuf, io::Error> {
+    ) -> Result<PathBuf, Error> {
         let output = download_path.parent().unwrap().join(folder_name);
         todo!("Need to impl. window version of file extraction here");
         Ok(output.join("/blender.exe"))
+    }
+
+    pub fn fetch_version_url(version: &Version) -> Result<DownloadLink, Error> {
+        // TODO: Find a good reason to keep this?
+
+        Ok(DownloadLink::new(
+            "".to_owned(),
+            Url::parse("https://www.google.com").unwrap(),
+            version.clone(),
+        ))
     }
 
     pub fn download_and_extract(
         &self,
         destination: impl AsRef<Path>,
         // TODO: Find out why the warning appears - It seems like I might be wrapping something huge inside error?
-    ) -> Result<PathBuf, ManagerError> {
+    ) -> Result<PathBuf, Error> {
         let dir = destination.as_ref();
 
         // Download the file from the internet and save it to blender data folder
-        let body = match ureq::get(&self.url.as_str()).call() {
-            Ok(response) => {
-                let len: usize = response
-                    .header("Content-Length")
-                    .unwrap()
-                    .parse()
-                    .unwrap_or(0);
+        let response = ureq::get(self.url.as_str())
+            .call()
+            .map_err(|e: ureq::Error| Error::other(e))?;
 
-                let mut body: Vec<u8> = Vec::with_capacity(len);
-                let mut heap = response.into_reader();
-                // TODO: Maybe this is the culprit?
-                let _size = heap.read_to_end(&mut body)?;
-                body
-            }
-            Err(_) => {
-                return Err(ManagerError::DownloadNotFound {
-                    arch: consts::ARCH.to_string(),
-                    os: consts::OS.to_string(),
-                    url: self.url.to_string(),
-                })
+        let len: usize = response
+            .header("Content-Length")
+            .unwrap()
+            .parse()
+            .unwrap_or(0);
+
+        let mut body: Vec<u8> = Vec::with_capacity(len);
+        let mut heap = response.into_reader();
+        // TODO: Maybe this is the culprit?
+        heap.read_to_end(&mut body)?;
+
+        let target = &dir.join(&self.name);
+        fs::write(target, &body)?;
+
+        let executable_path = Self::extract_content(target, &self.name)?;
+        Ok(executable_path)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BlenderCategory {
+    pub name: String,
+    pub url: Url,
+    pub major: u64,
+    pub minor: u64,
+}
+
+impl BlenderCategory {
+    /// fetch current architecture (Currently support x86_64 or aarch64 (apple silicon))
+    fn get_valid_arch() -> Result<String, String> {
+        match consts::ARCH {
+            "x86_64" => Ok("64".to_owned()),
+            "aarch64" => Ok("arm64".to_owned()),
+            arch => Err(arch.to_string()),
+        }
+    }
+
+    /// Return extension matching to the current operating system (Only display Windows(zip), Linux(tar.xz), or macos(.dmg)).
+    pub fn get_extension() -> Result<String, String> {
+        match consts::OS {
+            "windows" => Ok(".zip".to_owned()),
+            "macos" => Ok(".dmg".to_owned()),
+            "linux" => Ok(".tar.xz".to_owned()),
+            os => Err(os.to_string()),
+        }
+    }
+
+    pub fn new(name: String, url: Url, major: u64, minor: u64) -> Self {
+        Self {
+            name,
+            url,
+            major,
+            minor,
+        }
+    }
+
+    pub fn fetch(&self) -> Result<Vec<DownloadLink>, Error> {
+        let mut cache = PageCache::load()?;
+
+        let content = cache.fetch(&self.url)?;
+
+        let arch = match Self::get_valid_arch() {
+            Ok(arch) => arch,
+            Err(e) => {
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    format!("Currently not supporting {e} arch type!"),
+                ))
             }
         };
 
-        let target = &dir.join(&self.name);
+        let ext = Self::get_extension()
+            .map_err(|_| Error::new(ErrorKind::Unsupported, "Unsupported extension!"))?;
 
-        if let Err(e) = fs::write(target, &body) {
-            return Err(e.into());
+        // Regex rules - Find the url that matches version, computer os and arch, and the extension.
+        // - There should only be one entry matching for this. Otherwise return error stating unable to find download path
+        let pattern = format!(
+            // r#"(<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.{}.*{}.*{}.*\.[{}].*)<\/a>)"#,
+            r#"<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.(?<patch>\d*.)-[{}].*[{}]*.{})<\/a>"#,
+            self.major,
+            self.minor,
+            consts::OS,
+            arch,
+            ext,
+        );
+
+        let mut vec = vec![];
+        let regex = Regex::new(&pattern).unwrap();
+        for (_, [url, name, patch]) in regex.captures_iter(&content).map(|c| c.extract()) {
+            if let Ok(url) = Url::parse(url) {
+                if let Ok(patch) = patch.parse() {
+                    let version = Version::new(self.major, self.minor, patch);
+                    vec.push(DownloadLink::new(name.to_owned(), url, version));
+                }
+            }
         }
 
-        let extract_folder = self.name.replace(&self.ext, "");
+        Ok(vec)
+    }
 
-        let executable_path = Self::extract_content(target, &extract_folder).unwrap();
-        Ok(executable_path)
+    pub fn fetch_latest(&self) -> Result<DownloadLink, Error> {
+        let mut list = self.fetch()?;
+        list.sort_by(|a, b| b.cmp(a));
+        match list.first() {
+            Some(e) => Ok(e.clone()),
+            None => Err(Error::other("Not found?")),
+        }
+    }
+
+    pub fn retrieve(&self, version: &Version) -> Result<DownloadLink, Error> {
+        let name = "".to_owned();
+        let url = Url::parse("https://www.google.com").unwrap();
+
+        Ok(DownloadLink::new(name, url.clone(), version.clone()))
+    }
+}
+
+#[derive(Debug)]
+pub struct BlenderHome {
+    pub list: Vec<BlenderCategory>,
+}
+
+impl BlenderHome {
+    pub fn new() -> Result<Self, Error> {
+        // I would hope that this line should never fail...?
+        let home = "https://download.blender.org/release/";
+        let parent = Url::parse(home).unwrap();
+
+        // In the original code - there's a comment implying we should use cache as much as possible to avoid IP Blacklisted. TODO: Verify this in Blender community about this.
+        let mut cache = PageCache::load()?;
+
+        // fetch the content of the subtree information
+        let content = cache.fetch(&parent)?;
+
+        let mut collection = vec![];
+        // Omit any blender version 2.8 and below, according to discord user "tigos" from Blender - https://discord.com/channels/185590609631903755/869790788530352188/1286766670475559036
+
+        let pattern =
+            r#"<a href=\"(?<url>.*)\">(?<name>Blender(?<major>\d).(?<minor>\d*).*)\/<\/a>"#;
+        let regex = Regex::new(pattern).unwrap();
+        for (_, [url, name, major, minor]) in regex.captures_iter(&content).map(|c| c.extract()) {
+            let url = parent.join(url).unwrap();
+            collection.push(BlenderCategory::new(
+                name.to_owned(),
+                url,
+                // I have a feeling this will break?
+                major.parse().unwrap(),
+                minor.parse().unwrap(),
+            ));
+        }
+
+        Ok(Self { list: collection })
     }
 }

@@ -80,7 +80,7 @@ impl Client {
                         CmdMessage::SendJob(job) => {
                             // assume that we have the files already download and available, we should then run the job here?
                             let mut manager = Manager::load();
-                            let blender = manager.get_blender(&job.version).unwrap();
+                            let blender = manager.fetch_blender(&job.version).unwrap();
                             let settings = server_setting::ServerSetting::load();
                             let args = Args::new(
                                 job.project_file.file_path(),

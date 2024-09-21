@@ -1,7 +1,7 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::io::{Error, Result};
 use std::{collections::HashMap, fs, path::PathBuf, time::SystemTime};
-use thiserror::Error;
 use url::Url;
 
 // Hide this for now,
@@ -14,69 +14,44 @@ pub struct PageCache {
     was_modified: bool,
 }
 
-#[derive(Debug, Error)]
-pub enum PageCacheError {
-    #[error("Cache directory does not exist!")]
-    CacheDirNotFound,
-    #[error("Unable to create cache directory at `{path}`!")]
-    CannotCreate { path: PathBuf },
-    #[error("IO Error: {source}")]
-    Io {
-        #[from]
-        source: std::io::Error,
-    },
-    #[error("Request Error: {code} : {message}")]
-    Request { code: u8, message: String },
-}
-
 impl PageCache {
     // fetch cache directory
-    fn get_dir() -> Result<PathBuf, PageCacheError> {
+    fn get_dir() -> Result<PathBuf> {
         // TODO: What should happen if I can't fetch cache_dir()?
-        let mut tmp = dirs::cache_dir().ok_or(PageCacheError::CacheDirNotFound)?;
+        let mut tmp = dirs::cache_dir().ok_or(Error::new(
+            std::io::ErrorKind::NotFound,
+            "Unable to fetch cache directory!",
+        ))?;
         tmp.push("cache");
-        if fs::create_dir_all(&tmp).is_err() {
-            Err(PageCacheError::CannotCreate { path: tmp })
-        } else {
-            Ok(tmp)
-        }
+        fs::create_dir_all(&tmp)?;
+        Ok(tmp)
     }
 
     // fetch path to cache file
-    fn get_cache_path() -> Result<PathBuf, PageCacheError> {
-        match Self::get_dir() {
-            Ok(path) => Ok(path.join("cache.json")),
-            Err(e) => Err(e),
-        }
+    fn get_cache_path() -> Result<PathBuf> {
+        let path = Self::get_dir()?;
+        Ok(path.join("cache.json"))
     }
 
     // private method, only used to save when cache has changed.
-    fn save(&mut self) -> Result<(), PageCacheError> {
+    fn save(&mut self) -> Result<()> {
         self.was_modified = false;
         let data = serde_json::to_string(&self).expect("Unable to deserialize data!");
-        match Self::get_cache_path() {
-            Ok(path) => match fs::write(path, data) {
-                Ok(_) => {
-                    println!("Successfully saved cache file!");
-                    Ok(())
-                }
-                Err(e) => Err(e.into()),
-            },
-            Err(e) => Err(e),
-        }
+        let path = Self::get_cache_path()?;
+        fs::write(path, data)?;
+        Ok(())
     }
 
     // TODO: Impl a way to verify cache is not old or out of date. What's a good refresh cache time? 2 weeks? server_settings config?
-    pub fn load(expiration: SystemTime) -> Result<Self, PageCacheError> {
+    pub fn load() -> Result<Self> {
+        let expiration = SystemTime::now();
         // use define path to cache file
         let path = Self::get_cache_path()?;
         let created_date = match fs::metadata(&path) {
             Ok(metadata) => {
                 if metadata.is_file() {
-                    println!("Cache file found! Fetching metadata...");
                     metadata.created().unwrap_or(SystemTime::now())
                 } else {
-                    println!("Unable to find cache file, creating new one!");
                     SystemTime::now()
                 }
             }
@@ -112,22 +87,14 @@ impl PageCache {
 
     /// Fetch url response from argument and save response body to cache directory using url as file name
     /// This will append a new entry to the cache hashmap.
-    fn save_content_to_cache(url: &Url) -> Result<PathBuf, PageCacheError> {
+    fn save_content_to_cache(url: &Url) -> Result<PathBuf> {
         // create an absolute file path
         let mut tmp = Self::get_dir()?;
         tmp.push(Self::generate_file_name(url));
 
         // fetch the content from the url
-        let response = ureq::get(url.as_ref()).call();
-        let response = match response {
-            Ok(r) => r,
-            Err(e) => {
-                return Err(PageCacheError::Request {
-                    code: 0,
-                    message: e.to_string(),
-                });
-            }
-        };
+        // expensive implict type cast?
+        let response = ureq::get(url.as_ref()).call().map_err(Error::other)?;
         let content = response.into_string()?;
 
         // write the content to the file
@@ -138,20 +105,17 @@ impl PageCache {
     /// check and see if the url matches the cache,
     /// otherwise, fetch the page from the internet, and save it to storage cache,
     /// then return the page result.
-    pub fn fetch(&mut self, url: &Url) -> Result<String, PageCacheError> {
+    pub fn fetch(&mut self, url: &Url) -> Result<String> {
         let path = self.cache.entry(url.to_owned()).or_insert({
             self.was_modified = true;
             Self::save_content_to_cache(url)?.to_owned()
         });
 
-        match fs::read_to_string(path) {
-            Ok(data) => Ok(data),
-            Err(e) => Err(e.into()),
-        }
+        fs::read_to_string(path)
     }
 
     // TODO: Maybe this isn't needed, but would like to know if there's a better way to do this? Look into IntoUrl?
-    pub fn fetch_str(&mut self, url: &str) -> Result<String, PageCacheError> {
+    pub fn fetch_str(&mut self, url: &str) -> Result<String> {
         let url = Url::parse(url).unwrap();
         self.fetch(&url)
     }

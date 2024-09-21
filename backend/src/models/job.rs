@@ -108,7 +108,7 @@ impl Job {
         // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
         // TODO: This looks like I could move this code block somewhere else?
         let mut manager = Manager::load();
-        let blender = manager.get_blender(&self.version).unwrap();
+        let blender = manager.fetch_blender(&self.version).unwrap();
 
         // here's the question - if I'm on a network node, how do I send the host the image of the completed rendered job?
         // yeah here's a good question?

@@ -60,9 +60,6 @@ private and public method are unorganized.
     */
 // #[cfg(feature = "manager")]
 pub use crate::manager::{Manager, ManagerError};
-// #[cfg(feature = "manager")]
-use crate::{models::download_link::DownloadLink, page_cache::PageCacheError};
-
 pub use crate::models::args::Args;
 
 use crate::models::{
@@ -73,9 +70,8 @@ use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
-    env::consts,
     fs,
-    io::{self, BufRead, BufReader},
+    io::{BufRead, BufReader},
     path::{self, Path, PathBuf},
     process::{Command, Stdio},
     sync::mpsc::{self, Receiver},
@@ -89,31 +85,16 @@ const MACOS_PATH: &str = "Contents/MacOS/Blender";
 
 #[derive(Debug, Error)]
 pub enum BlenderError {
-    #[error("Unsupported OS: {0}")]
-    UnsupportedOS(String),
-    #[error("Unsupported Architecture: {0}")]
-    UnsupportedArch(String),
     #[error("Path to executable not found! {0}")]
     ExecutableNotFound(PathBuf),
     #[error("Unable to call blender!")]
     ExecutableInvalid,
-    // #[cfg(feature = "manager")]
-    #[error(transparent)]
-    PageCache(#[from] PageCacheError),
     #[error("Unable to render! Error: {0}")]
     RenderError(String),
     #[error("Unable to launch blender! Received Python errors: {0}")]
     PythonError(String),
-    #[error("IO Error: {source}")]
-    Io {
-        #[from]
-        source: io::Error,
-    },
-    #[error("Serde Error: {source}")]
-    Serde {
-        #[from]
-        source: serde_json::Error,
-    },
+    // #[error("Ran into IO issue extracting contents")]
+    // UnableToExtract,
 }
 
 /// Blender structure to hold path to executable and version of blender installed.
@@ -133,6 +114,8 @@ impl PartialEq for Blender {
 }
 
 impl Blender {
+    /* Private method impl */
+
     /// Create a new blender struct with provided path and version. This does not checked and enforced!
     ///
     /// # Examples
@@ -177,6 +160,8 @@ impl Blender {
         dirs::config_dir().unwrap().join("Blender")
     }
 
+    /* Public method impl */
+
     /// fetch the blender executable path, used to pass into Command::process implementation
     pub fn get_executable(&self) -> &PathBuf {
         &self.executable
@@ -185,16 +170,6 @@ impl Blender {
     /// fetch the version of blender
     pub fn get_version(&self) -> &Version {
         &self.version
-    }
-
-    /// Return extension matching to the current operating system (Only display Windows(zip), Linux(tar.xz), or macos(.dmg)).
-    pub fn get_extension() -> Result<String, BlenderError> {
-        match consts::OS {
-            "windows" => Ok(".zip".to_owned()),
-            "macos" => Ok(".dmg".to_owned()),
-            "linux" => Ok(".tar.xz".to_owned()),
-            os => return Err(BlenderError::UnsupportedOS(os.to_string())),
-        }
     }
 
     /// Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
@@ -214,51 +189,30 @@ impl Blender {
         // check and verify that the executable exist.
         // first line for validating blender executable.
         let path = executable.as_ref();
-        if !path.exists() {
-            return Err(BlenderError::ExecutableNotFound(path.to_path_buf()));
-        }
 
         // macOS is special. To invoke the blender application, I need to navigate inside Blender.app, which is an app bundle that contains stuff to run blender.
         // Command::Process needs to access the content inside app bundle to perform the operation correctly.
         // To do this - I need to append additional path args to correctly invoke the right application for this to work.
         // TODO: Verify this works for Linux/window OS?
-        let path = match std::env::consts::OS {
-            "macos" => {
-                if !path.ends_with(MACOS_PATH) {
-                    &path.join(MACOS_PATH)
-                } else {
-                    path
-                }
-            }
-            _ => path,
+        let path = if std::env::consts::OS == "macos" && !&path.ends_with(MACOS_PATH) {
+            &path.join(MACOS_PATH)
+        } else {
+            path
         };
+
+        // this should be clear and explicit that I must have a valid path? How can I do this?
+        // does it need a wrapper?
+        if !path.exists() {
+            return Err(BlenderError::ExecutableNotFound(path.to_path_buf()));
+        }
 
         // Obtain the version by invoking version command to blender directly.
         // This validate two things,
-        // 1: Fetch blender's current version rather than arbitruary guessing it.
-        // 2: The executable is functional and operational.
+        // 1: Blender's internal version is reliable
+        // 2: Executable is functional and operational
         // Otherwise, return an error that we were unable to verify this custom blender integrity.
-        match Self::check_version(path) {
-            Ok(version) => Ok(Self::new(path.to_path_buf(), version)),
-            Err(e) => Err(e),
-        }
-    }
-
-    // #[cfg(feature = "manager")]
-    /// Create a blender struct from compressed content of the files
-    pub fn from_content(path: impl AsRef<Path>, folder_name: &str) -> Result<Self, BlenderError> {
-        let path = match DownloadLink::extract_content(&path, folder_name) {
-            Ok(path) => path,
-            Err(e) => return Err(BlenderError::Io { source: e }),
-        };
-        Blender::from_executable(path)
-    }
-
-    /// Fetch the latest version of blender available from Blender.org
-    pub fn latest_version_available() -> Result<Version, BlenderError> {
-        // in this case I need to contact Manager class or BlenderDownloadLink somewhere and fetch the latest blender information
-        // but for now let's just return default value of 4.1.0 until we return back to this at future later code.
-        Ok(Version::new(4, 1, 0))
+        let version = Self::check_version(path)?;
+        Ok(Self::new(path.to_path_buf(), version))
     }
 
     /// Peek is a function design to read and fetch information about the blender file.
@@ -281,16 +235,16 @@ impl Blender {
             "-P".to_owned(),
             peek_path.to_str().unwrap().to_owned(),
         ];
-        if let Ok(output) = Command::new(&self.executable).args(args).output() {
-            let stdout = String::from_utf8(output.stdout).unwrap();
-            let parse = stdout.split("\n").collect::<Vec<&str>>();
-            let json = parse[0].to_owned();
-            return match serde_json::from_str(&json) {
-                Ok(response) => Ok(response),
-                Err(e) => Err(BlenderError::Serde { source: e }),
-            };
-        };
-        Err(BlenderError::ExecutableInvalid)
+        let output = Command::new(&self.executable)
+            .args(args)
+            .output()
+            .map_err(|_| BlenderError::ExecutableInvalid)?;
+
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let parse = stdout.split("\n").collect::<Vec<&str>>();
+        let json = parse[0].to_owned();
+
+        serde_json::from_str(&json).map_err(|e| BlenderError::PythonError(e.to_string()))
     }
 
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?

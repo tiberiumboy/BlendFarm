@@ -10,7 +10,7 @@ fn main() {
 
     let mut manager = BlenderManager::load();
     let blender = manager
-        .get_blender(&version)
+        .fetch_blender(&version)
         .expect("Unable to download Blender!");
     println!("Blender downloaded at: {:?}", blender.get_executable());
 }

@@ -47,7 +47,7 @@ impl RenderQueue {
         );
 
         let mut manager = BlenderManager::load();
-        let blender = manager.get_blender(&self.version).unwrap();
+        let blender = manager.fetch_blender(&self.version).unwrap();
         let listener = blender.render(args);
 
         while let Ok(event) = listener.recv() {

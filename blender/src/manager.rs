@@ -7,14 +7,12 @@
     - Implements download and install code
 */
 use crate::blender::Blender;
-use crate::models::download_link::DownloadLink;
-use crate::page_cache::{PageCache, PageCacheError};
-use regex::Regex;
+use crate::models::download_link::{BlenderCategory, BlenderHome, DownloadLink};
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{env::consts, fs, io, path::PathBuf, time::SystemTime};
+use std::path::Path;
+use std::{fs, path::PathBuf};
 use thiserror::Error;
-use url::Url;
 
 // I would like this to be a feature only crate. blender by itself should be lightweight and interface with the program directly.
 // could also implement serde as optionals?
@@ -24,6 +22,8 @@ pub enum ManagerError {
     UnsupportedOS(String),
     #[error("Unsupported Archtecture: {0}")]
     UnsupportedArch(String),
+    #[error("Unable to extract content: {0}")]
+    UnableToExtract(String),
     #[error("Unable to fetch download from the source! {0}")]
     FetchError(String),
     #[error("Cannot find target download link for blender! os: {os} | arch: {arch} | url: {url}")]
@@ -32,28 +32,16 @@ pub enum ManagerError {
         os: String,
         url: String,
     },
-    #[error("Unable to fetch blender! {source}")]
-    Request {
-        #[from]
-        source: ureq::Error,
-    },
+    #[error("Unable to fetch blender! {0}")]
+    RequestError(String),
     //     // TODO: Find meaningful error message to represent from this struct class?
-    #[error("IO Error: {source}")]
-    Io {
-        #[from]
-        source: io::Error,
-    },
-    #[error("Url ParseError: {source}")]
-    UrlParseError {
-        #[from]
-        source: url::ParseError,
-    },
+    #[error("IO Error: {0}")]
+    IoError(String),
+    #[error("Url ParseError: {0}")]
+    UrlParseError(String),
     // TODO: may contain at least 272 bytes?
-    #[error("Page cache error: {source}")]
-    PageCacheError {
-        #[from]
-        source: PageCacheError,
-    },
+    #[error("Page cache error: {0}")]
+    PageCacheError(String),
     // TODO: may contain at least 272 bytes?
     #[error("Blender error: {source}")]
     BlenderError {
@@ -97,6 +85,46 @@ impl Manager {
         path.join("BlenderManager.json")
     }
 
+    // Download the specific version from download.blender.org
+    fn download(&mut self, version: &Version) -> Result<Blender, ManagerError> {
+        // TODO: As a extra security measure, I would like to verify the hash of the content before extracting the files.
+        // TODO: How did BlendFarm fetch all blender version?
+        let mut blender_home =
+            BlenderHome::new().map_err(|e| ManagerError::RequestError(e.to_string()))?;
+
+        blender_home.list.sort();
+        let category = blender_home.list.first().unwrap();
+        dbg!(&category);
+
+        let filter = category
+            .fetch()
+            .map_err(|e| ManagerError::FetchError(e.to_string()))?;
+        let download_link = filter.first().unwrap();
+
+        let destination = self.install_path.join(&category.name);
+        fs::create_dir_all(&destination).unwrap();
+
+        // TODO: verify this is working for windows (.zip)?
+        println!("Begin downloading blender and extract content!");
+        let destination = download_link
+            .download_and_extract(&destination)
+            .map_err(|e| ManagerError::IoError(e.to_string()))?;
+
+        let blender = Blender::from_executable(destination)
+            .map_err(|e| ManagerError::BlenderError { source: e })?;
+        self.add_blender(blender.clone());
+        self.save().unwrap();
+        Ok(blender)
+    }
+
+    // Save the configuration to local
+    fn save(&self) -> Result<(), ManagerError> {
+        // strictly speaking, this function shouldn't crash...
+        let data = serde_json::to_string(&self).unwrap();
+        let path = Self::get_config_path();
+        fs::write(path, data).map_err(|e| ManagerError::IoError(e.to_string()))
+    }
+
     /// Return a reference to the vector list of all known blender installations
     pub fn get_blenders(&self) -> &Vec<Blender> {
         &self.blenders
@@ -126,64 +154,60 @@ impl Manager {
         data
     }
 
-    // Save the configuration to local
-    fn save(&self) -> Result<(), ManagerError> {
-        let data = serde_json::to_string(&self).unwrap();
-        let path = Self::get_config_path();
-        fs::write(path, data).map_err(|e| ManagerError::Io { source: e })
-    }
-
-    /// Allow user to set path for blender download and installation
-    pub fn set_install_path(&mut self, new_path: &PathBuf) {
-        // we should consider the design behind this.
-        // I would like to transfer blender installation over to the new path if we can?
-        self.install_path = new_path.clone();
+    /// Set path for blender download and installation
+    pub fn set_install_path(&mut self, new_path: &Path) {
+        // Consider the design behind this. Should we move blender installations to new path?
+        self.install_path = new_path.to_path_buf().clone();
         self.has_modified = true;
     }
 
     /// Add a new blender installation to the manager list.
-    pub fn add(&mut self, blender: &Blender) {
-        self.blenders.push(blender.clone());
+    pub fn add_blender(&mut self, blender: Blender) {
+        self.blenders.push(blender);
         self.has_modified = true;
     }
 
+    /// Check and add a local installation of blender to manager's registry of blender version to use from.
+    pub fn add_blender_path(&mut self, path: &impl AsRef<Path>) -> Result<(), ManagerError> {
+        let path = path.as_ref();
+        let extension = BlenderCategory::get_extension().map_err(ManagerError::UnsupportedOS)?;
+        // let str_path = path.as_os_str().to_str().unwrap().to_owned();
+
+        let path = if path.ends_with(&extension) {
+            let folder_name = &path
+                .file_name()
+                .unwrap()
+                .to_os_string()
+                .to_str()
+                .unwrap()
+                .replace(&extension, "");
+
+            DownloadLink::extract_content(path, folder_name)
+                .map_err(|e| ManagerError::UnableToExtract(e.to_string()))
+        } else {
+            // for MacOS - User will select the app bundle instead of actual executable, We must include the additional path
+            match std::env::consts::OS {
+                "macos" => Ok(path.join("Contents/MacOS/Blender")),
+                _ => Ok(path.to_path_buf()),
+            }
+        }?;
+
+        let blender =
+            Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
+
+        self.add_blender(blender);
+        Ok(())
+    }
+
     /// Remove blender installation from the manager list.
-    pub fn remove(&mut self, blender: &Blender) {
+    pub fn remove_blender(&mut self, blender: &Blender) {
         self.blenders.retain(|x| x.eq(blender));
         self.has_modified = true;
     }
 
-    /// fetch current architecture (Currently support x86_64 or aarch64 (apple silicon))
-    fn get_valid_arch() -> Result<String, ManagerError> {
-        match consts::ARCH {
-            "x86_64" => Ok("64".to_owned()),
-            "aarch64" => Ok("arm64".to_owned()),
-            value => return Err(ManagerError::UnsupportedArch(value.to_string())),
-        }
-    }
-
-    /// Return the pattern matching to identify correct blender download link
-    fn generate_blender_pattern_matching(version: &Version) -> Result<String, ManagerError> {
-        let extension = Blender::get_extension()?;
-        let arch = Self::get_valid_arch()?;
-
-        // Regex rules - Find the url that matches version, computer os and arch, and the extension.
-        // - There should only be one entry matching for this. Otherwise return error stating unable to find download path
-        let match_pattern = format!(
-            r#"(<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.{}.*{}.*{}.*\.[{}].*)<\/a>)"#,
-            version.major,
-            version.minor,
-            version.patch,
-            consts::OS,
-            arch,
-            extension
-        );
-
-        Ok(match_pattern)
-    }
-
-    pub fn get_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
-        match self.blenders.iter().find(|x| x.get_version() == version) {
+    // TODO: Name ambiguous - clarify method name to clear and explicit
+    pub fn fetch_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
+        match self.blenders.iter().find(|&x| x.get_version() == version) {
             Some(blender) => Ok(blender.to_owned()),
             None => {
                 // could use as a warning message?
@@ -200,75 +224,30 @@ impl Manager {
         self.blenders.iter().any(|x| x.get_version() == version)
     }
 
-    fn download(&mut self, version: &Version) -> Result<Blender, ManagerError> {
-        // if the manager already have the blender version installed, use that instead of downloading a new instance of version.
+    /// Fetch the latest version of blender available from Blender.org
+    /// this function might be ambiguous. Should I use latest_local or latest_online?
+    pub fn latest_local_avail(&mut self) -> Option<Blender> {
+        // in this case I need to contact Manager class or BlenderDownloadLink somewhere and fetch the latest blender information
+        let mut data = self.blenders.clone();
+        data.sort();
+        data.first().map(|v: &Blender| v.to_owned())
+    }
 
-        // TODO: As a extra security measure, I would like to verify the hash of the content before extracting the files.
-        // I would hope that this line should never fail...? Unless the user isn't connected to the internet, or the url path is blocked by IT infrastructure?
-        let url = match Url::parse("https://download.blender.org/release/") {
-            Ok(url) => url,
-            Err(e) => return Err(ManagerError::UrlParseError { source: e }),
-        };
+    pub fn download_latest_version(&mut self) -> Result<Blender, ManagerError> {
+        // in this case - we need to fetch the latest version from somewhere, download.blender.org will let us fetch the parent before we need to dive into
 
-        // In the original code - there's a comment implying we should use cache as much as possible to avoid IP Blacklisted. TODO: Verify this in Blender community about this.
-        let mut cache = match PageCache::load(SystemTime::now()) {
-            Ok(cache) => cache,
-            Err(e) => return Err(ManagerError::PageCacheError { source: e }),
-        };
+        // Dive into the parent directory, and get the last update version
+        let mut home = BlenderHome::new().expect("Unable to get data");
 
-        // TODO: How did BlendFarm fetch all blender version?
-        // working out a hack to rely on website availability for now. Would like to simply get the url I need to download and run blender.
-        // could this be made into a separate function?
-        let path = format!("Blender{}.{}/", version.major, version.minor);
-        let url = match url.join(&path) {
-            Ok(url) => url,
-            Err(e) => return Err(ManagerError::UrlParseError { source: e }),
-        };
-
-        // fetch the content of the subtree information
-        let content = match cache.fetch(&url) {
-            Ok(content) => content,
-            Err(e) => return Err(ManagerError::PageCacheError { source: e }),
-        };
-
-        let match_pattern = Self::generate_blender_pattern_matching(&version)?;
-
-        // unwrap() is used here explicitly because I know that the above regex command will not fail.
-        let regex = Regex::new(&match_pattern).unwrap();
-        let download_link = match regex.captures(&content) {
-            Some(info) => {
-                // remove extension from file name
-                let name = info["name"].to_string();
-                let path = info["url"].to_string();
-                let url = &url.join(&path).unwrap();
-                let ext = Blender::get_extension().unwrap();
-                println!("Download link generated!");
-                DownloadLink::new(name, ext, url.clone())
-            }
-            None => {
-                return Err(ManagerError::DownloadNotFound {
-                    arch: consts::ARCH.to_string(),
-                    os: consts::OS.to_string(),
-                    url: url.to_string(),
-                })
-            }
-        };
-
-        let destination = self.install_path.join(&path);
-        fs::create_dir_all(&destination).unwrap();
-
-        // TODO: verify this is working for windows (.zip)?
-        println!("Begin downloading blender and extract content!");
-        match download_link.download_and_extract(&destination) {
-            Ok(destination) => {
-                dbg!(&destination);
-                let blender = Blender::from_executable(destination.to_owned()).unwrap();
-                self.add(&blender);
-                self.save().unwrap();
-                Ok(blender)
-            }
-            Err(e) => Err(e),
-        }
+        // sort by descending order
+        home.list.sort_by(|a, b| b.cmp(a));
+        let newest = home.list.first().unwrap();
+        let link = newest.fetch_latest().unwrap();
+        let path = link.download_and_extract(&self.install_path).unwrap();
+        let blender =
+            Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
+        self.blenders.push(blender.clone());
+        Ok(blender)
     }
 }
 
