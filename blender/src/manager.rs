@@ -86,7 +86,7 @@ impl Manager {
     }
 
     // Download the specific version from download.blender.org
-    fn download(&mut self, version: &Version) -> Result<Blender, ManagerError> {
+    fn download(&mut self, _version: &Version) -> Result<Blender, ManagerError> {
         // TODO: As a extra security measure, I would like to verify the hash of the content before extracting the files.
         // TODO: How did BlendFarm fetch all blender version?
         let mut blender_home =

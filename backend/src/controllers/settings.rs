@@ -1,8 +1,8 @@
 // this is the settings controller section that will handle input from the setting page.
 use crate::models::server_setting::ServerSetting;
 use blender::blender::{Blender, Manager};
-use std::path::PathBuf;
-use tauri::{command, Error};
+use std::{path::PathBuf, sync::Mutex};
+use tauri::{command, AppHandle, Error};
 
 /*
     Developer Blog
@@ -35,12 +35,14 @@ pub fn set_server_settings(new_settings: ServerSetting) -> Result<(), String> {
 
 /// Add a new blender entry to the system, but validate it first!
 #[command(async)]
-pub fn add_blender_installation(path: PathBuf) -> Result<(), Error> {
+pub fn add_blender_installation(app: AppHandle, path: PathBuf) -> Result<(), Error> {
     // I need information in string so I could use the contains operand, if there's a better way to write this without having to cast into string, would be ideal
     // TODO: Optimized so I could check the extension without casting to string (memory intensive operation)
     // Add to the server settings
-    let mut manager = Manager::load();
-    manager.add_blender_path(&path);
+    // consider using manager in a context instead?
+    // let mutex = app.state::<Mutex<Manager>>();
+    // let mut manager = mutex.lock().unwrap();
+    // manager.add_blender_path(&path).unwrap();
     Ok(())
 }
 

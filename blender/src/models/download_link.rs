@@ -27,7 +27,7 @@ impl DownloadLink {
 
     // Currently being used for MacOS (I wonder if I need to do the same for windows?)
     #[cfg(target_os = "macos")]
-    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
+    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), Error> {
         fs::create_dir_all(&dst)?;
         for entry in fs::read_dir(src)? {
             let entry = entry.unwrap();
