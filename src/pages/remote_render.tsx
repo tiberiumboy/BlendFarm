@@ -84,11 +84,17 @@ export default function RemoteRender() {
   }
 
   function listJobs() {
-    invoke("list_job").then((ctx) => setJobs(JSON.parse(ctx + "")));
+    invoke("list_job").then((ctx: any) => {
+      const data: RenderJobProps[] = JSON.parse(ctx);
+      setJobs(data)
+    });
   }
 
   function listVersions() {
-    invoke("list_versions").then((ctx) => setVersions(JSON.parse(ctx + "")));
+    invoke("list_versions").then((ctx: any) => {
+      const data: string[] = JSON.parse(ctx);
+      setVersions(data);
+    });
   }
 
   //#endregion

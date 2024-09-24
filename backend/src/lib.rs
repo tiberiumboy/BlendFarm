@@ -21,6 +21,9 @@
 
 [F] - find a way to allow GUI interface to run as client mode for non cli users.
 
+[F] - consider using channel to stream data https://v2.tauri.app/develop/calling-frontend/#channels
+[F] - Before release - find a way to add updater  https://v2.tauri.app/plugin/updater/
+
 */
 
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
@@ -35,100 +38,65 @@ use crate::controllers::settings::{
     remove_blender_installation, set_server_settings,
 };
 use crate::models::{client::Client, data::Data, server::Server};
+use blender::manager::Manager;
 use models::message::NetResponse;
+use models::server_setting::ServerSetting;
+use std::sync::{Arc, OnceLock};
 use std::{sync::Mutex, thread};
+use tauri::{async_runtime::spawn, AppHandle, Emitter};
 use tauri_plugin_cli::CliExt;
 
 pub mod controllers;
 pub mod models;
 pub mod services;
 
+// I'm using this to make app handler accessible within this app. I will eventually find a better way to handle this.
+// TODO: impl dependency injection?
+static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+
 // when the app starts up, I would need to have access to configs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
 fn client() {
+    // Implement this once we get this all working and verify through unit test - https://v2.tauri.app/plugin/single-instance/
     let data = Data::default();
     // I would like to find a better way to update or append data to render_nodes,
-    // but I need to review more context about handling context like this in rust.
-    // I understand Mutex, but I do not know if it's any safe to create pointers inside data struct from mutex memory.
     // "Do not communicate with shared memory"
     let ctx = Mutex::new(data);
 
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_persisted_scope::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_cli::init());
+
+    let builder = builder.setup(|app| {
+        //     // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.
+        //     // it would be nice to include version number in title bar of the app.
+
+        Ok(())
+    });
+
+    // I'm having problem trying to separate this call from client.
+    // I want to be able to run either server _or_ client via a cli switch.
+    // Would like to know how I can get around this?
     let mut server = Server::new(1500);
     let listen = server.rx_recv.take().unwrap();
 
-    // As soon as the function goes out of scope, thread will be drop.
-    let _thread = thread::spawn(move || {
-        while let Ok(event) = listen.recv() {
-            match event {
-                NetResponse::Joined { socket } => {
-                    println!("Net Response: [{}] joined!", socket);
-                }
-                NetResponse::Disconnected { socket } => {
-                    println!("Net Response: [{}] disconnected!", socket);
-                }
-                NetResponse::Info { socket, name } => {
-                    println!("Net Response: [{}] - {}", socket, name);
-                }
-                NetResponse::Status { socket, status } => {
-                    println!("Net Response: [{}] - {}", socket, status);
-                }
-                NetResponse::PeerList { addrs } => {
-                    // TODO: Send a notification to front end containing peer data information
-                    println!("Received peer list! {:?}", addrs);
-                }
-            }
-        }
-    });
-
-    // how do I receive the events?
     let m_server = Mutex::new(server);
 
-    // let client = CustomMenuItem::new("client_mode".to_string(), "Run as Client");
-    // let quit = CustomMenuItem::new("quit".to_string(), "Quit");
-    // // let submenu = Submenu::new("File", Menu::new().add_item(quit).add_item(close));
-    // let menu = Menu::new().add_item(quit).add_item(client);
+    let manager = Manager::load();
+    let m_manager = Mutex::new(manager);
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_cli::init())
-        .setup(|app| {
-            //     // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.
-            //     // it would be nice to include version number in title bar of the app.
-            //     println!("{}", app.package_info().version);
-            match app.cli().matches() {
-                // `matches` here is a Struct with { args, subcommand }.
-                // `args` is `HashMap<String, ArgData>` where `ArgData` is a struct with { value, occurrences }.
-                // `subcommand` is `Option<Box<SubcommandMatches>>` where `SubcommandMatches` is a struct with { name, matches }.
-                Ok(matches) => {
-                    dbg!(&matches);
-                    if matches.args.get("client").unwrap().occurrences > 1 {
-                        // run client mode instead.
-                        println!("Running client!");
-                        let _ = Client::new();
-                    }
-                }
-                Err(e) => {
-                    dbg!(e);
-                }
-            };
-            Ok(())
-        })
-        // https://docs.rs/tauri/1.6.8/tauri/struct.Builder.html#method.manage
-        // It is indeed possible to have more than one manage - which I will be taking advantage over how I can share and mutate configuration data across this platform.
+    let m_client: Arc<Option<Client>> = Arc::new(None);
+
+    let server_setting = ServerSetting::load();
+    let m_setting = Mutex::new(server_setting);
+
+    let app = builder
         .manage(ctx)
         .manage(m_server)
-        // .menu(menu)
-        // .on_menu_event(|event| match event.menu_item_id() {
-        //     "quit" => {
-        //         std::process::exit(0);
-        //     }
-        //     "client_mode" => {
-        //         println!("Run this program as client mode - How should the GUI change for this?");
-        //         // Hide the application to traybar - until the user decided to restart as a server.
-        //         let _client = Client::new();
-        //     }
-        //     _ => {}
-        // })
+        .manage(m_manager)
+        .manage(m_setting)
+        .manage(m_client.clone())
         .invoke_handler(tauri::generate_handler![
             import_project,
             create_node,
@@ -148,10 +116,66 @@ fn client() {
             list_blender_installation,
             remove_blender_installation,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-    // the idea here is that once the app goes out of scope, it is no longer up and running. I should then terminate the job.
-    // TODO - how do I keep the service alive? Is it possible to run the app as service mode? cli mode? Would be interesting.
+        .build(tauri::generate_context!())
+        .expect("Unable to build tauri app!");
+    APP_HANDLE.set(app.handle().clone()).unwrap();
+
+    match app.cli().matches() {
+        // `matches` here is a Struct with { args, subcommand }.
+        // `args` is `HashMap<String, ArgData>` where `ArgData` is a struct with { value, occurrences }.
+        // `subcommand` is `Option<Box<SubcommandMatches>>` where `SubcommandMatches` is a struct with { name, matches }.
+        // cargo tauri dev -- -- -c
+        Ok(matches) => {
+            dbg!(&matches);
+            if matches.args.get("client").unwrap().occurrences >= 1 {
+                // run client mode instead.
+                spawn(run_client());
+            }
+        }
+        Err(e) => {
+            dbg!(e);
+        }
+    };
+
+    // As soon as the function goes out of scope, thread will be drop.
+    let _thread = thread::spawn(move || {
+        while let Ok(event) = listen.recv() {
+            match event {
+                NetResponse::Joined { socket } => {
+                    println!("Net Response: [{}] joined!", socket);
+                    let handle = APP_HANDLE.get().unwrap();
+                    handle
+                        .emit("node_joined", socket)
+                        .expect("failed to emit node!");
+                }
+                NetResponse::Disconnected { socket } => {
+                    println!("Net Response: [{}] disconnected!", socket);
+                    let handle = APP_HANDLE.get().unwrap();
+                    handle
+                        .emit("node_left", socket)
+                        .expect("failed to emit node!");
+                }
+                NetResponse::Info { socket, name } => {
+                    println!("Net Response: [{}] - {}", socket, name);
+                }
+                NetResponse::Status { socket, status } => {
+                    println!("Net Response: [{}] - {}", socket, status);
+                }
+                NetResponse::PeerList { addrs } => {
+                    // TODO: Send a notification to front end containing peer data information
+                    println!("Received peer list! {:?}", addrs);
+                }
+                NetResponse::JobSent(job) => {
+                    let handle = APP_HANDLE.get().unwrap();
+                    handle
+                        .emit_to("job", "job_sent", job)
+                        .expect("failed to emit job!");
+                }
+            }
+        }
+    });
+
+    app.run(|_, _| {});
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -160,4 +184,9 @@ pub fn run() {
     // TODO: It would be nice to include command line utility to let the user add blender installation from remotely.
     // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.
     client();
+}
+
+async fn run_client() -> Result<(), ()> {
+    Client::new();
+    Ok(())
 }

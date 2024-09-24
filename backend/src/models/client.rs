@@ -313,6 +313,20 @@ impl Client {
                                     // Problem - program crash if the file already exist -
                                     // need to save the file in temp location first, then move into the directory when completed.
                                     // if duplicated file exist - find the best mitigate plan? e.g. metadata comparison
+
+                                    // TODO: Find a better way to check the directory and valdiate it exist.
+                                    // it would be nice if we can get the server settings safe in here?
+                                    // let server = ServerSetting::load();
+                                    // let mut dst = server.blend_dir;
+                                    // dst.push(&src.file_name().unwrap());
+                                    // let name = file_name.to_str().unwrap().to_string();
+
+                                    // if let Err(e) = std::fs::copy(&src, &dst) {
+                                    //     // this may happen when the user moves computer (MacOS Transfer) - Temp storage do not exist because it has been renamed to something else.
+                                    //     // TODO: validate temp storage exist before using it. - ServerSetting::load()
+                                    //     println!("Unable to copy file from [{src:?}] to [{dst:?}]: {e}");
+                                    // }
+
                                     let tmp = std::env::temp_dir().join(&file_name);
 
                                     if tmp.exists() {

@@ -51,6 +51,7 @@ pub enum NetResponse {
     PeerList {
         addrs: HashSet<Endpoint>,
     },
+    JobSent(Job),
 }
 
 // I could make this as a trait?

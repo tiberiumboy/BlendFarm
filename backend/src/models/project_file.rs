@@ -9,76 +9,41 @@
 */
 
 use serde::{Deserialize, Serialize};
-use std::{ffi::OsStr, io, path::PathBuf, str::FromStr};
+use std::{
+    io::{self, ErrorKind},
+    path::PathBuf,
+    str::FromStr,
+};
 
 use super::server_setting::ServerSetting;
 
 // TODO: this may ultimately get removed? We just need the pathbuf to the blender file specifically..
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ProjectFile {
     file_name: String,
 }
 
-impl PartialEq for ProjectFile {
-    fn eq(&self, other: &Self) -> bool {
-        self.file_name == other.file_name
-    }
-}
-
-pub fn get_project_collections() -> Vec<ProjectFile> {
-    let server = ServerSetting::load();
-    if !server.blend_dir.exists() {
-        return Vec::new();
-    }
-
-    // validate and see if this doesn't break
-    // need to find a way to filter reading dir to only *.blend extension.
-    match server.blend_dir.read_dir() {
-        Ok(entries) => {
-            // let mut col = Vec::with_capacity(*(&entries.count()));
-            let mut col = Vec::with_capacity(20); // temp fixes
-            for entry in entries {
-                if let Ok(dir_entity) = entry {
-                    let file_path = dir_entity.path();
-                    if file_path.is_file() && file_path.extension().unwrap().eq(OsStr::new("blend"))
-                    {
-                        let project_file = ProjectFile::new(file_path).unwrap();
-                        col.push(project_file);
-                    }
-                }
-            }
-
-            col
-        }
-        Err(_) => Vec::new(),
-    }
-}
-
 impl ProjectFile {
     pub fn new(src: PathBuf) -> Result<Self, io::Error> {
-        // Here - we need to do two things-
-        // one, we need to make a copy of this file, and put it in the blender working directory
-        // then save the blender file name instead of the full path to the source.
-        if let Some(file_name) = &src.file_name() {
-            let server = ServerSetting::load();
-            let mut dst = server.blend_dir;
-            dst.push(&src.file_name().unwrap());
-            let name = file_name.to_str().unwrap().to_string();
-
-            if let Err(e) = std::fs::copy(&src, &dst) {
-                println!("Unable to copy file from [{src:?}] to [{dst:?}]: {e}");
+        // enforce it so that we are only going to accept .blend file extension (or any number after the extension?)
+        if let Some(ext) = src.extension() {
+            if ext == "blend" {
+                let file_name = src.file_name().unwrap();
+                return Ok(Self {
+                    file_name: file_name.to_str().unwrap().to_string(),
+                });
             }
-            return Ok(Self { file_name: name });
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "source is not a file type!",
-            ))
         }
+
+        Err(io::Error::new(
+            ErrorKind::InvalidInput,
+            "Must be a blender file extension!",
+        ))
     }
 
     // I find this useful to return the path of the recent file location.
     pub(crate) fn file_path(&self) -> PathBuf {
+        // and another problem here...
         let server = ServerSetting::load();
         let path = server.blend_dir.to_owned();
         path.join(&self.file_name)

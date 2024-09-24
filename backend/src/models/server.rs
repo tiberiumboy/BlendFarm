@@ -81,11 +81,13 @@ impl Server {
         // I wonder if there's a way to simply this implementation code?
         // it would be nice if I could just provide a callback function to poll this?
         thread::spawn(move || {
-            // ultimately, I would need to find a way to lock this for thread safety.
             let mut peers: HashSet<Endpoint> = HashSet::new();
+            // TODO: Find a better place for this?
             let current_job: Option<Job> = None;
 
             loop {
+                // seems like a hack?
+                // TODO: Find a better way to handle this?
                 std::thread::sleep(Duration::from_millis(INTERVAL_MS));
                 if let Ok(msg) = rx.try_recv() {
                     match msg {
@@ -206,6 +208,7 @@ impl Server {
                                 } => { /* Server should ignore other server ping */ }
                                 NetMessage::SendJob(job) => {
                                     println!("Received job from [{}]\n{:?}", endpoint.addr(), job);
+                                    tx_recv.send(NetResponse::JobSent(job)).unwrap();
                                     // current_job = Some(job);
                                 }
                                 NetMessage::RequestJob => {
