@@ -15,12 +15,11 @@ use std::{
     str::FromStr,
 };
 
-use super::server_setting::ServerSetting;
-
 // TODO: this may ultimately get removed? We just need the pathbuf to the blender file specifically..
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ProjectFile {
     file_name: String,
+    path: PathBuf,
 }
 
 impl ProjectFile {
@@ -28,9 +27,10 @@ impl ProjectFile {
         // enforce it so that we are only going to accept .blend file extension (or any number after the extension?)
         if let Some(ext) = src.extension() {
             if ext == "blend" {
-                let file_name = src.file_name().unwrap();
+                let file_name = &src.file_name().unwrap();
                 return Ok(Self {
                     file_name: file_name.to_str().unwrap().to_string(),
+                    path: src,
                 });
             }
         }
@@ -41,12 +41,8 @@ impl ProjectFile {
         ))
     }
 
-    // I find this useful to return the path of the recent file location.
     pub(crate) fn file_path(&self) -> PathBuf {
-        // and another problem here...
-        let server = ServerSetting::load();
-        let path = server.blend_dir.to_owned();
-        path.join(&self.file_name)
+        self.path.clone()
     }
 }
 

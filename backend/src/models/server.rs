@@ -7,7 +7,6 @@ use crate::models::{job::Job, message::NetMessage};
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
-use std::os::unix::fs::MetadataExt; // hmm I'm concern about this one? Why is this any different than regular fs::metadata?
 use std::{
     collections::HashSet,
     fs::File,
@@ -19,6 +18,7 @@ use std::{
     thread,
     time::Duration,
 };
+use std::{os::unix::fs::MetadataExt, path::Path}; // hmm I'm concern about this one? Why is this any different than regular fs::metadata?
 
 pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
 const INTERVAL_MS: u64 = 500;
@@ -276,7 +276,8 @@ impl Server {
     }
 
     /// Send a file to all network nodes.
-    pub fn send_file(&self, file_path: &PathBuf) {
+    pub fn send_file(&self, file_path: impl AsRef<Path>) {
+        let file_path = file_path.as_ref();
         if !file_path.is_file() {
             println!("file path is not a file! Aborting operation!");
             return;
@@ -320,8 +321,7 @@ impl Server {
     }
 
     // going to have to put a hold on this for now...
-    // code may not be useful anymore. may have to refactor this to make this function first.
-    // Then we'll undo this.
+    // code may not be useful anymore. may have to refactor this to make this function working again.
     /*
     /// A client request if other client have identical blender version
     fn check_for_blender(

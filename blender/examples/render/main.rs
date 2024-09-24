@@ -1,6 +1,5 @@
 use blender::blender::Manager;
-use blender::models::status::Status;
-use blender::models::{args::Args, mode::Mode};
+use blender::models::{args::Args, mode::Mode, status::Status};
 use std::path::PathBuf;
 
 fn render_with_manager() {
@@ -10,33 +9,32 @@ fn render_with_manager() {
         Some(p) => PathBuf::from(p),
     };
 
-    // // we reference blender by executable path. Version will be detected upon running command process. (Self validation)
-
-    // if we have the manager available here...
+    // Get latest blender installed, or install latest blender from web.
     let mut manager = Manager::load();
     let blender = match manager.latest_local_avail() {
         Some(blender) => blender,
         None => manager.download_latest_version().unwrap(),
-    }; // change this so that if none arise - download latest version and install that
+    };
 
     // Here we ask for the output path, for now we set our path in the same directory as our executable path.
     // This information will be display after render has been completed successfully.
     let output = PathBuf::from("./examples/assets/");
+
     // Tells blender what kind of rendering mode are we performing, two options available, third one still in review for future impl.
     let mode = Mode::Frame(1);
-    // let mode = Mode::Animation { start: 1, end: 2 };  // animation mode, requires two arguments, first frame to start render, and the last frame to end animation
+    // let mode = Mode::Animation { start: 1, end: 2 };
 
-    // Create blender argument, which is required for the argument to accept.
+    // Create blender argument
     let args = Args::new(blend_path, output, mode);
 
     // render the frame. Completed render will return the path of the rendered frame, error indicates failure to render due to blender incompatible hardware settings or configurations. (CPU vs GPU / Metal vs OpenGL)
     let listener = blender.render(args);
-    // problem is, mpsc is not async. Need to wait for blender to finish rendering! :cry:
+
+    // Handle blender status
     while let Ok(status) = listener.recv() {
         match status {
             Status::Completed { result } => {
                 println!("[Completed] {:?}", result);
-                // break;
             }
             Status::Log { status } => {
                 println!("[Info] {}", status);
@@ -46,7 +44,6 @@ fn render_with_manager() {
             }
             Status::Error(e) => {
                 println!("[ERROR] {:?}", e);
-                // break;
             }
             _ => {
                 println!("unhandled blender status! {:?}", status);

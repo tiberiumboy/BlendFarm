@@ -315,6 +315,7 @@ impl Client {
                                     // if duplicated file exist - find the best mitigate plan? e.g. metadata comparison
 
                                     // TODO: Find a better way to check the directory and valdiate it exist.
+
                                     // it would be nice if we can get the server settings safe in here?
                                     // let server = ServerSetting::load();
                                     // let mut dst = server.blend_dir;
@@ -380,12 +381,7 @@ impl Client {
             }
         });
 
-        Self {
-            tx,
-            // rx_recv,
-            // name: gethostname().into_string().unwrap(),
-            // public_addr,
-        }
+        Self { tx }
     }
 
     // TODO: find a way to set up invoking mechanism to auto ping out if we do not have any connection to the server

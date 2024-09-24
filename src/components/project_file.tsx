@@ -3,8 +3,8 @@ import { MdOutlineMovie } from "react-icons/md";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface ProjectFileProps {
-  // do I need this?
   file_name: String;
+  path: String;
   onDataChanged?: () => void;
   onRequestNewJob?: (project: ProjectFileProps) => void;
 }

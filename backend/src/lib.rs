@@ -68,12 +68,7 @@ fn client() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_cli::init());
 
-    let builder = builder.setup(|app| {
-        //     // now that we know what the app version is - we can use it to set our global version variable, as our main node reference.
-        //     // it would be nice to include version number in title bar of the app.
-
-        Ok(())
-    });
+    let builder = builder.setup(|_| Ok(()));
 
     // I'm having problem trying to separate this call from client.
     // I want to be able to run either server _or_ client via a cli switch.

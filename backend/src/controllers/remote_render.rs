@@ -1,11 +1,22 @@
+/* Dev blog:
+- I really need to draw things out and make sense of the workflow for using this application.
+I wonder why initially I thought of importing the files over and then selecting the files again to begin the render job?
+
+For now - Let's go ahead and save the changes we have so far.
+Next update - Remove Project list, and instead just allow user to create a new job.
+when you create a new job, it immediately sends a new job to the server farm
+
+for future features impl:
+Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
+*/
+
 use crate::models::{
     data::Data, job::Job, project_file::ProjectFile, render_node::RenderNode, server::Server,
     server_setting::ServerSetting,
 };
-use blender::blender::Manager;
-use blender::models::mode::Mode;
+use blender::{blender::Manager, models::mode::Mode};
 use semver::Version;
-use std::{ffi::OsStr, fs, net::SocketAddr, path::PathBuf, sync::Mutex};
+use std::{ffi::OsStr, net::SocketAddr, path::PathBuf, sync::Mutex};
 use tauri::{command, AppHandle, Error, State};
 
 /// Create a node
@@ -23,11 +34,12 @@ pub fn create_node(state: State<Mutex<Server>>, name: &str, host: &str) -> Resul
 
 /// List out all available node for this blendfarm.
 #[command]
-pub fn list_node(state: State<Mutex<Server>>) /*-> Result<String, Error> */
+pub fn list_node(state: State<Mutex<Server>>)
+// -> Result<String, Error>
 {
     let server = state.lock().unwrap();
     server.get_peer_list(); // hmm might be a problem here?
-                            // let data = serde_json::to_string(&col.render_nodes).unwrap();
+                            // let data = serde_json::to_string(col.render_nodes).unwrap();
                             // Ok(data)
 }
 
@@ -60,6 +72,7 @@ pub fn edit_node(_app: AppHandle, _update_node: RenderNode) {
     todo!("Not yet implemented!");
 }
 
+// TODO: May not be needed here?
 /// Delete target node from the configuration
 #[command]
 pub fn delete_node(_app: AppHandle, target_node: String) -> Result<(), Error> {
@@ -73,21 +86,27 @@ pub fn delete_node(_app: AppHandle, target_node: String) -> Result<(), Error> {
 
 /// Allow user to import a new project file for blenderfarm to process job for.
 #[command]
-pub fn import_project(state: State<Mutex<Server>>, path: &str) {
+pub fn import_project(state: State<Mutex<Server>>, path: &str) -> Result<String, Error> {
     let file_path = PathBuf::from(path);
     let project_file = ProjectFile::new(file_path).unwrap();
 
     let server = state.lock().unwrap();
     server.send_file(&project_file.file_path());
+    // TODO - it would be nice to store our own little collection here as well.
+    // maybe sql?
+    let data = serde_json::to_string(&project_file).unwrap();
+    Ok(data)
 }
 
 /// Delete target project file from the collection. Note - this does not mean delete the original source file, it simply remove the project entry from the list
 #[command]
-pub fn delete_project(project_file: ProjectFile) -> Result<(), String> {
-    if let Err(e) = fs::remove_file(project_file.file_path()) {
-        println!("Error deleting project file from local system: {e}");
-        return Err(format!("Unable to delete file!\n{}", e));
-    };
+pub fn delete_project(_project_file: ProjectFile) -> Result<(), String> {
+    // Extremely dangerous! Lost one of my blend file from this!!
+    // TODO: find a better approach to remove the entry from the list instead of permanently deleting the files.
+    // if let Err(e) = fs::remove_file(project_file.file_path()) {
+    //     println!("Error deleting project file from local system: {e}");
+    //     return Err(format!("Unable to delete file!\n{}", e));
+    // };
     Ok(())
 }
 
@@ -134,14 +153,15 @@ pub fn create_job(
     version: &str,
     project_file: ProjectFile,
     mode: Mode,
-) {
+) -> Result<Job, Error> {
     let output: PathBuf = PathBuf::from(output);
     let version = Version::parse(version).unwrap();
     let job = Job::new(project_file, output, version, mode);
 
     // TODO: Find a way to send the job to the clients and render the job.
     let server = state.lock().unwrap();
-    server.send_job(job);
+    server.send_job(job.clone());
+    Ok(job)
 }
 
 /// Abort the job if it's running and delete the entry from the collection list.
