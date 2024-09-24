@@ -7,22 +7,20 @@ use crate::models::{job::Job, message::NetMessage};
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
-#[cfg(target_family="windows")]
-use std::os::windows::fs::MetadataExt;
-#[cfg(target_family="unix")]
+#[cfg(target_family = "unix")]
 use std::os::unix::fs::MetadataExt;
+#[cfg(target_family = "windows")]
+use std::os::windows::fs::MetadataExt;
 use std::{
     collections::HashSet,
     fs::File,
     io::Read,
-    net::SocketAddr,
-    net::{IpAddr, Ipv4Addr},
-    path::PathBuf,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::{Path, PathBuf},
     sync::mpsc::{self},
     thread,
     time::Duration,
 };
-use std::{os::unix::fs::MetadataExt, path::Path}; // hmm I'm concern about this one? Why is this any different than regular fs::metadata?
 
 pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
 const INTERVAL_MS: u64 = 500;
@@ -100,8 +98,10 @@ impl Server {
                         CmdMessage::SendFile(file_path, destination) => {
                             let mut file = File::open(&file_path).unwrap();
                             let file_name = file_path.file_name().unwrap().to_str().unwrap();
-                            // let size = file.metadata().unwrap().size() as usize;
+                            #[cfg(target_family = "windows")]
                             let size = file.metadata().unwrap().file_size() as usize;
+                            #[cfg(target_family = "unix")]
+                            let size = file.metadata().unwrap().size() as usize;
                             let mut data: Vec<u8> = Vec::with_capacity(size);
                             let bytes = file.read_to_end(&mut data).unwrap();
                             if bytes != size {

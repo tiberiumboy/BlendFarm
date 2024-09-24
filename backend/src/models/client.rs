@@ -17,10 +17,10 @@ use message_io::node::{self, StoredNetEvent, StoredNodeEvent};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr};
-#[cfg(target_family="windows")]
-use std::os::windows::fs::MetadataExt;
-#[cfg(target_family="unix")]
+#[cfg(target_family = "unix")]
 use std::os::unix::fs::MetadataExt;
+#[cfg(target_family = "windows")]
+use std::os::windows::fs::MetadataExt;
 use std::{net::SocketAddr, sync::mpsc, thread, time::Duration};
 
 const INTERVAL_MS: u64 = 500;
@@ -122,8 +122,10 @@ impl Client {
                             // here the client is sending the file to either the server or client.
                             let mut file = File::open(&file_path).unwrap();
                             let file_name = file_path.file_name().unwrap().to_str().unwrap();
-                            // let size = file.metadata().unwrap().size() as usize;
+                            #[cfg(target_family = "windows")]
                             let size = file.metadata().unwrap().file_size() as usize;
+                            #[cfg(target_family = "unix")]
+                            let size = file.metadata().unwrap().size() as usize;
                             let mut data: Vec<u8> = Vec::with_capacity(size);
                             let bytes = file.read_to_end(&mut data).unwrap();
                             if bytes != size {
