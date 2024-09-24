@@ -7,6 +7,10 @@ use crate::models::{job::Job, message::NetMessage};
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
+#[cfg(target_family="windows")]
+use std::os::windows::fs::MetadataExt;
+#[cfg(target_family="unix")]
+use std::os::unix::fs::MetadataExt;
 use std::{
     collections::HashSet,
     fs::File,
@@ -22,12 +26,6 @@ use std::{os::unix::fs::MetadataExt, path::Path}; // hmm I'm concern about this 
 
 pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
 const INTERVAL_MS: u64 = 500;
-
-/*
-    server:udp -> ping { server ip's address } -> client:udp
-    // currently client node is able to receive the server ping, but unable to connect to the server!
-    client:tcp -> connect ( server ip's address ) -> ??? Err?
-*/
 
 // Issue: Cannot derive debug because NodeTask doesn't derive Debug! Omit NodeTask if you need to Debug!
 // TODO: provide documentation explaining what this function does.
@@ -102,7 +100,8 @@ impl Server {
                         CmdMessage::SendFile(file_path, destination) => {
                             let mut file = File::open(&file_path).unwrap();
                             let file_name = file_path.file_name().unwrap().to_str().unwrap();
-                            let size = file.metadata().unwrap().size() as usize;
+                            // let size = file.metadata().unwrap().size() as usize;
+                            let size = file.metadata().unwrap().file_size() as usize;
                             let mut data: Vec<u8> = Vec::with_capacity(size);
                             let bytes = file.read_to_end(&mut data).unwrap();
                             if bytes != size {

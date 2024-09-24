@@ -16,6 +16,7 @@ xz = { version = "0.1.0" }
 thiserror = "1.0.29"
 uuid = { version = "1.10.0", features = ["serde", "v4"] }
 ureq = { version = "2.10.1" }
+zip = "2.2.0"
 
 
 # [features]

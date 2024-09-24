@@ -107,9 +107,17 @@ impl DownloadLink {
         download_path: impl AsRef<Path>,
         folder_name: &str,
     ) -> Result<PathBuf, Error> {
-        let output = download_path.parent().unwrap().join(folder_name);
-        todo!("Need to impl. window version of file extraction here");
-        Ok(output.join("/blender.exe"))
+        use std::fs::File;
+        use zip::ZipArchive;
+        let output = download_path.as_ref().join(folder_name);
+        
+        let file = File::open(download_path).unwrap();
+
+        // how do I unzip files?
+        let mut archive = ZipArchive::new(file).unwrap();
+        archive.extract(&output).unwrap();
+
+        Ok(output.join( "Blender.exe".to_owned()))
     }
 
     pub fn fetch_version_url(version: &Version) -> Result<DownloadLink, Error> {
