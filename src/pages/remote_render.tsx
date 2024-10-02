@@ -1,22 +1,12 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, once } from "@tauri-apps/api/event";
 import { ChangeEvent, useState } from "react";
 import RenderJob, { RenderJobProps } from "../components/render_job";
-import ProjectFile, { ProjectFileProps } from "../components/project_file";
-import RenderNode, { RenderNodeProps } from "../components/render_node";
-
-// TODO: Find a way to invoke global event updates so that we can notify image changes/updates
-// hmm?
-interface RenderComposedPayload {
-  id: string;
-  src: string;
-}
 
 // TODO: Figure out if this works or not, Need to re-read Tauri documentation again to understand event bridge between frontend and backend
-const unlisten = await once<RenderComposedPayload>("image_update", (event) => {
-  console.log(event);
-});
+// const unlisten = await once<RenderComposedPayload>("image_update", (event) => {
+//   console.log(event);
+// });
 
 // must deserialize into this format: "Frame": "i32",
 const Frame = () => (
@@ -37,128 +27,62 @@ const Section = () => (
   </div>
 );
 
-const components = {
+const components: any = {
   frame: Frame,
   section: Section,
 };
 
-async function sendProjectToBackend(entry: any, projects: ProjectFileProps[], setProjects: any): Promise<(ProjectFileProps | undefined)> {
-  const ctx: any = await invoke("import_project", { path: entry });
-  if (ctx === null) {
-    return undefined;
-  }
-  return JSON.parse(ctx) as ProjectFileProps;
-}
-
-function ProjectWindow(onRequestJobWindow: (e: ProjectFileProps) => void) {
-  const [projects, setProjects] = useState([] as ProjectFileProps[]);
-
-  function listProjects() {
-    console.log("list projects was called");
-    invoke("list_projects").then((ctx: any) => {
-      const data: ProjectFileProps[] = JSON.parse(ctx);
-      setProjects(data);
-    });
-  }
-
-  /*
-     The goal behind this is to let the user import the projects into their own temp collection,
-     which will be used to distribute across other nodes on the network.
-     In this transaction - we take a copy of the source file, and put it into blenderFiles directory.
-     Feature: This will be used as a cache to validate if the file has changed or not.
-  
-     Next, if the user clicks on the collection entry, we display a pop up asking which render node would this project like to use.
-     Then any specific rendering configurations, E.g. Single frame or Animation
-     We could utilize segment renderings where for a single frame, we take chunks of render and assemble them together for
-     high resolution distribution job.
-
-
-     
-      */
-  return (
-    <div>
-      <h2>Project List</h2>
-      <button
-        onClick={(e: any) => {
-          e.preventDefault();
-          open({
-            multiple: true,
-            filters: [
-              {
-                name: "Blender",
-                extensions: ["blend"],
-              },
-            ],
-          }).then(async (selected) => {
-            let col = projects;
-            if (Array.isArray(selected)) {
-              selected.forEach(async (entry) => {
-                let data = await sendProjectToBackend(entry, projects, setProjects);
-                if (data !== undefined) { col.push(data); }
-              });
-            } else if (selected != null) {
-              let data = await sendProjectToBackend(selected, projects, setProjects);
-              if (data !== undefined) { col.push(data); }
-            }
-
-            setProjects(col);
-            console.log("projects:", projects);
-          });
-        }}
-      >
-        Import
-      </button>
-      <div className="group">
-        {projects.map(
-          (project: ProjectFileProps) => (
-            (project.onDataChanged = listProjects),
-            (project.onRequestNewJob = onRequestJobWindow),
-            ProjectFile(project)
-          ),
-        )}
+function JobDetail(prop: { job: RenderJobProps | undefined }) {
+  if (prop.job != null) {
+    return (
+      < div >
+        <h2>Job Details: {prop.job.id}</h2>
+        <p>File name: {prop.job.project_file.file_name}</p>
+        <p>Status: Finish</p>
+        <p>Progress: 100/100%</p>
+        {/* Find a way to pipe the image here? or call fetch the last image received */}
+        <img src={prop.job.renders[0]} />
+      </div >
+    )
+  } else {
+    return (
+      <div>
+        <p>
+          <i>
+            Please select a job above to see the full content.
+          </i>
+        </p>
       </div>
-    </div >
-  );
+    )
+  }
 }
 
-function JobWindow(jobs: RenderJobProps[]) {
-  return (
-    <div>
-      {/* Collection of active job list */}
-      <h2>Job List</h2>
-      <div className="group">
-        {jobs.map(RenderJob)}
-      </div>
-    </div>
-  );
-}
-
-function JobCreationDialog(selectedProject: ProjectFileProps) {
+function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps) => void) {
   const [mode, setMode] = useState(components["frame"]());
-  const [versions, setVersions] = useState([] as string[]);
-
-  // how can I go about getting the list of blender version here?
-  function listVersions() {
-    invoke("list_versions").then((ctx: any) => {
-      const data: string[] = JSON.parse(ctx);
-      setVersions(data);
-    });
-  }
+  const [version, setVersion] = useState(versions[0]);
 
   const handleSubmitJobForm = (e: React.FormEvent) => {
     e.preventDefault(); // wonder if this does anything?
     // How do I structure this?
     const info = e.target as HTMLFormElement;
     const selectedMode = info.modes.value;
+    const filePath = info.file_path.value;
+    const output = info.output.value;
+
     let mode = generateMode(selectedMode, e.target);
     let data = {
-      output: info.output.value,
-      version: info.version.value,
-      projectFile: selectedProject,
+      filePath,
+      output,
+      version,
       mode,
     };
 
-    invoke("create_job", data); //.then(listJobs);
+    invoke("create_job", data).then((ctx: any) => {
+      if (ctx == null) {
+        return;
+      }
+      jobCreated(ctx as RenderJobProps); // chances are it could be invalid data? todo; unit test this?
+    });
     closeDialog();
   }
 
@@ -191,10 +115,33 @@ function JobCreationDialog(selectedProject: ProjectFileProps) {
     setMode(mode);
   }
 
+  async function onDirectorySelect(e: any) {
+    const filePath = await open({
+      directory: true,
+      multiple: false,
+    });
+    if (filePath != null) {
+      // TODO: find a way to include the dash elsewhere
+      e.target.value = filePath + "/";
+    }
+  }
+
+  async function onFileSelect(e: any) {
+    const filePath = await open({
+      directory: false,
+      multiple: false,
+      filters: [
+        {
+          name: "Blender",
+          extensions: ["blend"],
+        },
+      ],
+    })
+    e.target.value = filePath;
+  }
 
   /*
       Display this window with a list of available nodes to select from,
-      TODO: List blender version for the blender project we collected
       TODO: Test argument passing to rust and verify all system working as intended.
   
       once that is completed, it set forth a new queue instruction to all nodes.
@@ -208,6 +155,9 @@ function JobCreationDialog(selectedProject: ProjectFileProps) {
     <dialog id="create_process">
       <form method="dialog" onSubmit={handleSubmitJobForm}>
         <h1>Create new Render Job</h1>
+        <label>Project File Path:</label>
+        <input type="text" placeholder="Project path" id="file_path" name="file_path" readOnly={true} onClick={onFileSelect} />
+        <br />
         <label>Choose rendering mode</label>
         <select name="modes" onChange={handleRenderModeChange} >
           {Object.entries(components).map((item) => (
@@ -217,7 +167,7 @@ function JobCreationDialog(selectedProject: ProjectFileProps) {
         <br />
         <label>Blender Version:</label>
         {/* TODO: Find a way to fetch default blender version by user preference? */}
-        <select name="version" value={"4.1.0"}>
+        <select value={version} onChange={(e) => setVersion(e.target.value)}>
           {versions.map((item) => (
             <option value={item}>{item}</option>
           ))}
@@ -231,16 +181,7 @@ function JobCreationDialog(selectedProject: ProjectFileProps) {
           name="output"
           value={"/Users/Shared/"}
           readOnly={true}
-          onClick={async (e: any) => {
-            const filePath = await open({
-              directory: true,
-              multiple: false,
-            });
-            if (filePath != null) {
-              // TODO: find a way to include the dash elsewhere
-              e.target.value = filePath + "/";
-            }
-          }}
+          onClick={onDirectorySelect}
         />
         <menu>
           <button type="button" value="cancel" onClick={closeDialog}>
@@ -253,23 +194,14 @@ function JobCreationDialog(selectedProject: ProjectFileProps) {
   );
 }
 
-export default function RemoteRender() {
-  // something went terribly wrong here?
-  const [jobs, setJobs] = useState([] as RenderJobProps[]);
-  const [selectedProject, setSelectedProject] = useState(
-    {} as ProjectFileProps,
-  );
+export interface RemoteRenderProps {
+  versions: string[];
+  jobs: RenderJobProps[];
+  onJobCreated(job: RenderJobProps): void;
+}
 
-  //#region API Calls to fetch Data
-
-  // function listJobs() {
-  //   invoke("list_job").then((ctx: any) => {
-  //     const data: RenderJobProps[] = JSON.parse(ctx);
-  //     setJobs(data)
-  //   });
-  // }
-
-  //#endregion
+export default function RemoteRender(props: RemoteRenderProps) {
+  const [selectedJob, setSelectedJob] = useState<RenderJobProps>();
 
   //#region Dialogs
   function showDialog() {
@@ -278,17 +210,24 @@ export default function RemoteRender() {
     dialog?.showModal();
   }
 
-  function openJobWindow(project: ProjectFileProps) {
-    setSelectedProject(project);
-    showDialog();
+  function onJobSelected(job: RenderJobProps): void {
+    setSelectedJob(job);
   }
 
   return (
     <div className="content">
-      <h1>Remote Render</h1>
-      {ProjectWindow(openJobWindow)}
-      {JobWindow(jobs)}
-      {JobCreationDialog(selectedProject)}
+      <h2>Remote Jobs</h2>
+      <button onClick={showDialog}>
+        Import
+      </button>
+      {/* Collection of active job list */}
+      <div className="group">
+        {props.jobs.map((job) => RenderJob(job, onJobSelected))}
+      </div>
+
+      <JobDetail job={selectedJob} />
+
+      {JobCreationDialog(props.versions, props.onJobCreated)}
     </div>
   );
 }

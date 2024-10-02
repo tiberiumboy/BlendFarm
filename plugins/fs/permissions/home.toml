@@ -1,0 +1,6 @@
+[[permission]]
+identifier = "scope-home"
+description = """This scope permis access to all files and list content of top level directories in the `$HOME`folder."""
+
+[[scope.allow]]
+path = "$HOME/*"

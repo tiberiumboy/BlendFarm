@@ -14,13 +14,7 @@
         verify all packet works as intended while I can run the code in parallel to see if there's any issue I need to work overhead.
         This might be another big project to work over the summer to understand how network works in Rust.
 
-[F] - Take a look into multiple producer single consumer (std::sync::mpsc):
-        See how we can handle newly connected node or other node property into subscribable
-        state to send notification to tauri front end.
-
-
 [F] - find a way to allow GUI interface to run as client mode for non cli users.
-
 [F] - consider using channel to stream data https://v2.tauri.app/develop/calling-frontend/#channels
 [F] - Before release - find a way to add updater  https://v2.tauri.app/plugin/updater/
 
@@ -30,15 +24,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use crate::controllers::remote_render::{
-    create_job, create_node, delete_job, delete_node, delete_project, edit_node, import_project,
-    list_job, list_node, list_projects, list_versions, ping_node,
+    create_job, create_node, delete_job, delete_node, delete_project, list_jobs, list_node,
+    list_versions, ping_node,
 };
 use crate::controllers::settings::{
-    add_blender_installation, get_server_settings, list_blender_installation,
-    remove_blender_installation, set_server_settings,
+    add_blender_installation, fetch_blender_installation, get_server_settings,
+    list_blender_installation, remove_blender_installation, set_server_settings,
 };
 use crate::models::{client::Client, data::Data, server::Server};
 use blender::manager::Manager;
+use blender::models::download_link::BlenderHome;
 use models::message::NetResponse;
 use models::server_setting::ServerSetting;
 use std::sync::{Arc, OnceLock};
@@ -76,6 +71,10 @@ fn client() {
     let mut server = Server::new(1500);
     let listen = server.rx_recv.take().unwrap();
 
+    let blender_link = BlenderHome::new()
+        .expect("unable to fetch blender lists, are you connected to the internet?");
+    let m_blender_link = Mutex::new(blender_link);
+
     let m_server = Mutex::new(server);
 
     let manager = Manager::load();
@@ -91,18 +90,16 @@ fn client() {
         .manage(m_server)
         .manage(m_manager)
         .manage(m_setting)
+        .manage(m_blender_link)
         .manage(m_client.clone())
         .invoke_handler(tauri::generate_handler![
-            import_project,
             create_node,
             create_job,
             delete_node,
             delete_project,
             delete_job,
-            edit_node,
             list_node,
-            list_projects,
-            list_job,
+            list_jobs,
             list_versions,
             get_server_settings,
             set_server_settings,
@@ -110,6 +107,7 @@ fn client() {
             add_blender_installation,
             list_blender_installation,
             remove_blender_installation,
+            fetch_blender_installation,
         ])
         .build(tauri::generate_context!())
         .expect("Unable to build tauri app!");
@@ -165,6 +163,12 @@ fn client() {
                     handle
                         .emit_to("job", "job_sent", job)
                         .expect("failed to emit job!");
+                }
+                NetResponse::ImageComplete(path) => {
+                    let handle = APP_HANDLE.get().unwrap();
+                    handle
+                        .emit("image_update", path)
+                        .expect("Fail to send completed image!");
                 }
             }
         }

@@ -51,3 +51,13 @@ features = ["v4", "fast-rng", "macro-diagnostics, serde"]
 
 [dependendies.pnet]
 version = "0.34"
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

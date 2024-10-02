@@ -58,9 +58,10 @@ impl Server {
         // connect udp
         let (udp_conn, _) = match handler.network().connect(Transport::Udp, MULTICAST_ADDR) {
             Ok(data) => data,
-            Err(e) => {
-                panic!("{e}");
-            }
+            // Err(e) if e.kind() == std::io::ErrorKind::NetworkUnreachable => {
+            //     todo!("how can we gracefully tell the program to continue to run on local network - despite we're \"offline\"?");
+            // }
+            Err(e) => panic!("{e}"),
         };
 
         // listen udp
@@ -82,7 +83,6 @@ impl Server {
             let current_job: Option<Job> = None;
 
             loop {
-                // seems like a hack?
                 // TODO: Find a better way to handle this?
                 std::thread::sleep(Duration::from_millis(INTERVAL_MS));
                 if let Ok(msg) = rx.try_recv() {
@@ -317,6 +317,16 @@ impl Server {
                 socket,
             })
             .unwrap();
+    }
+
+    pub fn get_job_list(&self) -> Vec<Job> {
+        if self.rx_recv.is_none() {
+            return vec![];
+        }
+
+        // we'll figure out the logic below later.
+        todo!("Complete the logic to grab job list from the server");
+        vec![]
     }
 
     // going to have to put a hold on this for now...

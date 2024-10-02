@@ -86,22 +86,32 @@ impl Manager {
     }
 
     // Download the specific version from download.blender.org
-    fn download(&mut self, _version: &Version) -> Result<Blender, ManagerError> {
+    fn download(&mut self, version: &Version) -> Result<Blender, ManagerError> {
         // TODO: As a extra security measure, I would like to verify the hash of the content before extracting the files.
-        // TODO: How did BlendFarm fetch all blender version?
-        let mut blender_home =
+        let arch = std::env::consts::ARCH.to_owned();
+        let os = std::env::consts::OS.to_owned();
+
+        let blender_home =
             BlenderHome::new().map_err(|e| ManagerError::RequestError(e.to_string()))?;
 
-        blender_home.list.sort();
-        let category = blender_home.list.first().unwrap();
-        dbg!(&category);
+        let category = blender_home
+            .list
+            .iter()
+            .find(|&b| b.major.eq(&version.major) && b.minor.eq(&version.minor))
+            .ok_or(ManagerError::DownloadNotFound {
+                arch,
+                os,
+                url: "".to_owned(),
+            })?;
 
-        let filter = category
-            .fetch()
+        let download_link = category
+            .retrieve(version)
             .map_err(|e| ManagerError::FetchError(e.to_string()))?;
-        let download_link = filter.first().unwrap();
 
         let destination = self.install_path.join(&category.name);
+
+        // got a permission denied here?
+        // I need to figure out why and how I can stop this from happening?
         fs::create_dir_all(&destination).unwrap();
 
         // TODO: verify this is working for windows (.zip)?
@@ -168,7 +178,7 @@ impl Manager {
     }
 
     /// Check and add a local installation of blender to manager's registry of blender version to use from.
-    pub fn add_blender_path(&mut self, path: &impl AsRef<Path>) -> Result<(), ManagerError> {
+    pub fn add_blender_path(&mut self, path: &impl AsRef<Path>) -> Result<Blender, ManagerError> {
         let path = path.as_ref();
         let extension = BlenderCategory::get_extension().map_err(ManagerError::UnsupportedOS)?;
         // let str_path = path.as_os_str().to_str().unwrap().to_owned();
@@ -195,14 +205,23 @@ impl Manager {
         let blender =
             Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
 
-        self.add_blender(blender);
-        Ok(())
+        self.add_blender(blender.clone());
+        Ok(blender)
     }
 
     /// Remove blender installation from the manager list.
     pub fn remove_blender(&mut self, blender: &Blender) {
         self.blenders.retain(|x| x.eq(blender));
         self.has_modified = true;
+    }
+
+    /// Deletes the parent directory that blender reside in. This might be a dangerous function as this involves removing the directory blender executable is in.
+    /// TODO: verify that this doesn't break macos path executable... Why mac gotta be special with appbundle?
+    pub fn delete_blender(&mut self, _blender: &Blender) {
+        // this deletes blender from the system. You have been warn!
+        todo!("Exercise with caution!");
+        fs::remove_dir_all(_blender.get_executable().parent().unwrap()).unwrap();
+        self.remove_blender(_blender);
     }
 
     // TODO: Name ambiguous - clarify method name to clear and explicit
@@ -248,6 +267,13 @@ impl Manager {
             Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
         self.blenders.push(blender.clone());
         Ok(blender)
+    }
+
+    pub fn list_all_blender_version(&self) -> Vec<BlenderCategory> {
+        // here we will return a list of all blender version stored.
+        // Dive into the parent directory, and get the last update version
+        // can we create a single sharable mutable state reference? This feels like a hack and may cause internet disruptance.
+        BlenderHome::new().expect("Unable to get data").list
     }
 }
 

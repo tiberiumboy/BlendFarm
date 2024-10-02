@@ -52,6 +52,7 @@ pub enum NetResponse {
         addrs: HashSet<Endpoint>,
     },
     JobSent(Job),
+    ImageComplete(PathBuf),
 }
 
 // I could make this as a trait?

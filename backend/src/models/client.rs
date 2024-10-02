@@ -61,7 +61,7 @@ impl Client {
 
         let (tx, rx) = mpsc::channel();
         let tx_owned = tx.clone();
-        // let (tx_recv, rx_recv) = mpsc::channel::<RequestMessage>();
+        // let (tx_recv, rx_recv) = mpsc::channel::<NetMessage>();
 
         thread::spawn(move || {
             // client should only have a connection to the server, maybe a connection to transfer files?
@@ -110,11 +110,40 @@ impl Client {
                                     blender::models::status::Status::Error(e) => {
                                         println!("Blender[ERR]: {e}");
                                     }
+                                    // TODO: how do I check and see if I have any pending renders?
                                     blender::models::status::Status::Completed { result } => {
                                         println!("Render completed! {:?}", result);
+                                        // here I need to find a way to send the file back to the host
+                                        // and tell it this is render image XXX for job XXX?
+
+                                        // Ok we need to do two things.
+                                        // one is we need to send the image back to the host
+                                        // then two we need to let the host hey I'm done with this render image!
+                                        // the reason for above is that we don't want the host to know we're done if we have another animation to render.
+                                        // we should just send the stats information to let the user know their progress on this current node.
+                                        // TODO: Find a way to get the server host? How? I thought I have this information somewhere?
+                                        let active_server = match server {
+                                            Some(server) => server,
+                                            None => break,
+                                        };
+
+                                        let cmd = CmdMessage::SendFile(
+                                            result,
+                                            Destination::Target(active_server),
+                                        );
+                                        // once this is done, then we can go off and tell the render job, hey I'm done!
+                                        // handler.network().send(cmd).unwrap();
+                                        tx_owned.send(cmd).unwrap();
+
                                         break;
                                     }
                                 }
+                            }
+
+                            // notify the host that we're available.
+                            if let Some(server) = server {
+                                let completion = NetMessage::RequestJob.serialize();
+                                handler.network().send(server, &completion);
                             }
                         }
                         // function duplicated in server struct - may need to move this code block to a separate struct to handle network protocol between server/client
@@ -185,12 +214,10 @@ impl Client {
                             else {
                                 println!("Connected via TCP channel! [{}]", endpoint.addr());
                                 server = Some(endpoint);
-
-                                // sending job request
+                                // TODO: should this be a default thing once client node is connected?
                                 handler
                                     .network()
                                     .send(endpoint, &NetMessage::RequestJob.serialize());
-                                // dbg!(handler.network().send(endpoint, ))
                             }
                         }
                         StoredNetEvent::Accepted(endpoint, _) => {

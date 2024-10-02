@@ -70,13 +70,7 @@ pub struct Job {
 }
 
 impl Job {
-    pub fn new(
-        project_file: ProjectFile,
-        // TODO: Is it acceptable to use Path to store in struct?
-        output: PathBuf,
-        version: Version,
-        mode: Mode,
-    ) -> Job {
+    pub fn new(project_file: ProjectFile, output: PathBuf, version: Version, mode: Mode) -> Job {
         let current_frame = match mode {
             Mode::Frame(frame) => frame,
             Mode::Animation { start, .. } => start,
@@ -84,8 +78,8 @@ impl Job {
         };
         Job {
             id: Uuid::new_v4(),
-            output,
             version,
+            output,
             project_file,
             mode,
             renders: Default::default(),

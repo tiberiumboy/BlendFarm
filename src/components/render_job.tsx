@@ -3,14 +3,17 @@ import { CiCircleMore, CiTrash } from "react-icons/ci";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 
 export interface RenderJobProps {
+  current_frame: number;
   id: string;
+  mode: any;
+  output: string;
   project_file: ProjectFileProps;
-  src?: string;
-  image_pic?: string;
+  renders: string[];
+  version: string;
   onDataChanged?: () => void;
 }
 
-export default function RenderJob(job: RenderJobProps) {
+export default function RenderJob(job: RenderJobProps, callback: (job: RenderJobProps) => void) {
   const deleteJob = () =>
     invoke("delete_job", { targetJob: job }).then(job.onDataChanged);
 
@@ -19,26 +22,12 @@ export default function RenderJob(job: RenderJobProps) {
     console.log("more action was pressed | TODO: add impl.");
   };
 
-  const showCompletedImage = () => {
-    if (job.image_pic != null) {
-      return (
-        <img
-          style={{ height: "100%", width: "100%", objectFit: "contain" }}
-          src={convertFileSrc(job.image_pic)}
-        />
-      );
-    } else {
-      return <div></div>;
-    }
-  };
-
   return (
     <div>
       <table>
         <tbody>
-          <tr>
+          <tr onClick={() => callback(job)}>
             <td style={{ width: "100%" }}>{job.project_file.file_name}</td>
-            {/* <td>{job.project_file.src}</td> */}
             <td>
               <CiTrash onClick={deleteJob} />
             </td>
@@ -48,7 +37,6 @@ export default function RenderJob(job: RenderJobProps) {
           </tr>
         </tbody>
       </table>
-      {showCompletedImage()}
     </div>
   );
 }

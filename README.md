@@ -28,6 +28,11 @@ There are several ways to start; the first and easiest would be to download the 
 
 ### TLDR:
 
+First - Install tauri-cli as this component is needed to run `cargo tauri` command. Run the following command:
+`cargo install tauri-cli --version ^2.0.0-rc --locked`
+
+*Note- For windows, you must encapsulate the version in double quotes!
+
 To run Tauri app - run the following command under `/BlendFarm/` directory - `cargo tauri dev`
 
 To run the client app - run the following command under `/BlendFarm/backend/` directory - `cargo run -- -c`
