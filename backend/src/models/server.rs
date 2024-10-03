@@ -31,6 +31,9 @@ const INTERVAL_MS: u64 = 500;
 pub struct Server {
     tx: mpsc::Sender<CmdMessage>,
     pub rx_recv: Option<mpsc::Receiver<NetResponse>>,
+    // TODO: Find a way to make this job acccessible by Tauri frontend.
+    #[allow(dead_code)]
+    jobs: Vec<Job>,
     _task: NodeTask,
 }
 
@@ -46,6 +49,7 @@ impl Server {
         let (handler, listener) = node::split::<NetMessage>();
 
         let (_task, mut receiver) = listener.enqueue();
+        // was this design to handle computer off the network?
         let public_addr =
             SocketAddr::new(local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), port);
 
@@ -76,7 +80,6 @@ impl Server {
         let (tx_recv, rx_recv) = mpsc::channel();
 
         // I wonder if there's a way to simply this implementation code?
-        // it would be nice if I could just provide a callback function to poll this?
         thread::spawn(move || {
             let mut peers: HashSet<Endpoint> = HashSet::new();
             // TODO: Find a better place for this?
@@ -264,6 +267,7 @@ impl Server {
         Self {
             tx,
             rx_recv: Some(rx_recv),
+            jobs: vec![], // todo: find a way to load history stack?
             _task,
         }
     }
@@ -275,6 +279,7 @@ impl Server {
     }
 
     /// Send a file to all network nodes.
+    #[allow(dead_code)]
     pub fn send_file(&self, file_path: impl AsRef<Path>) {
         let file_path = file_path.as_ref();
         if !file_path.is_file() {
@@ -325,7 +330,7 @@ impl Server {
         }
 
         // we'll figure out the logic below later.
-        todo!("Complete the logic to grab job list from the server");
+        // todo!("Complete the logic to grab job list from the server");
         vec![]
     }
 

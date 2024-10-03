@@ -228,14 +228,13 @@ impl BlenderCategory {
         // for (_, [url, name, patch]) in
         let vec = regex
             .captures_iter(&content)
-            .map(|c| {
+            .filter_map(|c| {
                 let (_, [url, name, patch]) = c.extract();
                 let url = self.url.join(url).ok()?;
                 let patch = patch.parse().ok()?;
                 let version = Version::new(self.major, self.minor, patch);
                 Some(DownloadLink::new(name.to_owned(), url, version))
             })
-            .flatten()
             .collect();
 
         Ok(vec)

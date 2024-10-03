@@ -1,14 +1,12 @@
 {
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "enables the default permissions",
-  "windows": [
-    "main"
+  "identifier": "desktop-capability",
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
   ],
   "permissions": [
     "cli:default",
-    "allow-open",
-    "allow-ask",
     "allow-confirm",
     "allow-open",
     "allow-confirm",

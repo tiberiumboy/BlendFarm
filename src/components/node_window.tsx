@@ -16,13 +16,13 @@ export default function NodeWindow() {
 
   //TODO: read more into this https://v2.tauri.app/develop/calling-frontend/
   // ok this works. Just need to find a way to subscribe on component start, and then unlisten when deconstruct.
-  listen('node_joined', (event) => {
-    console.log(event);
-  });
+  // listen('node_joined', (event) => {
+  //   console.log(event);
+  // });
 
-  listen('node_left', (event) => {
-    console.log(event);
-  });
+  // listen('node_left', (event) => {
+  //   console.log(event);
+  // });
 
   function listNodes() {
     invoke("list_node").then((ctx: any) => {

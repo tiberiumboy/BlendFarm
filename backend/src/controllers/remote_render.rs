@@ -157,8 +157,9 @@ pub fn delete_job(state: State<Mutex<Data>>, target_job: Job) {
 
 /// List all available jobs stored in the collection.
 #[command]
-pub fn list_jobs(state: State<Mutex<Data>>) -> Result<String, Error> {
-    let data = state.lock().unwrap();
-    let data = serde_json::to_string(&data.jobs).unwrap();
+pub fn list_jobs(state: State<Mutex<Server>>) -> Result<String, Error> {
+    let server = state.lock().unwrap();
+    let data = server.get_job_list();
+    let data = serde_json::to_string(&data).unwrap();
     Ok(data)
 }

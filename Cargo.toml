@@ -1,3 +1,19 @@
 [workspace]
 members = ["backend", "blender"]
 resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Megamind"]
+description = "Simple Network Rendering Farm solution for Blender 3D"
+
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

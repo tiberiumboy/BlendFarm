@@ -1,4 +1,5 @@
 use std::fs::File;
+use tauri::{command, AppHandle};
 
 /*
     The idea behind this is to allow a scene you're working on to refresh and render from remote computer parts of the viewport render.
@@ -14,10 +15,11 @@ pub struct LiveView {
 }
 
 #[allow(dead_code)]
-#[tauri::command]
-pub fn load_file(_app: tauri::AppHandle) {
+#[command]
+pub fn load_file(_app: AppHandle) {
     // load the project file
     // spin up render_node to send the files over
     // then have it prepare to render section of it
     // and return the result to this view
+    todo!("impl this later!");
 }

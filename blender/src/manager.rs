@@ -219,23 +219,17 @@ impl Manager {
     /// TODO: verify that this doesn't break macos path executable... Why mac gotta be special with appbundle?
     pub fn delete_blender(&mut self, _blender: &Blender) {
         // this deletes blender from the system. You have been warn!
-        todo!("Exercise with caution!");
-        fs::remove_dir_all(_blender.get_executable().parent().unwrap()).unwrap();
+        // todo!("Exercise with caution!");
+        // fs::remove_dir_all(_blender.get_executable().parent().unwrap()).unwrap();
         self.remove_blender(_blender);
     }
 
     // TODO: Name ambiguous - clarify method name to clear and explicit
     pub fn fetch_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
-        match self.blenders.iter().find(|&x| x.get_version() == version) {
-            Some(blender) => Ok(blender.to_owned()),
-            None => {
-                // could use as a warning message?
-                println!(
-                    "Target version is not installed! Downloading Blender {}!",
-                    version
-                );
-                self.download(version)
-            }
+        let result = self.blenders.iter().find(|&x| x.get_version() == version);
+        match result {
+            Some(blender) => Ok(blender.clone()),
+            None => self.download(version),
         }
     }
 

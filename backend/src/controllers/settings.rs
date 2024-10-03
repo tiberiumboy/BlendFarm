@@ -51,10 +51,33 @@ pub fn add_blender_installation(
 pub fn fetch_blender_installation(
     state: State<Mutex<Manager>>,
     version: &str,
-) -> Result<Blender, Error> {
+) -> Result<Blender, String> {
     let mut manager = state.lock().unwrap();
-    let version = Version::parse(version).unwrap();
-    let blender = manager.fetch_blender(&version).unwrap();
+    let version = Version::parse(version).map_err(|e| e.to_string())?;
+    let blender = manager.fetch_blender(&version).map_err(|e| match e {
+        blender::manager::ManagerError::DownloadNotFound { arch, os, url } => {
+            format!("Download link not found! {arch} {os} {url}")
+        }
+        blender::manager::ManagerError::RequestError(request) => {
+            format!("Request error: {request}")
+        }
+        blender::manager::ManagerError::FetchError(fetch) => format!("Fetch error: {fetch}"),
+        blender::manager::ManagerError::IoError(io) => format!("IoError: {io}"),
+        blender::manager::ManagerError::UnsupportedOS(os) => format!("Unsupported OS {os}"),
+        blender::manager::ManagerError::UnsupportedArch(arch) => {
+            format!("Unsupported architecture! {arch}")
+        }
+        blender::manager::ManagerError::UnableToExtract(ctx) => {
+            format!("Unable to extract content! {ctx}")
+        }
+        blender::manager::ManagerError::UrlParseError(url) => format!("Url parse error: {url}"),
+        blender::manager::ManagerError::PageCacheError(cache) => {
+            format!("Page cache error! {cache}")
+        }
+        blender::manager::ManagerError::BlenderError { source } => {
+            format!("Blender error: {source}")
+        }
+    })?;
     Ok(blender)
 }
 

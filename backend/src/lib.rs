@@ -32,13 +32,13 @@ use crate::controllers::settings::{
     list_blender_installation, remove_blender_installation, set_server_settings,
 };
 use crate::models::{client::Client, data::Data, server::Server};
-use blender::manager::Manager;
+use blender::manager::Manager as BlenderManager;
 use blender::models::download_link::BlenderHome;
 use models::message::NetResponse;
 use models::server_setting::ServerSetting;
 use std::sync::{Arc, OnceLock};
 use std::{sync::Mutex, thread};
-use tauri::{async_runtime::spawn, AppHandle, Emitter};
+use tauri::{async_runtime::spawn, AppHandle, Emitter, Manager};
 use tauri_plugin_cli::CliExt;
 
 pub mod controllers;
@@ -58,12 +58,21 @@ fn client() {
     let ctx = Mutex::new(data);
 
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_cli::init());
 
-    let builder = builder.setup(|_| Ok(()));
+    let builder = builder.setup(|app| {
+        #[cfg(debug_assertions)]
+        let _ = app.get_webview_window("main").is_some_and(|w| {
+            w.open_devtools();
+            true
+        });
+        Ok(())
+    });
 
     // I'm having problem trying to separate this call from client.
     // I want to be able to run either server _or_ client via a cli switch.
@@ -77,7 +86,7 @@ fn client() {
 
     let m_server = Mutex::new(server);
 
-    let manager = Manager::load();
+    let manager = BlenderManager::load();
     let m_manager = Mutex::new(manager);
 
     let m_client: Arc<Option<Client>> = Arc::new(None);
@@ -177,7 +186,8 @@ fn client() {
     app.run(|_, _| {});
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+// not sure why I'm getting a lint warning about the mobile macro? Need to bug the dev and see if this macro has changed.
+// #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // TODO: Find a way to make use of Tauri cli commands to run as client.
     // TODO: It would be nice to include command line utility to let the user add blender installation from remotely.

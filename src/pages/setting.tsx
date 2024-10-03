@@ -13,26 +13,31 @@ interface BlenderModalProps {
   showModal: boolean;
   versions: string[];
   onItemSelected(item: string): void;
+  onDialogClose(): void;
 }
 
 function BlenderInstallerDialog(props: BlenderModalProps) {
 
   const dialogRef = useRef<HTMLDialogElement>(null);
 
+  // TODO: Find a better way to handle this. I cannot re-open the dialog again?
+  // I can see that the showModal state has changed, but then won't change it again?
+  // I think somewhere the state have detected a change, but then later realize I'm passing in the same value so no update was called?
   useEffect(() => {
+    console.log("DialogRef:", dialogRef.current?.open);
     if (dialogRef.current?.open && !props.showModal) {
       dialogRef.current?.close()
     } else if (!dialogRef.current?.open && props.showModal) {
       dialogRef.current?.showModal()
     }
-  }, [[props.showModal]]);
+  }, [props]);
 
   return (
     <dialog ref={dialogRef} title="Install Blender Version from Web">
       {props.versions.map((v) => (
         <div className="item" onClick={() => props.onItemSelected(v)}>{v}</div>
       ))}
-      <button onClick={() => dialogRef.current?.close()}>Cancel</button>
+      <button onClick={props.onDialogClose}>Cancel</button>
     </dialog>
   )
 }
@@ -42,27 +47,37 @@ export default function Setting(versions: string[]) {
   const [showModal, setShowModal] = useState(false);
 
   // TODO: Feels like I need to move these two states (setting+blendInstall) to App.tsx instead?
-  const [blendInstall, setBlendInstall] = useState("/");
-  const [setting, setSetting] = useState({ render_dir: '', blend_dir: '' } as ServerSettingsProps);
+  const [blendInstall, setBlendInstall] = useState<string | undefined>(undefined);
+  const [setting, setSetting] = useState<ServerSettingsProps>({ render_dir: '', blend_dir: '' });
 
   useEffect(() => {
     fetchServerSettings();
   }, []);
 
-  function fetchServerSettings() {
+  async function fetchServerSettings() {
     console.log("fetchserversettings");
-    invoke("get_server_settings").then((data: ServerSettingsProps | any) => setSetting(data));
+    // is this possible? Does the JSON.parse handle this internally?
+    let ctx: ServerSettingsProps | undefined = await invoke("get_server_settings");
+    if (ctx === undefined) {
+      return;
+    }
+    setSetting(ctx);
   }
 
   function fetchBlenders() {
-    listBlenders();
+    listBlenders(); // shouldn't need to wait.
     return [] as BlenderProps[];
   }
 
-  function listBlenders() {
-    invoke("list_blender_installation").then((ctx) =>
-      setBlenders(JSON.parse(ctx + "")),
-    );
+  async function listBlenders() {
+    let ctx: any = await invoke("list_blender_installation");
+    console.log("List Blender:", ctx);
+    if (ctx == null) {
+      return null;
+    }
+
+    const data: BlenderProps[] = JSON.parse(ctx);
+    setBlenders(data);
   }
 
   async function setNewDirectoryPath(callback: (path: string) => void) {
@@ -79,7 +94,8 @@ export default function Setting(versions: string[]) {
 
   // update the list collection to include the newly created blender object
   function onBlenderCreated(blender: BlenderProps): void {
-    let list = blenders;
+    // to force the list to update, we cannot use shallow copy. React will only check the condition of the topmost component and refresh if the toplevel layer has changed.
+    let list = [...blenders];
     list.push(blender);
     setBlenders(list);
   }
@@ -113,8 +129,12 @@ export default function Setting(versions: string[]) {
   }
 
   function handleItemSelected(item: string): void {
-    setShowModal(false);
+    handleDialogClosed();
     installBlenderFromVersion(item, onBlenderCreated);
+  }
+
+  function handleDialogClosed(): void {
+    setShowModal(false);
   }
 
   return (
@@ -137,7 +157,7 @@ export default function Setting(versions: string[]) {
               placeholder="Blender Installation Path"
               value={blendInstall}
               readOnly={true}
-              onClick={async () => setNewDirectoryPath(setBlendInstall)}
+              onClick={async () => setNewDirectoryPath((path) => setBlendInstall(path))}
             />
           </span>
 
@@ -189,7 +209,11 @@ export default function Setting(versions: string[]) {
         ))}
       </div>
 
-      <BlenderInstallerDialog showModal={showModal} versions={versions} onItemSelected={handleItemSelected} />
+      <BlenderInstallerDialog
+        showModal={showModal}
+        versions={versions}
+        onItemSelected={handleItemSelected}
+        onDialogClose={handleDialogClosed} />
       {/* Todo Display the list of blender installation stored in serversettings config */}
     </div >
   );

@@ -52,6 +52,8 @@ pub enum NetResponse {
         addrs: HashSet<Endpoint>,
     },
     JobSent(Job),
+    // TODO: Find a good implementation to keep this enum, may have to change it to OnFileReceived?
+    #[allow(dead_code)]
     ImageComplete(PathBuf),
 }
 

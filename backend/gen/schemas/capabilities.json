@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"enables the default permissions","local":true,"windows":["main"],"permissions":["core:default","dialog:default","cli:default"]}}
+{"default":{"identifier":"default","description":"enables the default permissions","local":true,"windows":["main"],"permissions":["cli:default"]},"desktop-capability":{"identifier":"desktop-capability","description":"","local":true,"permissions":["cli:default"],"platforms":["macOS","windows","linux"]}}
