@@ -63,7 +63,9 @@ pub struct Manager {
 }
 
 // #[cfg(feature = "manager")]
-impl Default for Manager {
+impl Manager {
+    // the default method implement should be private because I do not want people to use this function.
+    // instead they should rely on "load" function instead.
     fn default() -> Self {
         let install_path = dirs::download_dir().unwrap().join("Blender");
         Self {
@@ -73,10 +75,7 @@ impl Default for Manager {
             has_modified: false,
         }
     }
-}
 
-// #[cfg(feature = "manager")]
-impl Manager {
     // this path should always be fixed and stored under machine specific.
     // this path should not be shared across machines.
     fn get_config_path() -> PathBuf {
@@ -279,5 +278,15 @@ impl Drop for Manager {
                 println!("Error saving manager file: {}", e);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_pass() {
+        let manager = Manager::load();
     }
 }

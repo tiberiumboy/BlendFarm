@@ -1,8 +1,8 @@
 {
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist",
+    "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1420/"
   },
   "bundle": {
@@ -19,23 +19,6 @@
   "productName": "BlendFarm",
   "version": "0.1.0",
   "identifier": "com.blendfarm.dev",
-  "plugins": {
-    "cli": {
-      "description": "BlenderFarm is a distribute rendering system that allows users to render blender files on multiple machines.",
-      "args": [
-        {
-          "short": "c",
-          "name": "client",
-          "description": "Run blender farm as client node (Worker)."
-        }
-      ],
-      "subcommands": {
-        "config": {
-          "description": "Modify Blender Manager configurations"
-        }
-      }
-    }
-  },
   "app": {
     "windows": [
       {
@@ -55,6 +38,23 @@
         "enable": true
       },
       "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "plugins": {
+    "cli": {
+      "description": "BlenderFarm is a distribute rendering system that allows users to render blender files on multiple machines.",
+      "args": [
+        {
+          "short": "c",
+          "name": "client",
+          "description": "Run blender farm as client node (Worker)."
+        }
+      ],
+      "subcommands": {
+        "config": {
+          "description": "Modify Blender Manager configurations"
+        }
+      }
     }
   }
 }

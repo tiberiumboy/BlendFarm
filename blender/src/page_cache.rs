@@ -130,3 +130,23 @@ impl Drop for PageCache {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_pass() {
+        let cache = PageCache::load();
+        assert_eq!(cache.is_ok(), true);
+        let mut cache = cache.unwrap();
+        let url = Url::parse("http://www.google.com").unwrap();
+        let content = cache.fetch(&url);
+        assert_eq!(content.is_ok(), true);
+    }
+
+    #[test]
+    fn should_fail() {
+        todo!();
+    }
+}

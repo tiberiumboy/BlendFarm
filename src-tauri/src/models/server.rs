@@ -28,12 +28,11 @@ const INTERVAL_MS: u64 = 500;
 // Issue: Cannot derive debug because NodeTask doesn't derive Debug! Omit NodeTask if you need to Debug!
 // TODO: provide documentation explaining what this function does.
 /// A server struct that holds the receiver transmission of Net Responses from other clients on the network, and a thread to process and run network packets in the background.
+// TODO: I need to either find a way to change the state of this struct once connected.
+// otherwise we're back to this problem again?
 pub struct Server {
     tx: mpsc::Sender<CmdMessage>,
     pub rx_recv: Option<mpsc::Receiver<NetResponse>>,
-    // TODO: Find a way to make this job acccessible by Tauri frontend.
-    #[allow(dead_code)]
-    jobs: Vec<Job>,
     _task: NodeTask,
 }
 
@@ -53,6 +52,7 @@ impl Server {
         let public_addr =
             SocketAddr::new(local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), port);
 
+        // move this into separate method implementation
         // listen tcp
         handler
             .network()
@@ -82,6 +82,7 @@ impl Server {
         // I wonder if there's a way to simply this implementation code?
         thread::spawn(move || {
             let mut peers: HashSet<Endpoint> = HashSet::new();
+            // yeahh.. let's move this method out of this function implementation.
             // TODO: Find a better place for this?
             let current_job: Option<Job> = None;
 
@@ -267,7 +268,6 @@ impl Server {
         Self {
             tx,
             rx_recv: Some(rx_recv),
-            jobs: vec![], // todo: find a way to load history stack?
             _task,
         }
     }

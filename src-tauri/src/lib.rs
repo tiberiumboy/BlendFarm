@@ -58,12 +58,12 @@ fn client() {
     let ctx = Mutex::new(data);
 
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_cli::init());
+        .plugin(tauri_plugin_dialog::init());
 
     let builder = builder.setup(|app| {
         #[cfg(debug_assertions)]
@@ -118,6 +118,7 @@ fn client() {
             remove_blender_installation,
             fetch_blender_installation,
         ])
+        // it would be nice to figure out why this is causing so much problem?
         .build(tauri::generate_context!())
         .expect("Unable to build tauri app!");
     APP_HANDLE.set(app.handle().clone()).unwrap();

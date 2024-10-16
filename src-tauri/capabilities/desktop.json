@@ -7,18 +7,12 @@
   ],
   "permissions": [
     "cli:default",
-    "allow-confirm",
-    "allow-open",
-    "allow-confirm",
-    "allow-ask",
-    "allow-message",
-    "allow-save",
-    "dialog-open",
-    "dialog:default",
     "dialog:allow-ask",
     "dialog:allow-open",
     "dialog:allow-message",
     "dialog:allow-confirm",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "dialog:default",
+    "cli:default"
   ]
 }
