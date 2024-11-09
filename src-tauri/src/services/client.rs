@@ -1,16 +1,13 @@
-use super::server_setting;
 /*
     Developer blog:
     - Do some research on concurrent http downloader for transferring project files and blender from one client to another.
 */
 use super::{
-    job::Job,
-    message::{CmdMessage, Destination},
-    server::MULTICAST_ADDR,
+    message::{CmdMessage, Destination, NetMessage},
+    server::MULTICAST_SOCK,
 };
-use crate::models::message::NetMessage;
 use crate::models::server_setting::ServerSetting;
-use blender::blender::{Args, Manager};
+use blender::blender::Manager;
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, StoredNetEvent, StoredNodeEvent};
@@ -26,8 +23,11 @@ use std::{net::SocketAddr, sync::mpsc, thread, time::Duration};
 const INTERVAL_MS: u64 = 500;
 
 /*
-    In C - the best way to allow application API exposed for other application to rely on this information is through handler context.
-    provide a pointer in heap of information stored to fetch information about network information and use the library implementation to perform action on those set of information.
+    In C - the best way to allow application API exposed for other application
+    to rely on this information is through handler context.
+    provide a pointer in heap of information stored to fetch information about
+    network information and use the library implementation to perform action on
+    those set of information.
 */
 pub struct Client {
     tx: mpsc::Sender<CmdMessage>,
@@ -49,24 +49,22 @@ impl Client {
         };
 
         // listen udp
-        if let Err(e) = handler.network().listen(Transport::Udp, MULTICAST_ADDR) {
+        if let Err(e) = handler.network().listen(Transport::Udp, MULTICAST_SOCK) {
             println!("Unable to listen to udp! \n{}", e);
         }
 
         // connect udp
-        let (udp_conn, _) = match handler.network().connect(Transport::Udp, MULTICAST_ADDR) {
+        let (udp_conn, _) = match handler.network().connect(Transport::Udp, MULTICAST_SOCK) {
             Ok(conn) => conn,
             Err(e) => panic!("Somethiing terrible happen! {e:?}"),
         };
 
         let (tx, rx) = mpsc::channel();
-        let tx_owned = tx.clone();
-        // let (tx_recv, rx_recv) = mpsc::channel::<NetMessage>();
-
+        // let tx_owned = tx.clone();
         thread::spawn(move || {
             // client should only have a connection to the server, maybe a connection to transfer files?
             let mut server: Option<Endpoint> = None;
-            let mut _current_job: Option<Job> = None;
+            // let mut _current_job: Option<Job> = None;
 
             // this will help contain the job list I need info on.
             // Feature: would this be nice to load any previous known job list prior to running this client?
@@ -80,72 +78,73 @@ impl Client {
                         CmdMessage::AddPeer { .. } => {
                             // client should not have the ability to add peers.
                         }
-                        CmdMessage::SendJob(job) => {
-                            // assume that we have the files already download and available, we should then run the job here?
-                            let mut manager = Manager::load();
-                            let blender = manager.fetch_blender(&job.version).unwrap();
-                            let settings = server_setting::ServerSetting::load();
-                            let args = Args::new(
-                                job.project_file.file_path(),
-                                settings.render_dir,
-                                job.mode,
-                            );
-                            // eventually, I'd like to get to the point where I could render this?
-                            println!("Rendering!");
-                            let _receiver = blender.render(args);
-                            while let Ok(status) = _receiver.recv() {
-                                match status {
-                                    blender::models::status::Status::Idle => {
-                                        println!("Blender[IDL]")
-                                    }
-                                    blender::models::status::Status::Running { status } => {
-                                        println!("Blender[MSG]: {status}")
-                                    }
-                                    blender::models::status::Status::Log { status } => {
-                                        println!("Blender[LOG]: {status}");
-                                    }
-                                    blender::models::status::Status::Warning { message } => {
-                                        println!("Blender[WAR]: {message}");
-                                    }
-                                    blender::models::status::Status::Error(e) => {
-                                        println!("Blender[ERR]: {e}");
-                                    }
-                                    // TODO: how do I check and see if I have any pending renders?
-                                    blender::models::status::Status::Completed { result } => {
-                                        println!("Render completed! {:?}", result);
-                                        // here I need to find a way to send the file back to the host
-                                        // and tell it this is render image XXX for job XXX?
+                        // CmdMessage::SendJob(job) => {
+                        //     // TODO: Move this code out?
+                        //     // assume that we have the files already download and available, we should then run the job here?
+                        //     let mut manager = Manager::load();
+                        //     let blender = manager.fetch_blender(&job.version).unwrap();
+                        //     let settings = server_setting::ServerSetting::load();
+                        //     let args = Args::new(
+                        //         job.project_file.file_path(),
+                        //         settings.render_dir,
+                        //         job.mode,
+                        //     );
+                        //     // eventually, I'd like to get to the point where I could render this?
+                        //     println!("Rendering!");
+                        //     let _receiver = blender.render(args);
+                        //     while let Ok(status) = _receiver.recv() {
+                        //         match status {
+                        //             blender::models::status::Status::Idle => {
+                        //                 println!("Blender[IDL]")
+                        //             }
+                        //             blender::models::status::Status::Running { status } => {
+                        //                 println!("Blender[MSG]: {status}")
+                        //             }
+                        //             blender::models::status::Status::Log { status } => {
+                        //                 println!("Blender[LOG]: {status}");
+                        //             }
+                        //             blender::models::status::Status::Warning { message } => {
+                        //                 println!("Blender[WAR]: {message}");
+                        //             }
+                        //             blender::models::status::Status::Error(e) => {
+                        //                 println!("Blender[ERR]: {e}");
+                        //             }
+                        //             // TODO: how do I check and see if I have any pending renders?
+                        //             blender::models::status::Status::Completed { result } => {
+                        //                 println!("Render completed! {:?}", result);
+                        //                 // here I need to find a way to send the file back to the host
+                        //                 // and tell it this is render image XXX for job XXX?
 
-                                        // Ok we need to do two things.
-                                        // one is we need to send the image back to the host
-                                        // then two we need to let the host hey I'm done with this render image!
-                                        // the reason for above is that we don't want the host to know we're done if we have another animation to render.
-                                        // we should just send the stats information to let the user know their progress on this current node.
-                                        // TODO: Find a way to get the server host? How? I thought I have this information somewhere?
-                                        let active_server = match server {
-                                            Some(server) => server,
-                                            None => break,
-                                        };
+                        //                 // Ok we need to do two things.
+                        //                 // one is we need to send the image back to the host
+                        //                 // then two we need to let the host hey I'm done with this render image!
+                        //                 // the reason for above is that we don't want the host to know we're done if we have another animation to render.
+                        //                 // we should just send the stats information to let the user know their progress on this current node.
+                        //                 // TODO: Find a way to get the server host? How? I thought I have this information somewhere?
+                        //                 let active_server = match server {
+                        //                     Some(server) => server,
+                        //                     None => break,
+                        //                 };
 
-                                        let cmd = CmdMessage::SendFile(
-                                            result,
-                                            Destination::Target(active_server),
-                                        );
-                                        // once this is done, then we can go off and tell the render job, hey I'm done!
-                                        // handler.network().send(cmd).unwrap();
-                                        tx_owned.send(cmd).unwrap();
+                        //                 let cmd = CmdMessage::SendFile(
+                        //                     result,
+                        //                     Destination::Target(active_server),
+                        //                 );
+                        //                 // once this is done, then we can go off and tell the render job, hey I'm done!
+                        //                 // handler.network().send(cmd).unwrap();
+                        //                 tx_owned.send(cmd).unwrap();
 
-                                        break;
-                                    }
-                                }
-                            }
+                        //                 break;
+                        //             }
+                        //         }
+                        //     }
 
-                            // notify the host that we're available.
-                            if let Some(server) = server {
-                                let completion = NetMessage::RequestJob.serialize();
-                                handler.network().send(server, &completion);
-                            }
-                        }
+                        //     // notify the host that we're available.
+                        //     if let Some(server) = server {
+                        //         let completion = NetMessage::RequestJob.serialize();
+                        //         handler.network().send(server, &completion);
+                        //     }
+                        // }
                         // function duplicated in server struct - may need to move this code block to a separate struct to handle network protocol between server/client
                         CmdMessage::SendFile(file_path, Destination::Target(target)) => {
                             // here the client is sending the file to either the server or client.
@@ -256,56 +255,56 @@ impl Client {
                                 NetMessage::Ping { .. } => {
                                     // ignore the ping signal from the client
                                 }
-                                NetMessage::SendJob(job) => {
-                                    println!("Received a new job!\n{:?}", job);
-                                    let msg = CmdMessage::SendJob(job);
-                                    if let Err(e) = tx_owned.send(msg) {
-                                        println!("Fail to send job command internally!\n{e}");
+                                // NetMessage::SendJob(job) => {
+                                //     println!("Received a new job!\n{:?}", job);
+                                // let msg = CmdMessage::SendJob(job);
+                                // if let Err(e) = tx_owned.send(msg) {
+                                //     println!("Fail to send job command internally!\n{e}");
+                                // }
+                                // current_job = Some(job);
+
+                                // First let's check if we have the correct blender installation
+                                // then check and see if we have the files?
+                                // if !.project_file.file_path().exists() {
+                                //     // here we will fetch the file path from the server
+                                //     // but for now let's continue.
+                                //     println!("Path does not exist!");
+                                // }
+                                /*
+
+                                // run the blender() - this will take some time. Could implement async/thread?
+                                match render_queue.run(1) {
+                                    // returns frame and image path
+                                    Ok(render_info) => {
+                                        println!(
+                                            "Render completed! Sending image to server! {:?}",
+                                            render_info
+                                        );
+
+                                        let mut file_transfer = FileTransfer::new(
+                                            render_info.path.clone(),
+                                            endpoint,
+                                        );
+
+                                        // yeah gonna have to revisit this part...
+                                        // file_transfer.transfer(&handler);
+                                        // is there a way to convert mutable to immutable?
+
+                                        // self.file_transfer = Some(file_transfer);
+                                        // wonder if there's a way to say - hey I've completed my transfer,
+                                        // please go and look in your download folder with this exact file name,
+                                        // then proceed to your job manager to move out to output destination.
+                                        // first notify the server that the job is completed and prepare to receive the file
+                                        let msg = NetMessage::JobResult(render_info);
+                                        handler.network().send(endpoint, &msg.ser());
+
+                                        // let msg = Message::FileRequest(info);
+                                        // self.send_to_target(self.server_endpoint, msg);
                                     }
-                                    // current_job = Some(job);
-
-                                    // First let's check if we have the correct blender installation
-                                    // then check and see if we have the files?
-                                    // if !.project_file.file_path().exists() {
-                                    //     // here we will fetch the file path from the server
-                                    //     // but for now let's continue.
-                                    //     println!("Path does not exist!");
-                                    // }
-                                    /*
-
-                                    // run the blender() - this will take some time. Could implement async/thread?
-                                    match render_queue.run(1) {
-                                        // returns frame and image path
-                                        Ok(render_info) => {
-                                            println!(
-                                                "Render completed! Sending image to server! {:?}",
-                                                render_info
-                                            );
-
-                                            let mut file_transfer = FileTransfer::new(
-                                                render_info.path.clone(),
-                                                endpoint,
-                                            );
-
-                                            // yeah gonna have to revisit this part...
-                                            // file_transfer.transfer(&handler);
-                                            // is there a way to convert mutable to immutable?
-
-                                            // self.file_transfer = Some(file_transfer);
-                                            // wonder if there's a way to say - hey I've completed my transfer,
-                                            // please go and look in your download folder with this exact file name,
-                                            // then proceed to your job manager to move out to output destination.
-                                            // first notify the server that the job is completed and prepare to receive the file
-                                            let msg = NetMessage::JobResult(render_info);
-                                            handler.network().send(endpoint, &msg.ser());
-
-                                            // let msg = Message::FileRequest(info);
-                                            // self.send_to_target(self.server_endpoint, msg);
-                                        }
-                                        Err(e) => println!("Fail to render on client! {:?}", e),
-                                    }
-                                    */
+                                    Err(e) => println!("Fail to render on client! {:?}", e),
                                 }
+                                */
+                                // }
                                 NetMessage::CheckForBlender {
                                     os,
                                     version,

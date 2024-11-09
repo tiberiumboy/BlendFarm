@@ -5,10 +5,12 @@
         This issue has been solved by alllowing certain argument to run. By default it will try to launch the client user interface of the application.
         Additionally, I need to check into the argument and see if there's a way we could just allow user to run --server without ui interface?
         Interesting thoughts for sure
-        9/2/24 - Decided to rely on using Tauri plugin for cli commands and subcommands. Use that instead of clap.
+        9/2/24 - Decided to rely on using Tauri plugin for cli commands and subcommands. Use that instead of clap. Since Tauri already incorporates Clap anyway.
+
     - Had an idea that allows user remotely to locally add blender installation without using GUI interface,
         This would serves two purposes - allow user to expressly select which blender version they can choose from the remote machine and
         prevent multiple download instances for the node, in case the target machine does not have it pre-installed.
+
     - Eventually, I will need to find a way to spin up a virtual machine and run blender farm on that machine to see about getting networking protocol working in place.
         This will allow me to do two things - I can continue to develop without needing to fire up a remote machine to test this and
         verify all packet works as intended while I can run the code in parallel to see if there's any issue I need to work overhead.
@@ -17,32 +19,35 @@
 [F] - find a way to allow GUI interface to run as client mode for non cli users.
 [F] - consider using channel to stream data https://v2.tauri.app/develop/calling-frontend/#channels
 [F] - Before release - find a way to add updater  https://v2.tauri.app/plugin/updater/
-
 */
 
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use crate::controllers::remote_render::{
-    create_job, create_node, delete_job, delete_node, delete_project, list_jobs, list_node,
-    list_versions, ping_node,
-};
-use crate::controllers::settings::{
+use crate::routes::job::{create_job, delete_job, list_jobs};
+use crate::routes::remote_render::{create_node, delete_node, list_node, list_versions, ping_node};
+use crate::routes::settings::{
     add_blender_installation, fetch_blender_installation, get_server_settings,
     list_blender_installation, remove_blender_installation, set_server_settings,
 };
-use crate::models::{client::Client, data::Data, server::Server};
+use crate::services::{client::Client, server::Server};
 use blender::manager::Manager as BlenderManager;
 use blender::models::download_link::BlenderHome;
-use models::message::NetResponse;
-use models::server_setting::ServerSetting;
-use std::sync::{Arc, OnceLock};
-use std::{sync::Mutex, thread};
-use tauri::{async_runtime::spawn, AppHandle, Emitter, Manager};
+use models::{app_state::AppState, server_setting::ServerSetting};
+use services::job_manager::InMemoryJobManager;
+// use services::message::NetResponse;
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
+// use std::thread;
+use tauri::{async_runtime::spawn, AppHandle};
 use tauri_plugin_cli::CliExt;
 
-pub mod controllers;
+//TODO: Create a miro diagram structure of how this application suppose to work
+// Need a mapping to explain how network should perform over intranet
+// Need a mapping to explain how blender manager is used and invoked for the job
+
+pub mod domain;
 pub mod models;
+pub mod routes;
 pub mod services;
 
 // I'm using this to make app handler accessible within this app. I will eventually find a better way to handle this.
@@ -51,61 +56,48 @@ static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
 // when the app starts up, I would need to have access to configs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
 fn client() {
-    // Implement this once we get this all working and verify through unit test - https://v2.tauri.app/plugin/single-instance/
-    let data = Data::default();
     // I would like to find a better way to update or append data to render_nodes,
     // "Do not communicate with shared memory"
-    let ctx = Mutex::new(data);
-
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init());
-
-    let builder = builder.setup(|app| {
-        #[cfg(debug_assertions)]
-        let _ = app.get_webview_window("main").is_some_and(|w| {
-            w.open_devtools();
-            true
-        });
-        Ok(())
-    });
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|_| Ok(()));
 
     // I'm having problem trying to separate this call from client.
     // I want to be able to run either server _or_ client via a cli switch.
     // Would like to know how I can get around this?
+    // TODO: just did a review of AppState - Implement AppState to manage across all application usage.
     let mut server = Server::new(1500);
-    let listen = server.rx_recv.take().unwrap();
-
+    let listen = server.rx_recv;
     let blender_link = BlenderHome::new()
         .expect("unable to fetch blender lists, are you connected to the internet?");
-    let m_blender_link = Mutex::new(blender_link);
-
-    let m_server = Mutex::new(server);
-
     let manager = BlenderManager::load();
-    let m_manager = Mutex::new(manager);
-
-    let m_client: Arc<Option<Client>> = Arc::new(None);
-
     let server_setting = ServerSetting::load();
-    let m_setting = Mutex::new(server_setting);
+
+    let job_manager = InMemoryJobManager::default();
+
+    let app_state = AppState {
+        // network: Arc::new(RwLock::new(server)),
+        link: Arc::new(RwLock::new(blender_link)),
+        setting: Arc::new(RwLock::new(server_setting)),
+        manager: Arc::new(RwLock::new(manager)),
+        job_manager: Arc::new(RwLock::new(job_manager)),
+    };
+
+    // TODO: Find a way to handle either Server(Host) or Client(Node)
+    // may have to combine this into a single struct to handle both engression/ingression
+    // let m_client: Arc<Option<Client>> = Arc::new(None);
 
     let app = builder
-        .manage(ctx)
-        .manage(m_server)
-        .manage(m_manager)
-        .manage(m_setting)
-        .manage(m_blender_link)
-        .manage(m_client.clone())
+        .manage(Mutex::new(app_state))
         .invoke_handler(tauri::generate_handler![
             create_node,
             create_job,
             delete_node,
-            delete_project,
             delete_job,
             list_node,
             list_jobs,
@@ -141,6 +133,9 @@ fn client() {
     };
 
     // As soon as the function goes out of scope, thread will be drop.
+    // TODO: Find a better place to move this background process
+    // Consider making a closure for this?
+    /*
     let _thread = thread::spawn(move || {
         while let Ok(event) = listen.recv() {
             match event {
@@ -168,12 +163,12 @@ fn client() {
                     // TODO: Send a notification to front end containing peer data information
                     println!("Received peer list! {:?}", addrs);
                 }
-                NetResponse::JobSent(job) => {
-                    let handle = APP_HANDLE.get().unwrap();
-                    handle
-                        .emit_to("job", "job_sent", job)
-                        .expect("failed to emit job!");
-                }
+                // NetResponse::JobSent(job) => {
+                //     let handle = APP_HANDLE.get().unwrap();
+                //     handle
+                //         .emit_to("job", "job_sent", job)
+                //         .expect("failed to emit job!");
+                // }
                 NetResponse::ImageComplete(path) => {
                     let handle = APP_HANDLE.get().unwrap();
                     handle
@@ -182,7 +177,7 @@ fn client() {
                 }
             }
         }
-    });
+    }); */
 
     app.run(|_, _| {});
 }

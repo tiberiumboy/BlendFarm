@@ -17,8 +17,6 @@ pub enum Signal {
 
 const CHUNK_SIZE: usize = 65536;
 
-// just for hiding lint warnings for now.
-#[allow(dead_code)]
 pub fn send(file_path: &PathBuf, target: &RenderNode) {
     let (handler, listener) = node::split();
     let (server_id, _) = handler

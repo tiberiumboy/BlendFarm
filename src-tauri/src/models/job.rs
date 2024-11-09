@@ -11,6 +11,7 @@ use blender::blender::Manager;
 use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::{
     collections::HashSet,
     hash::Hash,
@@ -92,12 +93,9 @@ impl Job {
     // Find out if I need to run this locally, or just rely on the server to perform the operation?
     #[allow(dead_code)]
     pub fn run(&mut self, frame: i32) -> Result<RenderInfo> {
+        let path: &Path = self.project_file.as_ref();
         // TODO: How can I split this up to run async task? E.g. Keep this task running while we still have frames left over.
-        let args = Args::new(
-            self.project_file.file_path(),
-            self.output.clone(),
-            Mode::Frame(frame),
-        );
+        let args = Args::new(path, self.output.clone(), Mode::Frame(frame));
 
         // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
         // TODO: This looks like I could move this code block somewhere else?
@@ -149,6 +147,12 @@ impl Job {
         }
     }
     */
+}
+
+impl AsRef<Uuid> for Job {
+    fn as_ref(&self) -> &Uuid {
+        &self.id
+    }
 }
 
 impl PartialEq for Job {

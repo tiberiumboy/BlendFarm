@@ -1,6 +1,5 @@
 use std::{collections::HashSet, net::SocketAddr, path::PathBuf};
 
-use super::job::Job;
 use message_io::network::Endpoint;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -17,7 +16,7 @@ pub enum CmdMessage {
         name: String,
         socket: SocketAddr,
     },
-    SendJob(Job),
+    // SendJob(Job), // wanted to avoid code coupling here? How do I extract this content out and only provide limited message services in other places that doesn't involve networking protocol?
     SendFile(PathBuf, Destination),
     #[allow(dead_code)]
     AskForBlender {
@@ -51,7 +50,7 @@ pub enum NetResponse {
     PeerList {
         addrs: HashSet<Endpoint>,
     },
-    JobSent(Job),
+    // JobSent(Job),
     // TODO: Find a good implementation to keep this enum, may have to change it to OnFileReceived?
     #[allow(dead_code)]
     ImageComplete(PathBuf),
@@ -73,13 +72,13 @@ pub enum NetMessage {
     CanReceive(bool),
 
     // From Server to Client
-    SendJob(Job),
+    // SendJob(Job),
     SendFile(String, Vec<u8>), // might be expensive?
     RequestJob,
 
     // From multicast
     Ping {
-        // server would provide the address
+        // server must provide address Some(SocketAddr), client send None
         server_addr: Option<SocketAddr>,
     },
 }

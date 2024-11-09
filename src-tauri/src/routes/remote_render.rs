@@ -9,51 +9,69 @@ when you create a new job, it immediately sends a new job to the server farm
 for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
-
-use crate::models::{data::Data, job::Job, project_file::ProjectFile, server::Server};
-use blender::models::{download_link::BlenderHome, mode::Mode};
+use crate::{
+    models::project_file::ProjectFile,
+    // services::server::Server,
+    AppState,
+};
+use blender::models::download_link::BlenderHome;
 use semver::Version;
-use std::{net::SocketAddr, path::PathBuf, sync::Mutex};
+use std::sync::Mutex;
 use tauri::{command, AppHandle, Error, State};
 
-/// Create a node
+/// Connect to a node
 #[command]
-pub fn create_node(state: State<Mutex<Server>>, name: &str, host: &str) -> Result<String, Error> {
+pub fn create_node(
+    // _state: State<Mutex<AppState>>,
+    _host: String,
+    _name: String,
+    _port: u16,
+) -> Result<String, Error> {
+    todo!("read comments below");
+    /*
+       This function seems a bit confusing. As a server, we shouldn't be able to connect, instead we broadcast our public address if we receive a ping from the client.
+       If a client joins the network, that client send out advertisement packet to inform the server client availability on the network.
+       Once client receives the server's ping back, the client will try to connect to the server using the IP address provided
+       For this method - this seems a bit counterintuitive. The idea behind this method is as follows:
+       Server start up, tries connect to client via IP address
+       This method impl. would make for certain situation. (E.g. UDP is blocked/need manual way of adding NetworkNode via CLI)
+       However, this doesn't fit in the current milestone goal of making this application work.
+    */
     // Got an invalid socket address syntax from this line?
-    let socket: SocketAddr = host.parse().unwrap();
+    // let socket: SocketAddr = host.parse().unwrap();
 
-    let server = state.lock().unwrap();
-    server.connect(name, socket);
+    // let server = state.lock().unwrap();
+    // server.connect(name, socket);
 
-    println!("parsed socket successfully! {:?}", &socket);
-    Ok("Node created successfully".to_string())
+    // println!("parsed socket successfully! {:?}", &socket);
+    // Ok("Node created successfully".to_string())
 }
 
 /// List out all available node for this blendfarm.
 #[command]
-pub fn list_node(state: State<Mutex<Server>>)
+pub fn list_node(_state: State<AppState>)
 // -> Result<String, Error>
 {
-    let server = state.lock().unwrap();
-    server.get_peer_list(); // hmm might be a problem here?
-                            // let data = serde_json::to_string(col.render_nodes).unwrap();
-                            // Ok(data)
+    // let _server = state.lock().unwrap();
+    // server.get_peer_list(); // hmm might be a problem here?
+    // let data = serde_json::to_string(col.render_nodes).unwrap();
+    // Ok(data)
 }
 
 #[command]
-pub fn ping_node(state: State<Mutex<Server>>) -> Result<String, Error> {
-    let server = state.lock().unwrap();
-    server.ping();
+pub fn ping_node(_state: State<AppState>) -> Result<String, Error> {
+    // let _server = state.lock().unwrap();
+    // server.ping();
     Ok("Ping sent!".to_string())
 }
 
 /// List all of the available blender version.
 #[command(async)]
-pub fn list_versions(state: State<Mutex<BlenderHome>>) -> Result<String, String> {
+pub fn list_versions(state: State<AppState>) -> Result<String, String> {
     // I'd like to know why this function was invoked twice?
-    if let Ok(blender_link) = state.lock() {
+    if let Ok(blender_link) = state.manager.read() {
         let versions: Vec<Version> = blender_link
-            .list
+            .list_all_blender_version()
             .iter()
             .map(|b| match b.fetch_latest() {
                 Ok(download_link) => download_link.get_version().clone(),
@@ -67,8 +85,8 @@ pub fn list_versions(state: State<Mutex<BlenderHome>>) -> Result<String, String>
     Err("Function already been called, please wait!".to_owned())
 }
 
-// TODO: May not be needed here?
-/// Delete target node from the configuration
+// TODO: Reclassify this function behaviour - Should it pop the node off the network? Should it send disconnect signal? Should it shutdown node remotely?
+// Describe the desire behaviour for this implementation.
 #[command]
 pub fn delete_node(_app: AppHandle, target_node: String) -> Result<(), Error> {
     dbg!(target_node);
@@ -79,34 +97,11 @@ pub fn delete_node(_app: AppHandle, target_node: String) -> Result<(), Error> {
     Ok(())
 }
 
-#[command]
-pub fn create_job(
-    state: State<Mutex<Server>>,
-    file_path: PathBuf,
-    output: PathBuf,
-    version: &str,
-    mode: Mode,
-) -> Result<Job, Error> {
-    let version = Version::parse(version).unwrap_or_else(|_| Version::new(4, 2, 2));
-    let project_file = ProjectFile::new(file_path)?;
-    let job = Job::new(project_file, output, version, mode);
-
-    // send job to server
-    let server = state.lock().unwrap();
-    server.send_job(job.clone());
-
-    Ok(job)
-}
-
 /// Delete target project file from the collection. Note - this does not mean delete the original source file, it simply remove the project entry from the list
 #[command]
 pub fn delete_project(_project_file: ProjectFile) -> Result<(), String> {
-    // Extremely dangerous! Lost one of my blend file from this!!
-    // TODO: find a better approach to remove the entry from the list instead of permanently deleting the files.
-    // if let Err(e) = fs::remove_file(project_file.file_path()) {
-    //     println!("Error deleting project file from local system: {e}");
-    //     return Err(format!("Unable to delete file!\n{}", e));
-    // };
+    // TODO: The idea behind this method is to clear the visual entry on the app, not to modify the original blender file.
+    // In a realistic scenario, we should never delete blend file, unless they were transfer over the network and stored temporarily (In this case, those file should be stored in a tmp location on the client node side...)
     Ok(())
 }
 
@@ -146,20 +141,3 @@ pub fn delete_project(_project_file: ProjectFile) -> Result<(), String> {
 //     let data = serde_json::to_string(&jobs).unwrap(); // Can't imagine this breaking - who knows?
 //     Ok(data)
 // }
-
-/// Abort the job if it's running and delete the entry from the collection list.
-#[command]
-pub fn delete_job(state: State<Mutex<Data>>, target_job: Job) {
-    let mut data = state.lock().unwrap();
-    // TODO: before I do this, I need to go through each of the nodes and stop this job.
-    data.jobs.retain(|x| x != &target_job);
-}
-
-/// List all available jobs stored in the collection.
-#[command]
-pub fn list_jobs(state: State<Mutex<Server>>) -> Result<String, Error> {
-    let server = state.lock().unwrap();
-    let data = server.get_job_list();
-    let data = serde_json::to_string(&data).unwrap();
-    Ok(data)
-}

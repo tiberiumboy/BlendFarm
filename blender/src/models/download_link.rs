@@ -260,6 +260,7 @@ impl BlenderCategory {
     }
 }
 
+// TODO: rename this function
 #[derive(Debug)]
 pub struct BlenderHome {
     pub list: Vec<BlenderCategory>,

@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::io::Result;
+use std::str::FromStr;
+
+pub enum FormatError {
+    InvalidInput,
+}
 
 // TODO: Provide file format explicitly define by user
 // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#format-options
@@ -19,8 +23,7 @@ pub enum Format {
 }
 
 impl Format {
-    #[allow(dead_code)]
-    fn parse(format: String) -> Result<Format> {
+    pub fn parse(format: String) -> Result<Format, FormatError> {
         match format.to_uppercase().as_str() {
             "TGA" => Ok(Format::TGA),
             "RAWTGA" => Ok(Format::RAWTGA),
@@ -32,10 +35,27 @@ impl Format {
             "BMP" => Ok(Format::BMP),
             "HDR" => Ok(Format::HDR),
             "TIFF" => Ok(Format::TIFF),
-            _ => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Invalid format",
-            )),
+            _ => Err(FormatError::InvalidInput),
+        }
+    }
+}
+
+impl FromStr for Format {
+    type Err = FormatError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "TGA" => Ok(Format::TGA),
+            "RAWTGA" => Ok(Format::RAWTGA),
+            "JPEG" => Ok(Format::JPEG),
+            "IRIS" => Ok(Format::IRIS),
+            "AVIRAW" => Ok(Format::AVIRAW),
+            "AVIJPEG" => Ok(Format::AVIJPEG),
+            "PNG" => Ok(Format::PNG),
+            "BMP" => Ok(Format::BMP),
+            "HDR" => Ok(Format::HDR),
+            "TIFF" => Ok(Format::TIFF),
+            _ => Err(FormatError::InvalidInput),
         }
     }
 }

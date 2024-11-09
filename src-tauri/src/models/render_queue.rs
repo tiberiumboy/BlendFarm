@@ -39,8 +39,9 @@ impl RenderQueue {
     }
 
     pub fn run(&self, output: impl AsRef<Path>) -> Result<RenderInfo, RenderError> {
+        let path: &Path = self.project_file.as_ref();
         let args = Args::new(
-            self.project_file.file_path(),
+            path,
             // TODO: find a better way to handle target destination for render outputs
             output,
             Mode::Frame(self.frame),

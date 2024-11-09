@@ -1,6 +1,5 @@
 import { CiTrash } from "react-icons/ci";
 import { MdOutlineMovie } from "react-icons/md";
-import { invoke } from "@tauri-apps/api/core";
 
 export interface ProjectFileProps {
   file_name: String;
@@ -10,10 +9,18 @@ export interface ProjectFileProps {
 }
 
 // todo: expose function controls here. props event handler?
+// No function is referecing this? Do we need this file?
 export default function ProjectFile(props: ProjectFileProps) {
 
-  const deleteProject = () =>
-    invoke("delete_project", { projectFile: props }).then(props.onDataChanged);
+  // TODO: From this side of the application - this is really just to delete the entry from the UI element.
+  // this should not directly delete the original file. It can send notification to the client node to remove the temp file from storage.
+  const deleteProject = () => {
+    // TODO: 
+    // invoke("delete_project", { projectFile: props }).then(props.onDataChanged);
+    if (props.onDataChanged != undefined) {
+      props.onDataChanged();
+    }
+  }
 
   const createNewJob = () => props.onRequestNewJob ? props.onRequestNewJob(props) : null;
 

@@ -1,9 +1,10 @@
 use super::message::{
     CmdMessage,
     Destination::{self, All, Target},
-    NetResponse,
+    NetMessage, NetResponse,
 };
-use crate::models::{job::Job, message::NetMessage};
+
+use crate::models::job::Job;
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{self, NodeTask, StoredNetEvent, StoredNodeEvent};
@@ -17,13 +18,20 @@ use std::{
     io::Read,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
-    sync::mpsc::{self},
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Arc,
+    },
     thread,
     time::Duration,
 };
 
-pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
-const INTERVAL_MS: u64 = 500;
+// Administratively scoped IPv4 multicast space - https://datatracker.ietf.org/doc/html/rfc2365
+// pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
+pub const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(239, 255, 0, 1);
+pub const MULTICAST_PORT: u16 = 3010;
+pub const MULTICAST_SOCK: SocketAddr = SocketAddr::new(IpAddr::V4(MULTICAST_ADDR), MULTICAST_PORT);
+const INTERVAL_MS: u64 = 350;
 
 // Issue: Cannot derive debug because NodeTask doesn't derive Debug! Omit NodeTask if you need to Debug!
 // TODO: provide documentation explaining what this function does.
@@ -31,23 +39,18 @@ const INTERVAL_MS: u64 = 500;
 // TODO: I need to either find a way to change the state of this struct once connected.
 // otherwise we're back to this problem again?
 pub struct Server {
-    tx: mpsc::Sender<CmdMessage>,
-    pub rx_recv: Option<mpsc::Receiver<NetResponse>>,
-    _task: NodeTask,
+    tx: Sender<CmdMessage>,
+    pub rx_recv: Arc<Receiver<NetResponse>>,
+    task: NodeTask,
+    addr: SocketAddr,
 }
 
 impl Server {
-    fn generate_ping(socket: &SocketAddr) -> NetMessage {
-        NetMessage::Ping {
-            server_addr: Some(socket.to_owned()),
-        }
-    }
-
     // wonder do I need to make this return an actual raw mutable pointer to heap?
     pub fn new(port: u16) -> Server {
         let (handler, listener) = node::split::<NetMessage>();
 
-        let (_task, mut receiver) = listener.enqueue();
+        let (task, mut receiver) = listener.enqueue();
         // was this design to handle computer off the network?
         let public_addr =
             SocketAddr::new(local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), port);
@@ -60,7 +63,7 @@ impl Server {
             .unwrap();
 
         // connect udp
-        let (udp_conn, _) = match handler.network().connect(Transport::Udp, MULTICAST_ADDR) {
+        let (udp_conn, _) = match handler.network().connect(Transport::Udp, MULTICAST_SOCK) {
             Ok(data) => data,
             // Err(e) if e.kind() == std::io::ErrorKind::NetworkUnreachable => {
             //     todo!("how can we gracefully tell the program to continue to run on local network - despite we're \"offline\"?");
@@ -71,7 +74,7 @@ impl Server {
         // listen udp
         handler
             .network()
-            .listen(Transport::Udp, MULTICAST_ADDR)
+            .listen(Transport::Udp, MULTICAST_SOCK)
             .unwrap();
 
         // this is starting to feel like event base driven programming?
@@ -82,23 +85,24 @@ impl Server {
         // I wonder if there's a way to simply this implementation code?
         thread::spawn(move || {
             let mut peers: HashSet<Endpoint> = HashSet::new();
-            // yeahh.. let's move this method out of this function implementation.
+            // Move this method out of this function implementation.
             // TODO: Find a better place for this?
-            let current_job: Option<Job> = None;
+            // let current_job: Option<Job> = None;
 
             loop {
                 // TODO: Find a better way to handle this?
                 std::thread::sleep(Duration::from_millis(INTERVAL_MS));
+                // TODO: relocate this elsewhere?
                 if let Ok(msg) = rx.try_recv() {
                     match msg {
-                        CmdMessage::SendJob(job) => {
-                            // send new job to all clients
-                            let info = &NetMessage::SendJob(job);
-                            // send to all connected clients on udp channel
-                            for peer in peers.iter() {
-                                handler.network().send(*peer, &info.serialize());
-                            }
-                        }
+                        // CmdMessage::SendJob(job) => {
+                        //     // send new job to all clients
+                        //     let info = &NetMessage::SendJob(job);
+                        //     // send to all connected clients on udp channel
+                        //     for peer in peers.iter() {
+                        //         handler.network().send(*peer, &info.serialize());
+                        //     }
+                        // }
                         CmdMessage::SendFile(file_path, destination) => {
                             let mut file = File::open(&file_path).unwrap();
                             let file_name = file_path.file_name().unwrap().to_str().unwrap();
@@ -138,9 +142,10 @@ impl Server {
                         }
                         CmdMessage::Ping => {
                             // send ping to all clients
-                            handler
-                                .network()
-                                .send(udp_conn, &Self::generate_ping(&public_addr).serialize());
+                            let ping = NetMessage::Ping {
+                                server_addr: Some(public_addr.to_owned()),
+                            };
+                            handler.network().send(udp_conn, &ping.serialize());
                         }
                         CmdMessage::AskForBlender { version } => {
                             // send out a request to all clients to check for blender version
@@ -200,30 +205,34 @@ impl Server {
                                         "Received ping from client! Sending broadcast signal!"
                                     );
 
-                                    // maybe I should just send out a server ping signal instead?
-                                    handler.network().send(
-                                        udp_conn,
-                                        &Self::generate_ping(&public_addr).serialize(),
-                                    );
+                                    let ping = NetMessage::Ping {
+                                        server_addr: Some(public_addr.to_owned()),
+                                    };
+                                    handler.network().send(udp_conn, &ping.serialize());
                                 }
                                 NetMessage::Ping {
                                     server_addr: Some(_),
-                                } => { /* Server should ignore other server ping */ }
-                                NetMessage::SendJob(job) => {
-                                    println!("Received job from [{}]\n{:?}", endpoint.addr(), job);
-                                    tx_recv.send(NetResponse::JobSent(job)).unwrap();
-                                    // current_job = Some(job);
+                                } => {
+                                    println!(
+                                        "Received server ping, but we're the server? Ignoring"
+                                    );
                                 }
+                                // NetMessage::SendJob(job) => {
+                                //     println!("Received job from [{}]\n{:?}", endpoint.addr(), job);
+                                //     tx_recv.send(NetResponse::JobSent(job)).unwrap();
+                                //     // current_job = Some(job);
+                                // }
                                 NetMessage::RequestJob => {
+                                    todo!("Impl. Requesting job");
                                     // at this point here, client is asking us for a new job.
-                                    if let Some(ref job) = current_job {
-                                        let job = job.clone();
-                                        handler
-                                            .network()
-                                            .send(endpoint, &NetMessage::SendJob(job).serialize());
-                                    } else {
-                                        println!("No job available to send!");
-                                    }
+                                    // if let Some(ref job) = current_job {
+                                    //     let job = job.clone();
+                                    //     handler
+                                    //         .network()
+                                    //         .send(endpoint, &NetMessage::SendJob(job).serialize());
+                                    // } else {
+                                    //     println!("No job available to send!");
+                                    // }
                                 }
                                 _ => println!("Unhandled case for {:?}", msg),
                             }
@@ -232,7 +241,9 @@ impl Server {
                             // we connected via udp channel!
                             if endpoint == udp_conn {
                                 println!("Connected via UDP channel! [{}]", endpoint.addr());
-                                let msg = Self::generate_ping(&public_addr);
+                                let msg = NetMessage::Ping {
+                                    server_addr: Some(public_addr.to_owned()),
+                                };
                                 handler.network().send(endpoint, &msg.serialize());
                             }
                             // we connected via tcp channel!
@@ -267,15 +278,17 @@ impl Server {
 
         Self {
             tx,
-            rx_recv: Some(rx_recv),
-            _task,
+            rx_recv: Arc::new(rx_recv),
+            task,
+            addr: public_addr,
         }
     }
 
-    pub fn send_job(&self, job: Job) {
-        if let Err(e) = self.tx.send(CmdMessage::SendJob(job)) {
-            println!("Issue sending job request to server! {e}");
-        }
+    // TODO: repurpose this so that we're sending through NetworkService instead of interfacing to Server directly.
+    pub fn send_job(&self, _job: Job) {
+        // if let Err(e) = self.tx.send(CmdMessage::SendJob(job)) {
+        //     println!("Issue sending job request to server! {e}");
+        // }
     }
 
     /// Send a file to all network nodes.
@@ -310,96 +323,99 @@ impl Server {
             println!("Failed to send file request to server! {e}");
         }
     }
-
-    pub fn ping(&self) {
-        self.tx.send(CmdMessage::Ping).unwrap();
-    }
-
-    pub fn connect(&self, name: &str, socket: SocketAddr) {
-        self.tx
-            .send(CmdMessage::AddPeer {
-                name: name.to_owned(),
-                socket,
-            })
-            .unwrap();
-    }
-
-    pub fn get_job_list(&self) -> Vec<Job> {
-        if self.rx_recv.is_none() {
-            return vec![];
-        }
-
-        // we'll figure out the logic below later.
-        // todo!("Complete the logic to grab job list from the server");
-        vec![]
-    }
-
-    // going to have to put a hold on this for now...
-    // code may not be useful anymore. may have to refactor this to make this function working again.
-    /*
-    /// A client request if other client have identical blender version
-    fn check_for_blender(
-        endpoint: Endpoint,
-        os: &str,
-        arch: &str,
-        version: &Version,
-    ) -> NetMessage {
-        let current_os = std::env::consts::OS;
-        let current_arch = std::env::consts::ARCH;
-        let default_msg = NetMessage::HaveMatchingBlenderRequirement {
-            have_blender: false,
-        };
-
-        println!(
-            "Client [{}] have asked me if I have matching blender? OS: {} | Arch: {} | Version: {}",
-            endpoint.addr(),
-            os,
-            arch,
-            version
-        );
-
-        match (os, arch) {
-            (os, arch) if current_os.eq(os) & current_arch.eq(arch) => {
-                let manager = BlenderManager::load();
-                let blender = manager.have_blender(&version);
-                let msg = NetMessage::HaveMatchingBlenderRequirement {
-                    have_blender: blender,
-                };
-                msg
-            }
-            (os, arch) if current_os.eq(os) => {
-                println!(
-                    "Client [{}] have incompatible Arch, ignoring! {}(Client) != {}(Target))",
-                    endpoint.addr(),
-                    arch,
-                    current_arch
-                );
-                default_msg
-            }
-            (os, _) => {
-                println!(
-                    "Client [{}] have incompatible OS, ignoring! {}(Client) != {}(Target)",
-                    endpoint.addr(),
-                    os,
-                    current_os
-                );
-                default_msg
-            }
-        }
-
-        // in this case, the client is asking all other client if any one have the matching blender version type.
-        // let _map = self
-        //     .nodes
-        //     .iter()
-        //     .filter(|n| n.endpoint != endpoint)
-        //     .map(|n| self.send_to_target(n.endpoint, &msg));
-    }
-    */
 }
 
-impl Drop for Server {
-    fn drop(&mut self) {
-        println!("Dropping Server struct!");
-        self.tx.send(CmdMessage::Exit).unwrap();
-    }
-}
+// impl NetworkNode for Server {
+//     fn listen(&mut self) {
+//         println!("Listening");
+//     }
+
+//     fn stop(&mut self) {
+//         self._task.wait();
+//     }
+
+//     fn ping(&self) {
+//         // it would be nice to be able to send a message to the handler instead? But I think this is because of the design limitation
+//         // we're running the network handler in a background loop... How do I send a command to send ping out?
+//         self.tx.send(CmdMessage::Ping).unwrap();
+//     }
+
+//     // don't think I need this anymore?
+//     // pub fn connect(&self, name: &str, socket: SocketAddr) {
+//     //     self.tx
+//     //         .send(CmdMessage::AddPeer {
+//     //             name: name.to_owned(),
+//     //             socket,
+//     //         })
+//     //         .unwrap();
+//     // }
+
+//     // going to have to put a hold on this for now...
+//     // code may not be useful anymore. may have to refactor this to make this function working again.
+//     /*
+//     /// A client request if other client have identical blender version
+//     fn check_for_blender(
+//         endpoint: Endpoint,
+//         os: &str,
+//         arch: &str,
+//         version: &Version,
+//     ) -> NetMessage {
+//         let current_os = std::env::consts::OS;
+//         let current_arch = std::env::consts::ARCH;
+//         let default_msg = NetMessage::HaveMatchingBlenderRequirement {
+//             have_blender: false,
+//         };
+
+//         println!(
+//             "Client [{}] have asked me if I have matching blender? OS: {} | Arch: {} | Version: {}",
+//             endpoint.addr(),
+//             os,
+//             arch,
+//             version
+//         );
+
+//         match (os, arch) {
+//             (os, arch) if current_os.eq(os) & current_arch.eq(arch) => {
+//                 let manager = BlenderManager::load();
+//                 let blender = manager.have_blender(&version);
+//                 let msg = NetMessage::HaveMatchingBlenderRequirement {
+//                     have_blender: blender,
+//                 };
+//                 msg
+//             }
+//             (os, arch) if current_os.eq(os) => {
+//                 println!(
+//                     "Client [{}] have incompatible Arch, ignoring! {}(Client) != {}(Target))",
+//                     endpoint.addr(),
+//                     arch,
+//                     current_arch
+//                 );
+//                 default_msg
+//             }
+//             (os, _) => {
+//                 println!(
+//                     "Client [{}] have incompatible OS, ignoring! {}(Client) != {}(Target)",
+//                     endpoint.addr(),
+//                     os,
+//                     current_os
+//                 );
+//                 default_msg
+//             }
+//         }
+
+//         // in this case, the client is asking all other client if any one have the matching blender version type.
+//         // let _map = self
+//         //     .nodes
+//         //     .iter()
+//         //     .filter(|n| n.endpoint != endpoint)
+//         //     .map(|n| self.send_to_target(n.endpoint, &msg));
+//     }
+//     */
+// }
+
+// impl Drop for Server {
+//     fn drop(&mut self) {
+//         println!("Dropping Server struct!");
+//         self.tx.send(CmdMessage::Exit).unwrap();
+//     }
+// }

@@ -35,6 +35,8 @@ blender = { path = "../blender" }
 semver = "^1.0.22"
 pnet = "0.34"
 tauri-cli = "2.0.3"
+blend = "0.8.0"
+async-trait = "0.1.83"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-cli = "2"
