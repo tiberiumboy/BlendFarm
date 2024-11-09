@@ -38,7 +38,7 @@ use models::message::NetResponse;
 use models::server_setting::ServerSetting;
 use std::sync::{Arc, OnceLock};
 use std::{sync::Mutex, thread};
-use tauri::{async_runtime::spawn, AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_cli::CliExt;
 
 pub mod controllers;
@@ -132,7 +132,8 @@ fn client() {
             dbg!(&matches);
             if matches.args.get("client").unwrap().occurrences >= 1 {
                 // run client mode instead.
-                spawn(run_client());
+                // spawn(run_client());
+                let _ = run_client();
             }
         }
         Err(e) => {
@@ -197,6 +198,6 @@ pub fn run() {
 }
 
 async fn run_client() -> Result<(), ()> {
-    Client::new();
+    let _c = Client::new();
     Ok(())
 }
