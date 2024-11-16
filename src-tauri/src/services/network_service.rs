@@ -263,3 +263,26 @@ impl AsRef<JoinHandle<()>> for NetworkService {
         &self.task
     }
 }
+
+impl NetworkService<Online> {
+    
+}
+
+impl NetworkService {
+    pub fn new(socket: SocketAddr) -> Self{
+        let ( tx, rx ) = mpsc::channel<NetMessage>();
+
+        let task = std::thread::spawn(f)
+        NetworkService {
+            addr: socket,
+            tx,
+
+        }
+    }
+}
+
+impl AsRef<SocketAddr> for <State> NetworkService<State> {
+    fn as_ref(&self) -> &T {
+        
+    }
+}
