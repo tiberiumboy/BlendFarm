@@ -83,7 +83,7 @@ fn client() {
         link: Arc::new(RwLock::new(blender_link)),
         setting: Arc::new(RwLock::new(server_setting)),
         manager: Arc::new(RwLock::new(manager)),
-        job_manager: Arc::new(RwLock::new(job_manager)),
+        jobs: Arc::new(RwLock::new(job_manager)),
     };
 
     // TODO: Find a way to handle either Server(Host) or Client(Node)

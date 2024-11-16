@@ -8,16 +8,15 @@ use std::{net::SocketAddr, str::FromStr};
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RenderNode {
     pub name: String,
-    pub host: SocketAddr,
+    pub addr: SocketAddr,
 }
 
 // this code may be dead?
 impl RenderNode {
-    #[allow(dead_code)]
-    pub fn new(name: &str, host: SocketAddr) -> Self {
+    pub fn new(name: String, addr: SocketAddr) -> Self {
         Self {
-            name: name.to_string(),
-            host,
+            name,
+            addr,
         }
     }
 }
@@ -32,7 +31,7 @@ impl FromStr for RenderNode {
 
 impl PartialEq for RenderNode {
     fn eq(&self, other: &Self) -> bool {
-        self.host == other.host && self.name == other.name
+        self.addr == other.addr && self.name == other.name
     }
 }
 

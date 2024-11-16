@@ -1,24 +1,20 @@
 use std::sync::{Arc, RwLock};
-
-use crate::services::job_manager::JobManager;
-
-use super::server_setting::ServerSetting;
-// use crate::services::server::Server;
+use crate::services::network_service::NetworkService;
+use super::{job::Job, server_setting::ServerSetting};
 use blender::{manager::Manager as BlenderManager, models::home::BlenderHome};
 
-pub type ARW<T> = Arc<RwLock<T>>;
+pub type SafeLock<T> = Arc<RwLock<T>>;
 
-// pub type ServerType = ARW<Server>;
-pub type BlenderServiceType = ARW<BlenderHome>;
-pub type ServerSettingType = ARW<ServerSetting>;
-pub type BlenderManagerType = ARW<BlenderManager>; // would this also fail because it doesn't implement send + sync trait?
-pub type JobManagerType = ARW<JobManager>;
+pub type NetworkServiceType = SafeLock<NetworkService>;
+pub type BlenderServiceType = SafeLock<BlenderHome>;
+pub type ServerSettingType = SafeLock<ServerSetting>;
+pub type BlenderManagerType = SafeLock<BlenderManager>; // would this also fail because it doesn't implement send + sync trait?
 
 #[derive(Clone)]
 pub struct AppState {
-    // network: ServerType, // I need a network services, but the engine can start delay?
+    pub network: NetworkServiceType, // I need a network services, but the engine can start delay?
     pub link: BlenderServiceType,
     pub setting: ServerSettingType,
     pub manager: BlenderManagerType,
-    pub job_manager: JobManagerType,
+    pub jobs: SafeLock<Vec<Job>>,
 }

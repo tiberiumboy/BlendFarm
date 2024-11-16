@@ -26,7 +26,7 @@ pub async fn create_job(
 
     // send job to server
 
-    let mut manager = server.job_manager.write().unwrap();
+    let mut manager = server.jobs.write().unwrap();
     let _ = manager
         .add_to_queue(job.clone())
         .map_err(|e| Error::AssetNotFound(e.to_string()))?;
@@ -41,7 +41,7 @@ pub async fn create_job(
 pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> Result<(), ()> {
     let data = state.lock().unwrap();
     let mut manager = data
-        .job_manager
+        .jobs
         .write()
         .expect("Unable to obtain job manager");
 
@@ -53,7 +53,7 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> R
 #[command(async)]
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let server = state.lock().unwrap();
-    let manager = server.job_manager.read().unwrap();
+    let manager = server.jobs.read().unwrap();
     let data = serde_json::to_string(manager.as_ref()).unwrap();
     Ok(data)
 }

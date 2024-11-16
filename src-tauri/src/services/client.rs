@@ -2,11 +2,8 @@
     Developer blog:
     - Do some research on concurrent http downloader for transferring project files and blender from one client to another.
 */
-use super::{
-    message::{CmdMessage, Destination, NetMessage},
-    server::MULTICAST_SOCK,
-};
-use crate::models::server_setting::ServerSetting;
+use super::message::{Destination, FromNetwork, ToNetwork};
+use crate::{models::server_setting::ServerSetting, services::message::NetMessage};
 use blender::blender::Manager;
 use local_ip_address::local_ip;
 use message_io::network::{Endpoint, Transport};
@@ -16,6 +13,7 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr};
 #[cfg(target_family = "unix")]
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::net::SocketAddr;
 #[cfg(target_family = "windows")]
 use std::os::windows::fs::MetadataExt;
 use std::{net::SocketAddr, sync::mpsc, thread, time::Duration};
@@ -30,7 +28,8 @@ const INTERVAL_MS: u64 = 500;
     those set of information.
 */
 pub struct Client {
-    tx: mpsc::Sender<CmdMessage>,
+    host: Arc<RwLock<Option<Endpoint>>>,
+    tx: mpsc::Sender<ToNetwork>,
     // Is there a way for me to hold struct objects while performing a transfer task?
     // ^Yes, box heap the struct! See example - https://github.com/sigmaSd/LanChat/blob/master/net/src/lib.rs
 }
@@ -38,7 +37,7 @@ pub struct Client {
 // I wonder if it's possible to combine server/client code together to form some kind of intristic networking solution?
 
 impl Client {
-    pub fn new() -> Client {
+    pub fn new(public_addr: SocketAddr) -> Client {
         let (handler, listener) = node::split::<NetMessage>();
         let public_addr = SocketAddr::new(local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), 0);
         let (_task, mut receiver) = listener.enqueue();
@@ -48,22 +47,14 @@ impl Client {
             panic!("Unable to listen to tcp! \n{}", e);
         };
 
-        // listen udp
-        if let Err(e) = handler.network().listen(Transport::Udp, MULTICAST_SOCK) {
-            println!("Unable to listen to udp! \n{}", e);
-        }
-
-        // connect udp
-        let (udp_conn, _) = match handler.network().connect(Transport::Udp, MULTICAST_SOCK) {
-            Ok(conn) => conn,
-            Err(e) => panic!("Somethiing terrible happen! {e:?}"),
-        };
-
         let (tx, rx) = mpsc::channel();
+        let host = Arc::new(RwLock::new(Option<Endpoint>));
+
+        let server = host.clone();
+
         // let tx_owned = tx.clone();
         thread::spawn(move || {
             // client should only have a connection to the server, maybe a connection to transfer files?
-            let mut server: Option<Endpoint> = None;
             // let mut _current_job: Option<Job> = None;
 
             // this will help contain the job list I need info on.
@@ -75,105 +66,35 @@ impl Client {
                 std::thread::sleep(Duration::from_millis(INTERVAL_MS));
                 if let Ok(msg) = rx.try_recv() {
                     match msg {
-                        CmdMessage::AddPeer { .. } => {
-                            // client should not have the ability to add peers.
-                        }
-                        // CmdMessage::SendJob(job) => {
-                        //     // TODO: Move this code out?
-                        //     // assume that we have the files already download and available, we should then run the job here?
-                        //     let mut manager = Manager::load();
-                        //     let blender = manager.fetch_blender(&job.version).unwrap();
-                        //     let settings = server_setting::ServerSetting::load();
-                        //     let args = Args::new(
-                        //         job.project_file.file_path(),
-                        //         settings.render_dir,
-                        //         job.mode,
-                        //     );
-                        //     // eventually, I'd like to get to the point where I could render this?
-                        //     println!("Rendering!");
-                        //     let _receiver = blender.render(args);
-                        //     while let Ok(status) = _receiver.recv() {
-                        //         match status {
-                        //             blender::models::status::Status::Idle => {
-                        //                 println!("Blender[IDL]")
-                        //             }
-                        //             blender::models::status::Status::Running { status } => {
-                        //                 println!("Blender[MSG]: {status}")
-                        //             }
-                        //             blender::models::status::Status::Log { status } => {
-                        //                 println!("Blender[LOG]: {status}");
-                        //             }
-                        //             blender::models::status::Status::Warning { message } => {
-                        //                 println!("Blender[WAR]: {message}");
-                        //             }
-                        //             blender::models::status::Status::Error(e) => {
-                        //                 println!("Blender[ERR]: {e}");
-                        //             }
-                        //             // TODO: how do I check and see if I have any pending renders?
-                        //             blender::models::status::Status::Completed { result } => {
-                        //                 println!("Render completed! {:?}", result);
-                        //                 // here I need to find a way to send the file back to the host
-                        //                 // and tell it this is render image XXX for job XXX?
-
-                        //                 // Ok we need to do two things.
-                        //                 // one is we need to send the image back to the host
-                        //                 // then two we need to let the host hey I'm done with this render image!
-                        //                 // the reason for above is that we don't want the host to know we're done if we have another animation to render.
-                        //                 // we should just send the stats information to let the user know their progress on this current node.
-                        //                 // TODO: Find a way to get the server host? How? I thought I have this information somewhere?
-                        //                 let active_server = match server {
-                        //                     Some(server) => server,
-                        //                     None => break,
-                        //                 };
-
-                        //                 let cmd = CmdMessage::SendFile(
-                        //                     result,
-                        //                     Destination::Target(active_server),
-                        //                 );
-                        //                 // once this is done, then we can go off and tell the render job, hey I'm done!
-                        //                 // handler.network().send(cmd).unwrap();
-                        //                 tx_owned.send(cmd).unwrap();
-
-                        //                 break;
-                        //             }
-                        //         }
-                        //     }
-
-                        //     // notify the host that we're available.
-                        //     if let Some(server) = server {
-                        //         let completion = NetMessage::RequestJob.serialize();
-                        //         handler.network().send(server, &completion);
-                        //     }
-                        // }
+                        ToNetwork::Connect(addr) => {
+                            handler.network().connect(Transport::FramedTcp, addr).unwrap();
+                        },
                         // function duplicated in server struct - may need to move this code block to a separate struct to handle network protocol between server/client
-                        CmdMessage::SendFile(file_path, Destination::Target(target)) => {
+                        ToNetwork::SendFile(file_name, data) => {
                             // here the client is sending the file to either the server or client.
-                            let mut file = File::open(&file_path).unwrap();
-                            let file_name = file_path.file_name().unwrap().to_str().unwrap();
-                            #[cfg(target_family = "windows")]
-                            let size = file.metadata().unwrap().file_size() as usize;
-                            #[cfg(target_family = "unix")]
-                            let size = file.metadata().unwrap().size() as usize;
-                            let mut data: Vec<u8> = Vec::with_capacity(size);
-                            let bytes = file.read_to_end(&mut data).unwrap();
-                            if bytes != size {
-                                println!("Something wrong! buffer not the same size as file size!");
+                            if let Some(host) = server.read().unwrap() {
+                                let msg = FromNetwork::SendFile(file_name, data).serialize();
+                                handler.network().send(host, &msg);
                             }
-                            let msg = NetMessage::SendFile(file_name.to_owned(), data).serialize();
-                            handler.network().send(target, &msg);
                         }
-                        CmdMessage::SendFile(_, Destination::All) => {
-                            println!("Unable to send files to all, can only send to server!");
-                        }
-                        CmdMessage::Ping => {
+                        ToNetwork::SendFile(file, data) => {
+                            if let Some(host) = server.read().unwrap() {
+                                let data = NetMessage::SendFile(file, data);
+                                handler.network().send(host, &data.ser());
+                            }
+                        },
+                        ToNetwork::Ping => {
                             // send a ping to the network
-                            println!("Received a ping request!");
-                            handler.network().send(
-                                udp_conn,
-                                &NetMessage::Ping { server_addr: None }.serialize(),
-                            );
+                            // println!("Received a ping request!");
+                            // handler.network().send(
+                            //     udp_conn,   // why am I'm sending ping signal over udp connection? I don't have it anymore?
+                            //     &NetMessage::Ping(None).serialize(),
+                            // );
+
+                            // this function should have been called within Network service only.
+                            panic!("Should not happen..."); 
                         }
-                        CmdMessage::AskForBlender { version } => {
+                        ToNetwork::AskForBlender { version } => {
                             if let Some(conn) = server {
                                 let msg = NetMessage::CheckForBlender {
                                     os: std::env::consts::OS.to_owned(),
@@ -184,13 +105,13 @@ impl Client {
                                 handler.network().send(conn, &msg.serialize());
                             }
                         }
-                        CmdMessage::Exit => {
+                        ToNetwork::Exit => {
                             // Terminated signal received!
                             // should we also close the receiver?
                             handler.stop();
                             break;
                         }
-                        CmdMessage::GetPeers => {
+                        ToNetwork::GetPeers => {
                             // do nothing, this command is reserve for the server only.
                         }
                     }
@@ -239,7 +160,7 @@ impl Client {
                                 // server to client
                                 // we received a ping signal from the server that accepted our ping signal.
                                 // this means that either the server send out a broadcast signal to identify lost node connections on the network
-                                NetMessage::Ping {
+                                FromNetwork::Ping {
                                     server_addr: Some(socket),
                                 } if server.is_none() => {
                                     match handler.network().connect(Transport::FramedTcp, socket) {
@@ -252,7 +173,7 @@ impl Client {
                                         }
                                     }
                                 }
-                                NetMessage::Ping { .. } => {
+                                FromNetwork::Ping { .. } => {
                                     // ignore the ping signal from the client
                                 }
                                 // NetMessage::SendJob(job) => {
@@ -305,7 +226,7 @@ impl Client {
                                 }
                                 */
                                 // }
-                                NetMessage::CheckForBlender {
+                                FromNetwork::CheckForBlender {
                                     os,
                                     version,
                                     arch,
@@ -330,7 +251,7 @@ impl Client {
                                             Ok((endpoint, _)) => {
                                                 handler.network().send(
                                                     endpoint,
-                                                    &NetMessage::CanReceive(true).serialize(),
+                                                    &FromNetwork::CanReceive(true).serialize(),
                                                 );
                                             }
                                             Err(e) => {
@@ -341,7 +262,7 @@ impl Client {
                                     // let have_blender = check_blender(&os, &version, &arch);
                                     // self.contain_blender_response(endpoint, have_blender);
                                 }
-                                NetMessage::SendFile(file_name, data) => {
+                                FromNetwork::SendFile(file_name, data) => {
                                     // Problem - program crash if the file already exist -
                                     // need to save the file in temp location first, then move into the directory when completed.
                                     // if duplicated file exist - find the best mitigate plan? e.g. metadata comparison
@@ -413,15 +334,25 @@ impl Client {
             }
         });
 
-        Self { tx }
+        Self { host: None, tx }
     }
 
     // TODO: find a way to set up invoking mechanism to auto ping out if we do not have any connection to the server
     /// Manually invoke the ping code (I.e. internet restore, Network restarted, interrupted, etc)
-    #[allow(dead_code)]
     pub fn ping(&self) {
-        println!("Sending ping command from client");
-        self.tx.send(CmdMessage::Ping).unwrap();
+        if self.host.is_none() {
+            println!("Sending ping command from client");
+            self.tx.send(ToNetwork::Ping).unwrap();
+        } else {
+            println!("Already connected to host! Ping skipped");
+        }
+    }
+
+    pub fn connect(&mut self, addr: SocketAddr) {
+        if self.host.is_none() {
+            println!("Will try to connect!");
+            self.tx.send(ToNetwork::Connect(addr)).unwrap();
+        }
     }
 
     // Call to the server and ask other node on the network if anyone have identical hardware machine that we can obtain blender from
@@ -459,6 +390,6 @@ impl Client {
 // TODO: I do need to implement a Drop method to handle threaded task. Making sure they're close is critical!
 impl Drop for Client {
     fn drop(&mut self) {
-        self.tx.send(CmdMessage::Exit).unwrap();
+        self.tx.send(ToNetwork::Exit).unwrap();
     }
 }

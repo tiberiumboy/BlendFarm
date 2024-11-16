@@ -21,7 +21,7 @@ pub fn send(file_path: &PathBuf, target: &RenderNode) {
     let (handler, listener) = node::split();
     let (server_id, _) = handler
         .network()
-        .connect(Transport::FramedTcp, target.host)
+        .connect(Transport::FramedTcp, target.addr)
         .unwrap();
 
     let file_size = fs::metadata(file_path).unwrap().len() as usize;
