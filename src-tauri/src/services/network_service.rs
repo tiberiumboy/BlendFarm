@@ -264,25 +264,155 @@ impl AsRef<JoinHandle<()>> for NetworkService {
     }
 }
 
-impl NetworkService<Online> {
-    
-}
+impl NetworkService<Online> {}
 
 impl NetworkService {
-    pub fn new(socket: SocketAddr) -> Self{
-        let ( tx, rx ) = mpsc::channel<NetMessage>();
+    pub fn new(is_hosting: bool) -> Self {
+        let (handler, listener) = node::split::<FromNetwork>();
 
-        let task = std::thread::spawn(f)
-        NetworkService {
-            addr: socket,
+        let (task, mut receiver) = listener.enqueue();
+
+        // listen udp
+        handler
+            .network()
+            // could also use user configuration for this one too?
+            .listen(Transport::Udp, MULTICAST_SOCK)
+            .unwrap();
+
+        // connect udp
+        let (udp_conn, _) = match handler.network().connect(Transport::Udp, MULTICAST_SOCK) {
+            Ok(data) => data,
+            // Err(e) if e.kind() == std::io::ErrorKind::NetworkUnreachable => {
+            //     todo!("how can we gracefully tell the program to continue to run on local network - despite we're \"offline\"?");
+            // }
+            Err(e) => panic!("{e}"),
+        };
+
+        // TODO: Load from user_settings.rs
+        let port = 15000;
+        let nodes = Vec::new();
+        let addr;
+        // use mpsc here
+        let (tx, rx) = mpsc::channel();
+        let (server, client) = match is_hosting {
+            true => {
+                addr = SocketAddr::new(local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), port);
+                let server = Server::new(addr);
+                {}
+
+                (Some(Arc::new(RwLock::new(server))), None)
+            }
+            false => {
+                addr = SocketAddr::new(local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), 0);
+                let client = Client::new(addr);
+                client.ping();
+                (None, Some(Arc::new(RwLock::new(client))))
+            }
+        };
+
+        let client = Client::new(addr);
+        client.ping();
+        let client = Arc::new(RwLock::new(client));
+
+        let (self_client, self_server) = (client.clone(), server.clone());
+
+        let (_task, mut rx_recv) = mpsc::channel();
+
+        // this seems dangerous - how do we handle this spawn child?
+        thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                if let Ok(msg) = rx.try_recv() {
+                    match msg {
+                        ToNetwork::Connect(addr) => {
+                            if let Some(server) = self_server {
+                                server.read().unwrap().connect_peer(addr);
+                            } else {
+                                self_client.write().unwrap().connect(addr);
+                            }
+                        }
+                        // UdpMessage::Ping { host, addr, name } if host => {
+                        //     // an attempt to connect
+                        //     if self_server.is_none() {
+                        //         let service = self_client.write().unwrap();
+                        //         service.connect(addr);
+                        //     }
+                        // },
+                        // UdpMessage::Ping { addr, name, host } => {
+                        //     if let Some(server) = self_server {
+                        //         let service = server.write().unwrap();
+                        //         service.connect_peer(addr);
+                        //     }
+                        // },
+                        // };
+                    }
+
+                    if let Some(StoredNodeEvent::Network(event)) = receiver.try_receive() {
+                        match event {
+                            NetEvent::Message(endpoint, bytes) => {
+                                let msg = match UdpMessage::deserialize(&bytes) {
+                                    Ok(data) => data,
+                                    Err(e) => {
+                                        println!("Error deserializing net message data! \n{e}");
+                                        continue;
+                                    }
+                                };
+
+                                match msg {
+                                    UdpMessage::Ping { host, addr, name } => {
+                                        if let Some(server) = self_server {
+                                            let mut server = server.write().unwrap();
+                                            server.ping();
+                                        }
+
+                                        let client = self_client.read().unwrap();
+                                        client.ping();
+                                    }
+                                }
+                            }
+                            NetEvent::Accepted(_, _) => {}
+                            NetEvent::Connected(_, _) => {}
+                            NetEvent::Disconnected(_) => {} // NodeEvent::Signal(signal) => {
+                                                            //     signal::Stream(data: Option<(Vec<u8>, usize, usize)) => {
+
+                                                            //     }
+                                                            // }
+                        }
+                    }
+                }
+            }
+        });
+
+        let localhost = RenderNode::new("local".to_string(), addr);
+
+        let nodes = vec![localhost];
+        Self {
+            server,
+            client,
             tx,
-
+            rx_recv: Arc::new(rx_recv),
+            addr,
         }
     }
-}
 
-impl AsRef<SocketAddr> for <State> NetworkService<State> {
-    fn as_ref(&self) -> &T {
-        
+    pub fn add_peer(&self, socket: SocketAddr) {
+        // this concerns me. if I take it out, does that mean the option is none?
+        if let Some(server) = self.server.clone() {
+            let server = server.read().unwrap();
+            server.connect_peer(socket);
+        }
+    }
+
+    pub fn ping(&self, addr: SocketAddr) {}
+
+    // feels like this should be async? Is it not?
+    pub fn send_file(&self, file: PathBuf) -> Result<bool, NetworkError> {
+        if let Some(server) = self.server.clone() {
+            let server = server.read().unwrap();
+            server.send_file(file);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 }
