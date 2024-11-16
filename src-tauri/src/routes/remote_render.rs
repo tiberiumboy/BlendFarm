@@ -14,7 +14,7 @@ use crate::{
     // services::server::Server,
     AppState,
 };
-use blender::models::download_link::BlenderHome;
+use blender::models::home::BlenderHome;
 use semver::Version;
 use std::sync::Mutex;
 use tauri::{command, AppHandle, Error, State};
@@ -49,7 +49,7 @@ pub fn create_node(
 
 /// List out all available node for this blendfarm.
 #[command]
-pub fn list_node(_state: State<AppState>)
+pub fn list_node(_state: State<Mutex<AppState>>)
 // -> Result<String, Error>
 {
     // let _server = state.lock().unwrap();
@@ -59,7 +59,7 @@ pub fn list_node(_state: State<AppState>)
 }
 
 #[command]
-pub fn ping_node(_state: State<AppState>) -> Result<String, Error> {
+pub fn ping_node(_state: State<Mutex<AppState>>) -> Result<String, Error> {
     // let _server = state.lock().unwrap();
     // server.ping();
     Ok("Ping sent!".to_string())
@@ -67,9 +67,10 @@ pub fn ping_node(_state: State<AppState>) -> Result<String, Error> {
 
 /// List all of the available blender version.
 #[command(async)]
-pub fn list_versions(state: State<AppState>) -> Result<String, String> {
+pub fn list_versions(state: State<Mutex<AppState>>) -> Result<String, String> {
     // I'd like to know why this function was invoked twice?
-    if let Ok(blender_link) = state.manager.read() {
+    let server = state.lock().unwrap();
+    if let Ok(blender_link) = server.manager.read() {
         let versions: Vec<Version> = blender_link
             .list_all_blender_version()
             .iter()

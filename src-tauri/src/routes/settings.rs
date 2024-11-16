@@ -1,58 +1,71 @@
 // this is the settings controller section that will handle input from the setting page.
-use crate::models::server_setting::ServerSetting;
-use blender::blender::{Blender, Manager};
+use crate::models::{app_state::AppState, server_setting::ServerSetting};
+use blender::blender::Blender;
 use semver::Version;
 use std::{path::PathBuf, sync::Mutex};
 use tauri::{command, Error, State};
 
 /*
-    Developer Blog
-    I'm slowly breaking apart serversettings because the name itself does not imply settings configuration for _all_ other services in this application.
-    TODO: Create ClientSettings, and create a BlendFarmConfiguration file to hold all settings and configurations
+Developer Blog
+- Ran into an issue trying to unpack blender on MacOS - turns out that .ends_with needs to match the child as a whole instead of substring.
+- Changed the code down below to rely on using AppState, which contains managers needed to access to or modify to.
+TODO: Newly added blender doesn't get saved automatically.
 */
 
 /// List out currently saved blender installation on the machine
 #[command]
-pub fn list_blender_installation() -> Result<String, Error> {
-    let manager = Manager::load();
+pub fn list_blender_installation(state: State<Mutex<AppState>>) -> Result<String, Error> {
+    let server = state.lock().unwrap();
+    let manager = server.manager.read().unwrap();
     let blenders = manager.get_blenders();
     let data = serde_json::to_string(&blenders).unwrap();
     Ok(data)
 }
 
 #[command(async)]
-pub fn get_server_settings(state: State<Mutex<ServerSetting>>) -> Result<ServerSetting, Error> {
-    let server_settings = state.lock().unwrap().clone();
+pub fn get_server_settings(state: State<Mutex<AppState>>) -> Result<ServerSetting, Error> {
+    // let server_settings = state.lock().unwrap().clone();
+    let server = state.lock().unwrap();
+    let server_settings = server.setting.read().unwrap().clone();
     Ok(server_settings)
 }
 
 #[command]
-pub fn set_server_settings(new_settings: ServerSetting) -> Result<(), String> {
+pub fn set_server_settings(
+    state: State<Mutex<AppState>>,
+    new_settings: ServerSetting,
+) -> Result<(), String> {
+    // maybe I'm a bit confused here?
     new_settings.save();
+
+    let server = state.lock().unwrap();
+    // I want to update the server settings here, but how do I go about doing this?
+    let _setting = server.setting.write().unwrap();
+
     Ok(())
 }
 
 /// Add a new blender entry to the system, but validate it first!
 #[command(async)]
 pub fn add_blender_installation(
-    state: State<Mutex<Manager>>,
+    state: State<Mutex<AppState>>,
     path: PathBuf,
 ) -> Result<Blender, Error> {
-    // I need information in string so I could use the contains operand, if there's a better way to write this without having to cast into string, would be ideal
-    // TODO: Optimized so I could check the extension without casting to string (memory intensive operation)
-    // Add to the server settings
-    // consider using manager in a context instead?
-    let mut manager = state.lock().unwrap();
-    let blender = manager.add_blender_path(&path).unwrap();
-    Ok(blender)
+    let server = state.lock().unwrap();
+    let mut manager = server.manager.write().unwrap();
+    match manager.add_blender_path(&path) {
+        Ok(blender) => Ok(blender),
+        Err(e) => Err(Error::AssetNotFound(e.to_string())),
+    }
 }
 
 #[command(async)]
 pub fn fetch_blender_installation(
-    state: State<Mutex<Manager>>,
+    state: State<Mutex<AppState>>,
     version: &str,
 ) -> Result<Blender, String> {
-    let mut manager = state.lock().unwrap();
+    let server = state.lock().unwrap();
+    let mut manager = server.manager.write().unwrap();
     let version = Version::parse(version).map_err(|e| e.to_string())?;
     let blender = manager.fetch_blender(&version).map_err(|e| match e {
         blender::manager::ManagerError::DownloadNotFound { arch, os, url } => {
@@ -86,10 +99,11 @@ pub fn fetch_blender_installation(
 // - Delete blender content completely (erasing from disk)
 #[command(async)]
 pub fn remove_blender_installation(
-    state: State<Mutex<Manager>>,
+    state: State<Mutex<AppState>>,
     blender: Blender,
 ) -> Result<(), Error> {
-    let mut manager = state.lock().unwrap();
+    let server = state.lock().unwrap();
+    let mut manager = server.manager.write().unwrap();
     manager.remove_blender(&blender);
     Ok(())
 }

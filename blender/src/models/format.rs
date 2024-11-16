@@ -5,7 +5,6 @@ pub enum FormatError {
     InvalidInput,
 }
 
-// TODO: Provide file format explicitly define by user
 // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#format-options
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub enum Format {
@@ -20,24 +19,6 @@ pub enum Format {
     BMP,
     HDR,
     TIFF,
-}
-
-impl Format {
-    pub fn parse(format: String) -> Result<Format, FormatError> {
-        match format.to_uppercase().as_str() {
-            "TGA" => Ok(Format::TGA),
-            "RAWTGA" => Ok(Format::RAWTGA),
-            "JPEG" => Ok(Format::JPEG),
-            "IRIS" => Ok(Format::IRIS),
-            "AVIRAW" => Ok(Format::AVIRAW),
-            "AVIJPEG" => Ok(Format::AVIJPEG),
-            "PNG" => Ok(Format::PNG),
-            "BMP" => Ok(Format::BMP),
-            "HDR" => Ok(Format::HDR),
-            "TIFF" => Ok(Format::TIFF),
-            _ => Err(FormatError::InvalidInput),
-        }
-    }
 }
 
 impl FromStr for Format {

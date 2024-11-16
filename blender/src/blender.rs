@@ -21,11 +21,13 @@ Currently, there is no error handling situation from blender side of things. If 
 Trial:
 - Try docker?
 - try loading .dll from blender? See if it's possible?
+- Learning Unsafe Rust and using FFI - going to try and find blender's library code that rust can bind to.
+    - todo: see about cbindgen/cxx?
 
 Advantage:
 - can support M-series ARM processor.
 - Original tool Doesn't composite video for you - We can make ffmpeg wrapper?
--
+
 Disadvantage:
 - Currently rely on python script to do custom render within blender.
     No interops/additional cli commands other than interops through bpy (blender python) package

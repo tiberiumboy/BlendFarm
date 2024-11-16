@@ -7,7 +7,8 @@
     - Implements download and install code
 */
 use crate::blender::Blender;
-use crate::models::download_link::{BlenderCategory, BlenderHome, DownloadLink};
+use crate::models::{category::BlenderCategory, download_link::DownloadLink, home::BlenderHome};
+
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -109,7 +110,7 @@ impl Manager {
 
         let destination = self.install_path.join(&category.name);
 
-        // got a permission denied here?
+        // got a permission denied here? Interesting?
         // I need to figure out why and how I can stop this from happening?
         fs::create_dir_all(&destination).unwrap();
 
@@ -180,9 +181,12 @@ impl Manager {
     pub fn add_blender_path(&mut self, path: &impl AsRef<Path>) -> Result<Blender, ManagerError> {
         let path = path.as_ref();
         let extension = BlenderCategory::get_extension().map_err(ManagerError::UnsupportedOS)?;
-        // let str_path = path.as_os_str().to_str().unwrap().to_owned();
 
-        let path = if path.ends_with(&extension) {
+        let path = if path
+            .extension()
+            .is_some_and(|e| extension.contains(e.to_str().unwrap()))
+        {
+            // Create a folder name from given path
             let folder_name = &path
                 .file_name()
                 .unwrap()
@@ -200,11 +204,14 @@ impl Manager {
                 _ => Ok(path.to_path_buf()),
             }
         }?;
-
         let blender =
             Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
 
+        // I would have at least expect to see this populated?
         self.add_blender(blender.clone());
+        // TODO: This is a hack - Would prefer to understand why program does not auto save file after closing.
+        // Or look into better saving mechanism than this.
+        let _ = self.save();
         Ok(blender)
     }
 

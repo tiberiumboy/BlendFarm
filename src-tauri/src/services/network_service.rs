@@ -1,10 +1,20 @@
+/*
+
+the idea behind this is to have a persistence model to contain network services. 
+the netework services will be able to run either as a host or a node.
+the network services will also handle all of the incoming network packages and process the stream
+
+TODO: Find a way to send notification to Tauri application on network process message.
+
+ */
+
 use message_io::{
     network::Transport,
     node::{self, NodeTask},
 };
-use std::io;
 use std::net::SocketAddr;
 use std::sync::mpsc;
+use std::{io, marker::PhantomData};
 
 use super::message::{CmdMessage, NetMessage};
 
@@ -14,14 +24,20 @@ pub enum NetworkError {
     BadInput,
 }
 
-pub struct NetworkService {
+struct Online;
+struct Offline;
+
+
+// can we use phantom state here?
+pub struct NetworkService<State = Offline> {
     addr: SocketAddr,
     tx: mpsc::Sender<NetMessage>,
     rx: mpsc::Receiver<CmdMessage>,
     task: NodeTask,
+    state: PhantomData<State>,
 }
 
-impl NetworkService {
+impl NetworkService<Offline> {
     pub async fn new(socket: SocketAddr) -> Result<Self, io::Error> {
         let (handler, listener) = node::split::<NetMessage>();
 
@@ -39,6 +55,30 @@ impl NetworkService {
             rx: rx_recv,
             addr,
             task,
+            state: PhantomData<Offline>::new(),
         })
+    }
+}
+
+impl NetworkService<Online> {
+    
+}
+
+impl NetworkService {
+    pub fn new(socket: SocketAddr) -> Self{
+        let ( tx, rx ) = mpsc::channel<NetMessage>();
+
+        let task = std::thread::spawn(f)
+        NetworkService {
+            addr: socket,
+            tx,
+
+        }
+    }
+}
+
+impl AsRef<SocketAddr> for <State> NetworkService<State> {
+    fn as_ref(&self) -> &T {
+        
     }
 }

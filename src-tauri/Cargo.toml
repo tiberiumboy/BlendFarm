@@ -31,11 +31,12 @@ dirs = "5.0.1"
 anyhow = "^1.0.89"
 local-ip-address = "^0.6.3"
 tauri-plugin-core = "2.0.0-beta.0"
+blend = "0.8.0"
+# how do I reference a cdylib instead?
 blender = { path = "../blender" }
 semver = "^1.0.22"
 pnet = "0.34"
 tauri-cli = "2.0.3"
-blend = "0.8.0"
 async-trait = "0.1.83"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

@@ -51,16 +51,16 @@ pub enum JobStatus {
 /// A container to hold rendering job information. This will be used to send off jobs to all other rendering farm
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Job {
-    //TODO: should I keep this private instead? What impact does this make?
+    /// Unique job identifier
     id: Uuid,
     /// Path to the output directory where final render image will be saved to
-    pub output: PathBuf,
+    output: PathBuf,
     /// What kind of mode should this job run as
-    pub mode: Mode,
+    mode: Mode,
     /// What version of blender we need to use to render this project job.
-    pub version: Version,
+    version: Version,
     /// Path to blender files
-    pub project_file: ProjectFile,
+    project_file: ProjectFile,
     // Path to completed image result - May not be needed?
     // how do I make hash ignore this?
     renders: HashSet<RenderInfo>,

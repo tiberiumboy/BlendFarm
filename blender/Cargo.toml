@@ -3,6 +3,10 @@ name = "blender"
 version = "0.1.0"
 edition = "2021"
 
+# trying something out, make this library once I can understand how I can reference this externally from tauri side of application
+# [lib]
+# crate-type = ["cdylib"]
+
 [dependencies]
 dirs = "5.0.1"
 regex = "1.10.4"

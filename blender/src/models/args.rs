@@ -17,6 +17,8 @@ use std::{
     this limits what I can do in term of functionality, but it'll be a good start.
     FEATURE - See if python allows pointers/buffer access to obtain job render progress - Allows node to send host progress result. Possibly viewport network rendering?
 
+    Do note that blender is open source - it's not impossible to create FFI that interfaces blender directly, but rather, there's no support to perform this kind of action.
+
     BlendFarm code shows that they heavily rely on using python code to perform exact operation.
     Question is, do I want to use their code, or do I want to stick with CLI instead?
     I'll try implement both solution, CLI for version and other basic commands, python for advance features and upgrade?

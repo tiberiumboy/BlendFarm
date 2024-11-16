@@ -32,9 +32,9 @@ use crate::routes::settings::{
 };
 use crate::services::{client::Client, server::Server};
 use blender::manager::Manager as BlenderManager;
-use blender::models::download_link::BlenderHome;
+use blender::models::home::BlenderHome;
 use models::{app_state::AppState, server_setting::ServerSetting};
-use services::job_manager::InMemoryJobManager;
+use services::job_manager::JobManager;
 // use services::message::NetResponse;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 // use std::thread;
@@ -45,7 +45,6 @@ use tauri_plugin_cli::CliExt;
 // Need a mapping to explain how network should perform over intranet
 // Need a mapping to explain how blender manager is used and invoked for the job
 
-pub mod domain;
 pub mod models;
 pub mod routes;
 pub mod services;
@@ -77,8 +76,7 @@ fn client() {
         .expect("unable to fetch blender lists, are you connected to the internet?");
     let manager = BlenderManager::load();
     let server_setting = ServerSetting::load();
-
-    let job_manager = InMemoryJobManager::default();
+    let job_manager = JobManager::default();
 
     let app_state = AppState {
         // network: Arc::new(RwLock::new(server)),

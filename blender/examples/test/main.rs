@@ -1,4 +1,4 @@
-use blender::models::download_link::BlenderHome;
+use blender::models::home::BlenderHome;
 
 fn test_download_blender_home_link() {
     let mut home = BlenderHome::new().expect("Unable to get data");

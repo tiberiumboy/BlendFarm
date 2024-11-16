@@ -118,7 +118,7 @@ export default function Setting(versions: string[]) {
         {
           title: "Path to local blender installation",
           name: "Blender",
-          extensions: ["exe", "zip", "dmg", "tar.xz"], // how do I go about selecting app from linux? Linux app doesn't have extension AFAIK?
+          extensions: ["exe", "zip", "dmg", "tar.xz", "app"], // how do I go about selecting app from linux? Linux app doesn't have extension AFAIK?
         },
       ],
     }).then((selected) => {
@@ -150,16 +150,14 @@ export default function Setting(versions: string[]) {
           <label style={{ float: "left" }}>
             Blender Installation Path:
           </label>
-          <span style={{ display: "block", overflow: "hidden", }}>
-            <input
-              style={{ width: '100%' }}
-              type="text"
-              placeholder="Blender Installation Path"
-              value={blendInstall}
-              readOnly={true}
-              onClick={async () => setNewDirectoryPath((path) => setBlendInstall(path))}
-            />
-          </span>
+          <input
+            style={{ width: '100%' }}
+            type="text"
+            placeholder="Blender Installation Path"
+            value={blendInstall}
+            readOnly={true}
+            onClick={async () => setNewDirectoryPath((path) => setBlendInstall(path))}
+          />
 
           <br />
 
@@ -171,6 +169,7 @@ export default function Setting(versions: string[]) {
             type="text"
             placeholder="Path to blender file working directory"
             name="blend_dir"
+            style={{ width: '100%' }}
             readOnly={true}
             value={setting.blend_dir}
             onClick={async () => setNewDirectoryPath((path) => setting.blend_dir = path)}
@@ -181,8 +180,8 @@ export default function Setting(versions: string[]) {
           <label>
             Render cache directory:
           </label>
-
           <input
+            style={{ width: '100%' }}
             type="text"
             placeholder="Path to completed render frames for cache"
             name="render_dir"
