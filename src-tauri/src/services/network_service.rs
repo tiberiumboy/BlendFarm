@@ -270,7 +270,7 @@ impl NetworkService {
     pub fn new(is_hosting: bool) -> Self {
         let (handler, listener) = node::split::<FromNetwork>();
 
-        let (task, mut receiver) = listener.enqueue();
+        let (_task, mut receiver) = listener.enqueue();
 
         // listen udp
         handler
@@ -316,7 +316,7 @@ impl NetworkService {
 
         let (self_client, self_server) = (client.clone(), server.clone());
 
-        let (_task, mut rx_recv) = mpsc::channel();
+        // let (_task, mut rx_recv) = mpsc::channel();
 
         // this seems dangerous - how do we handle this spawn child?
         thread::spawn(move || {
@@ -325,26 +325,25 @@ impl NetworkService {
                 if let Ok(msg) = rx.try_recv() {
                     match msg {
                         ToNetwork::Connect(addr) => {
-                            if let Some(server) = self_server {
-                                server.read().unwrap().connect_peer(addr);
-                            } else {
-                                self_client.write().unwrap().connect(addr);
-                            }
-                        }
-                        // UdpMessage::Ping { host, addr, name } if host => {
-                        //     // an attempt to connect
-                        //     if self_server.is_none() {
-                        //         let service = self_client.write().unwrap();
-                        //         service.connect(addr);
-                        //     }
-                        // },
-                        // UdpMessage::Ping { addr, name, host } => {
-                        //     if let Some(server) = self_server {
-                        //         let service = server.write().unwrap();
-                        //         service.connect_peer(addr);
-                        //     }
-                        // },
-                        // };
+                            // if let Some(server) = self_server {
+                            //     server.read().unwrap().connect_peer(addr);
+                            // } else {
+                            self_client.write().unwrap().connect(addr);
+                            // }
+                        } // UdpMessage::Ping { host, addr, name } if host => {
+                          //     // an attempt to connect
+                          //     if self_server.is_none() {
+                          //         let service = self_client.write().unwrap();
+                          //         service.connect(addr);
+                          //     }
+                          // },
+                          // UdpMessage::Ping { addr, name, host } => {
+                          //     if let Some(server) = self_server {
+                          //         let service = server.write().unwrap();
+                          //         service.connect_peer(addr);
+                          //     }
+                          // },
+                          // };
                     }
 
                     if let Some(StoredNodeEvent::Network(event)) = receiver.try_receive() {
@@ -395,24 +394,20 @@ impl NetworkService {
         }
     }
 
-    pub fn add_peer(&self, socket: SocketAddr) {
+    pub fn add_peer(&self, _socket: SocketAddr) {
         // this concerns me. if I take it out, does that mean the option is none?
-        if let Some(server) = self.server.clone() {
-            let server = server.read().unwrap();
-            server.connect_peer(socket);
-        }
+        let _server = self.connection.read().unwrap();
+        // _server.connect_peer(_socket);
     }
 
-    pub fn ping(&self, addr: SocketAddr) {}
+    pub fn ping(&self) {
+        let client = self.connection.read().unwrap();
+        client.ping();
+    }
 
-    // feels like this should be async? Is it not?
     pub fn send_file(&self, file: PathBuf) -> Result<bool, NetworkError> {
-        if let Some(server) = self.server.clone() {
-            let server = server.read().unwrap();
-            server.send_file(file);
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+        let server = self.connection.read().unwrap();
+        server.send_file(file);
+        Ok(true)
     }
 }
