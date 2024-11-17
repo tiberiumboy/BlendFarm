@@ -30,11 +30,9 @@ use crate::routes::settings::{
     add_blender_installation, fetch_blender_installation, get_server_settings,
     list_blender_installation, remove_blender_installation, set_server_settings,
 };
-use crate::services::{client::Client, server::Server};
-use blender::manager::Manager as BlenderManager;
-use blender::models::home::BlenderHome;
-use models::{app_state::AppState, server_setting::ServerSetting};
-use services::job_manager::JobManager;
+use crate::services::client::Client;
+use models::app_state::AppState;
+use services::network_service::NetworkService;
 // use services::message::NetResponse;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 // use std::thread;
@@ -70,20 +68,20 @@ fn client() {
     // I want to be able to run either server _or_ client via a cli switch.
     // Would like to know how I can get around this?
     // TODO: just did a review of AppState - Implement AppState to manage across all application usage.
-    let mut server = Server::new(1500);
-    let listen = server.rx_recv;
-    let blender_link = BlenderHome::new()
-        .expect("unable to fetch blender lists, are you connected to the internet?");
-    let manager = BlenderManager::load();
-    let server_setting = ServerSetting::load();
-    let job_manager = JobManager::default();
+    let server = NetworkService::new(true);
+    // let listen = server.rx_recv;
+    // let blender_link = BlenderHome::new()
+    //     .expect("unable to fetch blender lists, are you connected to the internet?");
+    // let manager = BlenderManager::load();
+    // let server_setting = ServerSetting::load();
+    // let job_manager = JobManager::default();
 
     let app_state = AppState {
-        // network: Arc::new(RwLock::new(server)),
-        link: Arc::new(RwLock::new(blender_link)),
-        setting: Arc::new(RwLock::new(server_setting)),
-        manager: Arc::new(RwLock::new(manager)),
-        jobs: Arc::new(RwLock::new(job_manager)),
+        network: Arc::new(RwLock::new(server)),
+        // link: Arc::new(RwLock::new(blender_link)),
+        // setting: Arc::new(RwLock::new(server_setting)),
+        // manager: Arc::new(RwLock::new(manager)),
+        // jobs: Arc::new(RwLock::new(job_manager)),
     };
 
     // TODO: Find a way to handle either Server(Host) or Client(Node)

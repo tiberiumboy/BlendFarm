@@ -9,12 +9,8 @@ when you create a new job, it immediately sends a new job to the server farm
 for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
-use crate::{
-    models::project_file::ProjectFile,
-    // services::server::Server,
-    AppState,
-};
-use blender::models::home::BlenderHome;
+use crate::AppState;
+use blender::manager::Manager as BlenderManager;
 use semver::Version;
 use std::sync::Mutex;
 use tauri::{command, AppHandle, Error, State};
@@ -67,23 +63,19 @@ pub fn ping_node(_state: State<Mutex<AppState>>) -> Result<String, Error> {
 
 /// List all of the available blender version.
 #[command(async)]
-pub fn list_versions(state: State<Mutex<AppState>>) -> Result<String, String> {
+pub fn list_versions() -> Result<String, String> {
     // I'd like to know why this function was invoked twice?
-    let server = state.lock().unwrap();
-    if let Ok(blender_link) = server.manager.read() {
-        let versions: Vec<Version> = blender_link
-            .list_all_blender_version()
-            .iter()
-            .map(|b| match b.fetch_latest() {
-                Ok(download_link) => download_link.get_version().clone(),
-                Err(_) => Version::new(b.major, b.minor, 0),
-            })
-            .collect();
+    let blender_link = BlenderManager::load();
+    let versions: Vec<Version> = blender_link
+        .list_all_blender_version()
+        .iter()
+        .map(|b| match b.fetch_latest() {
+            Ok(download_link) => download_link.get_version().clone(),
+            Err(_) => Version::new(b.major, b.minor, 0),
+        })
+        .collect();
 
-        return Ok(serde_json::to_string(&versions).expect("Unable to serialize version list!"));
-    }
-
-    Err("Function already been called, please wait!".to_owned())
+    Ok(serde_json::to_string(&versions).expect("Unable to serialize version list!"))
 }
 
 // TODO: Reclassify this function behaviour - Should it pop the node off the network? Should it send disconnect signal? Should it shutdown node remotely?
@@ -95,14 +87,6 @@ pub fn delete_node(_app: AppHandle, target_node: String) -> Result<(), Error> {
     // let node_mutex = &app.state::<Mutex<Data>>();
     // let mut node = node_mutex.lock().unwrap();
     // node.render_nodes.retain(|x| x != &target_node);
-    Ok(())
-}
-
-/// Delete target project file from the collection. Note - this does not mean delete the original source file, it simply remove the project entry from the list
-#[command]
-pub fn delete_project(_project_file: ProjectFile) -> Result<(), String> {
-    // TODO: The idea behind this method is to clear the visual entry on the app, not to modify the original blender file.
-    // In a realistic scenario, we should never delete blend file, unless they were transfer over the network and stored temporarily (In this case, those file should be stored in a tmp location on the client node side...)
     Ok(())
 }
 
