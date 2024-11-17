@@ -13,9 +13,9 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr};
 #[cfg(target_family = "unix")]
 use std::os::unix::fs::MetadataExt;
-use std::os::unix::net::SocketAddr;
 #[cfg(target_family = "windows")]
 use std::os::windows::fs::MetadataExt;
+use std::sync::{Arc, RwLock};
 use std::{net::SocketAddr, sync::mpsc, thread, time::Duration};
 
 const INTERVAL_MS: u64 = 500;
@@ -30,6 +30,7 @@ const INTERVAL_MS: u64 = 500;
 pub struct Client {
     host: Arc<RwLock<Option<Endpoint>>>,
     tx: mpsc::Sender<ToNetwork>,
+    addr: SocketAddr,
     // Is there a way for me to hold struct objects while performing a transfer task?
     // ^Yes, box heap the struct! See example - https://github.com/sigmaSd/LanChat/blob/master/net/src/lib.rs
 }
@@ -37,10 +38,11 @@ pub struct Client {
 // I wonder if it's possible to combine server/client code together to form some kind of intristic networking solution?
 
 impl Client {
-    pub fn new(public_addr: SocketAddr) -> Client {
+    pub fn new() -> Client {
         let (handler, listener) = node::split::<NetMessage>();
-        let public_addr = SocketAddr::new(local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), 0);
         let (_task, mut receiver) = listener.enqueue();
+
+        let public_addr = SocketAddr::new(local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), 0);
 
         // listen tcp
         if let Err(e) = handler.network().listen(Transport::FramedTcp, public_addr) {
@@ -48,15 +50,12 @@ impl Client {
         };
 
         let (tx, rx) = mpsc::channel();
-        let host = Arc::new(RwLock::new(Option<Endpoint>));
+        let host = Arc::new(RwLock::new(None));
 
         let server = host.clone();
 
         // let tx_owned = tx.clone();
         thread::spawn(move || {
-            // client should only have a connection to the server, maybe a connection to transfer files?
-            // let mut _current_job: Option<Job> = None;
-
             // this will help contain the job list I need info on.
             // Feature: would this be nice to load any previous known job list prior to running this client?
             // E.g. store in json file if client gets shutdown
@@ -67,8 +66,11 @@ impl Client {
                 if let Ok(msg) = rx.try_recv() {
                     match msg {
                         ToNetwork::Connect(addr) => {
-                            handler.network().connect(Transport::FramedTcp, addr).unwrap();
-                        },
+                            handler
+                                .network()
+                                .connect(Transport::FramedTcp, addr)
+                                .unwrap();
+                        }
                         // function duplicated in server struct - may need to move this code block to a separate struct to handle network protocol between server/client
                         ToNetwork::SendFile(file_name, data) => {
                             // here the client is sending the file to either the server or client.
@@ -82,7 +84,7 @@ impl Client {
                                 let data = NetMessage::SendFile(file, data);
                                 handler.network().send(host, &data.ser());
                             }
-                        },
+                        }
                         ToNetwork::Ping => {
                             // send a ping to the network
                             // println!("Received a ping request!");
@@ -92,7 +94,7 @@ impl Client {
                             // );
 
                             // this function should have been called within Network service only.
-                            panic!("Should not happen..."); 
+                            panic!("Should not happen...");
                         }
                         ToNetwork::AskForBlender { version } => {
                             if let Some(conn) = server {
@@ -334,25 +336,22 @@ impl Client {
             }
         });
 
-        Self { host: None, tx }
-    }
-
-    // TODO: find a way to set up invoking mechanism to auto ping out if we do not have any connection to the server
-    /// Manually invoke the ping code (I.e. internet restore, Network restarted, interrupted, etc)
-    pub fn ping(&self) {
-        if self.host.is_none() {
-            println!("Sending ping command from client");
-            self.tx.send(ToNetwork::Ping).unwrap();
-        } else {
-            println!("Already connected to host! Ping skipped");
+        Self {
+            host: None,
+            tx,
+            addr: public_addr,
         }
     }
 
     pub fn connect(&mut self, addr: SocketAddr) {
-        if self.host.is_none() {
+        if self.host.read().unwrap().is_none() {
             println!("Will try to connect!");
             self.tx.send(ToNetwork::Connect(addr)).unwrap();
         }
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.host.read().unwrap().is_some()
     }
 
     // Call to the server and ask other node on the network if anyone have identical hardware machine that we can obtain blender from
@@ -385,6 +384,12 @@ impl Client {
         // TODO: Find a way to send file from one computer to another!
     }
     */
+}
+
+impl AsRef<SocketAddr> for Client {
+    fn as_ref(&self) -> &SocketAddr {
+        &self.addr
+    }
 }
 
 // TODO: I do need to implement a Drop method to handle threaded task. Making sure they're close is critical!
