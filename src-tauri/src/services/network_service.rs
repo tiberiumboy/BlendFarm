@@ -269,8 +269,11 @@ impl NetworkService<Online> {}
 impl NetworkService {
     pub fn new(is_hosting: bool) -> Self {
         let (handler, listener) = node::split::<FromNetwork>();
-
+        
+        /* 
+        // something about this line takes forever to process and load?
         let (_task, mut receiver) = listener.enqueue();
+        */
 
         // listen udp
         handler
@@ -278,7 +281,7 @@ impl NetworkService {
             // could also use user configuration for this one too?
             .listen(Transport::Udp, MULTICAST_SOCK)
             .unwrap();
-
+        
         // connect udp
         let (udp_conn, _) = match handler.network().connect(Transport::Udp, MULTICAST_SOCK) {
             Ok(data) => data,
@@ -322,7 +325,7 @@ impl NetworkService {
         thread::spawn(move || {
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(100));
-                if let Ok(msg) = rx.try_recv() {
+                /*                 if let Ok(msg) = rx.try_recv() {
                     match msg {
                         ToNetwork::Connect(addr) => {
                             // if let Some(server) = self_server {
@@ -345,6 +348,8 @@ impl NetworkService {
                           // },
                           // };
                     }
+                };
+                
 
                     if let Some(StoredNodeEvent::Network(event)) = receiver.try_receive() {
                         match event {
@@ -401,13 +406,11 @@ impl NetworkService {
     }
 
     pub fn ping(&self) {
-        let client = self.connection.read().unwrap();
-        client.ping();
+        self.connection.ping();
     }
 
     pub fn send_file(&self, file: PathBuf) -> Result<bool, NetworkError> {
-        let server = self.connection.read().unwrap();
-        server.send_file(file);
+        self.connection.send_file(file);
         Ok(true)
     }
 }
