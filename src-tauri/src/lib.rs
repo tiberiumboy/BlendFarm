@@ -30,14 +30,12 @@ use crate::routes::settings::{
     add_blender_installation, fetch_blender_installation, get_server_settings,
     list_blender_installation, remove_blender_installation, set_server_settings,
 };
-use crate::services::client::Client;
 use models::app_state::AppState;
 use services::network_service::NetworkService;
 // use services::message::NetResponse;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 // use std::thread;
-use tauri::{async_runtime::spawn, AppHandle};
-use tauri_plugin_cli::CliExt;
+use tauri::AppHandle;
 
 //TODO: Create a miro diagram structure of how this application suppose to work
 // Need a mapping to explain how network should perform over intranet
@@ -49,7 +47,7 @@ pub mod services;
 
 // I'm using this to make app handler accessible within this app. I will eventually find a better way to handle this.
 // TODO: impl dependency injection?
-static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+// static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
 // when the app starts up, I would need to have access to configs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
 fn client() {
@@ -67,26 +65,11 @@ fn client() {
     // I'm having problem trying to separate this call from client.
     // I want to be able to run either server _or_ client via a cli switch.
     // Would like to know how I can get around this?
-    // TODO: just did a review of AppState - Implement AppState to manage across all application usage.
-    let server = NetworkService::new(true);
-    // let listen = server.rx_recv;
-    // let blender_link = BlenderHome::new()
-    //     .expect("unable to fetch blender lists, are you connected to the internet?");
-    // let manager = BlenderManager::load();
-    // let server_setting = ServerSetting::load();
-    // let job_manager = JobManager::default();
+    let server = NetworkService::new(true, 15000);
 
     let app_state = AppState {
         network: Arc::new(RwLock::new(server)),
-        // link: Arc::new(RwLock::new(blender_link)),
-        // setting: Arc::new(RwLock::new(server_setting)),
-        // manager: Arc::new(RwLock::new(manager)),
-        // jobs: Arc::new(RwLock::new(job_manager)),
     };
-
-    // TODO: Find a way to handle either Server(Host) or Client(Node)
-    // may have to combine this into a single struct to handle both engression/ingression
-    // let m_client: Arc<Option<Client>> = Arc::new(None);
 
     let app = builder
         .manage(Mutex::new(app_state))
@@ -109,24 +92,24 @@ fn client() {
         // it would be nice to figure out why this is causing so much problem?
         .build(tauri::generate_context!())
         .expect("Unable to build tauri app!");
-    APP_HANDLE.set(app.handle().clone()).unwrap();
+    // APP_HANDLE.set(app.handle().clone()).unwrap();
 
-    match app.cli().matches() {
-        // `matches` here is a Struct with { args, subcommand }.
-        // `args` is `HashMap<String, ArgData>` where `ArgData` is a struct with { value, occurrences }.
-        // `subcommand` is `Option<Box<SubcommandMatches>>` where `SubcommandMatches` is a struct with { name, matches }.
-        // cargo tauri dev -- -- -c
-        Ok(matches) => {
-            dbg!(&matches);
-            if matches.args.get("client").unwrap().occurrences >= 1 {
-                // run client mode instead.
-                spawn(run_client());
-            }
-        }
-        Err(e) => {
-            dbg!(e);
-        }
-    };
+    // match app.cli().matches() {
+    //     // `matches` here is a Struct with { args, subcommand }.
+    //     // `args` is `HashMap<String, ArgData>` where `ArgData` is a struct with { value, occurrences }.
+    //     // `subcommand` is `Option<Box<SubcommandMatches>>` where `SubcommandMatches` is a struct with { name, matches }.
+    //     // cargo tauri dev -- -- -c
+    //     Ok(matches) => {
+    //         dbg!(&matches);
+    //         if matches.args.get("client").unwrap().occurrences >= 1 {
+    //             // run client mode instead.
+    //             spawn(run_client());
+    //         }
+    //     }
+    //     Err(e) => {
+    //         dbg!(e);
+    //     }
+    // };
 
     // As soon as the function goes out of scope, thread will be drop.
     // TODO: Find a better place to move this background process
@@ -185,9 +168,4 @@ pub fn run() {
     // TODO: It would be nice to include command line utility to let the user add blender installation from remotely.
     // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.
     client();
-}
-
-async fn run_client() -> Result<(), ()> {
-    Client::new();
-    Ok(())
 }

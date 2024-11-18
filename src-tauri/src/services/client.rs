@@ -1,6 +1,8 @@
 /*
     Developer blog:
     - Do some research on concurrent http downloader for transferring project files and blender from one client to another.
+
+    Combine this with server
 */
 use super::message::{NetResponse, ToNetwork};
 use super::network_service::NetworkNode;
@@ -222,16 +224,15 @@ impl Client {
     }
 }
 
+// impl NetworkNode for Client {
+//     fn ping(&self) {
+//         self.tx.send(ToNetwork::Ping).unwrap();
+//     }
 
-impl NetworkNode for Client {
-    fn ping(&self) {
-        self.tx.send(ToNetwork::Ping).unwrap();
-    }
-
-    fn send_file(&self, file: PathBuf) {
-        self.tx.send(ToNetwork::SendFile(file)).unwrap();
-    }
-}
+//     fn send_file(&self, file: PathBuf) {
+//         self.tx.send(ToNetwork::SendFile(file)).unwrap();
+//     }
+// }
 
 impl AsRef<SocketAddr> for Client {
     fn as_ref(&self) -> &SocketAddr {

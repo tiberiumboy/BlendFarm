@@ -1,4 +1,7 @@
-use super::message::{ NetMessage, NetResponse, ToNetwork};
+/*
+    Combine this with client
+ */
+use super::message::{ NetMessage, ToNetwork};
 use super::network_service::NetworkNode;
 use crate::models::job::Job;
 use local_ip_address::local_ip;
@@ -55,8 +58,9 @@ impl Server {
         // this is starting to feel like event base driven programming?
         // is this really the best way to handle network messaging?
         let (tx, rx) = mpsc::channel();
-        let (tx_recv, _rx_recv) = mpsc::channel();
+        // let (tx_recv, _rx_recv) = mpsc::channel();
 
+        /* 
         // I wonder if there's a way to simply this implementation code?
         thread::spawn(move || {
             // Move this method out of this function implementation.
@@ -172,6 +176,7 @@ impl Server {
                 }
             }
         });
+        */
 
         Self {
             tx: Arc::new(tx),
@@ -195,23 +200,23 @@ impl Server {
     }
 }
 
-impl NetworkNode for Server {
-    fn ping(&self) {
-        self.tx.send(ToNetwork::Ping).unwrap();
-    }
+// impl NetworkNode for Server {
+//     fn ping(&self) {
+//         self.tx.send(ToNetwork::Ping).unwrap();
+//     }
 
-    fn send_file(&self, file: PathBuf) {
-        if !&file.is_file() {
-            println!("file path is not a file! Aborting operation!");
-            return;
-        }
+//     fn send_file(&self, file: PathBuf) {
+//         if !&file.is_file() {
+//             println!("file path is not a file! Aborting operation!");
+//             return;
+//         }
         
-        if let Err(e) = &self.tx.send(ToNetwork::SendFile(file))
-        {
-            println!("Failed to send file request to server! {e}");
-        }
-    }
-}
+//         if let Err(e) = &self.tx.send(ToNetwork::SendFile(file))
+//         {
+//             println!("Failed to send file request to server! {e}");
+//         }
+//     }
+// }
 
 impl AsRef<SocketAddr> for Server {
     fn as_ref(&self) -> &SocketAddr {

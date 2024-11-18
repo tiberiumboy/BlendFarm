@@ -8,6 +8,7 @@ TODO: Find a way to send notification to Tauri application on network process me
 */
 use super::message::{FromNetwork, ToNetwork};
 use super::{client::Client, server::Server};
+use local_ip_address::local_ip;
 use message_io::network::Transport;
 use message_io::node::{self,  StoredNetEvent, StoredNodeEvent};
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,8 @@ pub const MULTICAST_PORT: u16 = 3010;
 pub const MULTICAST_SOCK: SocketAddr = SocketAddr::new(IpAddr::V4(MULTICAST_ADDR), MULTICAST_PORT);
 pub const CHUNK_SIZE: usize = 65536;
 
+pub type Port = u16;
+
 #[derive(Debug, Error)]
 pub enum NetworkError {
     #[error("Not Connected")]
@@ -38,7 +41,6 @@ pub enum NetworkError {
 #[derive(Serialize, Deserialize)]
 pub enum UdpMessage {
     Ping {
-        host: bool,
         addr: SocketAddr,
         name: String,
     },
@@ -54,26 +56,22 @@ impl UdpMessage {
     }
 }
 
-pub trait NetworkNode : Send + Sync {
-    // fn receiver(&self) -> &Arc<mpsc::Receiver<NetResponse>>;
-    fn ping(&self);
-    fn send_file(&self, file: PathBuf);
+pub struct NetworkNode {
+    addr: SocketAddr,
+    // _tx: Sender<ToNetwork>,
 }
 
-pub struct NetworkService {
-    // I feel like there's a better way to do this
-    // server: Option<Arc<RwLock<Server>>>,
-    // client: Arc<RwLock<Client>>,
-    connection: Arc<RwLock<dyn NetworkNode>>,
-    _tx: Sender<ToNetwork>,
-    // pub rx_recv: Arc<Receiver<CmdCommand>>,
-}
+impl NetworkNode {
+    pub fn new(port: Port) -> Self {
 
-impl NetworkService {
-    pub fn new(is_hosting: bool) -> Self {
+        let public_addr = SocketAddr::new(local_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), port);
+        
         let (handler, listener) = node::split::<FromNetwork>();
-
+        
+        /* 
+        // something about this line takes forever to process and load?
         let (_task, mut receiver) = listener.enqueue();
+        */
 
         // listen udp
         handler
@@ -81,7 +79,7 @@ impl NetworkService {
             // could also use user configuration for this one too?
             .listen(Transport::Udp, MULTICAST_SOCK)
             .unwrap();
-
+        
         // connect udp
         let (udp_conn, _) = match handler.network().connect(Transport::Udp, MULTICAST_SOCK) {
             Ok(data) => data,
@@ -91,44 +89,19 @@ impl NetworkService {
             Err(e) => panic!("{e}"),
         };
 
-        // TODO: Load from user_settings.rs
-        let port = 15000;
-        // use mpsc here
-        let (tx, rx) = mpsc::channel();
-        let server = match is_hosting {
-            true => {
-                let server = Server::new(port);
-                Some(Arc::new(RwLock::new(server)))
-            }
-            false => None,
-        };
+        // let (rx, tx) = mpsc::channel();
 
-        let client: Client = Client::new();
-        client.ping();
-        let client = Arc::new(RwLock::new(client));
-
-        let (self_client, self_server) = (client.clone(), server.clone());
-
-        // let (_task, mut rx_recv) = mpsc::channel();
-
-        // this seems dangerous - how do we handle this spawn child?
         thread::spawn(move || {
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(100));
-                if let Ok(msg) = rx.try_recv() {
+                /*                 if let Ok(msg) = rx.try_recv() {
                     match msg {
                         ToNetwork::Connect(addr) => {
-                            // if let Some(server) = self_server {
-                            //     server.read().unwrap().connect_peer(addr);
-                            // } else {
-                                self_client.write().unwrap().connect(addr);
-                            // }
+                            handler.network().connect(Transport::FramedTcp, addr).unwrap();
                         }
                         ToNetwork::Ping => {
-                            let addr = &self_client.read().unwrap().as_ref().clone();
                             let ping = UdpMessage::Ping {
-                                host: self_server.is_some(),
-                                addr: addr.clone(),
+                                addr: public_addr.clone(),
                                 name: "Render Node".to_owned(), // TODO: Change this to reflect current host machine name
                             };
                             handler.network().send(udp_conn, &ping.ser());
@@ -140,68 +113,103 @@ impl NetworkService {
                             handler.stop();
                         }
                     }
+                };
+                
 
-                    if let Some(StoredNodeEvent::Network(event)) = receiver.try_receive() {
-                        match event {
-                            StoredNetEvent::Message(endpoint, bytes) => {
-                                println!("Message received from [{}]", endpoint.addr());
-                                let msg = match UdpMessage::de(&bytes) {
-                                    Ok(data) => data,
-                                    Err(e) => {
-                                        println!("Error deserializing net message data! \n{e}");
-                                        continue;
-                                    }
-                                };
-
-                                match msg {
-                                    UdpMessage::Ping { host, addr, name } if host == false => {
-                                        println!("UDP Ping intercepted by '{}'[{}]", name, addr);
-                                        // if let Some(server) = self_server {
-                                        //     let mut server = server.write().unwrap();
-                                        //     server.connect_peer(addr);
-                                        // }
-                                    },
-                                    UdpMessage::Ping { .. } => {
-                                        if self_client.read().unwrap().is_connected() {
-                                            todo!();
-                                        }
-                                    },
+                if let Some(StoredNodeEvent::Network(event)) = receiver.try_receive() {
+                    match event {
+                        StoredNetEvent::Message(endpoint, bytes) => {
+                            println!("Message received from [{}]", endpoint.addr());
+                            let msg = match UdpMessage::de(&bytes) {
+                                Ok(data) => data,
+                                Err(e) => {
+                                    println!("Error deserializing net message data! \n{e}");
+                                    continue;
                                 }
-                            }
-                            StoredNetEvent::Accepted(_, _) => {}
-                            StoredNetEvent::Connected(_, _) => {}
-                            StoredNetEvent::Disconnected(_) => {} // NodeEvent::Signal(signal) => {
-                                                            //     signal::Stream(data: Option<(Vec<u8>, usize, usize)) => {
+                            };
 
-                                                            //     }
-                                                            // }
+                            match msg {
+                                UdpMessage::Ping { host, addr, name } if host == false => {
+                                    println!("UDP Ping intercepted by '{}'[{}]", name, addr);
+                                    // if let Some(server) = self_server {
+                                    //     let mut server = server.write().unwrap();
+                                    //     server.connect_peer(addr);
+                                    // }
+                                },
+                                UdpMessage::Ping { .. } => {
+                                    if self_client.read().unwrap().is_connected() {
+                                        todo!();
+                                    }
+                                },
+                            }
                         }
+                        StoredNetEvent::Accepted(_, _) => {}
+                        StoredNetEvent::Connected(_, _) => {}
+                        StoredNetEvent::Disconnected(_) => {}
                     }
                 }
+                */
             }
         });
+        
+        Self {
+            addr: public_addr,
+            // _tx: tx
+        }
+    }
+
+    pub fn ping(&self) {
+        todo!("Ping the network!");
+    }
+
+    pub fn send_file(&self, file: PathBuf) {
+        todo!("Send file over network");
+    }
+}
+
+pub struct NetworkService {
+    connection: NetworkNode,
+    is_host: bool,
+}
+
+impl NetworkService {
+    pub fn new(is_host: bool, port: Port) -> Self {
+        // use mpsc here
+        // let (tx, rx) = mpsc::channel();
+        // let server = match is_host {
+        //     true => {
+        //         let server = Server::new(port);
+        //         Some(Arc::new(RwLock::new(server)))
+        //     }
+        //     false => None,
+        // };
+
+        // let (_task, mut rx_recv) = mpsc::channel();
+
+        // client port can be assigned to any, but host must have a valid port
+        let port = if is_host {
+            port
+        } else {
+            0
+        };
 
         Self {
-            // server,
-            connection: client,
-            _tx: tx,
+            connection: NetworkNode::new(port),
+            is_host
         }
     }
 
     pub fn add_peer(&self, _socket: SocketAddr) {
-        // this concerns me. if I take it out, does that mean the option is none?
-        let _server = self.connection.read().unwrap(); 
+        // self.connection.; 
         // _server.connect_peer(_socket);
     }
 
     pub fn ping(&self) {
-        let client = self.connection.read().unwrap();
-        client.ping();
+        self.connection.ping();
     }
 
     pub fn send_file(&self, file: PathBuf) -> Result<bool, NetworkError> {
-        let server = self.connection.read().unwrap();
-        server.send_file(file);
+        self.connection.send_file(file);
         Ok(true)
     }
 }
