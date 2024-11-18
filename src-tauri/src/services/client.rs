@@ -5,7 +5,6 @@
     Combine this with server
 */
 use super::message::{NetResponse, ToNetwork};
-use super::network_service::NetworkNode;
 use crate::models::job::Job;
 use crate::services::message::NetMessage;
 use local_ip_address::local_ip;
@@ -14,7 +13,6 @@ use message_io::node::{self, StoredNetEvent, StoredNodeEvent};
 use std::fs::{self, File};
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
-use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::{net::SocketAddr, sync::mpsc, thread, time::Duration};
 
@@ -72,7 +70,7 @@ impl Client {
                                 handler.network().send(host, &msg.ser());
                             }
                         }
-                        ToNetwork::Ping => {
+                        ToNetwork::Ping { host} => {
                             // send a ping to the network
                             // println!("Received a ping request!");
                             // handler.network().send(
@@ -211,17 +209,6 @@ impl Client {
             addr: public_addr,
         }
     }
-
-    pub fn connect(&mut self, addr: SocketAddr) {
-        if self.host.read().unwrap().is_none() {
-            println!("Will try to connect!");
-            self.tx.send(ToNetwork::Connect(addr)).unwrap();
-        }
-    }
-
-    pub fn is_connected(&self) -> bool {
-        self.host.read().unwrap().is_some()
-    }
 }
 
 // impl NetworkNode for Client {
@@ -234,15 +221,4 @@ impl Client {
 //     }
 // }
 
-impl AsRef<SocketAddr> for Client {
-    fn as_ref(&self) -> &SocketAddr {
-        &self.addr
-    }
-}
 
-// TODO: I do need to implement a Drop method to handle threaded task. Making sure they're close is critical!
-impl Drop for Client {
-    fn drop(&mut self) {
-        self.tx.send(ToNetwork::Exit).unwrap();
-    }
-}

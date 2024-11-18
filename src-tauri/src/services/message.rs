@@ -7,12 +7,10 @@ pub enum ToNetwork {
     Connect( SocketAddr ),
     // how did the example do this? continuous file stream?
     SendFile(PathBuf),
-    Ping, // send a ping to the network
+    Ping{ host: bool }, // send a ping to the network
     Exit, // stop the thread process
 }
 
-// I could make this as a trait?
-// that way I could have separate enum structs for different kind of message
 #[derive(Serialize, Deserialize, Debug)]
 pub enum FromNetwork {
     SendFile(PathBuf), // might be expensive?

@@ -7,7 +7,6 @@ TODO: Find a way to send notification to Tauri application on network process me
 
 */
 use super::message::{FromNetwork, ToNetwork};
-use super::{client::Client, server::Server};
 use local_ip_address::local_ip;
 use message_io::network::Transport;
 use message_io::node::{self,  StoredNetEvent, StoredNodeEvent};
@@ -41,6 +40,7 @@ pub enum NetworkError {
 #[derive(Serialize, Deserialize)]
 pub enum UdpMessage {
     Ping {
+        host: bool,
         addr: SocketAddr,
         name: String,
     },
@@ -58,7 +58,7 @@ impl UdpMessage {
 
 pub struct NetworkNode {
     addr: SocketAddr,
-    // _tx: Sender<ToNetwork>,
+    tx: Sender<ToNetwork>,
 }
 
 impl NetworkNode {
@@ -69,7 +69,7 @@ impl NetworkNode {
         let (handler, listener) = node::split::<FromNetwork>();
         
         /* 
-        // something about this line takes forever to process and load?
+        // something about this code blocked main thread from running application.
         let (_task, mut receiver) = listener.enqueue();
         */
 
@@ -89,18 +89,20 @@ impl NetworkNode {
             Err(e) => panic!("{e}"),
         };
 
-        // let (rx, tx) = mpsc::channel();
+        let (tx, rx) = mpsc::channel();
 
         thread::spawn(move || {
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(100));
-                /*                 if let Ok(msg) = rx.try_recv() {
+                                 
+                if let Ok(msg) = rx.try_recv() {
                     match msg {
                         ToNetwork::Connect(addr) => {
                             handler.network().connect(Transport::FramedTcp, addr).unwrap();
                         }
-                        ToNetwork::Ping => {
+                        ToNetwork::Ping { host } => {
                             let ping = UdpMessage::Ping {
+                                host,
                                 addr: public_addr.clone(),
                                 name: "Render Node".to_owned(), // TODO: Change this to reflect current host machine name
                             };
@@ -115,7 +117,7 @@ impl NetworkNode {
                     }
                 };
                 
-
+                /*
                 if let Some(StoredNodeEvent::Network(event)) = receiver.try_receive() {
                     match event {
                         StoredNetEvent::Message(endpoint, bytes) => {
@@ -154,16 +156,24 @@ impl NetworkNode {
         
         Self {
             addr: public_addr,
-            // _tx: tx
+            tx,
         }
     }
 
-    pub fn ping(&self) {
-        todo!("Ping the network!");
+    pub fn ping(&self, host: bool) {
+        // TODO: Find out how I can make this call panic. whether I need to handle via error handling situation?
+        self.tx.send(ToNetwork::Ping { host }).unwrap();
     }
 
     pub fn send_file(&self, file: PathBuf) {
-        todo!("Send file over network");
+        // TODO: Find out how I can make this call panic. whether I need to handle via error handling situation?
+        self.tx.send(ToNetwork::SendFile(file)).unwrap();
+    }
+}
+
+impl AsRef<SocketAddr> for NetworkNode {
+    fn as_ref(&self) -> &SocketAddr {
+        &self.addr
     }
 }
 
@@ -205,7 +215,7 @@ impl NetworkService {
     }
 
     pub fn ping(&self) {
-        self.connection.ping();
+        self.connection.ping(self.is_host);
     }
 
     pub fn send_file(&self, file: PathBuf) -> Result<bool, NetworkError> {
