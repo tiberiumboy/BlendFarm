@@ -34,6 +34,7 @@ use models::app_state::AppState;
 use services::network_service::NetworkService;
 // use services::message::NetResponse;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::thread;
 // use std::thread;
 use tauri::AppHandle;
 
@@ -65,10 +66,17 @@ fn client() {
     // I'm having problem trying to separate this call from client.
     // I want to be able to run either server _or_ client via a cli switch.
     // Would like to know how I can get around this?
-    let server = NetworkService::new(true, 15000);
+    let server = NetworkService::new(true);
+    let network = Arc::new(RwLock::new(server));
+    let init = network.clone();
+    
+    // I wonder...
+    thread::spawn(move || {
+        init.write().unwrap().connect( 15000);
+    });
 
     let app_state = AppState {
-        network: Arc::new(RwLock::new(server)),
+        network,
     };
 
     let app = builder
@@ -89,7 +97,6 @@ fn client() {
             remove_blender_installation,
             fetch_blender_installation,
         ])
-        // it would be nice to figure out why this is causing so much problem?
         .build(tauri::generate_context!())
         .expect("Unable to build tauri app!");
     // APP_HANDLE.set(app.handle().clone()).unwrap();

@@ -5,5 +5,5 @@ pub type SafeLock<T> = Arc<RwLock<T>>;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub network: SafeLock<NetworkService>, // I need a network services, but the engine can start delay?
+    pub network: SafeLock<NetworkService>,
 }

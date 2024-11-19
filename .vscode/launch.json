@@ -7,7 +7,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Tauri Development Debug",
+            "name": "dbg Dev",
             "args": [
                 "build",
                 "--manifest-path=./src-tauri/Cargo.toml",

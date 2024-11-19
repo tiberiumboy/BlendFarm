@@ -5,7 +5,7 @@
             "label": "ui:dev",
             "type": "shell",
             "shell": {
-                "args": ["tauri","dev"]
+                "args": ["dev"]
             },
             "isBackground": true,
             // how do I set the command to my path?
@@ -19,7 +19,7 @@
         {
             "type": "cargo",
             "script":"watch",
-            "problemMatcher": $"tsc-watch",
+            // "problemMatcher": $"tsc-watch",
             "isBackground": true
         }
     ]
