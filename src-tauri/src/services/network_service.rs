@@ -7,14 +7,16 @@ TODO: Find a way to send notification to Tauri application on network process me
 
 */
 // use libp2p::connection_limits::Behaviour;
-use libp2p::{futures::StreamExt, ping::Behaviour};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::SwarmEvent;
-use local_ip_address::local_ip;
+use libp2p::{futures::StreamExt, ping::Behaviour};
+use libp2p::{ping, yamux, Multiaddr, Swarm, SwarmBuilder};
 use serde::{Deserialize, Serialize};
-use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, sync::{Arc, RwLock}};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::{Arc, RwLock},
+};
 use thiserror::Error;
-use libp2p::{noise, ping, tcp, yamux, Multiaddr, Swarm, SwarmBuilder};
 
 // Administratively scoped IPv4 multicast space - https://datatracker.ietf.org/doc/html/rfc2365
 // pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
@@ -57,30 +59,28 @@ impl UdpMessage {
 pub struct NetworkService {
     // this way we can determine if we're active or not.
     is_host: bool,
-    swarm: Arc<RwLock<Option<Swarm<Behaviour>>>>,
 }
 
 impl NetworkService {
     pub fn new(is_host: bool) -> Self {
-        Self {
-            is_host,
-            swarm: Arc::new(RwLock::new(None)),
-        }
+        Self { is_host }
     }
 
+    // attempt to make connection to the network.
     pub async fn connect(&mut self, port: Port) -> Result<(), Box<dyn std::error::Error>> {
         let mut swarm = SwarmBuilder::with_new_identity()
             .with_tokio()
-            .with_tcp(libp2p::tcp::Config::default(),
-             libp2p::tls::Config::new, 
-             yamux::Config::default)?
-             .with_behaviour(|_| ping::Behaviour::default())?
-             .build();
-        let mut addr: Multiaddr ="/ip4/0.0.0.0/".parse()?;
+            .with_tcp(
+                libp2p::tcp::Config::default(),
+                libp2p::tls::Config::new,
+                yamux::Config::default,
+            )?
+            .with_behaviour(|_| ping::Behaviour::default())?
+            .build();
+        let mut addr: Multiaddr = "/ip4/0.0.0.0/".parse()?;
         addr.push(Protocol::Tcp(port));
         swarm.listen_on(addr)?;
-        self.swarm = Arc::new(RwLock::new(Some(swarm)));
-        
+
         // hmm This could be a problem?
         loop {
             match swarm.select_next_some().await {
@@ -89,7 +89,7 @@ impl NetworkService {
                 _ => {}
             }
         }
-        
+
         // Ok(())
     }
 }
