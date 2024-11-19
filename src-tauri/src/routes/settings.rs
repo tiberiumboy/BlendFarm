@@ -1,9 +1,10 @@
 // this is the settings controller section that will handle input from the setting page.
-use crate::models::server_setting::ServerSetting;
+use crate::models::{app_state::AppState, server_setting::ServerSetting};
 use blender::{blender::Blender, manager::Manager as BlenderManager};
 use semver::Version;
-use std::path::PathBuf;
-use tauri::{command, Error};
+use serde::{Deserialize, Serialize};
+use std::{path::PathBuf, sync::Mutex};
+use tauri::{command, Error, State};
 
 /*
 Developer Blog
@@ -14,34 +15,61 @@ TODO: Newly added blender doesn't get saved automatically.
 
 /// List out currently saved blender installation on the machine
 #[command]
-pub fn list_blender_installation() -> Result<String, Error> {
-    let manager = BlenderManager::load();
+pub fn list_blender_installation(state: State<Mutex<AppState>>) -> Result<String, Error> {
+    let app_state = state.lock().unwrap();
+    let manager = app_state.manager.read().unwrap();
     let blenders = manager.get_blenders();
     let data = serde_json::to_string(&blenders).unwrap();
     Ok(data)
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct SettingResponse {
+    pub install_path: PathBuf,
+    pub render_path: PathBuf,
+    pub cache_path: PathBuf,
+}
+
+/*
+    Because blender installation path is not store in server setting, it is infact store under blender manager,
+    we will need to create a new custom response message to provide all of the information needed to display on screen properly
+*/
 #[command(async)]
-pub fn get_server_settings() -> Result<ServerSetting, Error> {
-    let server_settings = ServerSetting::load();
-    Ok(server_settings)
+pub fn get_server_settings(state: State<Mutex<AppState>>) -> Result<SettingResponse, Error> {
+    let app_state = state.lock().unwrap();
+    let server_settings = app_state.setting.read().unwrap();
+    let blender_manager = app_state.manager.read().unwrap();
+
+    let data = SettingResponse {
+        install_path: blender_manager.as_ref().to_owned(),
+        cache_path: server_settings.blend_dir.clone(),
+        render_path: server_settings.render_dir.clone(),
+    };
+
+    Ok(data)
 }
 
 #[command]
 pub fn set_server_settings(
+    state: State<Mutex<AppState>>,
     new_settings: ServerSetting,
 ) -> Result<(), String> {
     // maybe I'm a bit confused here?
+    let app_state = state.lock().unwrap();
+    let mut old_setting = app_state.setting.write().unwrap();
     new_settings.save();
+    *old_setting = new_settings;
     Ok(())
 }
 
 /// Add a new blender entry to the system, but validate it first!
 #[command(async)]
 pub fn add_blender_installation(
+    state: State<Mutex<AppState>>,
     path: PathBuf,
 ) -> Result<Blender, Error> {
-    let mut manager = BlenderManager::load();
+    let app_state = state.lock().unwrap();
+    let mut manager = app_state.manager.write().unwrap();
     match manager.add_blender_path(&path) {
         Ok(blender) => Ok(blender),
         Err(e) => Err(Error::AssetNotFound(e.to_string())),
@@ -50,9 +78,11 @@ pub fn add_blender_installation(
 
 #[command(async)]
 pub fn fetch_blender_installation(
+    state: State<Mutex<AppState>>,
     version: &str,
 ) -> Result<Blender, String> {
-    let mut manager = BlenderManager::load();
+    let app_state = state.lock().unwrap();
+    let mut manager = app_state.manager.write().unwrap();
     let version = Version::parse(version).map_err(|e| e.to_string())?;
     let blender = manager.fetch_blender(&version).map_err(|e| match e {
         blender::manager::ManagerError::DownloadNotFound { arch, os, url } => {
@@ -86,9 +116,11 @@ pub fn fetch_blender_installation(
 // - Delete blender content completely (erasing from disk)
 #[command(async)]
 pub fn remove_blender_installation(
+    state: State<Mutex<AppState>>,
     blender: Blender,
 ) -> Result<(), Error> {
-    let mut manager = BlenderManager::load();
+    let app_state = state.lock().unwrap();
+    let mut manager = app_state.manager.write().unwrap();
     manager.remove_blender(&blender);
     Ok(())
 }

@@ -171,8 +171,14 @@ Do I need to make another .group class in @media (prefers-color-scheme: dark) ?
   background-color: #2c2c2c0b;
   border: 1px solid rgba(63, 65, 68, 0.067);
   border-radius: 8px;
+  box-sizing: border-box;
   margin-top: 8px;
   padding: 12px;
+}
+
+.form-input {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .group>.item:not(:last-child) {

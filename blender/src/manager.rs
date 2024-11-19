@@ -277,6 +277,12 @@ impl Manager {
     }
 }
 
+impl AsRef<PathBuf> for Manager {
+    fn as_ref(&self) -> &PathBuf {
+        &self.install_path
+    }
+}
+
 // #[cfg(feature = "manager")]
 impl Drop for Manager {
     fn drop(&mut self) {

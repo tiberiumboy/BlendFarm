@@ -7,23 +7,17 @@ TODO: Find a way to send notification to Tauri application on network process me
 
 */
 // use libp2p::connection_limits::Behaviour;
+use libp2p::futures::StreamExt;
 use libp2p::multiaddr::Protocol;
-use libp2p::swarm::SwarmEvent;
-use libp2p::{futures::StreamExt, ping::Behaviour};
-use libp2p::{ping, yamux, Multiaddr, Swarm, SwarmBuilder};
+use libp2p::{ping, swarm::SwarmEvent, yamux, Multiaddr, SwarmBuilder};
 use serde::{Deserialize, Serialize};
-use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    sync::{Arc, RwLock},
-};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use thiserror::Error;
 
 // Administratively scoped IPv4 multicast space - https://datatracker.ietf.org/doc/html/rfc2365
-// pub const MULTICAST_ADDR: &str = "239.255.0.1:3010";
-pub const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(239, 255, 0, 1);
-pub const MULTICAST_PORT: u16 = 3010;
-pub const MULTICAST_SOCK: SocketAddr = SocketAddr::new(IpAddr::V4(MULTICAST_ADDR), MULTICAST_PORT);
-pub const CHUNK_SIZE: usize = 65536;
+// pub const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(239, 255, 0, 1);
+// pub const MULTICAST_PORT: u16 = 3010;
+// pub const MULTICAST_SOCK: SocketAddr = SocketAddr::new(IpAddr::V4(MULTICAST_ADDR), MULTICAST_PORT);
 
 pub type Port = u16;
 
@@ -77,11 +71,12 @@ impl NetworkService {
             )?
             .with_behaviour(|_| ping::Behaviour::default())?
             .build();
+
+        // Do we need the multicast const definition anymore?
         let mut addr: Multiaddr = "/ip4/0.0.0.0/".parse()?;
         addr.push(Protocol::Tcp(port));
         swarm.listen_on(addr)?;
 
-        // hmm This could be a problem?
         loop {
             match swarm.select_next_some().await {
                 SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {address:?}"),
@@ -89,7 +84,5 @@ impl NetworkService {
                 _ => {}
             }
         }
-
-        // Ok(())
     }
 }

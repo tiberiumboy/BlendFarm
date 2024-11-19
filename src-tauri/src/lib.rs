@@ -34,6 +34,7 @@ use crate::routes::settings::{
 use blender::manager::Manager as BlenderManager;
 use blender::models::home::BlenderHome;
 use models::app_state::AppState;
+use models::server_setting::ServerSetting;
 use services::network_service::NetworkService;
 // use services::message::NetResponse;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -82,12 +83,14 @@ fn client() {
     let home = Arc::new(RwLock::new(BlenderHome::new().expect(
         "Unable to connect to blender.org, are you connect to the internet?",
     )));
+    let setting = Arc::new(RwLock::new(ServerSetting::load()));
 
     // for network service, consider making a box pointer instead. this Arc<RwLock<T>> is driving me nuts with Tauri.
     // Do consider adding blender manager and blender home in app state instead.
     let app_state = AppState {
         manager,
         blender_service: home,
+        setting,
     };
 
     let app = builder

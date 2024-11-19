@@ -1,14 +1,15 @@
-use std::{net::SocketAddr, path::PathBuf};
 use serde::{Deserialize, Serialize};
+use std::{net::SocketAddr, path::PathBuf};
 
+/*
 // this command is provide by the User to the server.
 // this interface acts as API - where we want to send command to the server node, and start taking actions.
 pub enum ToNetwork {
-    Connect( SocketAddr ),
+    Connect(SocketAddr),
     // how did the example do this? continuous file stream?
     SendFile(PathBuf),
-    Ping{ host: bool }, // send a ping to the network
-    Exit, // stop the thread process
+    Ping { host: bool }, // send a ping to the network
+    Exit,                // stop the thread process
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -21,9 +22,10 @@ pub enum FromNetwork {
         server_addr: Option<SocketAddr>,
     },
 }
+*/
 
 // Net Message is used to send message to the client? What's the different from ToNode or FromNode?
-#[derive(Debug,Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum NetMessage {
     SendFile(String, Vec<u8>),
     RequestJob,
@@ -40,7 +42,7 @@ impl NetMessage {
     }
 }
 
-
+/*
 #[derive(Debug)]
 pub enum NetResponse {
     Joined {
@@ -67,3 +69,4 @@ pub enum NetResponse {
     #[allow(dead_code)]
     FileTransfer(PathBuf),
 }
+*/

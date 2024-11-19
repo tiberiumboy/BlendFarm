@@ -2,6 +2,8 @@ use blender::manager::Manager as BlenderManager;
 use blender::models::home::BlenderHome;
 use std::sync::{Arc, RwLock};
 
+use super::server_setting::ServerSetting;
+
 pub type SafeLock<T> = Arc<RwLock<T>>;
 
 #[derive(Clone)]
@@ -11,4 +13,5 @@ pub struct AppState {
     // pub network: SafeLock<NetworkService>,
     pub manager: SafeLock<BlenderManager>,
     pub blender_service: SafeLock<BlenderHome>,
+    pub setting: SafeLock<ServerSetting>,
 }
