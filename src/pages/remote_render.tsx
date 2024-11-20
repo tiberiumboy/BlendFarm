@@ -62,7 +62,7 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
   const [version, setVersion] = useState(versions[0]);
 
   const handleSubmitJobForm = (e: React.FormEvent) => {
-    e.preventDefault(); // wonder if this does anything?
+    e.preventDefault();
     // How do I structure this?
     const info = e.target as HTMLFormElement;
     const selectedMode = info.modes.value;
@@ -70,12 +70,15 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
     const output = info.output.value;
 
     let mode = generateMode(selectedMode, e.target);
+
     let data = {
       filePath,
       output,
       version,
-      mode,
+      // mode,
     };
+
+    console.log(data);
 
     invoke("create_job", data).then((ctx: any) => {
       if (ctx == null) {
@@ -95,11 +98,11 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
     switch (mode) {
       case "frame":
         return {
-          Frame: Number(target.frame.value),
+          "Frame": Number(target.frame.value),
         };
       case "section":
         return {
-          Section: {
+          "Section": {
             start: Number(target.start.value),
             end: Number(target.end.value),
           },
@@ -115,6 +118,7 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
     setMode(mode);
   }
 
+  // TODO: find a way to make this more sense and pure function as possible.
   async function onDirectorySelect(e: any) {
     const filePath = await open({
       directory: true,

@@ -219,6 +219,7 @@ impl Blender {
 
     /// Peek is a function design to read and fetch information about the blender file.
     /// To do this, we must have a valid blender executable path, and run the peek.py code to fetch a json response.
+    // TODO: Consider using blend library to read the data instead.
     pub fn peek(&self, blend_file: impl AsRef<Path>) -> Result<BlenderPeekResponse, BlenderError> {
         let peek_path = Self::get_config_path().join("peek.py");
 
@@ -265,7 +266,6 @@ impl Blender {
             // So far this part of the code works - but I'm getting an unusual error
             // I'm rececing an exception on stdout. [Errno 32] broken pipe?
             // thread panic here - err - Serde { source: Error("expected value", line: 1, column: 1) } ??
-            // why are we having issue trying to peek into this?
             let blend_info = &self.peek(&args.file).unwrap();
             let setting = BlenderRenderSetting::parse_from(&args, blend_info);
             let arr = vec![setting];

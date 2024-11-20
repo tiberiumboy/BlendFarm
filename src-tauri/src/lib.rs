@@ -26,7 +26,7 @@ This might be another big project to work over the summer to understand how netw
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use crate::routes::job::{create_job, delete_job, list_jobs};
-use crate::routes::remote_render::{create_node, delete_node, list_node, list_versions, ping_node};
+use crate::routes::remote_render::{delete_node, list_node, list_versions, ping_node};
 use crate::routes::settings::{
     add_blender_installation, fetch_blender_installation, get_server_settings,
     list_blender_installation, remove_blender_installation, set_server_settings,
@@ -96,7 +96,6 @@ fn client() {
     let app = builder
         .manage(Mutex::new(app_state))
         .invoke_handler(tauri::generate_handler![
-            create_node,
             create_job,
             delete_node,
             delete_job,

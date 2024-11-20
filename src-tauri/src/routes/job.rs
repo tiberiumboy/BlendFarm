@@ -1,27 +1,39 @@
 use blender::models::mode::Mode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, sync::Mutex};
+use std::{
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 use tauri::{command, Error, State};
 
 use crate::models::{app_state::AppState, job::Job, project_file::ProjectFile};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateJobRequest {
-    file_path: PathBuf,
-    output: PathBuf,
+    // I wonder...?
+    // file_path: PathBuf,
+    // output: PathBuf,
+    file_path: String,
+    output: String,
     version: Version,
-    mode: Mode,
+    // mode: Mode,
 }
 
 #[command(async)]
 pub async fn create_job(
     state: State<'_, Mutex<AppState>>,
-    info: CreateJobRequest,
+    info: CreateJobRequest, // this code is complaining that it's missing required key info?
 ) -> Result<Job, Error> {
+    println!("{:?}", &info);
+    let file_path: PathBuf = info.file_path.parse().expect("Invalid file path");
+    let output: PathBuf = info.output.parse().expect("Invalid output path");
+    let mode = Mode::Frame(1);
+
     let project_file =
-        ProjectFile::new(info.file_path).map_err(|e| Error::AssetNotFound(e.to_string()))?;
-    let job = Job::new(project_file, info.output, info.version, info.mode);
+        ProjectFile::new(file_path).map_err(|e| Error::AssetNotFound(e.to_string()))?;
+    let job = Job::new(project_file, output, info.version, mode);
     let _server = state.lock().unwrap();
 
     // send job to server
@@ -51,7 +63,7 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, _target_job: Job) -> 
 
 /// List all available jobs stored in the collection.
 #[command(async)]
-pub async fn list_jobs(state: State<'_,Mutex<AppState>>) -> Result<String, String> {
+pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let _server = state.lock().unwrap();
     // let manager = server.jobs.read().unwrap();
     // let data = serde_json::to_string(manager.as_ref()).unwrap();

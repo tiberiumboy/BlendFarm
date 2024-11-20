@@ -15,34 +15,6 @@ use semver::Version;
 use std::sync::Mutex;
 use tauri::{command, AppHandle, Error, State};
 
-/// Connect to a node
-#[command]
-pub fn create_node(
-    // _state: State<Mutex<AppState>>,
-    _host: String,
-    _name: String,
-    _port: u16,
-) -> Result<String, Error> {
-    todo!("read comments below");
-    /*
-       This function seems a bit confusing. As a server, we shouldn't be able to connect, instead we broadcast our public address if we receive a ping from the client.
-       If a client joins the network, that client send out advertisement packet to inform the server client availability on the network.
-       Once client receives the server's ping back, the client will try to connect to the server using the IP address provided
-       For this method - this seems a bit counterintuitive. The idea behind this method is as follows:
-       Server start up, tries connect to client via IP address
-       This method impl. would make for certain situation. (E.g. UDP is blocked/need manual way of adding NetworkNode via CLI)
-       However, this doesn't fit in the current milestone goal of making this application work.
-    */
-    // Got an invalid socket address syntax from this line?
-    // let socket: SocketAddr = host.parse().unwrap();
-
-    // let server = state.lock().unwrap();
-    // server.connect(name, socket);
-
-    // println!("parsed socket successfully! {:?}", &socket);
-    // Ok("Node created successfully".to_string())
-}
-
 /// List out all available node for this blendfarm.
 #[command]
 pub fn list_node(_state: State<Mutex<AppState>>)
