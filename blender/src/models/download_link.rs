@@ -41,6 +41,7 @@ impl DownloadLink {
     }
 
     /// Extract tar.xz file from destination path, and return blender executable path
+    // TODO: Tested on Linux - something didn't work right here. Need to investigate/debug through
     #[cfg(target_os = "linux")]
     pub fn extract_content(
         download_path: impl AsRef<Path>,

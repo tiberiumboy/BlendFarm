@@ -20,8 +20,6 @@ This might be another big project to work over the summer to understand how netw
 [F] - consider using channel to stream data https://v2.tauri.app/develop/calling-frontend/#channels
 [F] - Before release - find a way to add updater  https://v2.tauri.app/plugin/updater/
 */
-// allows me to run network service on async backgorund thread. This is required for libp2p to work
-#![feature(async_closure)]
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -50,7 +48,7 @@ pub mod models;
 pub mod routes;
 pub mod services;
 
-fn create_swarm() -> Swarm<DummyBehaviour> {
+fn create_swarm() -> Swarm<libp2p::ping::Behaviour> {
     let tcp_config = libp2p::tcp::Config::default();
     let duration = Duration::from_secs(600);
 
@@ -62,7 +60,7 @@ fn create_swarm() -> Swarm<DummyBehaviour> {
             libp2p::yamux::Config::default,
         )
         .expect("Fail to create tcp config")
-        .with_behaviour(|_| DummyBehaviour)
+        .with_behaviour(|_| libp2p::ping::Behaviour::default())
         .expect("Fail to associate NetworkBehaviour")
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
         .build()
