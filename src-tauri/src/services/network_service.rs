@@ -6,16 +6,11 @@ the network services will also handle all of the incoming network packages and p
 TODO: Find a way to send notification to Tauri application on network process message.
 
 */
-use libp2p::core::Endpoint;
-use libp2p::swarm::{
-    dummy, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
-    THandlerOutEvent, ToSwarm,
-};
-use libp2p::{ping, swarm::SwarmEvent, Multiaddr};
-use libp2p::{PeerId, Swarm};
+use libp2p::swarm::dummy;
+use libp2p::Multiaddr;
+use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use std::task::{Context, Poll};
 use std::time::Duration;
 use thiserror::Error;
 

@@ -32,7 +32,8 @@ use crate::routes::settings::{
 use blender::manager::Manager as BlenderManager;
 use blender::models::home::BlenderHome;
 use libp2p::core::Multiaddr;
-use libp2p::swarm::{dummy::Behaviour as DummyBehaviour, Swarm};
+use libp2p::futures::StreamExt;
+use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::SwarmBuilder;
 use models::app_state::AppState;
 use models::server_setting::ServerSetting;
@@ -92,12 +93,22 @@ fn client() {
     //] todo - find a way to call async function within sync thread? I want to be able to invoke async call to start the network service on a separate thread. However, limitation of rust prevents me from running async method in sync function.
 
     let mut swarm = create_swarm();
-    let addr: Multiaddr = "/ip4/0.0.0.0/tcp/15000"
+    let addr: Multiaddr = "/ip4/239.255.0.1/udp/3010"
         .parse()
         .expect("Address should be valid");
 
     runtime.spawn(async move {
-        swarm.listen_on(addr);
+        let _ = swarm.listen_on(addr.clone());
+        let _ = swarm.dial(addr);
+        loop {
+            match swarm.select_next_some().await {
+                SwarmEvent::NewListenAddr { address, .. } => {
+                    println!("New address connected {address:?}")
+                }
+                SwarmEvent::Behaviour(event) => println!("{event:?}"),
+                all => println!("other: {all:?}"),
+            }
+        }
     });
 
     // todo is there a better way to handle blender objects?
