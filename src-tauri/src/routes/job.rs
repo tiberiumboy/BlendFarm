@@ -1,10 +1,7 @@
 use blender::models::mode::Mode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{
-    path::{Path, PathBuf},
-    sync::Mutex,
-};
+use std::{path::PathBuf, sync::Mutex};
 use tauri::{command, Error, State};
 
 use crate::models::{app_state::AppState, job::Job, project_file::ProjectFile};
@@ -12,11 +9,8 @@ use crate::models::{app_state::AppState, job::Job, project_file::ProjectFile};
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateJobRequest {
-    // I wonder...?
-    // file_path: PathBuf,
-    // output: PathBuf,
-    file_path: String,
-    output: String,
+    file_path: PathBuf,
+    output: PathBuf,
     version: Version,
     // mode: Mode,
 }
@@ -27,8 +21,8 @@ pub async fn create_job(
     info: CreateJobRequest, // this code is complaining that it's missing required key info?
 ) -> Result<Job, Error> {
     println!("{:?}", &info);
-    let file_path: PathBuf = info.file_path.parse().expect("Invalid file path");
-    let output: PathBuf = info.output.parse().expect("Invalid output path");
+    let file_path = info.file_path;
+    let output = info.output;
     let mode = Mode::Frame(1);
 
     let project_file =

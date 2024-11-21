@@ -6,7 +6,8 @@ use std::env::consts;
 use thiserror::Error;
 use url::Url;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+// I'd like to relocate this to a different file. Possibly home?
+#[derive(Debug)]
 pub struct BlenderCategory {
     pub name: String,
     pub url: Url,
@@ -59,7 +60,8 @@ impl BlenderCategory {
     // for some reason I was fetching this multiple of times already. This seems expensive to call for some reason?
     // also, strange enough, the pattern didn't pick up anything?
     pub fn fetch(&self) -> Result<Vec<DownloadLink>, BlenderCategoryError> {
-        let mut cache = PageCache::load().map_err(BlenderCategoryError::Io)?;
+        // TODO: Find a way to recycle PageCache from BlenderHome
+        let mut cache = PageCache::load()?; // I really hate the fact that I have to create a new instance for this.
         let content = cache.fetch(&self.url).map_err(BlenderCategoryError::Io)?;
         let arch = Self::get_valid_arch()?;
         let ext = Self::get_extension().map_err(BlenderCategoryError::UnsupportedOS)?;
@@ -105,5 +107,31 @@ impl BlenderCategory {
             .find(|dl| dl.as_ref().eq(version))
             .ok_or(BlenderCategoryError::NotFound)?;
         Ok(entry.to_owned())
+    }
+}
+
+impl PartialEq for BlenderCategory {
+    fn eq(&self, other: &Self) -> bool {
+        self.url == other.url && self.major.eq(&other.major) && self.minor.eq(&other.minor)
+    }
+}
+
+impl Eq for BlenderCategory {}
+
+impl PartialOrd for BlenderCategory {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.major.partial_cmp(&other.major) {
+            Some(core::cmp::Ordering::Equal) => return self.minor.partial_cmp(&other.minor),
+            ord => return ord,
+        }
+    }
+}
+
+impl Ord for BlenderCategory {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.major.cmp(&other.major) {
+            std::cmp::Ordering::Equal => self.minor.cmp(&other.minor),
+            all => return all,
+        }
     }
 }

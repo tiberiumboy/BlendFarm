@@ -2,7 +2,7 @@ use blender::manager::Manager as BlenderManager;
 use blender::models::home::BlenderHome;
 use std::sync::{Arc, RwLock};
 
-use super::server_setting::ServerSetting;
+use super::{job::Job, server_setting::ServerSetting};
 
 pub type SafeLock<T> = Arc<RwLock<T>>;
 
@@ -12,6 +12,7 @@ pub struct AppState {
     // to keep things simple, we're going to run the network service separately than the main application, and find a way to invoke network command somehow elsewhere.
     // pub network: SafeLock<NetworkService>,
     pub manager: SafeLock<BlenderManager>,
-    pub blender_service: SafeLock<BlenderHome>,
+    pub blender_source: SafeLock<BlenderHome>,
     pub setting: SafeLock<ServerSetting>,
+    pub jobs: Vec<Job>,
 }

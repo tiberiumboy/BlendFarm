@@ -6,12 +6,17 @@ the network services will also handle all of the incoming network packages and p
 TODO: Find a way to send notification to Tauri application on network process message.
 
 */
-// use libp2p::connection_limits::Behaviour;
-use libp2p::futures::StreamExt;
-use libp2p::multiaddr::Protocol;
-use libp2p::{ping, swarm::SwarmEvent, yamux, Multiaddr, SwarmBuilder};
+use libp2p::core::Endpoint;
+use libp2p::swarm::{
+    dummy, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
+    THandlerOutEvent, ToSwarm,
+};
+use libp2p::{ping, swarm::SwarmEvent, Multiaddr};
+use libp2p::{PeerId, Swarm};
 use serde::{Deserialize, Serialize};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
+use std::task::{Context, Poll};
+use std::time::Duration;
 use thiserror::Error;
 
 // Administratively scoped IPv4 multicast space - https://datatracker.ietf.org/doc/html/rfc2365
@@ -50,39 +55,87 @@ impl UdpMessage {
     }
 }
 
-pub struct NetworkService {
-    // this way we can determine if we're active or not.
-    is_host: bool,
-}
+#[derive(Default)]
+pub struct BlendFarmBehaviour {}
+
+// impl NetworkBehaviour for BlendFarmBehaviour {
+//     type ConnectionHandler;
+//     type ToSwarm;
+
+//     fn handle_established_inbound_connection(
+//         &mut self,
+//         _connection_id: ConnectionId,
+//         peer: PeerId,
+//         local_addr: &Multiaddr,
+//         remote_addr: &Multiaddr,
+//     ) -> Result<THandler<Self>, ConnectionDenied> {
+//         todo!()
+//     }
+
+//     fn handle_established_outbound_connection(
+//         &mut self,
+//         _connection_id: ConnectionId,
+//         peer: PeerId,
+//         addr: &Multiaddr,
+//         role_override: Endpoint,
+//     ) -> Result<THandler<Self>, ConnectionDenied> {
+//         todo!()
+//     }
+
+//     fn on_swarm_event(&mut self, event: FromSwarm) {
+//         todo!()
+//     }
+
+//     fn on_connection_handler_event(
+//         &mut self,
+//         _peer_id: PeerId,
+//         _connection_id: ConnectionId,
+//         _event: THandlerOutEvent<Self>,
+//     ) {
+//         todo!()
+//     }
+
+//     fn poll(
+//         &mut self,
+//         cx: &mut Context<'_>,
+//     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+//         todo!()
+//     }
+// }
+
+// this will help launch libp2p network. Should use QUIC whenever possible!
+pub struct NetworkService {}
 
 impl NetworkService {
-    pub fn new(is_host: bool) -> Self {
-        Self { is_host }
-    }
+    pub async fn new(timeout: u64) -> Result<(), Box<dyn std::error::Error>> {
+        println!("new has been called");
 
-    // attempt to make connection to the network.
-    pub async fn connect(&mut self, port: Port) -> Result<(), Box<dyn std::error::Error>> {
-        let mut swarm = SwarmBuilder::with_new_identity()
+        let tcp_config = libp2p::tcp::Config::default();
+        let udp: Multiaddr = "/ip4/0.0.0.0/tcp/15000".parse()?;
+        let duration = Duration::from_secs(timeout);
+
+        println!("Building a swarm");
+        let mut swarm = libp2p::SwarmBuilder::with_new_identity()
             .with_tokio()
             .with_tcp(
-                libp2p::tcp::Config::default(),
+                tcp_config,
                 libp2p::tls::Config::new,
-                yamux::Config::default,
+                libp2p::yamux::Config::default,
             )?
-            .with_behaviour(|_| ping::Behaviour::default())?
+            // .with_behaviour(|_| BlendFarmBehaviour::default())?
+            .with_behaviour(|_| dummy::Behaviour)?
+            .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
             .build();
 
-        // Do we need the multicast const definition anymore?
-        let mut addr: Multiaddr = "/ip4/0.0.0.0/".parse()?;
-        addr.push(Protocol::Tcp(port));
-        swarm.listen_on(addr)?;
+        println!("Listening on {udp:?}");
 
-        loop {
-            match swarm.select_next_some().await {
-                SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {address:?}"),
-                SwarmEvent::Behaviour(event) => println!("{event:?}"),
-                _ => {}
-            }
-        }
+        swarm.listen_on(udp.clone())?;
+        // What's the difference here?
+        // swarm.dial(udp)?;
+        println!("About to dial as random!");
+        swarm.dial(PeerId::random())?; // I wonder what this one will do? :think:?
+
+        // Ok(swarm)
+        Ok(())
     }
 }

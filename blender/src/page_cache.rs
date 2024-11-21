@@ -59,10 +59,14 @@ impl PageCache {
         };
 
         let data = match expiration.duration_since(created_date) {
-            Ok(_) => match fs::read_to_string(path) {
-                Ok(data) => serde_json::from_str(&data).unwrap_or(Self::default()),
-                Err(_) => Self::default(),
-            },
+            Ok(_duration) => {
+                // let sec = duration.as_secs() / (60 * 60 * 24);
+                // println!("Cache file is {sec} day old!");
+                match fs::read_to_string(path) {
+                    Ok(data) => serde_json::from_str(&data).unwrap_or(Self::default()),
+                    Err(_) => Self::default(),
+                }
+            }
             Err(_) => Self::default(),
         };
 

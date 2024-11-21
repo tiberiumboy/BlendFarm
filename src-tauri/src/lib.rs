@@ -33,12 +33,14 @@ use crate::routes::settings::{
 };
 use blender::manager::Manager as BlenderManager;
 use blender::models::home::BlenderHome;
+use libp2p::core::Multiaddr;
+use libp2p::swarm::{dummy::Behaviour as DummyBehaviour, Swarm};
+use libp2p::SwarmBuilder;
 use models::app_state::AppState;
 use models::server_setting::ServerSetting;
 use services::network_service::NetworkService;
-// use services::message::NetResponse;
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
-use std::thread;
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 
 //TODO: Create a miro diagram structure of how this application suppose to work
 // Need a mapping to explain how network should perform over intranet
@@ -48,9 +50,23 @@ pub mod models;
 pub mod routes;
 pub mod services;
 
-// I'm using this to make app handler accessible within this app. I will eventually find a better way to handle this.
-// TODO: impl dependency injection?
-// static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+fn create_swarm() -> Swarm<DummyBehaviour> {
+    let tcp_config = libp2p::tcp::Config::default();
+    let duration = Duration::from_secs(600);
+
+    SwarmBuilder::with_new_identity()
+        .with_tokio()
+        .with_tcp(
+            tcp_config,
+            libp2p::tls::Config::new,
+            libp2p::yamux::Config::default,
+        )
+        .expect("Fail to create tcp config")
+        .with_behaviour(|_| DummyBehaviour)
+        .expect("Fail to associate NetworkBehaviour")
+        .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
+        .build()
+}
 
 // when the app starts up, I would need to have access to configs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
 fn client() {
@@ -65,32 +81,42 @@ fn client() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|_| Ok(()));
 
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
     // I'm having problem trying to separate this call from client.
     // I want to be able to run either server _or_ client via a cli switch.
     // Would like to know how I can get around this?
 
-    // I wonder...
     // somehow I need a closure for the spawn to take place, it expects FnOnce, but I need this function to be awaitable.
     //] todo - find a way to call async function within sync thread? I want to be able to invoke async call to start the network service on a separate thread. However, limitation of rust prevents me from running async method in sync function.
-    let _task = thread::spawn(async || {
-        let mut network = NetworkService::new(true);
-        // function within connect must be async.
-        // how can I treat this being async inside thread closure?
-        let _ = network.connect(15000).await;
+
+    let mut swarm = create_swarm();
+    let addr: Multiaddr = "/ip4/0.0.0.0/tcp/15000"
+        .parse()
+        .expect("Address should be valid");
+
+    runtime.spawn(async move {
+        swarm.listen_on(addr);
     });
 
+    // todo is there a better way to handle blender objects?
     let manager = Arc::new(RwLock::new(BlenderManager::load()));
-    let home = Arc::new(RwLock::new(BlenderHome::new().expect(
-        "Unable to connect to blender.org, are you connect to the internet?",
-    )));
+    let source = Arc::new(RwLock::new(
+        BlenderHome::new()
+            .expect("Unable to connect to blender.org, are you connect to the internet?"),
+    ));
     let setting = Arc::new(RwLock::new(ServerSetting::load()));
 
     // for network service, consider making a box pointer instead. this Arc<RwLock<T>> is driving me nuts with Tauri.
     // Do consider adding blender manager and blender home in app state instead.
     let app_state = AppState {
         manager,
-        blender_service: home,
+        blender_source: source,
         setting,
+        jobs: Vec::new(),
     };
 
     let app = builder
@@ -112,7 +138,6 @@ fn client() {
         ])
         .build(tauri::generate_context!())
         .expect("Unable to build tauri app!");
-    // APP_HANDLE.set(app.handle().clone()).unwrap();
 
     // match app.cli().matches() {
     //     // `matches` here is a Struct with { args, subcommand }.
@@ -131,61 +156,21 @@ fn client() {
     //     }
     // };
 
-    // As soon as the function goes out of scope, thread will be drop.
-    // TODO: Find a better place to move this background process
-    // Consider making a closure for this?
-    /*
-    let _thread = thread::spawn(move || {
-        while let Ok(event) = listen.recv() {
-            match event {
-                NetResponse::Joined { socket } => {
-                    println!("Net Response: [{}] joined!", socket);
-                    let handle = APP_HANDLE.get().unwrap();
-                    handle
-                        .emit("node_joined", socket)
-                        .expect("failed to emit node!");
-                }
-                NetResponse::Disconnected { socket } => {
-                    println!("Net Response: [{}] disconnected!", socket);
-                    let handle = APP_HANDLE.get().unwrap();
-                    handle
-                        .emit("node_left", socket)
-                        .expect("failed to emit node!");
-                }
-                NetResponse::Info { socket, name } => {
-                    println!("Net Response: [{}] - {}", socket, name);
-                }
-                NetResponse::Status { socket, status } => {
-                    println!("Net Response: [{}] - {}", socket, status);
-                }
-                NetResponse::PeerList { addrs } => {
-                    // TODO: Send a notification to front end containing peer data information
-                    println!("Received peer list! {:?}", addrs);
-                }
-                // NetResponse::JobSent(job) => {
-                //     let handle = APP_HANDLE.get().unwrap();
-                //     handle
-                //         .emit_to("job", "job_sent", job)
-                //         .expect("failed to emit job!");
-                // }
-                NetResponse::ImageComplete(path) => {
-                    let handle = APP_HANDLE.get().unwrap();
-                    handle
-                        .emit("image_update", path)
-                        .expect("Fail to send completed image!");
-                }
-            }
-        }
-    }); */
-
     app.run(|_, _| {});
+    // this never gets called?
+    println!("After run");
+}
+
+pub async fn start_network_service() -> Result<(), Box<dyn std::error::Error>> {
+    NetworkService::new(100).await
 }
 
 // not sure why I'm getting a lint warning about the mobile macro? Need to bug the dev and see if this macro has changed.
-// #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // TODO: Find a way to make use of Tauri cli commands to run as client.
     // TODO: It would be nice to include command line utility to let the user add blender installation from remotely.
     // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.
     client();
+    // task.await.unwrap();
 }
