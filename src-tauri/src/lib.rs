@@ -33,13 +33,18 @@ use blender::manager::Manager as BlenderManager;
 use blender::models::home::BlenderHome;
 use libp2p::core::Multiaddr;
 use libp2p::futures::StreamExt;
-use libp2p::swarm::{Swarm, SwarmEvent};
+use libp2p::gossipsub::{self, Message, MessageAuthenticity, MessageId, ValidationMode};
+use libp2p::mdns;
+use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
 use libp2p::SwarmBuilder;
 use models::app_state::AppState;
 use models::server_setting::ServerSetting;
 use services::network_service::NetworkService;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
+use tokio::{io, io::AsyncBufReadExt, select};
 
 //TODO: Create a miro diagram structure of how this application suppose to work
 // Need a mapping to explain how network should perform over intranet
@@ -49,22 +54,92 @@ pub mod models;
 pub mod routes;
 pub mod services;
 
-fn create_swarm() -> Swarm<libp2p::ping::Behaviour> {
-    let tcp_config = libp2p::tcp::Config::default();
-    let duration = Duration::from_secs(600);
+#[derive(NetworkBehaviour)]
+struct MyBehaviour {
+    gossipsub: gossipsub::Behaviour,
+    mdns: mdns::tokio::Behaviour,
+}
 
-    SwarmBuilder::with_new_identity()
+async fn create_swarm() -> Result<MyBehaviour, Box<dyn std::error::Error>> {
+    let duration = Duration::from_secs(60);
+
+    let mut swarm = SwarmBuilder::with_new_identity()
         .with_tokio()
         .with_tcp(
-            tcp_config,
+            libp2p::tcp::Config::default(),
             libp2p::tls::Config::new,
             libp2p::yamux::Config::default,
-        )
-        .expect("Fail to create tcp config")
-        .with_behaviour(|_| libp2p::ping::Behaviour::default())
-        .expect("Fail to associate NetworkBehaviour")
-        .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
-        .build()
+        )?
+        .with_quic()
+        .with_behaviour(|key| {
+            let message_id_fn = |message: &Message| {
+                let mut s = DefaultHasher::new();
+                message.data.hash(&mut s);
+                MessageId::from(s.finish().to_string())
+            };
+
+            let gossipsub_config = gossipsub::ConfigBuilder::default()
+                .heartbeat_interval(Duration::from_secs(10))
+                .validation_mode(ValidationMode::Strict)
+                .message_id_fn(message_id_fn)
+                .build()
+                .map_err(|msg| std::io::Error::new(std::io::ErrorKind::Other, msg))?;
+
+            let gossipsub = gossipsub::Behaviour::new(
+                MessageAuthenticity::Signed(key.clone()),
+                gossipsub_config,
+            )?;
+
+            let mdns =
+                mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())?;
+            Ok(MyBehaviour { gossipsub, mdns })
+        })?
+        .with_swarm_config(|c| c.with_idle_connection_timeout(duration))
+        .build();
+
+    let topic = gossipsub::IdentTopic::new("test-net");
+    swarm.behaviour_mut().gossipsub.subscribe(&topic)?;
+
+    let mut stdin = io::BufReader::new(io::stdin()).lines();
+
+    let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse()?;
+    let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1".parse()?;
+    swarm.listen_on(tcp)?;
+    swarm.listen_on(udp)?;
+
+    loop {
+        select! {
+            Ok(Some(line)) = stdin.next_line() => {
+                if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), line.as_bytes()) {
+                    println!("Publish error: {e:?}");
+                }
+            },
+            event = swarm.select_next_some() => match event {
+                SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
+                    for (peer_id, _multiaddr) in list {
+                        println!("mDNS discovered a new peer: {peer_id}");
+                        swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+                    }
+                },
+                SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
+                    for( peer_id, _multiaddr) in list {
+                        println!("mDNS discover peer has expired: {peer_id}");
+                        swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
+                    }
+                },
+                SwarmEvent::Behaviour(MyBehaviourEvent::Gossipsub(gossipsub::Event::Message {
+                    propagation_source: peer_id,
+                    message_id: id,
+                    message,
+                })) => println!("Got message '{}' with id: {id} from peer: {peer_id}", String::from_utf8_lossy(&message.data))
+                ,
+                SwarmEvent::NewListenAddr { address, .. } => {
+                    println!("Local node is listening on {address}");
+                },
+                _ => {}
+            }
+        }
+    }
 }
 
 // when the app starts up, I would need to have access to configs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
@@ -92,23 +167,8 @@ fn client() {
     // somehow I need a closure for the spawn to take place, it expects FnOnce, but I need this function to be awaitable.
     //] todo - find a way to call async function within sync thread? I want to be able to invoke async call to start the network service on a separate thread. However, limitation of rust prevents me from running async method in sync function.
 
-    let mut swarm = create_swarm();
-    let addr: Multiaddr = "/ip4/239.255.0.1/udp/3010"
-        .parse()
-        .expect("Address should be valid");
-
     runtime.spawn(async move {
-        let _ = swarm.listen_on(addr.clone());
-        let _ = swarm.dial(addr);
-        loop {
-            match swarm.select_next_some().await {
-                SwarmEvent::NewListenAddr { address, .. } => {
-                    println!("New address connected {address:?}")
-                }
-                SwarmEvent::Behaviour(event) => println!("{event:?}"),
-                all => println!("other: {all:?}"),
-            }
-        }
+        let _ = create_swarm().await;
     });
 
     // todo is there a better way to handle blender objects?
