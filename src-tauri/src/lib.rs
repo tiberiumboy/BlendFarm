@@ -45,6 +45,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::{io, io::AsyncBufReadExt, select};
+use tracing_subscriber::EnvFilter;
 
 //TODO: Create a miro diagram structure of how this application suppose to work
 // Need a mapping to explain how network should perform over intranet
@@ -61,6 +62,10 @@ struct MyBehaviour {
 }
 
 async fn create_swarm() -> Result<MyBehaviour, Box<dyn std::error::Error>> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init();
+
     let duration = Duration::from_secs(60);
 
     let mut swarm = SwarmBuilder::with_new_identity()
