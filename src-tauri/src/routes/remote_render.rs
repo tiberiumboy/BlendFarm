@@ -62,6 +62,26 @@ pub fn delete_node(_app: AppHandle, target_node: String) -> Result<(), Error> {
     Ok(())
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct BlenderInfo {
+    blend_version: Version,
+    frame: i32,
+    // could also provide other info like Eevee or Cycle?
+}
+
+#[command(async)]
+pub fn import_blend(state: State<'_, Mutex<AppState>>) -> Result<BlenderInfo, String> {
+    // open dialog here
+    // let assume that we received a path back from the dialog
+    let path: Option<PathBuf> = Some(PathBuf::parse("./test.blend")); // how do I define the path route from here?
+                                                                      // then if we have a valid file - use .blend from blender to peek into the file.
+    let server = state.lock().unwrap();
+    server.Ok(BlenderInfo {
+        blend_version: Version::new(4, 1, 0),
+        frame: 1,
+    })
+}
+
 // #[command]
 // pub fn list_jobs(state: State<Mutex<Server>>) -> Result<String, Error> {
 // let server = state.lock().unwrap();

@@ -107,6 +107,7 @@ async fn create_swarm() -> Result<MyBehaviour, Box<dyn std::error::Error>> {
 
     let mut stdin = io::BufReader::new(io::stdin()).lines();
 
+    // can other computer on the network see this?
     let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse()?;
     let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1".parse()?;
     swarm.listen_on(tcp)?;

@@ -98,11 +98,11 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
     switch (mode) {
       case "frame":
         return {
-          "Frame": Number(target.frame.value),
+          Frame: Number(target.frame.value),
         };
       case "section":
         return {
-          "Section": {
+          Section: {
             start: Number(target.start.value),
             end: Number(target.end.value),
           },
@@ -156,6 +156,11 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
       Feature: It would be nice to stream render image input from any computer node. See their rendering progress.
     */
   return (
+    /**
+     * TODO: Change the process so that we instead ask the user to open the .blend file
+     * then with the backend service to parse the .blend file we can extract information 
+     * Once we get that info - we display the create_process dialog to display the information provided by the blend file.
+     */
     <dialog id="create_process">
       <form method="dialog" onSubmit={handleSubmitJobForm}>
         <h1>Create new Render Job</h1>
@@ -210,6 +215,17 @@ export default function RemoteRender(props: RemoteRenderProps) {
   //#region Dialogs
   function showDialog() {
     // Is there a way I could just reference this directly? Or just create a new component for this?
+    // TOOD: Invoke rust backend service to open dialog and then parse the blend file
+    // if the user cancel or unable to parse - return a message back to the front end explaining why
+    // Otherwise, display the info needed to re-populate the information.
+    invoke("import_blend").then((ctx) => {
+      if (ctx == null) {
+        return;
+      }
+      // I'm always curious about this code.
+      let data = JSON.parse(ctx as string);
+      console.log(ctx, data);
+    })
     let dialog = document.getElementById("create_process") as HTMLDialogElement;
     dialog?.showModal();
   }
