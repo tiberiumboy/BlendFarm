@@ -1,6 +1,7 @@
 use std::{/*fs::OpenOptions, io::Write,*/ path::PathBuf};
 
 // use blend::Blend;
+use blend::Blend;
 use blender::manager::Manager as BlenderManager;
 
 /// Peek into the blend file to see what's inside.
@@ -31,8 +32,8 @@ fn main() {
         None => manager.download_latest_version().unwrap(),
     };
 
-    match blender.peek(blend_path) {
-        Ok(result) => println!("{:?}", &result),
-        Err(e) => println!("Error: {:?}", e),
-    }
+    // match blender.peek(blend_path) {
+    //     Ok(result) => println!("{:?}", &result),
+    //     Err(e) => println!("Error: {:?}", e),
+    // }
 }
