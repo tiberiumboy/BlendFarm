@@ -24,7 +24,9 @@ This might be another big project to work over the summer to understand how netw
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use crate::routes::job::{create_job, delete_job, list_jobs};
-use crate::routes::remote_render::{delete_node, list_node, list_versions, ping_node, import_blend};
+use crate::routes::remote_render::{
+    delete_node, import_blend, list_node, list_versions, ping_node,
+};
 use crate::routes::settings::{
     add_blender_installation, fetch_blender_installation, get_server_settings,
     list_blender_installation, remove_blender_installation, set_server_settings,
@@ -33,10 +35,10 @@ use blender::manager::Manager as BlenderManager;
 use blender::models::home::BlenderHome;
 use models::app_state::AppState;
 use models::server_setting::ServerSetting;
-use services::network_service::NetworkService;
-use std::sync::{mpsc, Arc, Mutex, RwLock};
-// use std::time::Duration;
-// use tokio::select;
+use services::network_service::{NetMessage, NetworkService};
+use std::sync::{Arc, RwLock};
+use tokio::select;
+use tokio::sync::{mpsc, Mutex};
 
 //TODO: Create a miro diagram structure of how this application suppose to work
 // Need a mapping to explain how network should perform over intranet
@@ -47,7 +49,7 @@ pub mod routes;
 pub mod services;
 
 // when the app starts up, I would need to have access to configs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
-fn client(_net_service: Mutex<NetworkService>) {
+fn client(net_service: Mutex<NetworkService>) {
     // I would like to find a better way to update or append data to render_nodes,
     // "Do not communicate with shared memory"
     let builder = tauri::Builder::default()
@@ -63,28 +65,32 @@ fn client(_net_service: Mutex<NetworkService>) {
     // I want to be able to run either server _or_ client via a cli switch.
     // Would like to know how I can get around this?
 
-    // todo is there a better way to handle blender objects?
+    // TODO: is there a better way to handle blender objects?
     let manager = Arc::new(RwLock::new(BlenderManager::load()));
-    let source = Arc::new(RwLock::new(
+    let blender_source = Arc::new(RwLock::new(
         BlenderHome::new()
             .expect("Unable to connect to blender.org, are you connect to the internet?"),
     ));
     let setting = Arc::new(RwLock::new(ServerSetting::load()));
-    let (to_network, _from_ui) = mpsc::channel();
+    let (to_network, mut from_ui) = mpsc::channel::<NetMessage>(32);
 
     // for network service, consider making a box pointer instead. this Arc<RwLock<T>> is driving me nuts with Tauri.
     // Do consider adding blender manager and blender home in app state instead.
     let app_state = AppState {
         manager,
-        blender_source: source,
+        to_network,
+        blender_source,
         setting,
         jobs: Vec::new(),
-        to_network
-        // so close 
     };
 
+    // not sure why this would not be populated in the manage() state?
+    // TODO: Contact Tauri and see why I can't use tokio::sync::Mutex over std::sync::Mutex?
+    let mut_app_state = std::sync::Mutex::new(app_state);
+
     let app = builder
-        .manage(Mutex::new(app_state))
+        // app is crashing because it expects .manage to be called before run...?
+        .manage(mut_app_state)
         .invoke_handler(tauri::generate_handler![
             create_job,
             delete_node,
@@ -104,23 +110,25 @@ fn client(_net_service: Mutex<NetworkService>) {
         .build(tauri::generate_context!())
         .expect("Unable to build tauri app!");
 
-    // this will take care of sending info now..
-    // I'm close, but I'm having problems trying to run async code in non-async function.
-    // let _thread = tokio::spawn(async move {
-    //     loop {
-    //         select!{
-    //             Some(msg) = from_ui.recv() => {
-    //                 // let service = net_service.lock().unwrap();
-    //                 println!("{msg:?}");
-    //                 // let _ = service.send(msg).await;
-    //             }
-                
-    //             // if let Ok(info) = net_service.from_network.recv() {
-    //             //     // process event from network, e.g. if new peer joins, we should send a notification to app.
-    //             // }
-    //         }
-    //     }
-    // });
+    // spin up a new thread to handle message queue from App UI to Network services
+    let _thread = tokio::spawn(async move {
+        loop {
+            select! {
+            // let's make sure this works!
+            Some(msg) = from_ui.recv() => {
+                println!("{msg:?}");
+                let mut service = net_service.lock().await;
+                let _ = service.send(msg).await;
+            }
+
+            // Ok(info) = net_service.from_network.recv() {
+            //     //     // process event from network, e.g. if new peer joins, we should send a notification to app.
+            //     // }
+            //     println!("{:?}", info);
+            // }
+            }
+        }
+    });
 
     // match app.cli().matches() {
     //     // `matches` here is a Struct with { args, subcommand }.
@@ -147,11 +155,15 @@ fn client(_net_service: Mutex<NetworkService>) {
 // not sure why I'm getting a lint warning about the mobile macro? Need to bug the dev and see if this macro has changed.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
-    let net_service = NetworkService::new(60).await.expect("Unable to start network service!");
+    //async
+    let net_service = NetworkService::new(60)
+        .await
+        .expect("Unable to start network service!");
     // TODO: Find a way to make use of Tauri cli commands to run as client.
     // TODO: It would be nice to include command line utility to let the user add blender installation from remotely.
     // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.
     let service = Mutex::new(net_service);
     client(service);
-    // task.await.unwrap();
+    // how can I keep the program running forever for net service?
+    // TODO: find a way to do CLI switch - I want to be able to run this app on headless server mode.
 }

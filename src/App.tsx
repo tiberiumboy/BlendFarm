@@ -62,8 +62,9 @@ function App() {
           <Route path='/' Component={() => RemoteRender({ versions: versions, jobs: jobs, onJobCreated: onJobCreated })} />
           <Route path='/remote_render' Component={() => RemoteRender({ versions, jobs, onJobCreated })} />
           <Route path='/setting' Component={() => Setting(versions)} />
-          {/* TODO: This is a experimental feature - ignore for this right now as this requires remote_render working first! */}
-          {/* < Route path='/liveview' Component={LiveView} /> */}
+          {/* TODO: This is a experimental feature - ignore for this right now as this requires remote_render working first!
+          < Route path='/liveview' Component={LiveView} /> 
+           */}
         </Routes>
       </Router>
     </div>

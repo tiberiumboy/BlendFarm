@@ -1,17 +1,15 @@
-use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
-use libp2p::{Multiaddr, PeerId};
+use libp2p::futures::StreamExt;
 use libp2p::gossipsub::{self, IdentTopic};
-use libp2p::mdns;
+use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
+use libp2p::{mdns, Multiaddr};
+use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 use thiserror::Error;
-use tokio::io;
-use tokio::select;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::task::JoinHandle;
-use serde::{Deserialize, Serialize};
-use libp2p::futures::StreamExt;
+use tokio::{io, select};
 
 use crate::models::job::Job;
 
@@ -52,9 +50,9 @@ pub struct BlendFarmBehaviour {
 pub enum NetMessage {
     // Greet () // share machine spec (cpu, gpu, ram)
     // Heartbeat() // share hardware statistic monitor heartbeat. (CPU/GPU/RAM usage realtime)
-    Render ( Job ),
+    Render(Job),
     SendFile { file_name: String, data: Vec<u8> },
-    Status ( String ),
+    Status(String),
 }
 
 impl NetMessage {
@@ -94,49 +92,57 @@ impl NetworkService {
             .with_behaviour(|key| {
                 let message_id_fn = |message: &gossipsub::Message| {
                     let mut s = DefaultHasher::new();
-                    message.data.hash(&mut s);  // what was this suppose to do?
+                    message.data.hash(&mut s); // what was this suppose to do?
                     gossipsub::MessageId::from(s.finish().to_string())
                 };
-    
+
                 let gossipsub_config = gossipsub::ConfigBuilder::default()
                     .heartbeat_interval(Duration::from_secs(10))
                     .validation_mode(gossipsub::ValidationMode::Strict)
                     .message_id_fn(message_id_fn)
                     .build()
                     .map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))?;
-    
+
                 let gossipsub = gossipsub::Behaviour::new(
                     gossipsub::MessageAuthenticity::Signed(key.clone()),
-                    gossipsub_config).expect("Fail to create gossipsub behaviour");
-    
-                let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id()).expect("Fail to create mdns behaviour!"); 
+                    gossipsub_config,
+                )
+                .expect("Fail to create gossipsub behaviour");
 
-                Ok(BlendFarmBehaviour { gossipsub, mdns } )   
+                let mdns =
+                    mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())
+                        .expect("Fail to create mdns behaviour!");
+
+                Ok(BlendFarmBehaviour { gossipsub, mdns })
             })?
             // .with_behaviour(|_| dummy::Behaviour)?
             .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
             .build();
-            
-        
+
         swarm.behaviour_mut().gossipsub.subscribe(&topic)?;
-        
+
         // TODO: Find a way to fetch user configuration. Refactor this when possible.
-        let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1".parse().expect("Must be valid multiaddr");
-        let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().expect("Must be valid multiaddr");
+        let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
+            .parse()
+            .expect("Must be valid multiaddr");
+        let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
+            .parse()
+            .expect("Must be valid multiaddr");
         swarm.listen_on(tcp)?;
         swarm.listen_on(udp)?;
 
         // println!("About to dial as random!");
         // Problem here - I dont know why this would return NoAddresses? Should this be something else or how do I send out ping?
         // swarm.dial(PeerId::random())?;
-        
+
         // create a new channel with a capacity of at most 32.
-        let (tx,mut rx) = mpsc::channel::<NetMessage>(32);
+        let (tx, mut rx) = mpsc::channel::<NetMessage>(32);
 
         // create a thread here?
         let _task = tokio::spawn(async move {
             loop {
-                select!{
+                select! {
+                    // Sender
                     Some(signal) = rx.recv() => {
                         let topic = gossipsub::IdentTopic::new("blendfarm-rpc-msg");
                         let data = signal.ser();
@@ -144,6 +150,7 @@ impl NetworkService {
                             println!("Fail to publish message to swarm! {e:?}");
                         }
                     }
+                    // Receive
                     event = swarm.select_next_some() => match event {
                         SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                             // it would be nice to show the list of user to the UI?
@@ -194,10 +201,13 @@ impl NetworkService {
             }
         });
 
-        Ok(Self{ tx, _task })
+        Ok(Self { tx, _task })
     }
 
-    pub async fn send(&mut self, net_message: NetMessage ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn send(
+        &mut self,
+        net_message: NetMessage,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.tx.send(net_message).await?;
         Ok(())
     }
