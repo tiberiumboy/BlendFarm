@@ -35,6 +35,7 @@ libp2p = { version = "^0", features = [
     "yamux",
     "tls",
     "quic",
+    "kad",
 ] }
 pnet = "0.34"
 semver = "^1.0.22"

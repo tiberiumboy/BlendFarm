@@ -220,6 +220,7 @@ impl Blender {
     /// Peek is a function design to read and fetch information about the blender file.
     /// To do this, we must have a valid blender executable path, and run the peek.py code to fetch a json response.
     // TODO: Consider using blend library to read the data instead.
+    // TODO: This function may be deprecated as we may use blend library instead to avoid coupling.
     pub fn peek(&self, blend_file: impl AsRef<Path>) -> Result<BlenderPeekResponse, BlenderError> {
         let peek_path = Self::get_config_path().join("peek.py");
 

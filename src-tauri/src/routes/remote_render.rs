@@ -12,7 +12,8 @@ Get a preview window that show the user current job progress - this includes las
 use crate::AppState;
 use blender::manager::Manager as BlenderManager;
 use semver::Version;
-use std::sync::Mutex;
+use serde::{Deserialize, Serialize};
+use std::{path::PathBuf, sync::Mutex};
 use tauri::{command, AppHandle, Error, State};
 
 /// List out all available node for this blendfarm.
@@ -70,13 +71,26 @@ pub struct BlenderInfo {
 }
 
 #[command(async)]
-pub fn import_blend(state: State<'_, Mutex<AppState>>) -> Result<BlenderInfo, String> {
+pub fn import_blend(path: PathBuf) -> Result<BlenderInfo, String> {
     // open dialog here
-    // let assume that we received a path back from the dialog
-    let path: Option<PathBuf> = Some(PathBuf::parse("./test.blend")); // how do I define the path route from here?
-                                                                      // then if we have a valid file - use .blend from blender to peek into the file.
-    let server = state.lock().unwrap();
-    server.Ok(BlenderInfo {
+    // let assume that we received a path back from the dialog                                                                  // then if we have a valid file - use .blend from blender to peek into the file.
+    // blend::
+
+    // let server = state.lock().unwrap();
+    // let manager = server.manager.read().unwrap();
+
+    // let data = manager.peek(path);
+    let blend = match blend::Blend::from_path(path) {
+        Ok(obj) => obj,
+        Err(_) => return Err("Fail to load blender file!".to_owned()),
+    };
+
+    for obj in blend.root_instances() {
+        dbg!(obj);
+    }
+
+    // Here I'd like to know how I can extract information from the blend file, such as version number, Eevee/Cycle usage, Frame start and End. For now get this, and then we'll expand later
+    Ok(BlenderInfo {
         blend_version: Version::new(4, 1, 0),
         frame: 1,
     })

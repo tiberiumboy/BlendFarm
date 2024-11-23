@@ -69,7 +69,7 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
     const filePath = info.file_path.value;
     const output = info.output.value;
 
-    let mode = generateMode(selectedMode, e.target);
+    // let mode = generateMode(selectedMode, e.target);
 
     let data = {
       filePath,
@@ -128,8 +128,9 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
       // TODO: find a way to include the dash elsewhere
       e.target.value = filePath + "/";
     }
-  }
+  } 
 
+  // function may not be used anymore.
   async function onFileSelect(e: any) {
     const filePath = await open({
       directory: false,
@@ -213,21 +214,38 @@ export default function RemoteRender(props: RemoteRenderProps) {
   const [selectedJob, setSelectedJob] = useState<RenderJobProps>();
 
   //#region Dialogs
-  function showDialog() {
+  async function showDialog() {
     // Is there a way I could just reference this directly? Or just create a new component for this?
     // TOOD: Invoke rust backend service to open dialog and then parse the blend file
     // if the user cancel or unable to parse - return a message back to the front end explaining why
     // Otherwise, display the info needed to re-populate the information.
-    invoke("import_blend").then((ctx) => {
+    const path = await open({
+      directory: false,
+      multiple: false,
+      filters: [
+        {
+          name: "Blender",
+          extensions: ["blend"],
+        },
+      ],
+    });
+
+    if (path == null) {
+      return;
+    }
+
+    invoke("import_blend", {path}).then((ctx) => {
       if (ctx == null) {
         return;
       }
       // I'm always curious about this code.
       let data = JSON.parse(ctx as string);
       console.log(ctx, data);
+
+      let dialog = document.getElementById("create_process") as HTMLDialogElement;
+      dialog?.showModal();
+      // also need to set the path in the create_process dialog.
     })
-    let dialog = document.getElementById("create_process") as HTMLDialogElement;
-    dialog?.showModal();
   }
 
   function onJobSelected(job: RenderJobProps): void {
