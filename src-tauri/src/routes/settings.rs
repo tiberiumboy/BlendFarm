@@ -3,8 +3,9 @@ use crate::models::{app_state::AppState, server_setting::ServerSetting};
 use blender::blender::Blender;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, sync::Mutex};
+use std::path::PathBuf;
 use tauri::{command, Error, State};
+use tokio::sync::Mutex;
 
 /*
 Developer Blog
@@ -14,9 +15,9 @@ TODO: Newly added blender doesn't get saved automatically.
 */
 
 /// List out currently saved blender installation on the machine
-#[command]
-pub fn list_blender_installation(state: State<Mutex<AppState>>) -> Result<String, Error> {
-    let app_state = state.lock().unwrap();
+#[command(async)]
+pub async fn list_blender_installation(state: State<'_, Mutex<AppState>>) -> Result<String, Error> {
+    let app_state = state.lock().await;
     let manager = app_state.manager.read().unwrap();
     let blenders = manager.get_blenders();
     let data = serde_json::to_string(&blenders).unwrap();
@@ -35,8 +36,10 @@ pub struct SettingResponse {
     we will need to create a new custom response message to provide all of the information needed to display on screen properly
 */
 #[command(async)]
-pub fn get_server_settings(state: State<Mutex<AppState>>) -> Result<SettingResponse, Error> {
-    let app_state = state.lock().unwrap();
+pub async fn get_server_settings(
+    state: State<'_, Mutex<AppState>>,
+) -> Result<SettingResponse, Error> {
+    let app_state = state.lock().await;
     let server_settings = app_state.setting.read().unwrap();
     let blender_manager = app_state.manager.read().unwrap();
 
@@ -49,13 +52,13 @@ pub fn get_server_settings(state: State<Mutex<AppState>>) -> Result<SettingRespo
     Ok(data)
 }
 
-#[command]
-pub fn set_server_settings(
-    state: State<Mutex<AppState>>,
+#[command(async)]
+pub async fn set_server_settings(
+    state: State<'_, Mutex<AppState>>,
     new_settings: ServerSetting,
 ) -> Result<(), String> {
     // maybe I'm a bit confused here?
-    let app_state = state.lock().unwrap();
+    let app_state = state.lock().await;
     let mut old_setting = app_state.setting.write().unwrap();
     new_settings.save();
     *old_setting = new_settings;
@@ -64,11 +67,11 @@ pub fn set_server_settings(
 
 /// Add a new blender entry to the system, but validate it first!
 #[command(async)]
-pub fn add_blender_installation(
-    state: State<Mutex<AppState>>,
+pub async fn add_blender_installation(
+    state: State<'_, Mutex<AppState>>,
     path: PathBuf,
 ) -> Result<Blender, Error> {
-    let app_state = state.lock().unwrap();
+    let app_state = state.lock().await;
     let mut manager = app_state.manager.write().unwrap();
     match manager.add_blender_path(&path) {
         Ok(blender) => Ok(blender),
@@ -77,11 +80,11 @@ pub fn add_blender_installation(
 }
 
 #[command(async)]
-pub fn fetch_blender_installation(
-    state: State<Mutex<AppState>>,
+pub async fn fetch_blender_installation(
+    state: State<'_, Mutex<AppState>>,
     version: &str,
 ) -> Result<Blender, String> {
-    let app_state = state.lock().unwrap();
+    let app_state = state.lock().await;
     let mut manager = app_state.manager.write().unwrap();
     let version = Version::parse(version).map_err(|e| e.to_string())?;
     let blender = manager.fetch_blender(&version).map_err(|e| match e {
@@ -115,11 +118,11 @@ pub fn fetch_blender_installation(
 // - Severe local path to blender from registry (Orphan on disk/not touched)
 // - Delete blender content completely (erasing from disk)
 #[command(async)]
-pub fn remove_blender_installation(
-    state: State<Mutex<AppState>>,
+pub async fn remove_blender_installation(
+    state: State<'_, Mutex<AppState>>,
     blender: Blender,
 ) -> Result<(), Error> {
-    let app_state = state.lock().unwrap();
+    let app_state = state.lock().await;
     let mut manager = app_state.manager.write().unwrap();
     manager.remove_blender(&blender);
     Ok(())

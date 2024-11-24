@@ -24,9 +24,7 @@ This might be another big project to work over the summer to understand how netw
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use crate::routes::job::{create_job, delete_job, list_jobs};
-use crate::routes::remote_render::{
-    delete_node, import_blend, list_node, list_versions, ping_node,
-};
+use crate::routes::remote_render::{delete_node, import_blend, list_node, list_versions};
 use crate::routes::settings::{
     add_blender_installation, fetch_blender_installation, get_server_settings,
     list_blender_installation, remove_blender_installation, set_server_settings,
@@ -86,7 +84,7 @@ fn client(net_service: Mutex<NetworkService>) {
 
     // not sure why this would not be populated in the manage() state?
     // TODO: Contact Tauri and see why I can't use tokio::sync::Mutex over std::sync::Mutex?
-    let mut_app_state = std::sync::Mutex::new(app_state);
+    let mut_app_state = Mutex::new(app_state);
 
     let app = builder
         // app is crashing because it expects .manage to be called before run...?
@@ -101,7 +99,6 @@ fn client(net_service: Mutex<NetworkService>) {
             import_blend,
             get_server_settings,
             set_server_settings,
-            ping_node,
             add_blender_installation,
             list_blender_installation,
             remove_blender_installation,

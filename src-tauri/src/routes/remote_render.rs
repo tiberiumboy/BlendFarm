@@ -9,30 +9,32 @@ when you create a new job, it immediately sends a new job to the server farm
 for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
-use crate::AppState;
+use crate::{services::network_service::NetMessage, AppState};
 use blender::manager::Manager as BlenderManager;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, sync::Mutex};
+use std::path::PathBuf;
 use tauri::{command, AppHandle, Error, State};
+use tokio::sync::Mutex;
 
 /// List out all available node for this blendfarm.
-#[command]
-pub fn list_node(_state: State<Mutex<AppState>>)
-// -> Result<String, Error>
-{
-    // let _server = state.lock().unwrap();
-    // server.get_peer_list(); // hmm might be a problem here?
+/// Let me rethink this design again.
+#[command(async)]
+pub async fn list_node(state: State<'_, Mutex<AppState>>) -> Result<String, Error> {
+    // let server = state.lock().await;
+    // server.to_network get_peer_list(); // hmm might be a problem here?
     // let data = serde_json::to_string(col.render_nodes).unwrap();
     // Ok(data)
+    Ok("".to_owned())
 }
 
-#[command]
-pub fn ping_node(_state: State<Mutex<AppState>>) -> Result<String, Error> {
-    // let _server = state.lock().unwrap();
-    // server.ping();
-    Ok("Ping sent!".to_string())
-}
+// don't think I need this anymore?
+// #[command]
+// pub fn ping_node(_state: State<Mutex<AppState>>) -> Result<String, Error> {
+//     // let _server = state.lock().unwrap();
+//     // server.ping();
+//     Ok("Ping sent!".to_string())
+// }
 
 /// List all of the available blender version.
 #[command(async)]
@@ -71,7 +73,10 @@ pub struct BlenderInfo {
 }
 
 #[command(async)]
-pub fn import_blend(path: PathBuf) -> Result<BlenderInfo, String> {
+pub async fn import_blend(
+    state: State<'_, Mutex<AppState>>,
+    path: PathBuf,
+) -> Result<String, String> {
     // open dialog here
     // let assume that we received a path back from the dialog                                                                  // then if we have a valid file - use .blend from blender to peek into the file.
     // blend::
@@ -80,20 +85,36 @@ pub fn import_blend(path: PathBuf) -> Result<BlenderInfo, String> {
     // let manager = server.manager.read().unwrap();
 
     // let data = manager.peek(path);
-    let blend = match blend::Blend::from_path(path) {
-        Ok(obj) => obj,
-        Err(_) => return Err("Fail to load blender file!".to_owned()),
-    };
+    // let blend = match blend::Blend::from_path(&path) {
+    //     Ok(obj) => obj,
+    //     Err(_) => return Err("Fail to load blender file!".to_owned()),
+    // };
 
-    for obj in blend.root_instances() {
-        dbg!(obj);
+    // for obj in blend.root_instances() {
+    //     dbg!(obj);
+    // }
+
+    // wanted to see if this mini closure will help free data block>
+    {
+        let data = std::fs::read(&path).unwrap();
+        let file_name = path
+            .file_name()
+            .expect("Should be a valid file from above")
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let msg = NetMessage::SendFile { file_name, data };
+        let app_state = state.lock().await;
+        let _ = app_state.to_network.send(msg).await;
     }
 
     // Here I'd like to know how I can extract information from the blend file, such as version number, Eevee/Cycle usage, Frame start and End. For now get this, and then we'll expand later
-    Ok(BlenderInfo {
+    let info = BlenderInfo {
         blend_version: Version::new(4, 1, 0),
         frame: 1,
-    })
+    };
+    let data = serde_json::to_string(&info).unwrap();
+    Ok(data)
 }
 
 // #[command]

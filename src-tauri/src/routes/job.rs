@@ -1,8 +1,9 @@
 use blender::models::mode::Mode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, sync::Mutex};
+use std::path::PathBuf;
 use tauri::{command, Error, State};
+use tokio::sync::Mutex;
 
 use crate::models::{app_state::AppState, job::Job, project_file::ProjectFile};
 
@@ -29,11 +30,10 @@ pub async fn create_job(
     let project_file =
         ProjectFile::new(file_path).map_err(|e| Error::AssetNotFound(e.to_string()))?;
     let job = Job::new(project_file, output, info.version, mode);
-    let mut server = state.lock().unwrap();
+    let mut server = state.lock().await;
     server.jobs.push(job.clone());
 
     // send job to server
-
     // let mut manager = _server.jobs.write().unwrap();
     // let _ = manager
     //     .add_to_queue(job.clone())
@@ -47,7 +47,7 @@ pub async fn create_job(
 /// Abort the job if it's running and delete the entry from the collection list.
 #[command(async)]
 pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> Result<(), ()> {
-    let mut server = state.lock().unwrap(); // Should I worry about posion error?
+    let mut server = state.lock().await; // Should I worry about posion error?
     server.jobs.retain(|x| x.eq(&target_job));
     Ok(())
 }
@@ -55,7 +55,7 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> R
 /// List all available jobs stored in the collection.
 #[command(async)]
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let server = state.lock().unwrap();
+    let server = state.lock().await;
     let jobs = server.jobs.clone();
     let data = serde_json::to_string(&jobs).unwrap();
     Ok(data)
