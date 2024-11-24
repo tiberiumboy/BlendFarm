@@ -1,4 +1,5 @@
 use blender::models::mode::Mode;
+use libp2p::futures::FutureExt;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -70,4 +71,12 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, Stri
     let jobs = server.jobs.clone();
     let data = serde_json::to_string(&jobs).unwrap();
     Ok(data)
+}
+
+#[command(async)]
+pub async fn send_status_test(state: State<'_, Mutex<AppState>>) -> Result<(), String> {
+    let server = state.lock().await;
+    let msg = NetMessage::Status("Hello world".to_owned());
+    server.to_network.send(msg).await;
+    Ok(())
 }

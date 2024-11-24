@@ -1,3 +1,4 @@
+use async_std::path::PathBuf;
 use libp2p::futures::StreamExt;
 use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
@@ -417,6 +418,6 @@ impl NetworkService {
 
 impl AsRef<JoinHandle<()>> for NetworkService {
     fn as_ref(&self) -> &JoinHandle<()> {
-        &self._task
+        &self.task
     }
 }
