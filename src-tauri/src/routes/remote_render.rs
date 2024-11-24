@@ -96,6 +96,7 @@ pub async fn import_blend(
 
     // wanted to see if this mini closure will help free data block>
     {
+        // take a look into kad?
         let data = std::fs::read(&path).unwrap();
         let file_name = path
             .file_name()

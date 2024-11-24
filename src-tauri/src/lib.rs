@@ -31,6 +31,7 @@ use crate::routes::settings::{
 };
 use blender::manager::Manager as BlenderManager;
 use blender::models::home::BlenderHome;
+use clap::Parser;
 use models::app_state::AppState;
 use models::server_setting::ServerSetting;
 use services::network_service::{NetMessage, NetworkService};
@@ -47,7 +48,7 @@ pub mod routes;
 pub mod services;
 
 // when the app starts up, I would need to have access to configs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
-fn client(net_service: Mutex<NetworkService>) {
+fn client(server_settings: ServerSetting, net_service: Mutex<NetworkService>) {
     // I would like to find a better way to update or append data to render_nodes,
     // "Do not communicate with shared memory"
     let builder = tauri::Builder::default()
@@ -59,20 +60,15 @@ fn client(net_service: Mutex<NetworkService>) {
         .plugin(tauri_plugin_dialog::init())
         .setup(|_| Ok(()));
 
-    // I'm having problem trying to separate this call from client.
-    // I want to be able to run either server _or_ client via a cli switch.
-    // Would like to know how I can get around this?
-
-    // TODO: is there a better way to handle blender objects?
+    // TODO: Might combine manager and source together?
     let manager = Arc::new(RwLock::new(BlenderManager::load()));
     let blender_source = Arc::new(RwLock::new(
         BlenderHome::new()
             .expect("Unable to connect to blender.org, are you connect to the internet?"),
     ));
-    let setting = Arc::new(RwLock::new(ServerSetting::load()));
+    let setting = Arc::new(RwLock::new(server_settings));
     let (to_network, mut from_ui) = mpsc::channel::<NetMessage>(32);
 
-    // for network service, consider making a box pointer instead. this Arc<RwLock<T>> is driving me nuts with Tauri.
     // Do consider adding blender manager and blender home in app state instead.
     let app_state = AppState {
         manager,
@@ -82,12 +78,9 @@ fn client(net_service: Mutex<NetworkService>) {
         jobs: Vec::new(),
     };
 
-    // not sure why this would not be populated in the manage() state?
-    // TODO: Contact Tauri and see why I can't use tokio::sync::Mutex over std::sync::Mutex?
     let mut_app_state = Mutex::new(app_state);
 
     let app = builder
-        // app is crashing because it expects .manage to be called before run...?
         .manage(mut_app_state)
         .invoke_handler(tauri::generate_handler![
             create_job,
@@ -127,40 +120,39 @@ fn client(net_service: Mutex<NetworkService>) {
         }
     });
 
-    // match app.cli().matches() {
-    //     // `matches` here is a Struct with { args, subcommand }.
-    //     // `args` is `HashMap<String, ArgData>` where `ArgData` is a struct with { value, occurrences }.
-    //     // `subcommand` is `Option<Box<SubcommandMatches>>` where `SubcommandMatches` is a struct with { name, matches }.
-    //     // cargo tauri dev -- -- -c
-    //     Ok(matches) => {
-    //         dbg!(&matches);
-    //         if matches.args.get("client").unwrap().occurrences >= 1 {
-    //             // run client mode instead.
-    //             spawn(run_client());
-    //         }
-    //     }
-    //     Err(e) => {
-    //         dbg!(e);
-    //     }
-    // };
-
     app.run(|_, _| {});
+    // TODO: This could be a problem. I want to make sure I could exit the application successfully.
     // this never gets called?
     println!("After run");
+}
+
+#[derive(Parser)]
+struct Cli {
+    #[arg(short, long)]
+    client: Option<bool>, // TOOD: Find a way to provide default value?
 }
 
 // not sure why I'm getting a lint warning about the mobile macro? Need to bug the dev and see if this macro has changed.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
-    //async
+    let cli = Cli::parse();
+
+    // Spin up network service.
     let net_service = NetworkService::new(60)
         .await
         .expect("Unable to start network service!");
-    // TODO: Find a way to make use of Tauri cli commands to run as client.
-    // TODO: It would be nice to include command line utility to let the user add blender installation from remotely.
-    // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.
     let service = Mutex::new(net_service);
-    client(service);
-    // how can I keep the program running forever for net service?
-    // TODO: find a way to do CLI switch - I want to be able to run this app on headless server mode.
+
+    // read CLI commands here.
+    match cli.client {
+        Some(true) => {
+            let thread = service.lock().await;
+            thread.as_ref().is_finished();
+            return;
+        }
+        _ => {
+            let config = ServerSetting::load();
+            client(config, service);
+        }
+    }
 }
