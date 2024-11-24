@@ -97,16 +97,16 @@ pub async fn import_blend(
     // wanted to see if this mini closure will help free data block>
     {
         // take a look into kad?
-        let data = std::fs::read(&path).unwrap();
-        let file_name = path
-            .file_name()
-            .expect("Should be a valid file from above")
-            .to_str()
-            .unwrap()
-            .to_owned();
-        let msg = NetMessage::SendFile { file_name, data };
-        let app_state = state.lock().await;
-        let _ = app_state.to_network.send(msg).await;
+        // let data = std::fs::read(&path).unwrap();
+        // let file_name = path
+        //     .file_name()
+        //     .expect("Should be a valid file from above")
+        //     .to_str()
+        //     .unwrap()
+        //     .to_owned();
+        // let msg = NetMessage::SendFile { file_name, data };
+        // let app_state = state.lock().await;
+        // let _ = app_state.to_network.send(msg).await;
     }
 
     // Here I'd like to know how I can extract information from the blend file, such as version number, Eevee/Cycle usage, Frame start and End. For now get this, and then we'll expand later

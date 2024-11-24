@@ -1,11 +1,15 @@
 use blender::models::mode::Mode;
+use libp2p::futures::FutureExt;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{command, Error, State};
 use tokio::sync::Mutex;
 
-use crate::models::{app_state::AppState, job::Job, project_file::ProjectFile};
+use crate::{
+    models::{app_state::AppState, job::Job, project_file::ProjectFile},
+    services::network_service::NetMessage,
+};
 
 // TODO: currently the program will report that it's missing key info for this struct. Figure out why?
 #[derive(Debug, Serialize, Deserialize)]
@@ -26,7 +30,6 @@ pub async fn create_job(
     let file_path = info.file_path;
     let output = info.output;
     let mode = Mode::Frame(1);
-
     let project_file =
         ProjectFile::new(file_path).map_err(|e| Error::AssetNotFound(e.to_string()))?;
     let job = Job::new(project_file, output, info.version, mode);
@@ -59,4 +62,12 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, Stri
     let jobs = server.jobs.clone();
     let data = serde_json::to_string(&jobs).unwrap();
     Ok(data)
+}
+
+#[command(async)]
+pub async fn send_status_test(state: State<'_, Mutex<AppState>>) -> Result<(), String> {
+    let server = state.lock().await;
+    let msg = NetMessage::Status("Hello world".to_owned());
+    server.to_network.send(msg).await;
+    Ok(())
 }

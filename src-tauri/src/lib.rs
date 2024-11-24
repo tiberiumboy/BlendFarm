@@ -38,6 +38,7 @@ use services::network_service::{NetMessage, NetworkService};
 use std::sync::{Arc, RwLock};
 use tokio::select;
 use tokio::sync::{mpsc, Mutex};
+use tracing_subscriber::EnvFilter;
 
 //TODO: Create a miro diagram structure of how this application suppose to work
 // Need a mapping to explain how network should perform over intranet
@@ -107,8 +108,8 @@ fn client(server_settings: ServerSetting, net_service: Mutex<NetworkService>) {
             // let's make sure this works!
             Some(msg) = from_ui.recv() => {
                 println!("{msg:?}");
-                let mut service = net_service.lock().await;
-                let _ = service.send(msg).await;
+                // let mut service = net_service.lock().await;
+                // let _ = service. (msg).await;
             }
 
             // Ok(info) = net_service.from_network.recv() {
@@ -135,6 +136,10 @@ struct Cli {
 // not sure why I'm getting a lint warning about the mobile macro? Need to bug the dev and see if this macro has changed.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init();
+
     let cli = Cli::parse();
 
     // Spin up network service.

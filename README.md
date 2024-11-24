@@ -37,3 +37,8 @@ To run Tauri app - run the following command under `/BlendFarm/` directory - `ca
 
 To run the client app - run the following command under `/BlendFarm/backend/` directory - `cargo run -- -c`
 
+
+### Network:
+
+Under the hood, this program uses libp2p with [QUIC transport](https://docs.libp2p.io/concepts/transports/quic/). This act this computer as both a server and a client. Wrapped in a containerized struct, I am using [mdns](https://docs.libp2p.io/concepts/discovery-routing/mdns/) for network discovery service (to find other network farm node on the network so that you don't have to connect manually), [gossipsub]() for private message procedure call ( Basically how node interacts with other nodes), and kad for file transfer protocol (how node distribute blend, image, and blender binary files across the network). With the power of trio combined, it is the perfect solution for making network farm accessible, easy to start up, and robost. Have a read into [libp2p](https://libp2p.io/) if this interest your project needs! 
+
