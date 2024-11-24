@@ -414,3 +414,9 @@ impl NetworkService {
         Ok(true)
     }
 }
+
+impl AsRef<JoinHandle<()>> for NetworkService {
+    fn as_ref(&self) -> &JoinHandle<()> {
+        &self._task
+    }
+}

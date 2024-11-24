@@ -113,6 +113,12 @@ struct Cli {
     client: Option<bool>, // TOOD: Find a way to provide default value?
 }
 
+#[derive(Parser)]
+struct Cli {
+    #[arg(short, long)]
+    client: Option<bool>, // TOOD: Find a way to provide default value?
+}
+
 // not sure why I'm getting a lint warning about the mobile macro? Need to bug the dev and see if this macro has changed.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
