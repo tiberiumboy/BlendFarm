@@ -1,5 +1,4 @@
 use blender::models::mode::Mode;
-use libp2p::futures::FutureExt;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -8,7 +7,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     models::{app_state::AppState, job::Job, project_file::ProjectFile},
-    services::network_service::NetMessage,
+    services::network_service::UiMessage,
 };
 
 // TODO: currently the program will report that it's missing key info for this struct. Figure out why?
@@ -56,18 +55,19 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> R
 }
 
 /// List all available jobs stored in the collection.
+// this function invoked twice?
 #[command(async)]
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let server = state.lock().await;
+    // let's do a test here then?
+    {
+        let _ = server
+            .to_network
+            .send(UiMessage::Status("Hello world!".to_owned()))
+            .await;
+    }
+
     let jobs = server.jobs.clone();
     let data = serde_json::to_string(&jobs).unwrap();
     Ok(data)
-}
-
-#[command(async)]
-pub async fn send_status_test(state: State<'_, Mutex<AppState>>) -> Result<(), String> {
-    let server = state.lock().await;
-    let msg = NetMessage::Status("Hello world".to_owned());
-    server.to_network.send(msg).await;
-    Ok(())
 }

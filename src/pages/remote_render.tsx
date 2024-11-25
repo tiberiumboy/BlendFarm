@@ -128,7 +128,7 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
       // TODO: find a way to include the dash elsewhere
       e.target.value = filePath + "/";
     }
-  } 
+  }
 
   // function may not be used anymore.
   async function onFileSelect(e: any) {
@@ -234,7 +234,7 @@ export default function RemoteRender(props: RemoteRenderProps) {
       return;
     }
 
-    invoke("import_blend", {path}).then((ctx) => {
+    invoke("import_blend", { path }).then((ctx) => {
       if (ctx == null) {
         return;
       }
@@ -255,6 +255,7 @@ export default function RemoteRender(props: RemoteRenderProps) {
   return (
     <div className="content">
       <h2>Remote Jobs</h2>
+      {/* How can I enable hotkey function for html code? */}
       <button onClick={showDialog}>
         Import
       </button>

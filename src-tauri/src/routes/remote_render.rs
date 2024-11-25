@@ -9,7 +9,7 @@ when you create a new job, it immediately sends a new job to the server farm
 for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
-use crate::{services::network_service::NetMessage, AppState};
+use crate::{services::network_service::UiMessage, AppState};
 use blender::manager::Manager as BlenderManager;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -27,14 +27,6 @@ pub async fn list_node(state: State<'_, Mutex<AppState>>) -> Result<String, Erro
     // Ok(data)
     Ok("".to_owned())
 }
-
-// don't think I need this anymore?
-// #[command]
-// pub fn ping_node(_state: State<Mutex<AppState>>) -> Result<String, Error> {
-//     // let _server = state.lock().unwrap();
-//     // server.ping();
-//     Ok("Ping sent!".to_string())
-// }
 
 /// List all of the available blender version.
 #[command(async)]
@@ -98,15 +90,17 @@ pub async fn import_blend(
     {
         // take a look into kad?
         // let data = std::fs::read(&path).unwrap();
-        // let file_name = path
-        //     .file_name()
-        //     .expect("Should be a valid file from above")
-        //     .to_str()
-        //     .unwrap()
-        //     .to_owned();
-        // let msg = NetMessage::SendFile { file_name, data };
-        // let app_state = state.lock().await;
-        // let _ = app_state.to_network.send(msg).await;
+        let file_name = path
+            .file_name()
+            .expect("Should be a valid file from above")
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let app_state = state.lock().await;
+        let _ = app_state
+            .to_network
+            .send(UiMessage::Status(file_name))
+            .await;
     }
 
     // Here I'd like to know how I can extract information from the blend file, such as version number, Eevee/Cycle usage, Frame start and End. For now get this, and then we'll expand later
@@ -118,6 +112,7 @@ pub async fn import_blend(
     Ok(data)
 }
 
+// Wonder why this was commented out?
 // #[command]
 // pub fn list_jobs(state: State<Mutex<Server>>) -> Result<String, Error> {
 // let server = state.lock().unwrap();

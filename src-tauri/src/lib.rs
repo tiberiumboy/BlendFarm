@@ -34,10 +34,14 @@ use blender::models::home::BlenderHome;
 use clap::Parser;
 use models::app_state::AppState;
 use models::server_setting::ServerSetting;
-use services::network_service::{NetMessage, NetworkService};
+use services::network_service::{NetworkService, UiMessage};
 use std::sync::{Arc, RwLock};
+use tauri::App;
 use tokio::select;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{
+    mpsc::{self, Sender},
+    Mutex,
+};
 use tracing_subscriber::EnvFilter;
 
 //TODO: Create a miro diagram structure of how this application suppose to work
@@ -48,8 +52,10 @@ pub mod models;
 pub mod routes;
 pub mod services;
 
-// when the app starts up, I would need to have access to configs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
-fn client(server_settings: ServerSetting, net_service: Mutex<NetworkService>) {
+// Create a builder to make Tauri application
+fn config_tauri_builder(to_network: Sender<UiMessage>) -> App {
+    let server_settings = ServerSetting::load();
+
     // I would like to find a better way to update or append data to render_nodes,
     // "Do not communicate with shared memory"
     let builder = tauri::Builder::default()
@@ -68,7 +74,6 @@ fn client(server_settings: ServerSetting, net_service: Mutex<NetworkService>) {
             .expect("Unable to connect to blender.org, are you connect to the internet?"),
     ));
     let setting = Arc::new(RwLock::new(server_settings));
-    let (to_network, mut from_ui) = mpsc::channel::<NetMessage>(32);
 
     // Do consider adding blender manager and blender home in app state instead.
     let app_state = AppState {
@@ -81,7 +86,7 @@ fn client(server_settings: ServerSetting, net_service: Mutex<NetworkService>) {
 
     let mut_app_state = Mutex::new(app_state);
 
-    let app = builder
+    builder
         .manage(mut_app_state)
         .invoke_handler(tauri::generate_handler![
             create_job,
@@ -99,32 +104,7 @@ fn client(server_settings: ServerSetting, net_service: Mutex<NetworkService>) {
             fetch_blender_installation,
         ])
         .build(tauri::generate_context!())
-        .expect("Unable to build tauri app!");
-
-    // spin up a new thread to handle message queue from App UI to Network services
-    let _thread = tokio::spawn(async move {
-        loop {
-            select! {
-            // let's make sure this works!
-            Some(msg) = from_ui.recv() => {
-                println!("{msg:?}");
-                // let mut service = net_service.lock().await;
-                // let _ = service. (msg).await;
-            }
-
-            // Ok(info) = net_service.from_network.recv() {
-            //     //     // process event from network, e.g. if new peer joins, we should send a notification to app.
-            //     // }
-            //     println!("{:?}", info);
-            // }
-            }
-        }
-    });
-
-    app.run(|_, _| {});
-    // TODO: This could be a problem. I want to make sure I could exit the application successfully.
-    // this never gets called?
-    println!("After run");
+        .expect("Unable to build tauri app!")
 }
 
 #[derive(Parser)]
@@ -143,21 +123,58 @@ pub async fn run() {
     let cli = Cli::parse();
 
     // Spin up network service.
-    let net_service = NetworkService::new(60)
+    let mut net_service = NetworkService::new(60)
         .await
         .expect("Unable to start network service!");
-    let service = Mutex::new(net_service);
+    // let service = Mutex::new(net_service);
 
     // read CLI commands here.
     match cli.client {
+        // TODO: Verify this function works once UTM finish installing linux!
         Some(true) => {
-            let thread = service.lock().await;
-            thread.as_ref().is_finished();
+            net_service.as_ref().is_finished();
             return;
         }
         _ => {
-            let config = ServerSetting::load();
-            client(config, service);
+            let (to_network, mut from_ui) = mpsc::channel::<UiMessage>(32);
+            let app = config_tauri_builder(to_network);
+
+            // spin up a new thread to handle message queue from App UI to Network services
+            let _thread = tokio::spawn(async move {
+                loop {
+                    select! {
+                    Some(msg) = from_ui.recv() => {
+                        let _ = net_service.send(msg).await;
+                    }
+
+                    // is it expensive to lock network_service every loop?
+                    // TODO: run benchmark performance about this lock every update
+                    // TODO: Find a way to grab the recv() from network_service, and send signal to app instead?
+                    Some(info) = net_service.rx_recv.recv() => {
+                            println!("Receive msg from network service! {info:?}");
+                            // receive message from network.
+                    }
+
+                    // Ok(info) = net_service.from_network.recv() {
+                    //     //     // process event from network, e.g. if new peer joins, we should send a notification to app.
+                    //     // }
+                    //     println!("{:?}", info);
+                    // }
+                    }
+                }
+            });
+
+            // todo - push this out. client should be configuring client builder.
+            app.run(|_, event| match event {
+                tauri::RunEvent::Exit => {
+                    println!("Program exit!");
+                }
+                tauri::RunEvent::ExitRequested { .. } => {
+                    println!("Exit requested!");
+                    // here we can ask the net_service to shutdown and send out disconnected signal
+                }
+                _ => {}
+            });
         }
     }
 }

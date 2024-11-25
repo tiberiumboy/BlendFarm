@@ -24,7 +24,6 @@ fn main() {
         None => PathBuf::from("./examples/assets/test.blend"),
         Some(p) => PathBuf::from(p),
     };
-
     // // we reference blender by executable path. Version will be detected upon running command process. (Self validation)
     let mut manager = BlenderManager::load();
     let blender = match manager.get_blenders().first() {
