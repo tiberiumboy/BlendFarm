@@ -23,9 +23,8 @@ dist-ssr
 *.pdb
 
 # Editor directories and files
-# I want to include debug config files. Might save myself headache in the future why I haven't omit this file sooner.
-# .vscode/*
-# !.vscode/extensions.json
+.vscode/*
+!.vscode/extensions.json
 .idea
 .DS_Store
 *.suo
