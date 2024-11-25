@@ -32,19 +32,7 @@ use blender::manager::Manager as BlenderManager;
 use blender::models::home::BlenderHome;
 use clap::Parser;
 use models::app_state::AppState;
-use blender::models::home::BlenderHome;
-use clap::Parser;
-use models::app_state::AppState;
 use models::server_setting::ServerSetting;
-use services::network_service::{NetworkService, UiMessage};
-use std::sync::{Arc, RwLock};
-use tauri::App;
-use tokio::select;
-use tokio::sync::{
-    mpsc::{self, Sender},
-    Mutex,
-};
-use tracing_subscriber::EnvFilter;
 use services::network_service::{NetworkService, UiMessage};
 use std::sync::{Arc, RwLock};
 use tauri::App;
@@ -94,9 +82,7 @@ fn config_tauri_builder(to_network: Sender<UiMessage>) -> App {
     };
 
     let mut_app_state = Mutex::new(app_state);
-    let mut_app_state = Mutex::new(app_state);
 
-    builder
     builder
         .manage(mut_app_state)
         .invoke_handler(tauri::generate_handler![
