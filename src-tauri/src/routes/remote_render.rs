@@ -19,6 +19,7 @@ use tokio::sync::Mutex;
 
 /// List out all available node for this blendfarm.
 /// Let me rethink this design again.
+// This function may not be needed?
 #[command(async)]
 pub async fn list_node(state: State<'_, Mutex<AppState>>) -> Result<String, Error> {
     // let server = state.lock().await;

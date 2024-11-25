@@ -170,7 +170,7 @@ impl NetworkService {
         swarm.listen_on(udp).expect("Fail to listen on UDP");
 
         // swarm.dial(udp);
-        swarm.dial(PeerId::random());
+        let _ = swarm.dial(PeerId::random());
 
         // create a new channel with a capacity of at most 32.
         let (tx, mut rx) = mpsc::channel::<UiMessage>(32);

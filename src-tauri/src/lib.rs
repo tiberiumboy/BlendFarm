@@ -1,20 +1,19 @@
 /*
 Developer blog:
 - Had a brain fart trying to figure out some ideas allowing me to run this application as either client or server
-Originally thought of using Clap library to parse in input, but when I run `cargo tauri dev -- test` the application fail to compile due to unknown arguments when running web framework?
-This issue has been solved by alllowing certain argument to run. By default it will try to launch the client user interface of the application.
-Additionally, I need to check into the argument and see if there's a way we could just allow user to run --server without ui interface?
-Interesting thoughts for sure
-9/2/24 - Decided to rely on using Tauri plugin for cli commands and subcommands. Use that instead of clap. Since Tauri already incorporates Clap anyway.
-
+    Originally thought of using Clap library to parse in input, but when I run `cargo tauri dev -- test` the application fail to compile due to unknown arguments when running web framework?
+    This issue has been solved by alllowing certain argument to run. By default it will try to launch the client user interface of the application.
+    Additionally, I need to check into the argument and see if there's a way we could just allow user to run --server without ui interface?
+    Interesting thoughts for sure
+    9/2/24
+- Decided to rely on using Tauri plugin for cli commands and subcommands. Use that instead of clap. Since Tauri already incorporates Clap anyway.
 - Had an idea that allows user remotely to locally add blender installation without using GUI interface,
-This would serves two purposes - allow user to expressly select which blender version they can choose from the remote machine and
-prevent multiple download instances for the node, in case the target machine does not have it pre-installed.
-
+    This would serves two purposes - allow user to expressly select which blender version they can choose from the remote machine and
+    prevent multiple download instances for the node, in case the target machine does not have it pre-installed.
 - Eventually, I will need to find a way to spin up a virtual machine and run blender farm on that machine to see about getting networking protocol working in place.
-This will allow me to do two things - I can continue to develop without needing to fire up a remote machine to test this and
-verify all packet works as intended while I can run the code in parallel to see if there's any issue I need to work overhead.
-This might be another big project to work over the summer to understand how network works in Rust.
+    This will allow me to do two things - I can continue to develop without needing to fire up a remote machine to test this and
+    verify all packet works as intended while I can run the code in parallel to see if there's any issue I need to work overhead.
+    This might be another big project to work over the summer to understand how network works in Rust.
 
 [F] - find a way to allow GUI interface to run as client mode for non cli users.
 [F] - consider using channel to stream data https://v2.tauri.app/develop/calling-frontend/#channels
@@ -33,7 +32,19 @@ use blender::manager::Manager as BlenderManager;
 use blender::models::home::BlenderHome;
 use clap::Parser;
 use models::app_state::AppState;
+use blender::models::home::BlenderHome;
+use clap::Parser;
+use models::app_state::AppState;
 use models::server_setting::ServerSetting;
+use services::network_service::{NetworkService, UiMessage};
+use std::sync::{Arc, RwLock};
+use tauri::App;
+use tokio::select;
+use tokio::sync::{
+    mpsc::{self, Sender},
+    Mutex,
+};
+use tracing_subscriber::EnvFilter;
 use services::network_service::{NetworkService, UiMessage};
 use std::sync::{Arc, RwLock};
 use tauri::App;
@@ -67,15 +78,13 @@ fn config_tauri_builder(to_network: Sender<UiMessage>) -> App {
         .plugin(tauri_plugin_dialog::init())
         .setup(|_| Ok(()));
 
-    // TODO: Might combine manager and source together?
     let manager = Arc::new(RwLock::new(BlenderManager::load()));
     let blender_source = Arc::new(RwLock::new(
         BlenderHome::new()
-            .expect("Unable to connect to blender.org, are you connect to the internet?"),
+            .expect("Unable to connect to blender.org, are you connected to the internet?"),
     ));
     let setting = Arc::new(RwLock::new(server_settings));
 
-    // Do consider adding blender manager and blender home in app state instead.
     let app_state = AppState {
         manager,
         to_network,
@@ -85,7 +94,9 @@ fn config_tauri_builder(to_network: Sender<UiMessage>) -> App {
     };
 
     let mut_app_state = Mutex::new(app_state);
+    let mut_app_state = Mutex::new(app_state);
 
+    builder
     builder
         .manage(mut_app_state)
         .invoke_handler(tauri::generate_handler![
@@ -113,12 +124,6 @@ struct Cli {
     client: Option<bool>, // TOOD: Find a way to provide default value?
 }
 
-#[derive(Parser)]
-struct Cli {
-    #[arg(short, long)]
-    client: Option<bool>, // TOOD: Find a way to provide default value?
-}
-
 // not sure why I'm getting a lint warning about the mobile macro? Need to bug the dev and see if this macro has changed.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
@@ -128,15 +133,12 @@ pub async fn run() {
 
     let cli = Cli::parse();
 
-    // Spin up network service.
     let mut net_service = NetworkService::new(60)
         .await
         .expect("Unable to start network service!");
-    // let service = Mutex::new(net_service);
 
-    // read CLI commands here.
     match cli.client {
-        // TODO: Verify this function works once UTM finish installing linux!
+        // TODO: Verify this function works as soon as VM is finish installing linux.
         Some(true) => {
             net_service.as_ref().is_finished();
             return;
@@ -145,42 +147,28 @@ pub async fn run() {
             let (to_network, mut from_ui) = mpsc::channel::<UiMessage>(32);
             let app = config_tauri_builder(to_network);
 
-            // spin up a new thread to handle message queue from App UI to Network services
             let _thread = tokio::spawn(async move {
                 loop {
                     select! {
-                    Some(msg) = from_ui.recv() => {
-                        let _ = net_service.send(msg).await;
-                    }
-
-                    // is it expensive to lock network_service every loop?
-                    // TODO: run benchmark performance about this lock every update
-                    // TODO: Find a way to grab the recv() from network_service, and send signal to app instead?
-                    Some(info) = net_service.rx_recv.recv() => {
-                            println!("Receive msg from network service! {info:?}");
-                            // receive message from network.
-                    }
-
-                    // Ok(info) = net_service.from_network.recv() {
-                    //     //     // process event from network, e.g. if new peer joins, we should send a notification to app.
-                    //     // }
-                    //     println!("{:?}", info);
-                    // }
+                        Some(msg) = from_ui.recv() => {
+                            let _ = net_service.send(msg).await;
+                        }
+                        Some(info) = net_service.rx_recv.recv() => {
+                            println!("Received message from network service! {info:?}");
+                        }
                     }
                 }
             });
 
-            // todo - push this out. client should be configuring client builder.
             app.run(|_, event| match event {
                 tauri::RunEvent::Exit => {
                     println!("Program exit!");
                 }
                 tauri::RunEvent::ExitRequested { .. } => {
-                    println!("Exit requested!");
-                    // here we can ask the net_service to shutdown and send out disconnected signal
+                    println!("Exit requested");
                 }
                 _ => {}
             });
         }
-    }
+    };
 }
