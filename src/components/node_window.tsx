@@ -51,7 +51,6 @@ export default function NodeWindow() {
 
   return (
     <div>
-      {/* I'm concern about dialog window size dimension */}
       {nodeWindow()}
     </div>
   );

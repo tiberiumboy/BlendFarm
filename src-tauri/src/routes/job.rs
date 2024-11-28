@@ -6,7 +6,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     models::{app_state::AppState, job::Job, project_file::ProjectFile},
-    services::network_service::UiMessage,
+    services::network_service::Command,
 };
 
 // FIgure out why I can't get this to work?
@@ -30,7 +30,7 @@ pub async fn create_job(
     // send job to server
     if let Err(e) = server
         .to_network
-        .send(UiMessage::StartJob(job.clone()))
+        .send(Command::StartJob(job.clone()))
         .await
     {
         println!("Fail to send job to the server! \n{e:?}");

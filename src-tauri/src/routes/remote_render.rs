@@ -9,7 +9,7 @@ when you create a new job, it immediately sends a new job to the server farm
 for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
-use crate::{services::network_service::UiMessage, AppState};
+use crate::{services::network_service::Command, AppState};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -101,11 +101,7 @@ pub async fn import_blend(
             .unwrap()
             .to_owned();
         let app_state = state.lock().await;
-        if let Err(e) = app_state
-            .to_network
-            .send(UiMessage::Status(file_name))
-            .await
-        {
+        if let Err(e) = app_state.to_network.send(Command::Status(file_name)).await {
             println!("Fail to send to network from application state {e:?}");
         }
     }

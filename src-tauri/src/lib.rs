@@ -32,7 +32,7 @@ use blender::manager::Manager as BlenderManager;
 use clap::Parser;
 use models::app_state::AppState;
 use models::server_setting::ServerSetting;
-use services::network_service::{NetMessage, NetworkService, UiMessage};
+use services::network_service::{Command, NetEvent, NetworkService};
 use std::sync::{Arc, RwLock};
 use tauri::{App, Emitter, Manager};
 use tokio::select;
@@ -51,7 +51,7 @@ pub mod routes;
 pub mod services;
 
 // Create a builder to make Tauri application
-fn config_tauri_builder(to_network: Sender<UiMessage>) -> App {
+fn config_tauri_builder(to_network: Sender<Command>) -> App {
     let server_settings = ServerSetting::load();
 
     // I would like to find a better way to update or append data to render_nodes,
@@ -129,7 +129,7 @@ pub async fn run() {
             }
         }
         _ => {
-            let (to_network, mut from_ui) = mpsc::channel::<UiMessage>(32);
+            let (to_network, mut from_ui) = mpsc::channel::<Command>(32);
             let app = config_tauri_builder(to_network);
 
             let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
@@ -143,15 +143,15 @@ pub async fn run() {
                             }
                         }
                         Some(info) = net_service.rx_recv.recv() => match info {
-                            NetMessage::Render(job) => println!("Job: {job:?}"),
-                            NetMessage::Status(msg) => println!("Status: {msg:?}"),
-                            NetMessage::NodeDiscovered(peer_id) => {
+                            NetEvent::Render(job) => println!("Job: {job:?}"),
+                            NetEvent::Status(msg) => println!("Status: {msg:?}"),
+                            NetEvent::NodeDiscovered(peer_id) => {
                                 let handle = app_handle.read().unwrap();
                                 // TODO: test this once we're online.
                                 // println!("Node discovered: {peer_id:?}");
                                 handle.emit("node_discover", peer_id).unwrap();
                             },
-                            NetMessage::NodeDisconnected(peer_id) => {
+                            NetEvent::NodeDisconnected(peer_id) => {
                                 let handle = app_handle.read().unwrap();
                                 handle.emit("node_disconnect", peer_id).unwrap();
                             },

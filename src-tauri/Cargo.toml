@@ -36,6 +36,7 @@ libp2p = { version = "^0", features = [
     "tls",
     "quic",
     "kad",
+    "request-response",
 ] }
 pnet = "0.34"
 semver = "^1.0.22"
