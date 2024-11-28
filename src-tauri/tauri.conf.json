@@ -24,9 +24,9 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "Blender Farm Manager",
-        "width": 800,
-        "height": 600
+        "title": "BlendFarm Network Manager",
+        "width": 640,
+        "height": 480
       }
     ],
     "withGlobalTauri": false,

@@ -23,19 +23,18 @@ Developer blog:
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use crate::routes::job::{create_job, delete_job, list_jobs};
-use crate::routes::remote_render::{delete_node, import_blend, list_node, list_versions};
+use crate::routes::remote_render::{delete_node, import_blend, list_versions};
 use crate::routes::settings::{
     add_blender_installation, fetch_blender_installation, get_server_settings,
     list_blender_installation, remove_blender_installation, set_server_settings,
 };
 use blender::manager::Manager as BlenderManager;
-use blender::models::home::BlenderHome;
 use clap::Parser;
 use models::app_state::AppState;
 use models::server_setting::ServerSetting;
-use services::network_service::{NetworkService, UiMessage};
+use services::network_service::{NetMessage, NetworkService, UiMessage};
 use std::sync::{Arc, RwLock};
-use tauri::App;
+use tauri::{App, Emitter, Manager};
 use tokio::select;
 use tokio::sync::{
     mpsc::{self, Sender},
@@ -67,16 +66,11 @@ fn config_tauri_builder(to_network: Sender<UiMessage>) -> App {
         .setup(|_| Ok(()));
 
     let manager = Arc::new(RwLock::new(BlenderManager::load()));
-    let blender_source = Arc::new(RwLock::new(
-        BlenderHome::new()
-            .expect("Unable to connect to blender.org, are you connected to the internet?"),
-    ));
     let setting = Arc::new(RwLock::new(server_settings));
 
     let app_state = AppState {
         manager,
         to_network,
-        blender_source,
         setting,
         jobs: Vec::new(),
     };
@@ -89,7 +83,6 @@ fn config_tauri_builder(to_network: Sender<UiMessage>) -> App {
             create_job,
             delete_node,
             delete_job,
-            list_node,
             list_jobs,
             list_versions,
             import_blend,
@@ -106,8 +99,8 @@ fn config_tauri_builder(to_network: Sender<UiMessage>) -> App {
 
 #[derive(Parser)]
 struct Cli {
-    #[arg(short, long)]
-    client: Option<bool>, // TOOD: Find a way to provide default value?
+    #[arg(short, long, default_value = "false")]
+    client: Option<bool>,
 }
 
 // not sure why I'm getting a lint warning about the mobile macro? Need to bug the dev and see if this macro has changed.
@@ -126,21 +119,42 @@ pub async fn run() {
     match cli.client {
         // TODO: Verify this function works as soon as VM is finish installing linux.
         Some(true) => {
-            net_service.as_ref().is_finished();
-            return;
+            println!("Client is running");
+            loop {
+                select! {
+                    Some(msg) = net_service.rx_recv.recv() => {
+                        println!("[Client] Received message: {msg:?}");
+                    }
+                }
+            }
         }
         _ => {
             let (to_network, mut from_ui) = mpsc::channel::<UiMessage>(32);
             let app = config_tauri_builder(to_network);
 
+            let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
+
             let _thread = tokio::spawn(async move {
                 loop {
                     select! {
                         Some(msg) = from_ui.recv() => {
-                            let _ = net_service.send(msg).await;
+                            if let Err(e) = net_service.send(msg).await {
+                                println!("Fail to send net service message: {e:?}");
+                            }
                         }
-                        Some(info) = net_service.rx_recv.recv() => {
-                            println!("Received message from network service! {info:?}");
+                        Some(info) = net_service.rx_recv.recv() => match info {
+                            NetMessage::Render(job) => println!("Job: {job:?}"),
+                            NetMessage::Status(msg) => println!("Status: {msg:?}"),
+                            NetMessage::NodeDiscovered(peer_id) => {
+                                let handle = app_handle.read().unwrap();
+                                // TODO: test this once we're online.
+                                // println!("Node discovered: {peer_id:?}");
+                                handle.emit("node_discover", peer_id).unwrap();
+                            },
+                            NetMessage::NodeDisconnected(peer_id) => {
+                                let handle = app_handle.read().unwrap();
+                                handle.emit("node_disconnect", peer_id).unwrap();
+                            },
                         }
                     }
                 }

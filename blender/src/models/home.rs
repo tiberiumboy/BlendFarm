@@ -6,7 +6,11 @@ use url::Url;
 
 #[derive(Debug)]
 pub struct BlenderHome {
-    pub list: Vec<BlenderCategory>,
+    // might use this as a ref?
+    // TODO: Find out how I can sort this via original list collection.
+    // sort by descending order
+    // list.sort_by(|a, b| b.cmp(a));
+    list: Vec<BlenderCategory>,
     // I'd like to reuse this component throughout blender program. If I need to access a web page, this should be used.
     cache: PageCache,
 }
@@ -20,7 +24,7 @@ impl BlenderHome {
         let pattern = r#"<a href=\"(?<url>.*)\">(?<name>Blender(?<major>[3-9]|\d{2,}).(?<minor>\d*).*)\/<\/a>"#;
         let regex = Regex::new(pattern).unwrap();
 
-        let list = regex
+        let mut list: Vec<BlenderCategory> = regex
             .captures_iter(&content)
             .map(|c| {
                 let (_, [url, name, major, minor]) = c.extract();
@@ -32,6 +36,7 @@ impl BlenderHome {
             .flatten()
             .collect();
 
+        list.sort_by(|a, b| b.cmp(a));
         Ok(list)
     }
 
@@ -42,7 +47,10 @@ impl BlenderHome {
         let list = match Self::get_content(&mut cache) {
             Ok(col) => col,
             // maybe the user is offline, we don't know! This shouldn't stop the program from running
-            Err(_) => Vec::new(),
+            Err(e) => {
+                println!("Unable to get content! {e:?}");
+                Vec::new()
+            }
         };
         Ok(Self { list, cache })
     }
@@ -51,5 +59,11 @@ impl BlenderHome {
         let content = Self::get_content(&mut self.cache)?;
         self.list = content;
         Ok(())
+    }
+}
+
+impl AsRef<Vec<BlenderCategory>> for BlenderHome {
+    fn as_ref(&self) -> &Vec<BlenderCategory> {
+        &self.list
     }
 }

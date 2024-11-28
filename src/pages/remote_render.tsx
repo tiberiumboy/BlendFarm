@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { ChangeEvent, useState } from "react";
 import RenderJob, { RenderJobProps } from "../components/render_job";
+import { listen } from "@tauri-apps/api/event";
 
 // TODO: Figure out if this works or not, Need to re-read Tauri documentation again to understand event bridge between frontend and backend
 // const unlisten = await once<RenderComposedPayload>("image_update", (event) => {
@@ -57,7 +58,7 @@ function JobDetail(prop: { job: RenderJobProps | undefined }) {
   }
 }
 
-function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps) => void) {
+function JobCreationDialog(versions: string[], path: string, jobCreated: (job: RenderJobProps) => void) {
   const [mode, setMode] = useState(components["frame"]());
   const [version, setVersion] = useState(versions[0]);
 
@@ -69,16 +70,14 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
     const filePath = info.file_path.value;
     const output = info.output.value;
 
-    // let mode = generateMode(selectedMode, e.target);
+    let mode = generateMode(selectedMode, e.target);
 
     let data = {
       filePath,
       output,
       version,
-      // mode,
+      mode,
     };
-
-    console.log(data);
 
     invoke("create_job", data).then((ctx: any) => {
       if (ctx == null) {
@@ -130,21 +129,6 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
     }
   }
 
-  // function may not be used anymore.
-  async function onFileSelect(e: any) {
-    const filePath = await open({
-      directory: false,
-      multiple: false,
-      filters: [
-        {
-          name: "Blender",
-          extensions: ["blend"],
-        },
-      ],
-    })
-    e.target.value = filePath;
-  }
-
   /*
       Display this window with a list of available nodes to select from,
       TODO: Test argument passing to rust and verify all system working as intended.
@@ -166,10 +150,10 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
       <form method="dialog" onSubmit={handleSubmitJobForm}>
         <h1>Create new Render Job</h1>
         <label>Project File Path:</label>
-        <input type="text" placeholder="Project path" id="file_path" name="file_path" readOnly={true} onClick={onFileSelect} />
+        <input type="text" value={path} placeholder="Project path" id="file_path" name="file_path" readOnly={true} /*onClick={onFileSelect}*/ />
         <br />
         <label>Choose rendering mode</label>
-        <select name="modes" onChange={handleRenderModeChange} >
+        <select name="modes" onChange={handleRenderModeChange}>
           {Object.entries(components).map((item) => (
             <option value={item[0]}>{item[0]}</option>
           ))}
@@ -210,8 +194,13 @@ export interface RemoteRenderProps {
   onJobCreated(job: RenderJobProps): void;
 }
 
+const unlisten = await listen("version-update", (event) => {
+  console.log(event);
+})
+
 export default function RemoteRender(props: RemoteRenderProps) {
   const [selectedJob, setSelectedJob] = useState<RenderJobProps>();
+  const [path, setPath] = useState<string>("");
 
   //#region Dialogs
   async function showDialog() {
@@ -219,7 +208,7 @@ export default function RemoteRender(props: RemoteRenderProps) {
     // TOOD: Invoke rust backend service to open dialog and then parse the blend file
     // if the user cancel or unable to parse - return a message back to the front end explaining why
     // Otherwise, display the info needed to re-populate the information.
-    const path = await open({
+    const file_path = await open({
       directory: false,
       multiple: false,
       filters: [
@@ -230,19 +219,23 @@ export default function RemoteRender(props: RemoteRenderProps) {
       ],
     });
 
-    if (path == null) {
+    if (file_path == null) {
       return;
     }
 
-    invoke("import_blend", { path }).then((ctx) => {
+    invoke("import_blend", { path: file_path }).then((ctx) => {
       if (ctx == null) {
         return;
       }
       // I'm always curious about this code.
       let data = JSON.parse(ctx as string);
-      console.log(ctx, data);
+      console.log(data);  // shows up as Object.blend_version, Object.frame
+
 
       let dialog = document.getElementById("create_process") as HTMLDialogElement;
+      // TODO: How do I set the information in the create_process field?
+      let file_input = document.getElementById("file_path") as HTMLInputElement;
+      setPath(file_path);
       dialog?.showModal();
       // also need to set the path in the create_process dialog.
     })
@@ -266,7 +259,7 @@ export default function RemoteRender(props: RemoteRenderProps) {
 
       <JobDetail job={selectedJob} />
 
-      {JobCreationDialog(props.versions, props.onJobCreated)}
+      {JobCreationDialog(props.versions, path, props.onJobCreated)}
     </div>
   );
 }

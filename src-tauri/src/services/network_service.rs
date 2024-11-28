@@ -1,7 +1,7 @@
 use libp2p::futures::StreamExt;
 use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
-use libp2p::{mdns, Multiaddr, PeerId};
+use libp2p::{identity, kad, mdns, Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -47,8 +47,8 @@ pub struct BlendFarmBehaviour {
     // ping: libp2p::ping::Behaviour,
     gossipsub: gossipsub::Behaviour,
     mdns: mdns::tokio::Behaviour,
-    // I want to include kad for file share protocol
-    // kad: libp2p::kad::Behaviour<T>// Ok so I need to figure out how this works? Figure out about TStore trait
+    // Used as a DHT (BitTorrent) for file transfer
+    kad: kad::Behaviour<kad::store::MemoryStore>, // Ok so I need to figure out how this works? Figure out about TStore trait
 }
 
 // TODO: Extract this into separate file
@@ -79,6 +79,8 @@ pub enum NetMessage {
     // think I need to send this somewhere else.
     // SendFile { file_name: String, data: Vec<u8> },
     Status(String),
+    NodeDiscovered(String),
+    NodeDisconnected(String),
 }
 
 impl NetMessage {
@@ -89,6 +91,24 @@ impl NetMessage {
     pub fn de(data: &[u8]) -> Result<Self, Box<bincode::ErrorKind>> {
         bincode::deserialize(data)
     }
+}
+
+pub struct NetEventLoop {
+    // message_id: MessageId,
+    // cmd: Sender<UiMessage>,
+    // response: Receiver<NetMessage>,
+    // _task: JoinHandle<()>,
+}
+
+// TODO: finish implementation for this.
+impl NetEventLoop {
+    // pub fn new(peer_id: &PeerId, cmd: Sender<UiMessage>, response: Receiver<NetMessage>) -> Self {
+    //     message_id: MessageId::new(peer_id.to_bytes()),
+    //     cmd,
+    //     response,
+    //     _task = tokio::spawn( )
+    //     }
+    // }
 }
 
 // this will help launch libp2p network. Should use QUIC whenever possible!
@@ -111,8 +131,11 @@ impl NetworkService {
         let duration = Duration::from_secs(idle_connection_timeout);
         // required by swarm
         let tcp_config: libp2p::tcp::Config = libp2p::tcp::Config::default();
-        // TODO: Figure out what this one is suppose to do?
+
+        // TODO: How come no other swarm can see the topic?
         let topic = IdentTopic::new("blendfarm-rpc-msg");
+
+        let peer_id = identity::Keypair::generate_ed25519();
 
         let mut swarm = libp2p::SwarmBuilder::with_new_identity()
             .with_tokio()
@@ -147,29 +170,40 @@ impl NetworkService {
                     mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())
                         .expect("Fail to create mdns behaviour!");
 
-                Ok(BlendFarmBehaviour { gossipsub, mdns })
+                // used as a DHT - can be a provider or a client.
+                // TODO: need to read the documentation for more information about kademline implementation. (It acts like bitTorrent)
+                let kad = kad::Behaviour::new(
+                    peer_id.public().to_peer_id(),
+                    kad::store::MemoryStore::new(key.public().to_peer_id()),
+                );
+
+                Ok(BlendFarmBehaviour {
+                    gossipsub,
+                    mdns,
+                    kad,
+                })
             })
             .expect("Expect to build behaviour")
             .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
             .build();
 
-        swarm
-            .behaviour_mut()
-            .gossipsub
-            .subscribe(&topic)
-            .expect("Should be able to subscribe");
+        match swarm.behaviour_mut().gossipsub.subscribe(&topic) {
+            Ok(_) => println!("Successully subscribed!"),
+            Err(e) => println!("Fail to subscribe topic! {e:?}"),
+        };
 
         // TODO: Find a way to fetch user configuration. Refactor this when possible.
         let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
             .parse()
             .expect("Must be valid multiaddr");
+
         let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
             .parse()
             .expect("Must be valid multiaddr");
-        swarm.listen_on(tcp).expect("Fail to listen on TCP");
-        swarm.listen_on(udp).expect("Fail to listen on UDP");
 
-        // swarm.dial(udp);
+        swarm.listen_on(tcp).expect("Fail to listen on TCP");
+        swarm.listen_on(udp.clone()).expect("Fail to listen on UDP");
+
         let _ = swarm.dial(PeerId::random());
 
         // create a new channel with a capacity of at most 32.
@@ -178,27 +212,44 @@ impl NetworkService {
         // create a new receiver from the network stack of at most 32.
         let (tx_recv, rx_recv) = mpsc::channel::<NetMessage>(32);
 
-        // create a thread here
+        // Create a new object for this struct handler NetEventLoop?
         let _task = tokio::spawn(async move {
             loop {
                 select! {
                     // Sender
                     Some(signal) = rx.recv() => {
-                        let topic = gossipsub::IdentTopic::new("blendfarm-rpc-msg");
                         let data = signal.ser();
-                        println!("sending message to gossip {:?}", &data);
-                        if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                            println!("Fail to publish message to swarm! {e:?}");
+                        println!("sending message to gossip {:?}", &signal);
+                        if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), data) {
+                            // Ok(msg_id) => msg_id,
+                            // Err(e) => {
+                                println!("Fail to publish message to swarm! {e:?}");
+                                // MessageId::
+
                         }
                     }
 
                     // Receive
                     event = swarm.select_next_some() => match event {
                         SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
-                            // it would be nice to show the list of user to the UI?
+
+                            // so the list contains all of the peer_id information?
                             for (peer_id, .. ) in list {
                                 println!("mDNS discovered a new peer: {}", &peer_id);
-                                // tx_recv.send(NetMessage) // Could implement a new notification on peer connected?
+                                if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&topic) {
+                                    println!("{e:?}");
+                                };
+                                if let Err(e) = tx_recv.send(NetMessage::NodeDiscovered(peer_id.to_string())).await {
+                                    println!("Error sending node discovered {e:?}");
+                                }
+                                 // let's do a test here then?
+                                {
+                            //     swarm.behaviour_mut().gossipsub.publish()
+                            //         let _ = server
+                            //             .to_network
+                            //             .send(UiMessage::Status("Hello world!".to_owned()))
+                            //             .await;
+                                }
                             }
                         }
                         SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Gossipsub(gossipsub::Event::Message {
@@ -208,7 +259,7 @@ impl NetworkService {
                         })) => {
                             if let Ok(msg) = NetMessage::de(&message.data) {
                                 println!("Got message: '{msg:?}' with id: {id} from peer: {peer_id}");
-                                tx_recv.send(msg).await;
+                                let _ = tx_recv.send(msg).await;
                             }
                         }
                         _ => {}
@@ -224,38 +275,13 @@ impl NetworkService {
         })
     }
 
+    // TODO: find a way to add to poll?
     pub async fn send(&self, msg: UiMessage) -> Result<(), NetworkError> {
         self.tx
             .send(msg)
             .await
             .map_err(|e| NetworkError::SendError(e.to_string()))
     }
-
-    // pub async fn send_status(&mut self, status: String) -> Result<(), NetworkError> {
-    //     let msg = UiMessage::Status(status);
-    //     let _ = self.tx.send(msg).await;
-    //     Ok(())
-    // }
-
-    // pub async fn init_distribute_job(&mut self, job: Job) -> Result<(), NetworkError> {
-    //     // here we will peek at the job and see if it's a frame or a window. If it's a frame, then we could sub divide the task to render segment instead?
-    //     let msg = UiMessage::StartJob(job);
-    //     let _ = self.tx.send(msg).await;
-    //     Ok(())
-    // }
-
-    // pub async fn stop_distribute_job(&mut self, job_id: Uuid) -> Result<(), NetworkError> {
-    //     let msg = UiMessage::EndJob { job_id };
-    //     let _ = self.tx.send(msg).await;
-    //     Ok(())
-    // }
-
-    // pub async fn send_file(&mut self, file_path: &impl AsRef<Path>) -> Result<(), NetworkError> {
-    // ok how can I transfer file here?
-    //     let msg = UiMessage::SendFile(file_path.as_ref().to_path_buf());
-    //     let _ = self.tx.send(msg).await;
-    //     Ok(())
-    // }
 }
 
 impl AsRef<JoinHandle<()>> for NetworkService {
