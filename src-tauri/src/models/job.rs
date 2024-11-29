@@ -54,20 +54,19 @@ pub struct Job {
     /// Unique job identifier
     id: Uuid,
     /// Path to the output directory where final render image will be saved to
-    output: PathBuf,
+    pub output: PathBuf,
     /// What kind of mode should this job run as
-    mode: Mode,
+    pub mode: Mode,
     /// What version of blender we need to use to render this project job.
     version: Version,
     /// Path to blender files
-    project_file: ProjectFile,
+    pub project_file: ProjectFile,
     // Path to completed image result - May not be needed?
-    // how do I make hash ignore this?
     renders: HashSet<RenderInfo>,
     // I should probably take responsibility for this, Once render is complete - I need to send a signal back to the host saying here's the frame, and here's the raw image data.
     // This would be nice to have to have some kind of historical copy, but then again, all of this value is being sent to the server directly. we should not retain any data behind on the node to remain lightweight and easy on storage space.
     // pub renders: HashSet<RenderInfo>, // frame, then path to completed image source.
-    current_frame: i32,
+    pub current_frame: i32,
 }
 
 impl Job {

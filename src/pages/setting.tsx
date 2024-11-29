@@ -72,7 +72,6 @@ export default function Setting(versions: string[]) {
 
   async function listBlenders() {
     let ctx: any = await invoke("list_blender_installation");
-    console.log("List Blender:", ctx);
     if (ctx == null) {
       return null;
     }

@@ -5,33 +5,22 @@ import RenderNode from "./render_node";
 import { listen } from "@tauri-apps/api/event";
 
 export default function NodeWindow() {
-  // Why is fetchNodes not being called?
   const [nodes, setNodes] = useState<String[]>([]);
 
-  // TODO: Find a way to access destructor to properly unsubscribe global events.
-
-  function fetchNodes() {
-    const initialNodes: RenderNodeProps[] = [];
-    return initialNodes;
-  }
-
   //TODO: read more into this https://v2.tauri.app/develop/calling-frontend/
-  // ok this works. Just need to find a way to subscribe on component start, and then unlisten when deconstruct.
-  // Problem - I'm getting permission issue?`
-  // listen('node_joined', (event) => {
-  //   console.log(event);
-  // });
-
   listen<string>('node_discover', (event: any) => {
-    console.log("Node connected", event);
-    let tmp = nodes;
-    tmp.push(event);
+    let tmp = [...nodes];
+    let id = event.payload;
+    if (!tmp.includes(id)) {
+      tmp.push(id);
+    }
+    console.log("Node connected", tmp);
     setNodes(tmp);
   });
 
   listen('node_disconnect', (event: any) => {
-    let tmp = nodes;
-    let result = tmp.filter((t) => t == event);
+    let tmp = [...nodes];
+    let result = tmp.filter((t) => t == event.payload);
     setNodes(result);
   });
 
@@ -41,9 +30,9 @@ export default function NodeWindow() {
         {/* Show the activity of the computer progress */}
         <h2>Computer Nodes</h2>
         <div className="group" id="RenderNodes">
-          {/* {nodes.map((node: RenderNodeProps) => RenderNode(node))}
-           */}
-          {nodes.map((node: String) => <h3>node</h3>)}
+          {nodes.map((node: String) =>
+            <div>{node}</div> // todo - find a way to simplify this message down to something simplier. 
+          )}
         </div>
       </div>
     );

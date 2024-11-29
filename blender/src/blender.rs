@@ -2,13 +2,7 @@
 
 Developer blog:
 - Re-reading through this code several times, it seems like I got the bare surface working to get started with the rest of the components.
-- Thought about if other computer node have identical os/arch - then just distribute the blender downloaded on the source to those target machine instead to prevent multiple downloads from the source.
-- I eventually went back and read some parts of Rust Programming Language book to get a better understanding how to handle errors effectively.
-- Using thiserror to define custom error within this library and anyhow for main.rs function, eventually I will have to handle those situation of the error message.
-
 - Invoking blender should be called asyncronously on OS thread level. You have the ability to set priority for blender.
-- Had to add BlenderJSON because some fields I could not deserialize/serialize - Which make sense that I don't want to share information that is only exclusive for the running machine to have access to.
-    Instead BlenderJSON will only hold key information to initialize a new channel when accessed.
 
 Decided to merge Manager codebase here as accessing from crate would make more sense, e.g. blender::Manager, instead of manager::Manager
 - Although, I would like to know if it's possible to do mod alias so that I could continue to keep my manager class separate? Or should I just rely on mods?
@@ -26,7 +20,7 @@ Trial:
 
 Advantage:
 - can support M-series ARM processor.
-- Original tool Doesn't composite video for you - We can make ffmpeg wrapper?
+- Original tool Doesn't composite video for you - We can make ffmpeg wrapper? - This will be a feature but not in this level of implementation.
 
 Disadvantage:
 - Currently rely on python script to do custom render within blender.

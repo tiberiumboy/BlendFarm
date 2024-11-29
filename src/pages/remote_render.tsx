@@ -227,14 +227,12 @@ export default function RemoteRender(props: RemoteRenderProps) {
       if (ctx == null) {
         return;
       }
-      // I'm always curious about this code.
+
+      // TODO: For future impl. : We will try and read the file from the backend to extract information to show the user information about the blender
+      // then we will populate those data into the dialog form, allowing user what BlendFarm sees, making any last adjustment before creating a new job.
       let data = JSON.parse(ctx as string);
-      console.log(data);  // shows up as Object.blend_version, Object.frame
-
-
       let dialog = document.getElementById("create_process") as HTMLDialogElement;
       // TODO: How do I set the information in the create_process field?
-      let file_input = document.getElementById("file_path") as HTMLInputElement;
       setPath(file_path);
       dialog?.showModal();
       // also need to set the path in the create_process dialog.

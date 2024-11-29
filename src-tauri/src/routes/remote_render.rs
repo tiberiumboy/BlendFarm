@@ -10,9 +10,14 @@ for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
 use crate::{services::network_service::Command, AppState};
+#[allow(unused_imports)]
+use bincode::config::{BigEndian, LittleEndian};
+#[allow(unused_imports)]
+use blend::parsers::Endianness;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+#[allow(unused_imports)]
+use std::{fs::OpenOptions, io::Write, path::PathBuf};
 use tauri::{command, Error, State};
 use tokio::sync::Mutex;
 
@@ -57,7 +62,7 @@ pub fn delete_node(target_node: String) -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BlenderInfo {
     blend_version: Version,
     frame: i32,
@@ -70,47 +75,73 @@ pub async fn import_blend(
     path: PathBuf,
 ) -> Result<String, String> {
     // open dialog here
-    // let assume that we received a path back from the dialog                                                                  // then if we have a valid file - use .blend from blender to peek into the file.
-    // blend::
+    // let assume that we received a path back from the dialog
+    // then if we have a valid file - use .blend from blender to peek into the file.
+    let file_name = path
+        .file_name()
+        .expect("Should be a valid file from above")
+        .to_str()
+        .unwrap()
+        .to_owned();
 
-    // let server = state.lock().unwrap();
-    // let manager = server.manager.read().unwrap();
+    let app_state = state.lock().await;
+    // let manager = app_state.manager.read().unwrap();
 
     // let data = manager.peek(path);
-    // let blend = match blend::Blend::from_path(&path) {
-    //     Ok(obj) => obj,
-    //     Err(_) => return Err("Fail to load blender file!".to_owned()),
+    // so we know for certain that this is blender file.
+    let blend = match blend::Blend::from_path(&path) {
+        Ok(obj) => obj,
+        Err(_) => return Err("Fail to load blender file!".to_owned()),
+    };
+
+    let header = blend.blend.header;
+
+    let (major, minor, patch) =
+    // there you are! Ok so it's [u8, 3] - I need to research on Rust byte handling of little or big endians...?
+    // let version_bytes = match header.endianness {
+        // Endianness::Big => (
+            (header.version[0], header.version[1], header.version[2]);
+    // ,
+    // Endianness::Little => header.version,
     // };
 
-    // for obj in blend.root_instances() {
-    //     dbg!(obj);
+    // TODO: find out how we can transcribe the data into u64 from u8 endians?
+    // THere is a bit of a problem, the last value header.version[2], does not represent the correct patch number I need to associate with blender.
+    // E.g. airplane_backup shows z value as 66 in blender, but I need this to reflect the correct value of the blender program it was last opened with. Otherwise, I'll have to rely on what's the latest patch number instead.
+    let blend_version = Version::new(major.into(), minor.into(), patch.into());
+
+    // TODO: Find out how I can get the start frame? Surely it's somewhere in the scene file?
+    // or maybe different camera have different start frame to begin with?
+    // I was able to find some useful information with b"SC" which holds scene file. - Take a look in Log1.txt file
+    // let mut debug_file = OpenOptions::new()
+    //     .write(true)
+    //     .create(true)
+    //     .open("log.txt")
+    //     .unwrap();
+    //
+    // for obj in blend.instances_with_code(b"SC".to_owned()) {
+    //     let name = obj.get("id").get_string("name");
+    //     debug_file
+    //         .write(format!("{name}: {obj:?}\n").as_bytes())
+    //         .unwrap();
+    //     // dbg!(obj);
+    //     // would be nice to write this file out to text file somehow?
     // }
+    // debug_file.flush().unwrap();
 
-    // wanted to see if this mini closure will help free data block>
-    // Using this closer as a test experimental code for now.
-    {
-        // take a look into kad?
-        // Right here, using kad, we will send out a new provider to publish a file available to download from the network.
-        // client will request the file when it receives a job from this host.
-
-        // let data = std::fs::read(&path).unwrap();
-        let file_name = path
-            .file_name()
-            .expect("Should be a valid file from above")
-            .to_str()
-            .unwrap()
-            .to_owned();
-        let app_state = state.lock().await;
-        if let Err(e) = app_state.to_network.send(Command::Status(file_name)).await {
-            println!("Fail to send to network from application state {e:?}");
-        }
+    // take a look into kad?
+    // Right here, using kad, we will create a new entry for the host provider to publish a file available to download from the network.
+    if let Err(e) = app_state.to_network.send(Command::Status(file_name)).await {
+        println!("Fail to send to network from application state {e:?}");
     }
 
     // Here I'd like to know how I can extract information from the blend file, such as version number, Eevee/Cycle usage, Frame start and End. For now get this, and then we'll expand later
     let info = BlenderInfo {
-        blend_version: Version::new(4, 1, 0),
+        blend_version,
         frame: 1,
     };
+
+    println!("Blend info: {:?}", &info);
 
     let data = serde_json::to_string(&info).unwrap();
     Ok(data)

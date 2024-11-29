@@ -28,11 +28,14 @@ use crate::routes::settings::{
     add_blender_installation, fetch_blender_installation, get_server_settings,
     list_blender_installation, remove_blender_installation, set_server_settings,
 };
-use blender::manager::Manager as BlenderManager;
+use blender::models::status::Status;
+use blender::{manager::Manager as BlenderManager, models::args::Args};
 use clap::Parser;
 use models::app_state::AppState;
 use models::server_setting::ServerSetting;
+use semver::Version;
 use services::network_service::{Command, NetEvent, NetworkService};
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use tauri::{App, Emitter, Manager};
 use tokio::select;
@@ -112,6 +115,8 @@ pub async fn run() {
 
     let cli = Cli::parse();
 
+    // Just realize that libp2p mdns won't run offline mode?
+    // TODO: Find a way to connect to local host itself regardless offline/online mode.
     let mut net_service = NetworkService::new(60)
         .await
         .expect("Unable to start network service!");
@@ -119,11 +124,49 @@ pub async fn run() {
     match cli.client {
         // TODO: Verify this function works as soon as VM is finish installing linux.
         Some(true) => {
+            let mut manager = BlenderManager::load();
             println!("Client is running");
             loop {
                 select! {
-                    Some(msg) = net_service.rx_recv.recv() => {
-                        println!("[Client] Received message: {msg:?}");
+                    Some(msg) = net_service.rx_recv.recv() => match msg {
+                        NetEvent::Render(job) => {
+                            // Here we'll check the job -
+                            // TODO: It would be nice to check and see if there's any jobs currently running, otherwise put it in a poll?
+                            let project_file = job.project_file;
+                            let version: &Version = project_file.as_ref();
+                            let blender = manager.fetch_blender(version).expect("Should have blender installed?");
+                            let file_path: &Path = project_file.as_ref();
+                            let args = Args::new(file_path, job.output, job.mode);
+                            let rx = blender.render(args);
+
+                            loop {
+                                if let Ok(msg) = rx.recv() {
+                                        let msg = match msg {
+                                            Status::Idle => "Idle".to_owned(),
+                                            Status::Running { status } => status,
+                                            Status::Log { status } => status,
+                                            Status::Warning { message } => message,
+                                            Status::Error(err) => format!("{err:?}").to_owned(),
+                                            Status::Completed { result } => {
+                                                // we'll send the message back?
+                                                // net_service
+                                                // here we will state that the render is complete, and send a message to network service
+                                                // TODO: Find a better way to not use the `.clone()` method.
+                                                let msg = Command::FrameCompleted(result.clone(), job.current_frame);
+                                                let _ = net_service.send(msg).await;
+                                                let path_str = &result.to_string_lossy();
+                                                format!("Finished job frame {} at {path_str}", job.current_frame).to_owned()
+                                            },
+                                        };
+                                        println!("[Status] {msg}");
+                                    }
+
+                            }
+
+                        },
+                        NetEvent::Status(s) => println!("[Client] Status: {s}"),
+                        NetEvent::NodeDiscovered(peer_id) => println!("Node discovered!: {peer_id}"),
+                        NetEvent::NodeDisconnected(peer_id) => println!("Node disconnected!: {peer_id}"),
                     }
                 }
             }
@@ -147,8 +190,6 @@ pub async fn run() {
                             NetEvent::Status(msg) => println!("Status: {msg:?}"),
                             NetEvent::NodeDiscovered(peer_id) => {
                                 let handle = app_handle.read().unwrap();
-                                // TODO: test this once we're online.
-                                // println!("Node discovered: {peer_id:?}");
                                 handle.emit("node_discover", peer_id).unwrap();
                             },
                             NetEvent::NodeDisconnected(peer_id) => {

@@ -19,7 +19,6 @@ function App() {
     // wouldn't this create a loop feedback?
     invoke("list_jobs").then((ctx: any) => {
       // this spammed out of control...
-      console.log("list_jobs", ctx);
       if (ctx == null) {
         return;
       }

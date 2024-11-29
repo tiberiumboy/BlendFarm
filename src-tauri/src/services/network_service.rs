@@ -12,6 +12,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::error::Error;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -67,6 +68,7 @@ pub struct BlendFarmBehaviour {
 #[derive(Debug)]
 pub enum Command {
     StartJob(Job),
+    FrameCompleted(PathBuf, i32),
     EndJob {
         job_id: Uuid,
     },
@@ -81,16 +83,6 @@ pub enum Command {
         channel: ResponseChannel<FileResponse>,
     },
 }
-
-// impl UiMessage {
-//     pub fn ser(&self) -> Vec<u8> {
-//         bincode::serialize(self).unwrap()
-//     }
-
-//     pub fn de(data: &[u8]) -> Result<Self, Box<bincode::ErrorKind>> {
-//         bincode::deserialize(data)
-//     }
-// }
 
 // TODO: Extract this into separate file
 #[derive(Debug, Serialize, Deserialize)]
@@ -195,6 +187,7 @@ impl NetworkService {
     pub async fn new(idle_connection_timeout: u64) -> Result<Self, NetworkError> {
         // try to parse the duration before usage.
         let duration = Duration::from_secs(idle_connection_timeout);
+
         // required by swarm
         let tcp_config: libp2p::tcp::Config = libp2p::tcp::Config::default();
 
@@ -287,8 +280,7 @@ impl NetworkService {
                     // TODO: Extrapolate this out into a separate struct implementation to make it maintainable and easy to read
                     // Sender
                     Some(signal) = rx.recv() => {
-                        // translate the UiMessage into NetMessage?
-                        println!("received command {:?}", &signal);
+                        // println!("received command {:?}", &signal);
                         let data = match signal {
                             // Begin the job
                             // The idea here is that we received a new job from the host -
@@ -299,9 +291,10 @@ impl NetworkService {
                             Command::EndJob { .. } => todo!(),
                             // send status update
                             Command::Status(s) => NetEvent::Status(s).ser(),
-                            // Don't think this is needed?
-                            // Command::RequestFile { file_name, peer, sender } => todo!(),
-                            // Command::RespondFile { file, channel } => todo!(),
+
+                            // TODO: For Future impl. See how we can transfer the file using kad's behaviour (DHT)
+                            Command::RequestFile { .. } => todo!(),
+                            Command::RespondFile { .. } => todo!(),
                             _ => {
                                 return;
                             }
