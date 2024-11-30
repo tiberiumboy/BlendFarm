@@ -94,7 +94,7 @@ impl Manager {
     // this path should always be fixed and stored under machine specific.
     // this path should not be shared across machines.
     fn get_config_path() -> PathBuf {
-        let path = dirs::config_dir().unwrap().join("Blender");
+        let path = dirs::config_dir().unwrap().join("BlendFarm");
         fs::create_dir_all(&path).expect("Unable to create directory!");
         path.join("BlenderManager.json")
     }
