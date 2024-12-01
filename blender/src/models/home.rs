@@ -1,7 +1,7 @@
 use super::category::BlenderCategory;
 use crate::page_cache::PageCache;
 use regex::Regex;
-use std::io::Result;
+use std::io::{Error, ErrorKind, Result};
 use url::Url;
 
 #[derive(Debug)]
@@ -22,7 +22,12 @@ impl BlenderHome {
 
         // Omit any blender version 2.8 and below
         let pattern = r#"<a href=\"(?<url>.*)\">(?<name>Blender(?<major>[3-9]|\d{2,}).(?<minor>\d*).*)\/<\/a>"#;
-        let regex = Regex::new(pattern).unwrap();
+        let regex = Regex::new(pattern).map_err(|e| {
+            Error::new(
+                ErrorKind::InvalidData,
+                format!("Unable to create new Regex pattern! {e:?}"),
+            )
+        })?;
 
         let mut list: Vec<BlenderCategory> = regex
             .captures_iter(&content)
@@ -40,7 +45,7 @@ impl BlenderHome {
         Ok(list)
     }
 
-    // I need to hvae this reference regardless. Offline or online mode.
+    // I need to have this reference regardless. Offline or online mode.
     pub fn new() -> Result<Self> {
         //  TODO: Verify this-: In original source code - there's a comment implying we should use cache as much as possible to avoid possible IP lacklisted.
         let mut cache = PageCache::load()?;
@@ -48,7 +53,7 @@ impl BlenderHome {
             Ok(col) => col,
             // maybe the user is offline, we don't know! This shouldn't stop the program from running
             Err(e) => {
-                println!("Unable to get content! {e:?}");
+                eprintln!("Unable to get content! {e:?}");
                 Vec::new()
             }
         };
