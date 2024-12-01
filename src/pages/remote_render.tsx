@@ -4,7 +4,7 @@ import { ChangeEvent, useState } from "react";
 import RenderJob, { RenderJobProps } from "../components/render_job";
 import { listen } from "@tauri-apps/api/event";
 
-// TODO: Figure out if this works or not, Need to re-read Tauri documentation again to understand event bridge between frontend and backend
+// TODO: Have a look into channels: https://v2.tauri.app/develop/calling-frontend/#channels
 // const unlisten = await once<RenderComposedPayload>("image_update", (event) => {
 //   console.log(event);
 // });
@@ -118,6 +118,7 @@ function JobCreationDialog(versions: string[], path: string, jobCreated: (job: R
   }
 
   // TODO: find a way to make this more sense and pure function as possible.
+  // see if I can just invoke a rust backend to handle file directory or file open instead?
   async function onDirectorySelect(e: any) {
     const filePath = await open({
       directory: true,
@@ -160,7 +161,7 @@ function JobCreationDialog(versions: string[], path: string, jobCreated: (job: R
         </select>
         <br />
         <label>Blender Version:</label>
-        {/* TODO: Find a way to fetch default blender version by user preference? */}
+        {/* TODO: Set blender version from reading the file */}
         <select value={version} onChange={(e) => setVersion(e.target.value)}>
           {versions.map((item) => (
             <option value={item}>{item}</option>

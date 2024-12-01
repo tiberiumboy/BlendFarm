@@ -35,15 +35,13 @@ pub enum ManagerError {
     },
     #[error("Unable to fetch blender! {0}")]
     RequestError(String),
-    //     // TODO: Find meaningful error message to represent from this struct class?
+    // TODO: Find meaningful error message to represent from this struct class?
     #[error("IO Error: {0}")]
     IoError(String),
     #[error("Url ParseError: {0}")]
     UrlParseError(String),
-    // TODO: may contain at least 272 bytes?
     #[error("Page cache error: {0}")]
     PageCacheError(String),
-    // TODO: may contain at least 272 bytes?
     #[error("Blender error: {source}")]
     BlenderError {
         #[from]
@@ -58,7 +56,6 @@ pub struct BlenderConfig {
     auto_save: bool,
 }
 
-// #[cfg(feature = "manager")]
 // I wanted to keep this struct private only to this library crate?
 #[derive(Debug)]
 pub struct Manager {
@@ -68,7 +65,6 @@ pub struct Manager {
     has_modified: bool,
 }
 
-// #[cfg(feature = "manager")]
 impl Manager {
     // the default method implement should be private because I do not want people to use this function.
     // instead they should rely on "load" function instead.
@@ -105,10 +101,8 @@ impl Manager {
         let arch = std::env::consts::ARCH.to_owned();
         let os = std::env::consts::OS.to_owned();
 
-        let blender_home =
-            BlenderHome::new().map_err(|e| ManagerError::RequestError(e.to_string()))?;
-
-        let category = blender_home
+        let category = self
+            .home
             .as_ref()
             .iter()
             .find(|&b| b.major.eq(&version.major) && b.minor.eq(&version.minor))
@@ -166,7 +160,7 @@ impl Manager {
                 data.set_config(config);
                 return data;
             } else {
-                println!("Fail to deserialize manager data input!");
+                println!("Fail to deserialize manager config file!");
             }
         } else {
             println!("File not found! Creating a new default one!");
@@ -306,7 +300,6 @@ impl AsRef<PathBuf> for Manager {
     }
 }
 
-// #[cfg(feature = "manager")]
 impl Drop for Manager {
     fn drop(&mut self) {
         if self.has_modified || self.config.auto_save {

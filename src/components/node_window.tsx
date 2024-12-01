@@ -7,7 +7,7 @@ import { listen } from "@tauri-apps/api/event";
 export default function NodeWindow() {
   const [nodes, setNodes] = useState<String[]>([]);
 
-  //TODO: read more into this https://v2.tauri.app/develop/calling-frontend/
+  //TODO: How can I unsubscribe this?
   listen<string>('node_discover', (event: any) => {
     let tmp = [...nodes];
     let id = event.payload;

@@ -9,20 +9,16 @@ when you create a new job, it immediately sends a new job to the server farm
 for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
-use crate::{services::network_service::Command, AppState};
-#[allow(unused_imports)]
-use bincode::config::{BigEndian, LittleEndian};
-#[allow(unused_imports)]
-use blend::parsers::Endianness;
+use crate::models::message::Command;
+use crate::AppState;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use std::{fs::OpenOptions, io::Write, path::PathBuf};
-use tauri::{command, Error, State};
+use tauri::{command, State};
 use tokio::sync::Mutex;
 
 /// List all of the available blender version.
-// TODO: Check and see why React is Re-rendering the page twice?
 #[command(async)]
 pub async fn list_versions(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let server = state.lock().await;
@@ -50,18 +46,6 @@ pub async fn list_versions(state: State<'_, Mutex<AppState>>) -> Result<String, 
     Ok(serde_json::to_string(&versions).expect("Unable to serialize version list!"))
 }
 
-// TODO: Reclassify this function behaviour - Should it pop the node off the network? Should it send disconnect signal? Should it shutdown node remotely?
-// Describe the desire behaviour for this implementation.
-#[command]
-pub fn delete_node(target_node: String) -> Result<(), Error> {
-    dbg!(target_node);
-    // delete node from list and refresh the app?
-    // let node_mutex = &app.state::<Mutex<Data>>();
-    // let mut node = node_mutex.lock().unwrap();
-    // node.render_nodes.retain(|x| x != &target_node);
-    Ok(())
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BlenderInfo {
     blend_version: Version,
@@ -84,31 +68,40 @@ pub async fn import_blend(
         .unwrap()
         .to_owned();
 
-    let app_state = state.lock().await;
-    // let manager = app_state.manager.read().unwrap();
-
-    // let data = manager.peek(path);
-    // so we know for certain that this is blender file.
     let blend = match blend::Blend::from_path(&path) {
         Ok(obj) => obj,
         Err(_) => return Err("Fail to load blender file!".to_owned()),
     };
 
-    let header = blend.blend.header;
+    // blender version are display as three digits number, e.g. 404 is major: 4, minor: 4.
+    // treat this as a u16 major = u16 / 100, minor = u16 % 100;
+    let value: u64 = std::str::from_utf8(&blend.blend.header.version)
+        .expect("Fail to parse version into utf8")
+        .parse()
+        .expect("Fail to parse string to value");
 
-    let (major, minor, patch) =
-    // there you are! Ok so it's [u8, 3] - I need to research on Rust byte handling of little or big endians...?
-    // let version_bytes = match header.endianness {
-        // Endianness::Big => (
-            (header.version[0], header.version[1], header.version[2]);
-    // ,
-    // Endianness::Little => header.version,
-    // };
+    let major = value / 100;
+    let minor = value % 100;
 
-    // TODO: find out how we can transcribe the data into u64 from u8 endians?
-    // THere is a bit of a problem, the last value header.version[2], does not represent the correct patch number I need to associate with blender.
-    // E.g. airplane_backup shows z value as 66 in blender, but I need this to reflect the correct value of the blender program it was last opened with. Otherwise, I'll have to rely on what's the latest patch number instead.
-    let blend_version = Version::new(major.into(), minor.into(), patch.into());
+    let app_state = state.lock().await;
+    // using scope to drop manager usage.
+    let blend_version = {
+        let manager = app_state.manager.read().unwrap();
+
+        // Get the latest patch from blender home
+        match manager
+            .home
+            .as_ref()
+            .iter()
+            .find(|v| v.major.eq(&major) && v.minor.eq(&minor))
+        {
+            // TODO: Find a better way to handle this without using unwrap
+            Some(v) => v.fetch_latest().unwrap().as_ref().clone(),
+            // potentially could be a problem, if there's no internet connection, then we can't rely on zero patch?
+            // For now this will do.
+            None => Version::new(major.into(), minor.into(), 0),
+        }
+    };
 
     // TODO: Find out how I can get the start frame? Surely it's somewhere in the scene file?
     // or maybe different camera have different start frame to begin with?
@@ -135,7 +128,7 @@ pub async fn import_blend(
         println!("Fail to send to network from application state {e:?}");
     }
 
-    // Here I'd like to know how I can extract information from the blend file, such as version number, Eevee/Cycle usage, Frame start and End. For now get this, and then we'll expand later
+    // Here I'd like to know how I can extract information from the blend file such as Eevee/Cycle usage, Frame start and End.
     let info = BlenderInfo {
         blend_version,
         frame: 1,
@@ -146,36 +139,3 @@ pub async fn import_blend(
     let data = serde_json::to_string(&info).unwrap();
     Ok(data)
 }
-
-// Wonder why this was commented out?
-// #[command]
-// pub fn list_jobs(state: State<Mutex<Server>>) -> Result<String, Error> {
-// let server = state.lock().unwrap();
-// TODO reduce nested statement here?
-// this was used to list out all blend files from server settings struct.
-// let project_files = match !server.blend_dir.exists() {
-//     true => vec![],
-//     false => {
-//         // validate and see if this doesn't break
-//         // need to find a way to filter reading dir to only *.blend extension.
-//         match server.blend_dir.read_dir() {
-//             Ok(entries) => {
-//                 // let mut col = Vec::with_capacity(entries.count());
-//                 let mut col = Vec::with_capacity(20); // temp fixes
-//                 for entry in entries {
-//                     if let Ok(dir_entity) = entry {
-//                         let file_path = dir_entity.path();
-//                         if file_path.is_file()
-//                             && file_path.extension().unwrap().eq(OsStr::new("blend"))
-//                         {
-//                             let project_file = ProjectFile::new(file_path).unwrap();
-//                             col.push(project_file);
-//                         }
-//                     }
-//                 }
-//                 col
-//             }
-//             Err(_) => Vec::new(),
-//         }
-//     }
-// };

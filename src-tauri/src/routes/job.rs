@@ -4,12 +4,9 @@ use std::path::PathBuf;
 use tauri::{command, Error, State};
 use tokio::sync::Mutex;
 
-use crate::{
-    models::{app_state::AppState, job::Job, project_file::ProjectFile},
-    services::network_service::Command,
-};
+use crate::models::{app_state::AppState, job::Job, message::Command, project_file::ProjectFile};
 
-// FIgure out why I can't get this to work?
+// Figure out why I can't get this to work?
 #[command(async)]
 pub async fn create_job(
     state: State<'_, Mutex<AppState>>,
@@ -28,11 +25,7 @@ pub async fn create_job(
     server.jobs.push(job.clone());
 
     // send job to server
-    if let Err(e) = server
-        .to_network
-        .send(Command::StartJob(job.clone()))
-        .await
-    {
+    if let Err(e) = server.to_network.send(Command::StartJob(job.clone())).await {
         println!("Fail to send job to the server! \n{e:?}");
     }
 
@@ -50,8 +43,6 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> R
 }
 
 /// List all available jobs stored in the collection.
-// this function invoked twice?
-// it may seems like the component is re-rendered twice. Check there first.
 #[command(async)]
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let server = state.lock().await;

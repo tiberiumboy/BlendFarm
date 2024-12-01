@@ -42,7 +42,6 @@ WARN:
 TODO:
 private and public method are unorganized.
     - Consider reviewing them and see which method can be exposed publicly?
-    - Find a way to make crate manager::Manager accessible via blender::Manager instead? This would make the code more clean and structured.
 
     Q: My Blendfile requires special addons to be active while rendering, can I add these?
     A: Blendfarm has its own versions of Blender in the BlenderData directory, and it runs
@@ -52,9 +51,7 @@ private and public method are unorganized.
         an issue and I see what I can do. However do realise that this may make the workflow
         less smooth. (As you may need to set up these plugins for every Blender version instead
         of just letting BlendFarm do all the work.
-
     */
-// #[cfg(feature = "manager")]
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
 
@@ -261,6 +258,7 @@ impl Blender {
             // So far this part of the code works - but I'm getting an unusual error
             // I'm rececing an exception on stdout. [Errno 32] broken pipe?
             // thread panic here - err - Serde { source: Error("expected value", line: 1, column: 1) } ??
+            // TODO: peek will be deprecated - See if we need to do anything different here?
             let blend_info = &self.peek(&args.file).unwrap();
             let setting = BlenderRenderSetting::parse_from(&args, blend_info);
             let arr = vec![setting];

@@ -15,6 +15,9 @@ Developer blog:
     verify all packet works as intended while I can run the code in parallel to see if there's any issue I need to work overhead.
     This might be another big project to work over the summer to understand how network works in Rust.
 
+- I noticed that some of the function are getting called twice. Check and see what's going on with React UI side of things
+    Research into profiling front end ui to ensure the app is not invoking the same command twice.
+
 [F] - find a way to allow GUI interface to run as client mode for non cli users.
 [F] - consider using channel to stream data https://v2.tauri.app/develop/calling-frontend/#channels
 [F] - Before release - find a way to add updater  https://v2.tauri.app/plugin/updater/
@@ -23,7 +26,7 @@ Developer blog:
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use crate::routes::job::{create_job, delete_job, list_jobs};
-use crate::routes::remote_render::{delete_node, import_blend, list_versions};
+use crate::routes::remote_render::{import_blend, list_versions};
 use crate::routes::settings::{
     add_blender_installation, fetch_blender_installation, get_server_settings,
     list_blender_installation, remove_blender_installation, set_server_settings,
@@ -32,12 +35,14 @@ use blender::models::status::Status;
 use blender::{manager::Manager as BlenderManager, models::args::Args};
 use clap::Parser;
 use models::app_state::AppState;
+use models::message::{Command, NetEvent};
+use models::network::{Host, NetworkService};
 use models::server_setting::ServerSetting;
 use semver::Version;
-use services::network_service::{Command, NetEvent, NetworkService};
+// use services::network_service::{Command, NetEvent, NetworkService};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-use tauri::{App, Emitter, Manager};
+use tauri::{App, Manager};
 use tokio::select;
 use tokio::sync::{
     mpsc::{self, Sender},
@@ -84,7 +89,6 @@ fn config_tauri_builder(to_network: Sender<Command>) -> App {
         .manage(mut_app_state)
         .invoke_handler(tauri::generate_handler![
             create_job,
-            delete_node,
             delete_job,
             list_jobs,
             list_versions,
@@ -122,8 +126,8 @@ pub async fn run() {
         .expect("Unable to start network service!");
 
     match cli.client {
-        // TODO: Verify this function works as soon as VM is finish installing linux.
         Some(true) => {
+            // TODO: Extract this into separate model
             let mut manager = BlenderManager::load();
             println!("Client is running");
             loop {
@@ -166,43 +170,33 @@ pub async fn run() {
                         },
                         NetEvent::Status(s) => println!("[Client] Status: {s}"),
                         NetEvent::NodeDiscovered(peer_id) => println!("Node discovered!: {peer_id}"),
+                        // For some reason when we exit the application, this doesn't get called?
                         NetEvent::NodeDisconnected(peer_id) => println!("Node disconnected!: {peer_id}"),
                     }
                 }
             }
         }
         _ => {
-            let (to_network, mut from_ui) = mpsc::channel::<Command>(32);
+            let (to_network, from_ui) = mpsc::channel::<Command>(32);
             let app = config_tauri_builder(to_network);
 
+            // So I think this is where I last left off from? Trying to simplify this loop process by pushing into a separate struct container
+            // I ran into a problem where I cannot move Receiver<Command> into the handler down below.
+            // To resolve this I was going to create a new struct object that holds the Receiver<Command> and then actively read it inside the loop while the app is running.
+
+            let mut host = Host::new(net_service, from_ui);
             let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
 
             let _thread = tokio::spawn(async move {
-                loop {
-                    select! {
-                        Some(msg) = from_ui.recv() => {
-                            if let Err(e) = net_service.send(msg).await {
-                                println!("Fail to send net service message: {e:?}");
-                            }
-                        }
-                        Some(info) = net_service.rx_recv.recv() => match info {
-                            NetEvent::Render(job) => println!("Job: {job:?}"),
-                            NetEvent::Status(msg) => println!("Status: {msg:?}"),
-                            NetEvent::NodeDiscovered(peer_id) => {
-                                let handle = app_handle.read().unwrap();
-                                handle.emit("node_discover", peer_id).unwrap();
-                            },
-                            NetEvent::NodeDisconnected(peer_id) => {
-                                let handle = app_handle.read().unwrap();
-                                handle.emit("node_disconnect", peer_id).unwrap();
-                            },
-                        }
-                    }
-                }
+                host.run(app_handle).await;
             });
 
             app.run(|_, event| match event {
+                tauri::RunEvent::Ready => {
+                    // TODO: find a way to start receiving the client handle. Currently it's missing out the events to make node publicly available.
+                }
                 tauri::RunEvent::Exit => {
+                    // There should be a call to notify all other peers the GUI is shutting down.
                     println!("Program exit!");
                 }
                 tauri::RunEvent::ExitRequested { .. } => {

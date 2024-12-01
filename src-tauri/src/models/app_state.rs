@@ -1,5 +1,5 @@
 use super::{job::Job, server_setting::ServerSetting};
-use crate::services::network_service::Command;
+use crate::models::message::Command;
 use blender::manager::Manager as BlenderManager;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc::Sender;
