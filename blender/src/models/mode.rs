@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 pub enum Mode {
     #[default]
     None,
-    // JSON: "Single": "i32",
+    // JSON: "Frame": "i32",
     Frame(i32),
 
     // JSON: "Animation": {"start":"i32", "end":"i32"}

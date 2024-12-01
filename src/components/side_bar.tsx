@@ -1,6 +1,6 @@
 import * as GoIcons from "react-icons/go";
 import * as Hi2Icon from "react-icons/hi2";
-import * as MdIcon from "react-icons/md";
+// import * as MdIcon from "react-icons/md";
 import { Link } from "react-router-dom";
 import NodeWindow from "./node_window";
 
@@ -19,7 +19,7 @@ class SidebarStruct {
 const SidebarData = [
   new SidebarStruct("Remote Render", "./remote_render", <GoIcons.GoProject />),
   new SidebarStruct("Setting", "./setting", < Hi2Icon.HiOutlineCog8Tooth />),
-  new SidebarStruct("LiveView", "./liveview", < MdIcon.MdOutlinePreview />),
+  // new SidebarStruct("LiveView", "./liveview", < MdIcon.MdOutlinePreview />),
 ];
 
 export default function Sidebar() {

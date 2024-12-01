@@ -1,203 +1,215 @@
 /*
-    Developer blog:
-    - Had a brain fart trying to figure out some ideas allowing me to run this application as either client or server
-        Originally thought of using Clap library to parse in input, but when I run `cargo tauri dev -- test` the application fail to compile due to unknown arguments when running web framework?
-        This issue has been solved by alllowing certain argument to run. By default it will try to launch the client user interface of the application.
-        Additionally, I need to check into the argument and see if there's a way we could just allow user to run --server without ui interface?
-        Interesting thoughts for sure
-        9/2/24 - Decided to rely on using Tauri plugin for cli commands and subcommands. Use that instead of clap.
-    - Had an idea that allows user remotely to locally add blender installation without using GUI interface,
-        This would serves two purposes - allow user to expressly select which blender version they can choose from the remote machine and
-        prevent multiple download instances for the node, in case the target machine does not have it pre-installed.
-    - Eventually, I will need to find a way to spin up a virtual machine and run blender farm on that machine to see about getting networking protocol working in place.
-        This will allow me to do two things - I can continue to develop without needing to fire up a remote machine to test this and
-        verify all packet works as intended while I can run the code in parallel to see if there's any issue I need to work overhead.
-        This might be another big project to work over the summer to understand how network works in Rust.
+Developer blog:
+- Had a brain fart trying to figure out some ideas allowing me to run this application as either client or server
+    Originally thought of using Clap library to parse in input, but when I run `cargo tauri dev -- test` the application fail to compile due to unknown arguments when running web framework?
+    This issue has been solved by alllowing certain argument to run. By default it will try to launch the client user interface of the application.
+    Additionally, I need to check into the argument and see if there's a way we could just allow user to run --server without ui interface?
+    Interesting thoughts for sure
+    9/2/24
+- Decided to rely on using Tauri plugin for cli commands and subcommands. Use that instead of clap. Since Tauri already incorporates Clap anyway.
+- Had an idea that allows user remotely to locally add blender installation without using GUI interface,
+    This would serves two purposes - allow user to expressly select which blender version they can choose from the remote machine and
+    prevent multiple download instances for the node, in case the target machine does not have it pre-installed.
+- Eventually, I will need to find a way to spin up a virtual machine and run blender farm on that machine to see about getting networking protocol working in place.
+    This will allow me to do two things - I can continue to develop without needing to fire up a remote machine to test this and
+    verify all packet works as intended while I can run the code in parallel to see if there's any issue I need to work overhead.
+    This might be another big project to work over the summer to understand how network works in Rust.
 
 [F] - find a way to allow GUI interface to run as client mode for non cli users.
 [F] - consider using channel to stream data https://v2.tauri.app/develop/calling-frontend/#channels
 [F] - Before release - find a way to add updater  https://v2.tauri.app/plugin/updater/
-
 */
-
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use crate::controllers::remote_render::{
-    create_job, create_node, delete_job, delete_node, delete_project, list_jobs, list_node,
-    list_versions, ping_node,
-};
-use crate::controllers::settings::{
+use crate::routes::job::{create_job, delete_job, list_jobs};
+use crate::routes::remote_render::{delete_node, import_blend, list_versions};
+use crate::routes::settings::{
     add_blender_installation, fetch_blender_installation, get_server_settings,
     list_blender_installation, remove_blender_installation, set_server_settings,
 };
-use crate::models::{client::Client, data::Data, server::Server};
-use blender::manager::Manager as BlenderManager;
-use blender::models::download_link::BlenderHome;
-use models::message::NetResponse;
+use blender::models::status::Status;
+use blender::{manager::Manager as BlenderManager, models::args::Args};
+use clap::Parser;
+use models::app_state::AppState;
 use models::server_setting::ServerSetting;
-use std::sync::{Arc, OnceLock};
-use std::{sync::Mutex, thread};
-use tauri::{AppHandle, Emitter};
-use tauri_plugin_cli::CliExt;
+use semver::Version;
+use services::network_service::{Command, NetEvent, NetworkService};
+use std::path::Path;
+use std::sync::{Arc, RwLock};
+use tauri::{App, Emitter, Manager};
+use tokio::select;
+use tokio::sync::{
+    mpsc::{self, Sender},
+    Mutex,
+};
+use tracing_subscriber::EnvFilter;
 
-pub mod controllers;
+//TODO: Create a miro diagram structure of how this application suppose to work
+// Need a mapping to explain how network should perform over intranet
+// Need a mapping to explain how blender manager is used and invoked for the job
+
 pub mod models;
+pub mod routes;
 pub mod services;
 
-// I'm using this to make app handler accessible within this app. I will eventually find a better way to handle this.
-// TODO: impl dependency injection?
-static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+// Create a builder to make Tauri application
+fn config_tauri_builder(to_network: Sender<Command>) -> App {
+    let server_settings = ServerSetting::load();
 
-// when the app starts up, I would need to have access to configs. Config is loaded from json file - which can be access by user or program - it must be validate first before anything,
-fn client() {
-    // Implement this once we get this all working and verify through unit test - https://v2.tauri.app/plugin/single-instance/
-    let data = Data::default();
     // I would like to find a better way to update or append data to render_nodes,
     // "Do not communicate with shared memory"
-    let ctx = Mutex::new(data);
-
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init());
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|_| Ok(()));
 
-    let builder = builder.setup(|app| {
-        #[cfg(debug_assertions)]
-        let _ = app.get_webview_window("main").is_some_and(|w| {
-            w.open_devtools();
-            true
-        });
-        Ok(())
-    });
+    let manager = Arc::new(RwLock::new(BlenderManager::load()));
+    let setting = Arc::new(RwLock::new(server_settings));
 
-    // I'm having problem trying to separate this call from client.
-    // I want to be able to run either server _or_ client via a cli switch.
-    // Would like to know how I can get around this?
-    let mut server = Server::new(1500);
-    let listen = server.rx_recv.take().unwrap();
+    let app_state = AppState {
+        manager,
+        to_network,
+        setting,
+        jobs: Vec::new(),
+    };
 
-    let blender_link = BlenderHome::new()
-        .expect("unable to fetch blender lists, are you connected to the internet?");
-    let m_blender_link = Mutex::new(blender_link);
+    let mut_app_state = Mutex::new(app_state);
 
-    let m_server = Mutex::new(server);
-
-    let manager = BlenderManager::load();
-    let m_manager = Mutex::new(manager);
-
-    let m_client: Arc<Option<Client>> = Arc::new(None);
-
-    let server_setting = ServerSetting::load();
-    let m_setting = Mutex::new(server_setting);
-
-    let app = builder
-        .manage(ctx)
-        .manage(m_server)
-        .manage(m_manager)
-        .manage(m_setting)
-        .manage(m_blender_link)
-        .manage(m_client.clone())
+    builder
+        .manage(mut_app_state)
         .invoke_handler(tauri::generate_handler![
-            create_node,
             create_job,
             delete_node,
-            delete_project,
             delete_job,
-            list_node,
             list_jobs,
             list_versions,
+            import_blend,
             get_server_settings,
             set_server_settings,
-            ping_node,
             add_blender_installation,
             list_blender_installation,
             remove_blender_installation,
             fetch_blender_installation,
         ])
-        // it would be nice to figure out why this is causing so much problem?
         .build(tauri::generate_context!())
-        .expect("Unable to build tauri app!");
-    APP_HANDLE.set(app.handle().clone()).unwrap();
+        .expect("Unable to build tauri app!")
+}
 
-    match app.cli().matches() {
-        // `matches` here is a Struct with { args, subcommand }.
-        // `args` is `HashMap<String, ArgData>` where `ArgData` is a struct with { value, occurrences }.
-        // `subcommand` is `Option<Box<SubcommandMatches>>` where `SubcommandMatches` is a struct with { name, matches }.
-        // cargo tauri dev -- -- -c
-        Ok(matches) => {
-            dbg!(&matches);
-            if matches.args.get("client").unwrap().occurrences >= 1 {
-                // run client mode instead.
-                // spawn(run_client());
-                let _ = run_client();
-            }
-        }
-        Err(e) => {
-            dbg!(e);
-        }
-    };
-
-    // As soon as the function goes out of scope, thread will be drop.
-    let _thread = thread::spawn(move || {
-        while let Ok(event) = listen.recv() {
-            match event {
-                NetResponse::Joined { socket } => {
-                    println!("Net Response: [{}] joined!", socket);
-                    let handle = APP_HANDLE.get().unwrap();
-                    handle
-                        .emit("node_joined", socket)
-                        .expect("failed to emit node!");
-                }
-                NetResponse::Disconnected { socket } => {
-                    println!("Net Response: [{}] disconnected!", socket);
-                    let handle = APP_HANDLE.get().unwrap();
-                    handle
-                        .emit("node_left", socket)
-                        .expect("failed to emit node!");
-                }
-                NetResponse::Info { socket, name } => {
-                    println!("Net Response: [{}] - {}", socket, name);
-                }
-                NetResponse::Status { socket, status } => {
-                    println!("Net Response: [{}] - {}", socket, status);
-                }
-                NetResponse::PeerList { addrs } => {
-                    // TODO: Send a notification to front end containing peer data information
-                    println!("Received peer list! {:?}", addrs);
-                }
-                NetResponse::JobSent(job) => {
-                    let handle = APP_HANDLE.get().unwrap();
-                    handle
-                        .emit_to("job", "job_sent", job)
-                        .expect("failed to emit job!");
-                }
-                NetResponse::ImageComplete(path) => {
-                    let handle = APP_HANDLE.get().unwrap();
-                    handle
-                        .emit("image_update", path)
-                        .expect("Fail to send completed image!");
-                }
-            }
-        }
-    });
-
-    app.run(|_, _| {});
+#[derive(Parser)]
+struct Cli {
+    #[arg(short, long, default_value = "false")]
+    client: Option<bool>,
 }
 
 // not sure why I'm getting a lint warning about the mobile macro? Need to bug the dev and see if this macro has changed.
-// #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    // TODO: Find a way to make use of Tauri cli commands to run as client.
-    // TODO: It would be nice to include command line utility to let the user add blender installation from remotely.
-    // The command line would take an argument of --add or -a to append local blender installation from the local machine to the configurations.
-    client();
-}
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub async fn run() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init();
 
-async fn run_client() -> Result<(), ()> {
-    let _c = Client::new();
-    Ok(())
+    let cli = Cli::parse();
+
+    // Just realize that libp2p mdns won't run offline mode?
+    // TODO: Find a way to connect to local host itself regardless offline/online mode.
+    let mut net_service = NetworkService::new(60)
+        .await
+        .expect("Unable to start network service!");
+
+    match cli.client {
+        // TODO: Verify this function works as soon as VM is finish installing linux.
+        Some(true) => {
+            let mut manager = BlenderManager::load();
+            println!("Client is running");
+            loop {
+                select! {
+                    Some(msg) = net_service.rx_recv.recv() => match msg {
+                        NetEvent::Render(job) => {
+                            // Here we'll check the job -
+                            // TODO: It would be nice to check and see if there's any jobs currently running, otherwise put it in a poll?
+                            let project_file = job.project_file;
+                            let version: &Version = project_file.as_ref();
+                            let blender = manager.fetch_blender(version).expect("Should have blender installed?");
+                            let file_path: &Path = project_file.as_ref();
+                            let args = Args::new(file_path, job.output, job.mode);
+                            let rx = blender.render(args);
+
+                            loop {
+                                if let Ok(msg) = rx.recv() {
+                                        let msg = match msg {
+                                            Status::Idle => "Idle".to_owned(),
+                                            Status::Running { status } => status,
+                                            Status::Log { status } => status,
+                                            Status::Warning { message } => message,
+                                            Status::Error(err) => format!("{err:?}").to_owned(),
+                                            Status::Completed { result } => {
+                                                // we'll send the message back?
+                                                // net_service
+                                                // here we will state that the render is complete, and send a message to network service
+                                                // TODO: Find a better way to not use the `.clone()` method.
+                                                let msg = Command::FrameCompleted(result.clone(), job.current_frame);
+                                                let _ = net_service.send(msg).await;
+                                                let path_str = &result.to_string_lossy();
+                                                format!("Finished job frame {} at {path_str}", job.current_frame).to_owned()
+                                            },
+                                        };
+                                        println!("[Status] {msg}");
+                                    }
+
+                            }
+
+                        },
+                        NetEvent::Status(s) => println!("[Client] Status: {s}"),
+                        NetEvent::NodeDiscovered(peer_id) => println!("Node discovered!: {peer_id}"),
+                        NetEvent::NodeDisconnected(peer_id) => println!("Node disconnected!: {peer_id}"),
+                    }
+                }
+            }
+        }
+        _ => {
+            let (to_network, mut from_ui) = mpsc::channel::<Command>(32);
+            let app = config_tauri_builder(to_network);
+
+            let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
+
+            let _thread = tokio::spawn(async move {
+                loop {
+                    select! {
+                        Some(msg) = from_ui.recv() => {
+                            if let Err(e) = net_service.send(msg).await {
+                                println!("Fail to send net service message: {e:?}");
+                            }
+                        }
+                        Some(info) = net_service.rx_recv.recv() => match info {
+                            NetEvent::Render(job) => println!("Job: {job:?}"),
+                            NetEvent::Status(msg) => println!("Status: {msg:?}"),
+                            NetEvent::NodeDiscovered(peer_id) => {
+                                let handle = app_handle.read().unwrap();
+                                handle.emit("node_discover", peer_id).unwrap();
+                            },
+                            NetEvent::NodeDisconnected(peer_id) => {
+                                let handle = app_handle.read().unwrap();
+                                handle.emit("node_disconnect", peer_id).unwrap();
+                            },
+                        }
+                    }
+                }
+            });
+
+            app.run(|_, event| match event {
+                tauri::RunEvent::Exit => {
+                    println!("Program exit!");
+                }
+                tauri::RunEvent::ExitRequested { .. } => {
+                    println!("Exit requested");
+                }
+                _ => {}
+            });
+        }
+    };
 }

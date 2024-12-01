@@ -1,2 +1,1 @@
-pub(crate) mod receiver;
-pub(crate) mod sender;
+pub mod network_service;

@@ -1,23 +1,36 @@
 # BlendFarm
 
-## An open source, cli friendly, Network Rendering Service application for Blender.
+## An open source, cli friendly, Decenterialized Network Render Application specifically design for [Blender 3D](https://www.blender.org).
 
-This project was inspired by this original project - [LogicReinc](https://github.com/LogicReinc/LogicReinc.BlendFarm)
+This project was inspired by the original project - [LogicReinc](https://github.com/LogicReinc/LogicReinc.BlendFarm)
+
 s backburner application, which saved me many hours of rendering projects for school. I took a turn and realize that Blender soar through popularity among the community and industry. As soon as I realized that Blender, out of the box, does not have any solution to support similar functionality as Autodesk backburner, was the moment I realize this was the piece that is still missing from this amazing open-source, industry leading, software. Digging through online, there are few tools out there that provides "good enough", but I felt like there's so much potential waiting to be tapped into that unlocks the powertrain to speed development all the way to production velocity by utilizing network resources.
+I humbly present you BlendFarm 2.0, a open-source software completely re-written in Rust from scratch with memory safety in mind, simplified UI for artist friendly, and easy to setup by launching the application with minimal to no experience required. Thanks to Tauri library, the use of this tool comes into three separate parts - 
 
-I humbly present you BlendFarm 2.0, a open-source software completely re-written in Rust from scratch. Thanks to Tauri library, the use of this tool comes into three separate parts - 
+## Library usage:
+[Tauri](https://v2.tauri.app) - Frontend UI interface for the application, as well as Rust backend service that glue all of the API together.
+
+[libp2p](https://docs.libp2p.io/) - Peer 2 Peer decenteralize network service that enables network discovery service (mDNS), communication (gossipsub), and file share (kad/DHT).
+
+Blender - Custom library I wrote that acts as a blender CLI wrapper to install, invoke, and launch blender 3d.
+
+Blend - Library used to read blender file without blender application to enable extracting information to the user with preconfigured setup (Eevee/Cycle, frame range, Cameras, resolution, etc).
+
+
 ## GUI 
-For new users and anyone who wants to get things done quickly. Simply run the application. When you run the app on computers that will be used as a rendering farm, simply navigate to the app and run as client instead. This will minimize the app into a service application, and under the traybar, you can monitor and check your render progress.
+For new users and anyone who wants to get things done quickly. Simply run the application. When you run the app on computers that will be used as a rendering farm, simply navigate to the app and run as client instead. This will minimize the app into a service application, and under the traybar, you can monitor and check your render progress. To launch the GUI interface from source - simply run from BlendFarm/ directory `cargo tauri dev` to run in development mode or `cargo run build` for production lightweight shippable mode.
 
 ## CLI 
-For those who wish to run the tools on headless server and network farm solution, this tool provide ease of comfort to setup, robust dialogs and information, and thread safety throughout application lifespan.
+For those who wish to run the tools on headless server and network farm solution, this tool provide ease of comfort to setup, robust dialogs and information, and thread safety throughout application lifespan. To launch the application as a client mode simply run the following command inside src-tauri/ directory:
+`cargo run -- --client true`
 
-## Library
-.rlib are publicly available and exposed by compiling rust into the library bundle. You can compile the blender package separately and use the codebase to allow your program to interface blender. Or interface to the manager of the toolchain to help prebuild your assembly with out of box template to interface with blender program.   
+<!-- TOOD: For future impl. WE won't have to worry about this for this sprint milestone for now. ## Library
+.rlib are publicly available and exposed by compiling rust into the library bundle. You can compile the blender package separately and use the codebase to allow your program to interface blender. Or interface to the manager of the toolchain to help prebuild your assembly with out of box template to interface with blender program.    -->
 
 # Planned
 [ ] Pipe Blender's rendering preview
 [ ] Node version distribution - to reduce internet traffic to download version from source.
+[ ] File distribution for Blender version for other node to reduce INternet download traffic using DHT/Provider service from Kademila/libp2p
 
 # Limitations
 Blender's limitation applies to this project's scope limitation. If a feature is available, or compatibility to run blender on specific platform - this tool will need to reflect and handle those unique situation. Otherwise, this tool follows Blender's programming guideline to ensure backward compatibility for all version available.
@@ -28,6 +41,8 @@ There are several ways to start; the first and easiest would be to download the 
 
 ### TLDR:
 
+First and foremost - this commands may be subject to change in the future. (Need to find a better way to handle Clap subcommand with tauri's cli plugin - for now, I'm treating it as an argument)
+
 First - Install tauri-cli as this component is needed to run `cargo tauri` command. Run the following command:
 `cargo install tauri-cli --version ^2.0.0-rc --locked`
 
@@ -35,5 +50,9 @@ First - Install tauri-cli as this component is needed to run `cargo tauri` comma
 
 To run Tauri app - run the following command under `/BlendFarm/` directory - `cargo tauri dev`
 
-To run the client app - run the following command under `/BlendFarm/backend/` directory - `cargo run -- -c`
+To run the client app - run the following command under `/BlendFarm/src-tauri/` directory - `cargo run -- --client true`
+
+### Network:
+
+Under the hood, this program uses libp2p with [QUIC transport](https://docs.libp2p.io/concepts/transports/quic/). This act this computer as both a server and a client. Wrapped in a containerized struct, I am using [mdns](https://docs.libp2p.io/concepts/discovery-routing/mdns/) for network discovery service (to find other network farm node on the network so that you don't have to connect manually), [gossipsub]() for private message procedure call ( Basically how node interacts with other nodes), and kad for file transfer protocol (how node distribute blend, image, and blender binary files across the network). With the power of trio combined, it is the perfect solution for making network farm accessible, easy to start up, and robost. Have a read into [libp2p](https://libp2p.io/) if this interest your project needs! 
 

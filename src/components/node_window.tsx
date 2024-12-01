@@ -5,38 +5,24 @@ import RenderNode from "./render_node";
 import { listen } from "@tauri-apps/api/event";
 
 export default function NodeWindow() {
-  // Why is fetchNodes not being called?
-  const [nodes, setNodes] = useState(fetchNodes);
-
-  function fetchNodes() {
-    const initialNodes: RenderNodeProps[] = [];
-    listNodes();
-    return initialNodes;
-  }
+  const [nodes, setNodes] = useState<String[]>([]);
 
   //TODO: read more into this https://v2.tauri.app/develop/calling-frontend/
-  // ok this works. Just need to find a way to subscribe on component start, and then unlisten when deconstruct.
-  // listen('node_joined', (event) => {
-  //   console.log(event);
-  // });
+  listen<string>('node_discover', (event: any) => {
+    let tmp = [...nodes];
+    let id = event.payload;
+    if (!tmp.includes(id)) {
+      tmp.push(id);
+    }
+    console.log("Node connected", tmp);
+    setNodes(tmp);
+  });
 
-  // listen('node_left', (event) => {
-  //   console.log(event);
-  // });
-
-  function listNodes() {
-    invoke("list_node").then((ctx: any) => {
-      if (ctx == null) {
-        return;
-      }
-      console.log(ctx);
-
-      // TODO: I don't like this hacky string cast. It was a solution to make json work, but prefer to do this properly sanitized. Security instinct: Feels unwise to feed arbitruary malicious code injection to the json parser. 
-      const data = JSON.parse(ctx + "");
-      data.forEach((node: RenderNodeProps) => { node.onDataChanged = listNodes; })
-      setNodes(data);
-    });
-  }
+  listen('node_disconnect', (event: any) => {
+    let tmp = [...nodes];
+    let result = tmp.filter((t) => t == event.payload);
+    setNodes(result);
+  });
 
   function nodeWindow() {
     return (
@@ -44,7 +30,9 @@ export default function NodeWindow() {
         {/* Show the activity of the computer progress */}
         <h2>Computer Nodes</h2>
         <div className="group" id="RenderNodes">
-          {nodes.map((node: RenderNodeProps) => RenderNode(node))}
+          {nodes.map((node: String) =>
+            <div>{node}</div> // todo - find a way to simplify this message down to something simplier. 
+          )}
         </div>
       </div>
     );
@@ -52,7 +40,6 @@ export default function NodeWindow() {
 
   return (
     <div>
-      {/* I'm concern about dialog window size dimension */}
       {nodeWindow()}
     </div>
   );

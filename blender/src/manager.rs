@@ -7,7 +7,8 @@
     - Implements download and install code
 */
 use crate::blender::Blender;
-use crate::models::download_link::{BlenderCategory, BlenderHome, DownloadLink};
+use crate::models::{category::BlenderCategory, download_link::DownloadLink, home::BlenderHome};
+
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -50,15 +51,20 @@ pub enum ManagerError {
     },
 }
 
-// #[cfg(feature = "manager")]
-// I wanted to keep this struct private only to this library crate?
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Manager {
-    /// Store all known installation of blender directory information
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BlenderConfig {
     blenders: Vec<Blender>,
     install_path: PathBuf,
     auto_save: bool,
-    #[serde(skip)]
+}
+
+// #[cfg(feature = "manager")]
+// I wanted to keep this struct private only to this library crate?
+#[derive(Debug)]
+pub struct Manager {
+    /// Store all known installation of blender directory information
+    config: BlenderConfig,
+    pub home: BlenderHome, // for now let's make this public
     has_modified: bool,
 }
 
@@ -68,18 +74,27 @@ impl Manager {
     // instead they should rely on "load" function instead.
     fn default() -> Self {
         let install_path = dirs::download_dir().unwrap().join("Blender");
-        Self {
+        let config = BlenderConfig {
             blenders: Vec::new(),
             install_path,
             auto_save: true,
+        };
+        Self {
+            config,
+            home: BlenderHome::new().expect("Unable to load blender home!"),
             has_modified: false,
         }
+    }
+
+    fn set_config(&mut self, config: BlenderConfig) -> &mut Self {
+        self.config = config;
+        self
     }
 
     // this path should always be fixed and stored under machine specific.
     // this path should not be shared across machines.
     fn get_config_path() -> PathBuf {
-        let path = dirs::config_dir().unwrap().join("Blender");
+        let path = dirs::config_dir().unwrap().join("BlendFarm");
         fs::create_dir_all(&path).expect("Unable to create directory!");
         path.join("BlenderManager.json")
     }
@@ -94,7 +109,7 @@ impl Manager {
             BlenderHome::new().map_err(|e| ManagerError::RequestError(e.to_string()))?;
 
         let category = blender_home
-            .list
+            .as_ref()
             .iter()
             .find(|&b| b.major.eq(&version.major) && b.minor.eq(&version.minor))
             .ok_or(ManagerError::DownloadNotFound {
@@ -107,9 +122,9 @@ impl Manager {
             .retrieve(version)
             .map_err(|e| ManagerError::FetchError(e.to_string()))?;
 
-        let destination = self.install_path.join(&category.name);
+        let destination = self.config.install_path.join(&category.name);
 
-        // got a permission denied here?
+        // got a permission denied here? Interesting?
         // I need to figure out why and how I can stop this from happening?
         fs::create_dir_all(&destination).unwrap();
 
@@ -127,16 +142,17 @@ impl Manager {
     }
 
     // Save the configuration to local
+    // do I need to save? What's the reason behind this?
     fn save(&self) -> Result<(), ManagerError> {
         // strictly speaking, this function shouldn't crash...
-        let data = serde_json::to_string(&self).unwrap();
+        let data = serde_json::to_string(&self.config).unwrap();
         let path = Self::get_config_path();
         fs::write(path, data).map_err(|e| ManagerError::IoError(e.to_string()))
     }
 
     /// Return a reference to the vector list of all known blender installations
     pub fn get_blenders(&self) -> &Vec<Blender> {
-        &self.blenders
+        &self.config.blenders
     }
 
     /// Load the manager data from the config file.
@@ -144,9 +160,11 @@ impl Manager {
         // load from a known file path (Maybe a persistence storage solution somewhere?)
         // if the config file does not exist on the system, create a new one and return a new struct instead.
         let path = Self::get_config_path();
+        let mut data = Self::default();
         if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(manager) = serde_json::from_str(&content) {
-                return manager;
+            if let Ok(config) = serde_json::from_str(&content) {
+                data.set_config(config);
+                return data;
             } else {
                 println!("Fail to deserialize manager data input!");
             }
@@ -166,13 +184,13 @@ impl Manager {
     /// Set path for blender download and installation
     pub fn set_install_path(&mut self, new_path: &Path) {
         // Consider the design behind this. Should we move blender installations to new path?
-        self.install_path = new_path.to_path_buf().clone();
+        self.config.install_path = new_path.to_path_buf().clone();
         self.has_modified = true;
     }
 
     /// Add a new blender installation to the manager list.
     pub fn add_blender(&mut self, blender: Blender) {
-        self.blenders.push(blender);
+        self.config.blenders.push(blender);
         self.has_modified = true;
     }
 
@@ -180,9 +198,12 @@ impl Manager {
     pub fn add_blender_path(&mut self, path: &impl AsRef<Path>) -> Result<Blender, ManagerError> {
         let path = path.as_ref();
         let extension = BlenderCategory::get_extension().map_err(ManagerError::UnsupportedOS)?;
-        // let str_path = path.as_os_str().to_str().unwrap().to_owned();
 
-        let path = if path.ends_with(&extension) {
+        let path = if path
+            .extension()
+            .is_some_and(|e| extension.contains(e.to_str().unwrap()))
+        {
+            // Create a folder name from given path
             let folder_name = &path
                 .file_name()
                 .unwrap()
@@ -200,17 +221,20 @@ impl Manager {
                 _ => Ok(path.to_path_buf()),
             }
         }?;
-
         let blender =
             Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
 
+        // I would have at least expect to see this populated?
         self.add_blender(blender.clone());
+        // TODO: This is a hack - Would prefer to understand why program does not auto save file after closing.
+        // Or look into better saving mechanism than this.
+        let _ = self.save();
         Ok(blender)
     }
 
     /// Remove blender installation from the manager list.
     pub fn remove_blender(&mut self, blender: &Blender) {
-        self.blenders.retain(|x| x.eq(blender));
+        self.config.blenders.retain(|x| x.eq(blender));
         self.has_modified = true;
     }
 
@@ -225,7 +249,11 @@ impl Manager {
 
     // TODO: Name ambiguous - clarify method name to clear and explicit
     pub fn fetch_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
-        let result = self.blenders.iter().find(|&x| x.get_version() == version);
+        let result = self
+            .config
+            .blenders
+            .iter()
+            .find(|&x| x.get_version() == version);
         match result {
             Some(blender) => Ok(blender.clone()),
             None => self.download(version),
@@ -233,47 +261,55 @@ impl Manager {
     }
 
     pub fn have_blender(&self, version: &Version) -> bool {
-        self.blenders.iter().any(|x| x.get_version() == version)
+        self.config
+            .blenders
+            .iter()
+            .any(|x| x.get_version() == version)
     }
 
     /// Fetch the latest version of blender available from Blender.org
     /// this function might be ambiguous. Should I use latest_local or latest_online?
     pub fn latest_local_avail(&mut self) -> Option<Blender> {
         // in this case I need to contact Manager class or BlenderDownloadLink somewhere and fetch the latest blender information
-        let mut data = self.blenders.clone();
+        let mut data = self.config.blenders.clone();
         data.sort();
         data.first().map(|v: &Blender| v.to_owned())
     }
 
+    // find a way to hold reference to blender home here?
     pub fn download_latest_version(&mut self) -> Result<Blender, ManagerError> {
         // in this case - we need to fetch the latest version from somewhere, download.blender.org will let us fetch the parent before we need to dive into
-
-        // Dive into the parent directory, and get the last update version
-        let mut home = BlenderHome::new().expect("Unable to get data");
-
-        // sort by descending order
-        home.list.sort_by(|a, b| b.cmp(a));
-        let newest = home.list.first().unwrap();
+        let list = self.home.as_ref();
+        let newest = list.first().unwrap();
         let link = newest.fetch_latest().unwrap();
-        let path = link.download_and_extract(&self.install_path).unwrap();
+        let path = link
+            .download_and_extract(&self.config.install_path)
+            .unwrap();
         let blender =
             Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
-        self.blenders.push(blender.clone());
+        self.config.blenders.push(blender.clone());
         Ok(blender)
     }
 
-    pub fn list_all_blender_version(&self) -> Vec<BlenderCategory> {
+    // TODO: have a reference from manager instead of initializing new BlenderHome struct
+    pub fn list_all_blender_version(&self) -> &Vec<BlenderCategory> {
         // here we will return a list of all blender version stored.
         // Dive into the parent directory, and get the last update version
         // can we create a single sharable mutable state reference? This feels like a hack and may cause internet disruptance.
-        BlenderHome::new().expect("Unable to get data").list
+        self.home.as_ref()
+    }
+}
+
+impl AsRef<PathBuf> for Manager {
+    fn as_ref(&self) -> &PathBuf {
+        &self.config.install_path
     }
 }
 
 // #[cfg(feature = "manager")]
 impl Drop for Manager {
     fn drop(&mut self) {
-        if self.has_modified || self.auto_save {
+        if self.has_modified || self.config.auto_save {
             if let Err(e) = self.save() {
                 println!("Error saving manager file: {}", e);
             }
@@ -287,6 +323,6 @@ mod tests {
 
     #[test]
     fn should_pass() {
-        let manager = Manager::load();
+        let _manager = Manager::load();
     }
 }

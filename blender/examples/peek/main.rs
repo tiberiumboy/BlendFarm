@@ -1,6 +1,5 @@
-use std::path::PathBuf;
-
 use blender::manager::Manager as BlenderManager;
+use std::path::PathBuf;
 
 /// Peek into the blend file to see what's inside.
 fn main() {
@@ -10,7 +9,7 @@ fn main() {
         Some(p) => PathBuf::from(p),
     };
 
-    // // we reference blender by executable path. Version will be detected upon running command process. (Self validation)
+    // we reference blender by executable path. Version will be detected upon running command process. (Self validation)
     let mut manager = BlenderManager::load();
     let blender = match manager.get_blenders().first() {
         Some(blender) => blender.to_owned(),

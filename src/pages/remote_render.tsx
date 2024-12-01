@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { ChangeEvent, useState } from "react";
 import RenderJob, { RenderJobProps } from "../components/render_job";
+import { listen } from "@tauri-apps/api/event";
 
 // TODO: Figure out if this works or not, Need to re-read Tauri documentation again to understand event bridge between frontend and backend
 // const unlisten = await once<RenderComposedPayload>("image_update", (event) => {
@@ -57,12 +58,12 @@ function JobDetail(prop: { job: RenderJobProps | undefined }) {
   }
 }
 
-function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps) => void) {
+function JobCreationDialog(versions: string[], path: string, jobCreated: (job: RenderJobProps) => void) {
   const [mode, setMode] = useState(components["frame"]());
   const [version, setVersion] = useState(versions[0]);
 
   const handleSubmitJobForm = (e: React.FormEvent) => {
-    e.preventDefault(); // wonder if this does anything?
+    e.preventDefault();
     // How do I structure this?
     const info = e.target as HTMLFormElement;
     const selectedMode = info.modes.value;
@@ -70,6 +71,7 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
     const output = info.output.value;
 
     let mode = generateMode(selectedMode, e.target);
+
     let data = {
       filePath,
       output,
@@ -115,6 +117,7 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
     setMode(mode);
   }
 
+  // TODO: find a way to make this more sense and pure function as possible.
   async function onDirectorySelect(e: any) {
     const filePath = await open({
       directory: true,
@@ -124,20 +127,6 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
       // TODO: find a way to include the dash elsewhere
       e.target.value = filePath + "/";
     }
-  }
-
-  async function onFileSelect(e: any) {
-    const filePath = await open({
-      directory: false,
-      multiple: false,
-      filters: [
-        {
-          name: "Blender",
-          extensions: ["blend"],
-        },
-      ],
-    })
-    e.target.value = filePath;
   }
 
   /*
@@ -152,14 +141,19 @@ function JobCreationDialog(versions: string[], jobCreated: (job: RenderJobProps)
       Feature: It would be nice to stream render image input from any computer node. See their rendering progress.
     */
   return (
+    /**
+     * TODO: Change the process so that we instead ask the user to open the .blend file
+     * then with the backend service to parse the .blend file we can extract information 
+     * Once we get that info - we display the create_process dialog to display the information provided by the blend file.
+     */
     <dialog id="create_process">
       <form method="dialog" onSubmit={handleSubmitJobForm}>
         <h1>Create new Render Job</h1>
         <label>Project File Path:</label>
-        <input type="text" placeholder="Project path" id="file_path" name="file_path" readOnly={true} onClick={onFileSelect} />
+        <input type="text" value={path} placeholder="Project path" id="file_path" name="file_path" readOnly={true} /*onClick={onFileSelect}*/ />
         <br />
         <label>Choose rendering mode</label>
-        <select name="modes" onChange={handleRenderModeChange} >
+        <select name="modes" onChange={handleRenderModeChange}>
           {Object.entries(components).map((item) => (
             <option value={item[0]}>{item[0]}</option>
           ))}
@@ -200,14 +194,49 @@ export interface RemoteRenderProps {
   onJobCreated(job: RenderJobProps): void;
 }
 
+const unlisten = await listen("version-update", (event) => {
+  console.log(event);
+})
+
 export default function RemoteRender(props: RemoteRenderProps) {
   const [selectedJob, setSelectedJob] = useState<RenderJobProps>();
+  const [path, setPath] = useState<string>("");
 
   //#region Dialogs
-  function showDialog() {
+  async function showDialog() {
     // Is there a way I could just reference this directly? Or just create a new component for this?
-    let dialog = document.getElementById("create_process") as HTMLDialogElement;
-    dialog?.showModal();
+    // TOOD: Invoke rust backend service to open dialog and then parse the blend file
+    // if the user cancel or unable to parse - return a message back to the front end explaining why
+    // Otherwise, display the info needed to re-populate the information.
+    const file_path = await open({
+      directory: false,
+      multiple: false,
+      filters: [
+        {
+          name: "Blender",
+          extensions: ["blend"],
+        },
+      ],
+    });
+
+    if (file_path == null) {
+      return;
+    }
+
+    invoke("import_blend", { path: file_path }).then((ctx) => {
+      if (ctx == null) {
+        return;
+      }
+
+      // TODO: For future impl. : We will try and read the file from the backend to extract information to show the user information about the blender
+      // then we will populate those data into the dialog form, allowing user what BlendFarm sees, making any last adjustment before creating a new job.
+      let data = JSON.parse(ctx as string);
+      let dialog = document.getElementById("create_process") as HTMLDialogElement;
+      // TODO: How do I set the information in the create_process field?
+      setPath(file_path);
+      dialog?.showModal();
+      // also need to set the path in the create_process dialog.
+    })
   }
 
   function onJobSelected(job: RenderJobProps): void {
@@ -217,6 +246,7 @@ export default function RemoteRender(props: RemoteRenderProps) {
   return (
     <div className="content">
       <h2>Remote Jobs</h2>
+      {/* How can I enable hotkey function for html code? */}
       <button onClick={showDialog}>
         Import
       </button>
@@ -227,7 +257,7 @@ export default function RemoteRender(props: RemoteRenderProps) {
 
       <JobDetail job={selectedJob} />
 
-      {JobCreationDialog(props.versions, props.onJobCreated)}
+      {JobCreationDialog(props.versions, path, props.onJobCreated)}
     </div>
   );
 }

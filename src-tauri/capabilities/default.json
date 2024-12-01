@@ -7,6 +7,9 @@
   ],
   "permissions": [
     "cli:default",
-    "dialog:default"
+    "dialog:default",
+    "core:webview:default",
+    "core:event:allow-listen",
+    "core:event:default"
   ]
 }

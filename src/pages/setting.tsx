@@ -5,8 +5,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import BlenderEntry from "../components/blender_entry";
 
 export interface ServerSettingsProps {
-  render_dir: string;
-  blend_dir: string;
+  install_path: string,
+  render_path: string,
+  cache_path: string,
 }
 
 interface BlenderModalProps {
@@ -18,6 +19,7 @@ interface BlenderModalProps {
 
 function BlenderInstallerDialog(props: BlenderModalProps) {
 
+  // not sure what this one is?
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   // TODO: Find a better way to handle this. I cannot re-open the dialog again?
@@ -47,8 +49,7 @@ export default function Setting(versions: string[]) {
   const [showModal, setShowModal] = useState(false);
 
   // TODO: Feels like I need to move these two states (setting+blendInstall) to App.tsx instead?
-  const [blendInstall, setBlendInstall] = useState<string | undefined>(undefined);
-  const [setting, setSetting] = useState<ServerSettingsProps>({ render_dir: '', blend_dir: '' });
+  const [setting, setSetting] = useState<ServerSettingsProps>({ install_path: '', render_path: '', cache_path: '' });
 
   useEffect(() => {
     fetchServerSettings();
@@ -71,7 +72,6 @@ export default function Setting(versions: string[]) {
 
   async function listBlenders() {
     let ctx: any = await invoke("list_blender_installation");
-    console.log("List Blender:", ctx);
     if (ctx == null) {
       return null;
     }
@@ -118,7 +118,7 @@ export default function Setting(versions: string[]) {
         {
           title: "Path to local blender installation",
           name: "Blender",
-          extensions: ["exe", "zip", "dmg", "tar.xz"], // how do I go about selecting app from linux? Linux app doesn't have extension AFAIK?
+          extensions: ["exe", "zip", "dmg", "tar.xz", "app"], // how do I go about selecting app from linux? Linux app doesn't have extension AFAIK?
         },
       ],
     }).then((selected) => {
@@ -150,16 +150,14 @@ export default function Setting(versions: string[]) {
           <label style={{ float: "left" }}>
             Blender Installation Path:
           </label>
-          <span style={{ display: "block", overflow: "hidden", }}>
-            <input
-              style={{ width: '100%' }}
-              type="text"
-              placeholder="Blender Installation Path"
-              value={blendInstall}
-              readOnly={true}
-              onClick={async () => setNewDirectoryPath((path) => setBlendInstall(path))}
-            />
-          </span>
+          <input
+            className="form-input"
+            type="text"
+            placeholder="Blender Installation Path"
+            value={setting.install_path}
+            readOnly={true}
+            onClick={async () => setNewDirectoryPath((path) => setting.install_path = path)}
+          />
 
           <br />
 
@@ -171,9 +169,10 @@ export default function Setting(versions: string[]) {
             type="text"
             placeholder="Path to blender file working directory"
             name="blend_dir"
+            className="form-input"
             readOnly={true}
-            value={setting.blend_dir}
-            onClick={async () => setNewDirectoryPath((path) => setting.blend_dir = path)}
+            value={setting.cache_path}
+            onClick={async () => setNewDirectoryPath((path) => setting.cache_path = path)}
           />
 
           <br />
@@ -181,14 +180,14 @@ export default function Setting(versions: string[]) {
           <label>
             Render cache directory:
           </label>
-
           <input
+            className="form-input"
             type="text"
             placeholder="Path to completed render frames for cache"
-            name="render_dir"
-            value={setting.render_dir}
+            name="render_path"
+            value={setting.render_path}
             readOnly={true}
-            onClick={async () => setNewDirectoryPath((path) => setting.render_dir = path)}
+            onClick={async () => setNewDirectoryPath((path) => setting.render_path = path)}
           />
 
         </form>

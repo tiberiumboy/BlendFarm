@@ -11,6 +11,7 @@ use blender::blender::Manager;
 use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::{
     collections::HashSet,
     hash::Hash,
@@ -50,23 +51,22 @@ pub enum JobStatus {
 /// A container to hold rendering job information. This will be used to send off jobs to all other rendering farm
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Job {
-    //TODO: should I keep this private instead? What impact does this make?
+    /// Unique job identifier
     id: Uuid,
     /// Path to the output directory where final render image will be saved to
     pub output: PathBuf,
     /// What kind of mode should this job run as
     pub mode: Mode,
     /// What version of blender we need to use to render this project job.
-    pub version: Version,
+    version: Version,
     /// Path to blender files
     pub project_file: ProjectFile,
     // Path to completed image result - May not be needed?
-    // how do I make hash ignore this?
     renders: HashSet<RenderInfo>,
     // I should probably take responsibility for this, Once render is complete - I need to send a signal back to the host saying here's the frame, and here's the raw image data.
     // This would be nice to have to have some kind of historical copy, but then again, all of this value is being sent to the server directly. we should not retain any data behind on the node to remain lightweight and easy on storage space.
     // pub renders: HashSet<RenderInfo>, // frame, then path to completed image source.
-    current_frame: i32,
+    pub current_frame: i32,
 }
 
 impl Job {
@@ -92,12 +92,9 @@ impl Job {
     // Find out if I need to run this locally, or just rely on the server to perform the operation?
     #[allow(dead_code)]
     pub fn run(&mut self, frame: i32) -> Result<RenderInfo> {
+        let path: &Path = self.project_file.as_ref();
         // TODO: How can I split this up to run async task? E.g. Keep this task running while we still have frames left over.
-        let args = Args::new(
-            self.project_file.file_path(),
-            self.output.clone(),
-            Mode::Frame(frame),
-        );
+        let args = Args::new(path, self.output.clone(), Mode::Frame(frame));
 
         // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
         // TODO: This looks like I could move this code block somewhere else?
@@ -149,6 +146,12 @@ impl Job {
         }
     }
     */
+}
+
+impl AsRef<Uuid> for Job {
+    fn as_ref(&self) -> &Uuid {
+        &self.id
+    }
 }
 
 impl PartialEq for Job {
