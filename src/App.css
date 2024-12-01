@@ -1,13 +1,14 @@
 /* TODO: Find a way to define some constant color such as border-line color in items and group */
 
 :root {
+  color-scheme: light dark;
   font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 24px;
   font-weight: 400;
 
-  color: #0f0f0f;
-  background-color: #f6f6f6;
+  color: light-dark(#0f0f0f, #f6f6f6);
+  background-color: light-dark(#f6f6f6, #2f2f2f);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -15,6 +16,14 @@
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
 }
+
+/*
+@media (prefers-color-scheme: dark) {
+  a:hover {
+    color: #24c8db;
+  }
+}
+  */
 
 html,
 body {
@@ -62,8 +71,8 @@ button {
   font-size: 1em;
   font-weight: 500;
   font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
+  color: light-dark(#0f0f0f, #ffffff);
+  background-color: light-dark(#ffffff, #0f0f0f);
   transition: border-color 0.25s;
   box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
 }
@@ -78,7 +87,7 @@ button:hover {
 
 button:active {
   border-color: #396cd8;
-  background-color: #e8e8e8;
+  background-color: light-dark(#e8e8e8, #0f0f0f);
 }
 
 input,
@@ -183,25 +192,4 @@ Do I need to make another .group class in @media (prefers-color-scheme: dark) ?
 
 .group>.item:not(:last-child) {
   border-bottom: 1px solid rgb(63, 65, 68, 0.067);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-
-  button:active {
-    background-color: #0f0f0f69;
-  }
 }
