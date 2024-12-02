@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use ::blender::manager::Manager as BlenderManager;
 use semver::Version;
 
@@ -12,5 +14,8 @@ fn main() {
     let blender = manager
         .fetch_blender(&version)
         .expect("Unable to download Blender!");
-    println!("Blender downloaded at: {:?}", blender.get_executable());
+    println!(
+        "Blender downloaded at: {:?}",
+        AsRef::<PathBuf>::as_ref(&blender)
+    );
 }

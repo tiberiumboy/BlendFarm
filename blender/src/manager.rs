@@ -247,7 +247,7 @@ impl Manager {
             .config
             .blenders
             .iter()
-            .find(|&x| x.get_version() == version);
+            .find(|x| AsRef::<Version>::as_ref(&x).eq(version));
         match result {
             Some(blender) => Ok(blender.clone()),
             None => self.download(version),
@@ -258,7 +258,7 @@ impl Manager {
         self.config
             .blenders
             .iter()
-            .any(|x| x.get_version() == version)
+            .any(|x| AsRef::<Version>::as_ref(&x).eq(version))
     }
 
     /// Fetch the latest version of blender available from Blender.org
