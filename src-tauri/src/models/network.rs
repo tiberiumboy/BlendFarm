@@ -20,7 +20,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::task::JoinHandle;
-use tokio::{io, select};
+use tokio::{io, join, select};
 
 /*
 the idea behind this is to have a persistence model to contain network services.
@@ -129,8 +129,10 @@ impl Host {
                     NetEvent::Status(msg) => println!("Status: {msg:?}"),
                     NetEvent::NodeDiscovered(peer_id) => {
                         let handle = app_handle.read().unwrap();
-                        // How do I fetch for the computer information here?
-                        handle.emit("node_discover", peer_id).unwrap();
+                        handle.emit("node_discover", &peer_id).unwrap();
+                        println!("Sending identity");
+                        let result = self.net_service.tx.send(Command::SendIdentity { peer_id });
+                        let _ = join!(result);
                     },
                     NetEvent::NodeDisconnected(peer_id) => {
                         let handle = app_handle.read().unwrap();
@@ -267,6 +269,7 @@ impl NetworkService {
                             // TODO: For Future impl. See how we can transfer the file using kad's behaviour (DHT)
                             Command::RequestFile { .. } => todo!(),
                             Command::RespondFile { .. } => todo!(),
+                            Command::SendIdentity { peer_id } => NetEvent::Identity { peer_id, comp_spec: ComputerSpec::default() }.ser(),
                             _ => {
                                 return;
                             }
@@ -283,18 +286,11 @@ impl NetworkService {
                             for (peer_id, .. ) in list {
                                 swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
 
-                                let comp_spec = ComputerSpec::default();
-
                                 // TODO: Get the computer information and send it to the connector.
                                 // send a message back to the Ui confirming we discover a node (Use this to populate UI element on the front end facing app)
                                 if let Err(e) = tx_recv.send(NetEvent::NodeDiscovered(peer_id.to_string())).await {
                                     println!("Error sending node discovered signal to UI{e:?}");
                                 }
-
-                                // todo send notification out to network about this computer identity.
-                                if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), NetEvent::Identity{peer_id: peer_id.to_string(), comp_spec}.ser()) {
-                                    println!("Fail to send computer identity! {e:?}");
-                                };
                             }
                         }
                         SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {

@@ -38,6 +38,9 @@ pub enum Command {
         file: Vec<u8>,
         channel: ResponseChannel<FileResponse>,
     },
+    SendIdentity {
+        peer_id: String,
+    },
 }
 
 // TODO: Extract this into separate file
@@ -71,4 +74,4 @@ impl NetEvent {
 struct FileRequest(String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct FileResponse(Vec<u8>);
+pub struct FileResponse(Vec<u8>);

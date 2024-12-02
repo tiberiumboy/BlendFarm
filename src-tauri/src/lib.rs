@@ -194,9 +194,6 @@ pub async fn run() {
             let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
             // Problem here - I need to start capturing the data as soon as the app starts -
             // but I cannot move host object because receiver does not implement clone copy(), cannot move the struct inside this closure?
-            let _thread = tokio::spawn(async move {
-                host.run(app_handle).await;
-            });
 
             app.run(|_, event| match event {
                 tauri::RunEvent::Ready => {
@@ -211,6 +208,10 @@ pub async fn run() {
                 }
                 _ => {}
             });
+
+            // let _thread = tokio::spawn(async move {
+            host.run(app_handle).await;
+            // });
         }
     };
 }
