@@ -1,6 +1,7 @@
 use super::behaviour::BlendFarmBehaviour;
 use super::message::{Command, NetEvent, NetworkError};
 use crate::models::behaviour::BlendFarmBehaviourEvent;
+use crate::models::computer_spec::ComputerSpec;
 use libp2p::futures::channel::oneshot;
 use libp2p::futures::StreamExt;
 use libp2p::request_response::OutboundRequestId;
@@ -32,12 +33,12 @@ pub type Port = u16;
 pub struct NetEventLoop {
     swarm: Swarm<BlendFarmBehaviour>,
     cmd_recv: Receiver<Command>,
-    // event_sender: Sender<NetEvent>,
+    event_sender: Sender<NetEvent>,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
     // pending_start_receiving: HashMap<kad::QueryId, oneshot::Sender<()>>,
     // pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
-    // pending_request_file:
-    // HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
+    pending_request_file:
+        HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
 }
 
 // TODO: finish implementation for this.
@@ -50,11 +51,11 @@ impl NetEventLoop {
         Self {
             swarm,
             cmd_recv,
-            // event_sender,
+            event_sender,
             pending_dial: Default::default(),
             // pending_start_receiving: Default::default(),
             // pending_get_providers: Default::default(),
-            // pending_request_file: Default::default(),
+            pending_request_file: Default::default(),
         }
     }
 
@@ -135,6 +136,10 @@ impl Host {
                         let handle = app_handle.read().unwrap();
                         handle.emit("node_disconnect", peer_id).unwrap();
                     },
+                    NetEvent::Identity{peer_id, comp_spec} => {
+                        let handle = app_handle.read().unwrap();
+                        handle.emit("node_identity", (peer_id, comp_spec)).unwrap();
+                    }
                 }
             }
         }
@@ -277,6 +282,13 @@ impl NetworkService {
                         SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                             for (peer_id, .. ) in list {
                                 swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+
+                                let comp_spec = ComputerSpec::default();
+
+                                // todo send notification out to network about this computer identity.
+                                if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), NetEvent::Identity{peer_id: peer_id.to_string(), comp_spec}.ser()) {
+                                    println!("Fail to send computer identity! {e:?}");
+                                };
 
                                 // TODO: Get the computer information and send it to the connector.
                                 // send a message back to the Ui confirming we discover a node (Use this to populate UI element on the front end facing app)

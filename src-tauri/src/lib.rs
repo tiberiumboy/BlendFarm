@@ -35,7 +35,6 @@ use blender::models::status::Status;
 use blender::{manager::Manager as BlenderManager, models::args::Args};
 use clap::Parser;
 use models::app_state::AppState;
-use models::computer_spec::{self, ComputerSpec};
 use models::message::{Command, NetEvent};
 use models::network::{Host, NetworkService};
 use models::server_setting::ServerSetting;
@@ -57,7 +56,6 @@ use tracing_subscriber::EnvFilter;
 
 pub mod models;
 pub mod routes;
-pub mod services;
 
 // Create a builder to make Tauri application
 fn config_tauri_builder(to_network: Sender<Command>) -> App {
@@ -77,6 +75,7 @@ fn config_tauri_builder(to_network: Sender<Command>) -> App {
     let manager = Arc::new(RwLock::new(BlenderManager::load()));
     let setting = Arc::new(RwLock::new(server_settings));
 
+    // here we're setting the sender command to app state before the builder.
     let app_state = AppState {
         manager,
         to_network,
@@ -117,9 +116,6 @@ pub async fn run() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
-
-    let comp_spec = ComputerSpec::default();
-    dbg!(comp_spec);
 
     let cli = Cli::parse();
 
@@ -177,11 +173,16 @@ pub async fn run() {
                         NetEvent::NodeDiscovered(peer_id) => println!("Node discovered!: {peer_id}"),
                         // For some reason when we exit the application, this doesn't get called?
                         NetEvent::NodeDisconnected(peer_id) => println!("Node disconnected!: {peer_id}"),
+                        NetEvent::Identity{ peer_id, comp_spec} => {
+                            println!("Node Identity received for {peer_id}: {comp_spec:?}");
+                        }
                     }
                 }
             }
         }
         _ => {
+            // channel is created to send the receiver to the builder
+            // the sender is then pass on to the network service and host loop event
             let (to_network, from_ui) = mpsc::channel::<Command>(32);
             let app = config_tauri_builder(to_network);
 
@@ -191,14 +192,15 @@ pub async fn run() {
 
             let mut host = Host::new(net_service, from_ui);
             let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
-
+            // Problem here - I need to start capturing the data as soon as the app starts -
+            // but I cannot move host object because receiver does not implement clone copy(), cannot move the struct inside this closure?
             let _thread = tokio::spawn(async move {
                 host.run(app_handle).await;
             });
 
             app.run(|_, event| match event {
                 tauri::RunEvent::Ready => {
-                    // TODO: find a way to start receiving the client handle. Currently it's missing out the events to make node publicly available.
+                    // TODO: find a way to start receiving the client handle here instead?
                 }
                 tauri::RunEvent::Exit => {
                     // There should be a call to notify all other peers the GUI is shutting down.

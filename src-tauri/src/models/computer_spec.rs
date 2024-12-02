@@ -2,7 +2,7 @@ use machine_info::Machine;
 use serde::{Deserialize, Serialize};
 use std::env::consts;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ComputerSpec {
     host: String,
     os: String,

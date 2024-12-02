@@ -6,7 +6,7 @@ use std::error::Error;
 use thiserror::Error;
 use uuid::Uuid;
 
-use super::job::Job;
+use super::{computer_spec::ComputerSpec, job::Job};
 
 #[derive(Debug, Error)]
 pub enum NetworkError {
@@ -43,7 +43,10 @@ pub enum Command {
 // TODO: Extract this into separate file
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NetEvent {
-    // Greet () // share machine spec (cpu, gpu, ram)
+    Identity {
+        peer_id: String,
+        comp_spec: ComputerSpec,
+    },
     // Heartbeat() // share hardware statistic monitor heartbeat. (CPU/GPU/RAM usage realtime)
     Render(Job),
     // think I need to send this somewhere else.
