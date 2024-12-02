@@ -130,17 +130,17 @@ impl Host {
                     NetEvent::NodeDiscovered(peer_id) => {
                         let handle = app_handle.read().unwrap();
                         handle.emit("node_discover", &peer_id).unwrap();
-                        println!("Sending identity");
-                        let result = self.net_service.tx.send(Command::SendIdentity { peer_id });
-                        let _ = join!(result);
+                        // println!("Sending identity");
+                        // self.net_service.tx.send(Command::SendIdentity { peer_id }).await;
                     },
                     NetEvent::NodeDisconnected(peer_id) => {
                         let handle = app_handle.read().unwrap();
                         handle.emit("node_disconnect", peer_id).unwrap();
                     },
-                    NetEvent::Identity{peer_id, comp_spec} => {
+                    NetEvent::Identity(comp_spec) => {
                         let handle = app_handle.read().unwrap();
-                        handle.emit("node_identity", (peer_id, comp_spec)).unwrap();
+                        println!("Received node identity : {comp_spec:?}");
+                        handle.emit("node_identity",comp_spec).unwrap();
                     }
                 }
             }
@@ -269,7 +269,6 @@ impl NetworkService {
                             // TODO: For Future impl. See how we can transfer the file using kad's behaviour (DHT)
                             Command::RequestFile { .. } => todo!(),
                             Command::RespondFile { .. } => todo!(),
-                            Command::SendIdentity { peer_id } => NetEvent::Identity { peer_id, comp_spec: ComputerSpec::default() }.ser(),
                             _ => {
                                 return;
                             }
@@ -289,8 +288,12 @@ impl NetworkService {
                                 // TODO: Get the computer information and send it to the connector.
                                 // send a message back to the Ui confirming we discover a node (Use this to populate UI element on the front end facing app)
                                 if let Err(e) = tx_recv.send(NetEvent::NodeDiscovered(peer_id.to_string())).await {
-                                    println!("Error sending node discovered signal to UI{e:?}");
+                                    println!("Error sending node discovered signal to UI: {e:?}");
                                 }
+                            }
+
+                            if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), NetEvent::Identity(ComputerSpec::default()).ser()) {
+                                println!("Error sending command for self identification: {e:?}");
                             }
                         }
                         SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {

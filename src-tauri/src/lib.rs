@@ -173,8 +173,8 @@ pub async fn run() {
                         NetEvent::NodeDiscovered(peer_id) => println!("Node discovered!: {peer_id}"),
                         // For some reason when we exit the application, this doesn't get called?
                         NetEvent::NodeDisconnected(peer_id) => println!("Node disconnected!: {peer_id}"),
-                        NetEvent::Identity{ peer_id, comp_spec} => {
-                            println!("Node Identity received for {peer_id}: {comp_spec:?}");
+                        NetEvent::Identity(comp_spec) => {
+                            println!("Node Identity received: {comp_spec:?}");
                         }
                     }
                 }
@@ -194,6 +194,9 @@ pub async fn run() {
             let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
             // Problem here - I need to start capturing the data as soon as the app starts -
             // but I cannot move host object because receiver does not implement clone copy(), cannot move the struct inside this closure?
+            let _thread = tokio::spawn(async move {
+                host.run(app_handle).await;
+            });
 
             app.run(|_, event| match event {
                 tauri::RunEvent::Ready => {
@@ -208,10 +211,6 @@ pub async fn run() {
                 }
                 _ => {}
             });
-
-            // let _thread = tokio::spawn(async move {
-            host.run(app_handle).await;
-            // });
         }
     };
 }

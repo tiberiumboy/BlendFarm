@@ -38,18 +38,12 @@ pub enum Command {
         file: Vec<u8>,
         channel: ResponseChannel<FileResponse>,
     },
-    SendIdentity {
-        peer_id: String,
-    },
 }
 
 // TODO: Extract this into separate file
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NetEvent {
-    Identity {
-        peer_id: String,
-        comp_spec: ComputerSpec,
-    },
+    Identity(ComputerSpec),
     // Heartbeat() // share hardware statistic monitor heartbeat. (CPU/GPU/RAM usage realtime)
     Render(Job),
     // think I need to send this somewhere else.
