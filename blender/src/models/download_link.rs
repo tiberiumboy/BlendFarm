@@ -149,10 +149,11 @@ impl DownloadLink {
 
         let mut body: Vec<u8> = Vec::with_capacity(len);
         let mut heap = response.into_reader();
-        // TODO: Maybe this is the culprit?
         heap.read_to_end(&mut body)?;
 
+        println!("{dir:?}");
         let target = &dir.join(&self.name);
+        println!("{target:?}");
         fs::write(target, &body)?;
 
         let executable_path = Self::extract_content(target, &self.name)?;

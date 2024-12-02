@@ -57,8 +57,6 @@ pub struct Job {
     pub output: PathBuf,
     /// What kind of mode should this job run as
     pub mode: Mode,
-    /// What version of blender we need to use to render this project job.
-    version: Version,
     /// Path to blender files
     pub project_file: ProjectFile,
     // Path to completed image result - May not be needed?
@@ -70,7 +68,7 @@ pub struct Job {
 }
 
 impl Job {
-    pub fn new(project_file: ProjectFile, output: PathBuf, version: Version, mode: Mode) -> Job {
+    pub fn new(project_file: ProjectFile, output: PathBuf, mode: Mode) -> Job {
         let current_frame = match mode {
             Mode::Frame(frame) => frame,
             Mode::Animation { start, .. } => start,
@@ -78,7 +76,6 @@ impl Job {
         };
         Job {
             id: Uuid::new_v4(),
-            version,
             output,
             project_file,
             mode,
@@ -93,13 +90,14 @@ impl Job {
     #[allow(dead_code)]
     pub fn run(&mut self, frame: i32) -> Result<RenderInfo> {
         let path: &Path = self.project_file.as_ref();
+        let version: &Version = self.project_file.as_ref();
         // TODO: How can I split this up to run async task? E.g. Keep this task running while we still have frames left over.
         let args = Args::new(path, self.output.clone(), Mode::Frame(frame));
 
         // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
         // TODO: This looks like I could move this code block somewhere else?
         let mut manager = Manager::load();
-        let blender = manager.fetch_blender(&self.version).unwrap();
+        let blender = manager.fetch_blender(version).unwrap();
 
         // here's the question - if I'm on a network node, how do I send the host the image of the completed rendered job?
         // yeah here's a good question?

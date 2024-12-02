@@ -58,9 +58,9 @@ function JobDetail(prop: { job: RenderJobProps | undefined }) {
   }
 }
 
-function JobCreationDialog(versions: string[], path: string, jobCreated: (job: RenderJobProps) => void) {
+function JobCreationDialog(versions: string[], path: string, selectedVersion: string, jobCreated: (job: RenderJobProps) => void) {
   const [mode, setMode] = useState(components["frame"]());
-  const [version, setVersion] = useState(versions[0]);
+  const [version, setVersion] = useState(selectedVersion);
 
   const handleSubmitJobForm = (e: React.FormEvent) => {
     e.preventDefault();
@@ -202,6 +202,7 @@ const unlisten = await listen("version-update", (event) => {
 export default function RemoteRender(props: RemoteRenderProps) {
   const [selectedJob, setSelectedJob] = useState<RenderJobProps>();
   const [path, setPath] = useState<string>("");
+  const [selectedVersion, setSelectedVersion] = useState<string>("");
 
   //#region Dialogs
   async function showDialog() {
@@ -258,7 +259,7 @@ export default function RemoteRender(props: RemoteRenderProps) {
 
       <JobDetail job={selectedJob} />
 
-      {JobCreationDialog(props.versions, path, props.onJobCreated)}
+      {JobCreationDialog(props.versions, path, selectedVersion, props.onJobCreated)}
     </div>
   );
 }

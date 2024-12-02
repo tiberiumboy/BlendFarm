@@ -14,13 +14,13 @@ pub async fn create_job(
     output: PathBuf,
     version: Version,
     mode: Mode,
-    // info: CreateJobRequest, // this code is complaining that it's missing required key info?
 ) -> Result<Job, Error> {
+    println!("{version:?}");
     let file_path = file_path;
     let output = output;
     let project_file =
-        ProjectFile::new(file_path).map_err(|e| Error::AssetNotFound(e.to_string()))?;
-    let job = Job::new(project_file, output, version, mode);
+        ProjectFile::new(file_path, version).map_err(|e| Error::AssetNotFound(e.to_string()))?;
+    let job = Job::new(project_file, output, mode);
     let mut server = state.lock().await;
     server.jobs.push(job.clone());
 

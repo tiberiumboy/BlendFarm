@@ -35,6 +35,7 @@ use blender::models::status::Status;
 use blender::{manager::Manager as BlenderManager, models::args::Args};
 use clap::Parser;
 use models::app_state::AppState;
+use models::computer_spec::{self, ComputerSpec};
 use models::message::{Command, NetEvent};
 use models::network::{Host, NetworkService};
 use models::server_setting::ServerSetting;
@@ -117,6 +118,9 @@ pub async fn run() {
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
 
+    let comp_spec = ComputerSpec::default();
+    dbg!(comp_spec);
+
     let cli = Cli::parse();
 
     // Just realize that libp2p mdns won't run offline mode?
@@ -138,6 +142,7 @@ pub async fn run() {
                             // TODO: It would be nice to check and see if there's any jobs currently running, otherwise put it in a poll?
                             let project_file = job.project_file;
                             let version: &Version = project_file.as_ref();
+                            println!("{version:?}");
                             let blender = manager.fetch_blender(version).expect("Should have blender installed?");
                             let file_path: &Path = project_file.as_ref();
                             let args = Args::new(file_path, job.output, job.mode);

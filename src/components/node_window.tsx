@@ -14,7 +14,6 @@ export default function NodeWindow() {
     if (!tmp.includes(id)) {
       tmp.push(id);
     }
-    console.log("Node connected", tmp);
     setNodes(tmp);
   });
 

@@ -134,8 +134,6 @@ pub async fn import_blend(
         frame: 1,
     };
 
-    println!("Blend info: {:?}", &info);
-
     let data = serde_json::to_string(&info).unwrap();
     Ok(data)
 }

@@ -32,12 +32,12 @@ pub type Port = u16;
 pub struct NetEventLoop {
     swarm: Swarm<BlendFarmBehaviour>,
     cmd_recv: Receiver<Command>,
-    event_sender: Sender<NetEvent>,
+    // event_sender: Sender<NetEvent>,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
-    pending_start_receiving: HashMap<kad::QueryId, oneshot::Sender<()>>,
-    pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
-    pending_request_file:
-        HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
+    // pending_start_receiving: HashMap<kad::QueryId, oneshot::Sender<()>>,
+    // pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
+    // pending_request_file:
+    // HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
 }
 
 // TODO: finish implementation for this.
@@ -50,11 +50,11 @@ impl NetEventLoop {
         Self {
             swarm,
             cmd_recv,
-            event_sender,
+            // event_sender,
             pending_dial: Default::default(),
-            pending_start_receiving: Default::default(),
-            pending_get_providers: Default::default(),
-            pending_request_file: Default::default(),
+            // pending_start_receiving: Default::default(),
+            // pending_get_providers: Default::default(),
+            // pending_request_file: Default::default(),
         }
     }
 
@@ -128,6 +128,7 @@ impl Host {
                     NetEvent::Status(msg) => println!("Status: {msg:?}"),
                     NetEvent::NodeDiscovered(peer_id) => {
                         let handle = app_handle.read().unwrap();
+                        // How do I fetch for the computer information here?
                         handle.emit("node_discover", peer_id).unwrap();
                     },
                     NetEvent::NodeDisconnected(peer_id) => {
@@ -252,7 +253,7 @@ impl NetworkService {
                             // The idea here is that we received a new job from the host -
                             // we would need to upload blender to kad service and make it public available for DHT to access for other nodes to obtain
                             // then we send out notification to all of the node to start the job
-                            Command::StartJob(_) => todo!(),
+                            Command::StartJob(job) => NetEvent::Render(job).ser(),
                             // Send message to all other peer to stop the target job ID and remove from kad provider
                             Command::EndJob { .. } => todo!(),
                             // send status update
@@ -275,9 +276,9 @@ impl NetworkService {
                     event = swarm.select_next_some() => match event {
                         SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                             for (peer_id, .. ) in list {
-                                println!("mDNS discovered a new peer: {}", &peer_id);
                                 swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
 
+                                // TODO: Get the computer information and send it to the connector.
                                 // send a message back to the Ui confirming we discover a node (Use this to populate UI element on the front end facing app)
                                 if let Err(e) = tx_recv.send(NetEvent::NodeDiscovered(peer_id.to_string())).await {
                                     println!("Error sending node discovered signal to UI{e:?}");
