@@ -1,5 +1,6 @@
 use machine_info::Machine;
 use serde::{Deserialize, Serialize};
+use std::env::consts;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ComputerSpec {
@@ -26,8 +27,8 @@ impl Default for ComputerSpec {
 
         Self {
             host: host.to_owned(),
-            os: env::consts::OS.to_owned(),
-            arch: env::consts::ARCH.to_owned(),
+            os: consts::OS.to_owned(),
+            arch: consts::ARCH.to_owned(),
             memory: memory.to_owned(),
             gpu: gpu.to_owned(),
             cpu: format!(
