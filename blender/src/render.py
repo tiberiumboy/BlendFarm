@@ -9,8 +9,6 @@
 # It may cause artifacts and inaccuracies. And a newer (or perhaps even older) version of blender may have this fixed.
 # Currently enabled by default because 2.91.0 has this issue.
 
-
-
 #Start
 import bpy # type: ignore
 import sys
@@ -19,6 +17,7 @@ import time
 from multiprocessing import cpu_count
 
 isPre3 = bpy.app.version < (3,0,0);
+isPreEeveeNext = bpy.app.version < (4, 2, 0);
 
 if(isPre3):
     print('Detected Blender >= 3.0.0\n');
@@ -216,9 +215,14 @@ def renderWithSettings(renderSettings, id, path):
         if fps is not None and fps > 0:
             scn.render.fps = fps;
 
+        # blender uses the new BLENDER_EEVEE_NEXT enum for blender4.2 and above.
         if(engine == 1): #Eevee
-            print("Using EEVEE");
-            scn.render.engine = "BLENDER_EEVEE";
+            if(isPreEeveeNext):
+                print("Using EEVEE");
+                scn.render.engine = "BLENDER_EEVEE";
+            else:
+                print("Using EEVEE_NEXT");
+                scn.render.engine = "BLENDER_EEVEE_NEXT";
         else:
             scn.render.engine = "CYCLES";
 

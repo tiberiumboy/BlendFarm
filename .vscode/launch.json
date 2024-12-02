@@ -5,22 +5,30 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "dbg Dev client",
             "type": "lldb",
             "request": "launch",
-            "name": "dbg Dev",
+            "program": "${workspaceRoot}/target/debug/blendfarm",
             "args": [
-                "build",
-                "--manifest-path=./src-tauri/Cargo.toml",
-                "--no-default-features"
+                // "build",
+                // "--manifest-path=./src-tauri/Cargo.toml",
+                // "--no-default-features"
+                "--client",
+                "true"
             ],
-            "preLaunchTask": "ui:dev"
+            "cwd": "${workspaceRoot}",
+            // "preLaunchTask": "ui:dev"
         },
         {
             "type": "lldb",
             "request": "launch",
             "name": "Tauri Production Debug",
-            "cargo" : {
-                "args": ["build", "--release", "--manifest-path=./src-tauri/Cargo.toml"]
+            "cargo": {
+                "args": [
+                    "build",
+                    "--release",
+                    "--manifest-path=./src-tauri/Cargo.toml"
+                ]
             },
             "preLaunchTask": "ui:build"
         }

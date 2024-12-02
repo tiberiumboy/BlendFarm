@@ -138,7 +138,6 @@ pub async fn run() {
                             // TODO: It would be nice to check and see if there's any jobs currently running, otherwise put it in a poll?
                             let project_file = job.project_file;
                             let version: &Version = project_file.as_ref();
-                            println!("{version:?}");
                             let blender = manager.fetch_blender(version).expect("Should have blender installed?");
                             let file_path: &Path = project_file.as_ref();
                             let args = Args::new(file_path, job.output, job.mode);

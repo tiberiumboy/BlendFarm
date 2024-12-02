@@ -11,6 +11,8 @@ Currently, there is no error handling situation from blender side of things. If 
     This will eventually lead to a program crash because we couldn't parse the information we expect from stdout.
     Todo peek into stderr and see if
 
+- As of Blender 4.2 - they introduced BLENDER_EEVEE_NEXT as a replacement to BLENDER_EEVEE. Will need to make sure I pass in the correct enum for version 4.2 and above.
+
 
 Trial:
 - Try docker?
