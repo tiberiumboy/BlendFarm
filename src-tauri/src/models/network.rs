@@ -285,16 +285,16 @@ impl NetworkService {
 
                                 let comp_spec = ComputerSpec::default();
 
-                                // todo send notification out to network about this computer identity.
-                                if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), NetEvent::Identity{peer_id: peer_id.to_string(), comp_spec}.ser()) {
-                                    println!("Fail to send computer identity! {e:?}");
-                                };
-
                                 // TODO: Get the computer information and send it to the connector.
                                 // send a message back to the Ui confirming we discover a node (Use this to populate UI element on the front end facing app)
                                 if let Err(e) = tx_recv.send(NetEvent::NodeDiscovered(peer_id.to_string())).await {
                                     println!("Error sending node discovered signal to UI{e:?}");
                                 }
+
+                                // todo send notification out to network about this computer identity.
+                                if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), NetEvent::Identity{peer_id: peer_id.to_string(), comp_spec}.ser()) {
+                                    println!("Fail to send computer identity! {e:?}");
+                                };
                             }
                         }
                         SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
