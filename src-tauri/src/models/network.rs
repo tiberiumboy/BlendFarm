@@ -2,7 +2,7 @@ use super::behaviour::BlendFarmBehaviour;
 use super::computer_spec::ComputerSpec;
 use super::message::{NetCommand, NetEvent, NetworkError};
 use crate::models::behaviour::BlendFarmBehaviourEvent;
-use libp2p::futures::{channel::oneshot, StreamExt};
+use libp2p::futures::StreamExt;
 use libp2p::{
     gossipsub::{self, IdentTopic},
     identity,
@@ -12,7 +12,6 @@ use libp2p::{
     swarm::{Swarm, SwarmEvent},
     tcp,
     Multiaddr,
-    PeerId,
     SwarmBuilder,
 };
 use std::collections::hash_map::DefaultHasher;
@@ -40,7 +39,6 @@ pub struct NetworkService {
     pub command_receiver: Receiver<NetCommand>,
     // send network events
     event_sender: Sender<NetEvent>,
-
     // pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
     // pending_start_receiving: HashMap<kad::QueryId, oneshot::Sender<()>>,
     // pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
@@ -143,13 +141,24 @@ impl NetworkService {
 
     async fn handle_mdns(&mut self, event: mdns::Event) {
         match event {
-            mdns::Event::Discovered(list) => for (peer_id, ..) in list {
-                println!("Peer discovered {}", peer_id.to_string());
-            },
-            mdns::Event::Expired(list) => for (peer_id, ..) in list {
-                println!("Peer disconnected {}", peer_id.to_string());
-            },
-            _ => {}
+            mdns::Event::Discovered(list) => {
+                for (peer_id, ..) in list {
+                    println!("Peer discovered {}", peer_id.to_string());
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .add_explicit_peer(&peer_id);
+                }
+            }
+            mdns::Event::Expired(list) => {
+                for (peer_id, ..) in list {
+                    println!("Peer disconnected {}", peer_id.to_string());
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .remove_explicit_peer(&peer_id);
+                }
+            } // _ => {}
         };
     }
 

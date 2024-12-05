@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use libp2p::{futures::channel::oneshot, request_response::ResponseChannel, PeerId};
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use thiserror::Error;
 use uuid::Uuid;
 

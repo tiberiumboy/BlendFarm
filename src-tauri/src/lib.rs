@@ -31,7 +31,7 @@ use crate::routes::settings::{
     add_blender_installation, fetch_blender_installation, get_server_settings,
     list_blender_installation, remove_blender_installation, set_server_settings,
 };
-use blender::{manager::Manager as BlenderManager, models::args::Args};
+use blender::manager::Manager as BlenderManager;
 use clap::Parser;
 use models::app_state::AppState;
 use models::message::{NetCommand, NetEvent};
@@ -67,8 +67,9 @@ struct DisplayApp {
 
 impl DisplayApp {
     pub async fn new() -> Self {
-        let (net_service, cmd_sender, event_receiver) = 
-            NetworkService::new().await.expect("Unable to create network service!");
+        let (net_service, cmd_sender, event_receiver) = NetworkService::new()
+            .await
+            .expect("Unable to create network service!");
         Self {
             cmd_sender,
             event_receiver,
@@ -129,29 +130,29 @@ impl DisplayApp {
     }
 
     // commands received from network
-    async fn handle_net_event(&mut self, event: NetEvent) {
+    async fn handle_net_event(&mut self, app_handle: &Arc<RwLock<AppHandle>>, event: NetEvent) {
         match event {
-            //     NetEvent::Render(job) => println!("Receive Job: {job:?}"),
-            //     NetEvent::Status(peer_id, msg) => println!("Status from {peer_id} : {msg:?}"),
-            //     NetEvent::NodeDiscovered(peer_id) => {
-            //         let handle = app_handle.read().unwrap();
-            //         handle.emit("node_discover", peer_id).unwrap();
-            //         self.to_network.send(NetCommand::SendIdentity).await;
-            //     }
-            //     NetEvent::NodeDisconnected(peer_id) => {
-            //         let handle = app_handle.read().unwrap();
-            //         handle.emit("node_disconnect", peer_id).unwrap();
-            //     }
-            //     NetEvent::Identity(peer_id, comp_spec) => {
-            //         let handle = app_handle.read().unwrap();
-            //         println!("Received node identity for id {peer_id} : {comp_spec:?}");
-            //         handle
-            //             .emit("node_identity", (peer_id, comp_spec))
-            //             .unwrap();
-            //     }
-            _ => println!("{:?}", event),
+            NetEvent::Render(job) => println!("Receive Job: {job:?}"),
+            NetEvent::Status(peer_id, msg) => println!("Status from {peer_id} : {msg:?}"),
+            NetEvent::NodeDiscovered(peer_id) => {
+                println!("Node Discovered {peer_id}");
+                let handle = app_handle.read().unwrap();
+                handle.emit("node_discover", peer_id).unwrap();
+                if let Err(e) = self.cmd_sender.send(NetCommand::SendIdentity).await {
+                    eprintln!("Fail to send command to network: {e:?}");
+                }
+            }
+            NetEvent::NodeDisconnected(peer_id) => {
+                println!("Node disconnected {peer_id}");
+                let handle = app_handle.read().unwrap();
+                handle.emit("node_disconnect", peer_id).unwrap();
+            }
+            NetEvent::Identity(peer_id, comp_spec) => {
+                let handle = app_handle.read().unwrap();
+                println!("Received node identity for id {peer_id} : {comp_spec:?}");
+                handle.emit("node_identity", (peer_id, comp_spec)).unwrap();
+            } // _ => println!("{:?}", event),
         }
-        println!("Receive net event: {event:?}");
     }
 
     pub async fn run(&mut self) {
@@ -166,7 +167,7 @@ impl DisplayApp {
             select! {
                 Some(msg) = from_ui.recv() => self.handle_ui_command(&app_handle, msg).await,
                 event = self.event_receiver.recv() => match event {
-                    Some(event) => self.handle_net_event(event).await,
+                    Some(event) => self.handle_net_event(&app_handle, event).await,
                     None => break,
                 }
             }
@@ -237,6 +238,27 @@ impl DisplayApp {
     // }
 }
 
+struct HeadlessClient {
+    cmd_sender: Sender<NetCommand>,
+    event_receiver: Receiver<NetEvent>,
+    net_service: NetworkService,
+}
+
+impl HeadlessClient {
+    pub async fn new() -> Self {
+        let (net_service, cmd_sender, event_receiver) = NetworkService::new()
+            .await
+            .expect("Fail to start network service!");
+        Self {
+            cmd_sender,
+            event_receiver,
+            net_service,
+        }
+    }
+
+    pub async fn run(&mut self) {}
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     let _ = tracing_subscriber::fmt()
@@ -244,8 +266,8 @@ pub async fn run() {
         .try_init();
 
     let cli = Cli::parse();
-
-    let (net_service, sender, mut receiver) = NetworkService::new()
+    // TODO: Handle this inside headlessclient implementation
+    let (mut net_service, _sender, _receiver) = NetworkService::new()
         .await
         .expect("Fail to start network service!");
 
@@ -257,8 +279,8 @@ pub async fn run() {
 
         // run as GUI mode.
         _ => {
-            let mut app = DisplayApp::new();
-            let _ = app.run().await;
+            let mut app = DisplayApp::new().await;
+            app.run().await;
         }
     };
 }
