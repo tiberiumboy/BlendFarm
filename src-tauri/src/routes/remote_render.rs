@@ -9,12 +9,11 @@ when you create a new job, it immediately sends a new job to the server farm
 for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
-use crate::models::message::Command;
+use crate::models::message::NetCommand;
 use crate::AppState;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use std::{fs::OpenOptions, io::Write, path::PathBuf};
+use std::path::PathBuf;
 use tauri::{command, State};
 use tokio::sync::Mutex;
 
@@ -53,6 +52,7 @@ pub struct BlenderInfo {
     // could also provide other info like Eevee or Cycle?
 }
 
+// TODO: For some reason when I load this, it crashes the program and restart?
 #[command(async)]
 pub async fn import_blend(
     state: State<'_, Mutex<AppState>>,
@@ -111,20 +111,25 @@ pub async fn import_blend(
     //     .create(true)
     //     .open("log.txt")
     //     .unwrap();
-    //
+
     // for obj in blend.instances_with_code(b"SC".to_owned()) {
+    //     // Under Scene - find Start Frame and End Frame value.
+    //     // TODO: Maybe provide other cool features? such as frame step?
+    //     // also get Render Data to pull in Resolution X and Resolution Y + FPS + Scale?
     //     let name = obj.get("id").get_string("name");
     //     debug_file
-    //         .write(format!("{name}: {obj:?}\n").as_bytes())
+    //         .write(format!("{name}: {obj:?} LINECARRIAGE").as_bytes())
     //         .unwrap();
-    //     // dbg!(obj);
-    //     // would be nice to write this file out to text file somehow?
     // }
     // debug_file.flush().unwrap();
 
     // take a look into kad?
     // Right here, using kad, we will create a new entry for the host provider to publish a file available to download from the network.
-    if let Err(e) = app_state.to_network.send(Command::Status(file_name)).await {
+    if let Err(e) = app_state
+        .to_network
+        .send(NetCommand::Status(file_name))
+        .await
+    {
         println!("Fail to send to network from application state {e:?}");
     }
 

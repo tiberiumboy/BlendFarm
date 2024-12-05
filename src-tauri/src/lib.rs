@@ -31,78 +31,27 @@ use crate::routes::settings::{
     add_blender_installation, fetch_blender_installation, get_server_settings,
     list_blender_installation, remove_blender_installation, set_server_settings,
 };
-use blender::models::status::Status;
 use blender::{manager::Manager as BlenderManager, models::args::Args};
 use clap::Parser;
 use models::app_state::AppState;
-use models::message::{Command, NetEvent};
-use models::network::{Host, NetworkService};
+use models::message::{NetCommand, NetEvent};
+use models::network::NetworkService;
 use models::server_setting::ServerSetting;
-use semver::Version;
-// use services::network_service::{Command, NetEvent, NetworkService};
-use std::path::Path;
 use std::sync::{Arc, RwLock};
-use tauri::{App, Manager};
+use tauri::{App, AppHandle, Emitter, Manager, RunEvent};
 use tokio::select;
 use tokio::sync::{
-    mpsc::{self, Sender},
+    mpsc::{self, Receiver, Sender},
     Mutex,
 };
 use tracing_subscriber::EnvFilter;
 
-//TODO: Create a miro diagram structure of how this application suppose to work
+// TODO: Create a miro diagram structure of how this application suppose to work
 // Need a mapping to explain how network should perform over intranet
 // Need a mapping to explain how blender manager is used and invoked for the job
 
 pub mod models;
 pub mod routes;
-
-// Create a builder to make Tauri application
-fn config_tauri_builder(to_network: Sender<Command>) -> App {
-    let server_settings = ServerSetting::load();
-
-    // I would like to find a better way to update or append data to render_nodes,
-    // "Do not communicate with shared memory"
-    let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_cli::init())
-        .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_persisted_scope::init())
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init())
-        .setup(|_| Ok(()));
-
-    let manager = Arc::new(RwLock::new(BlenderManager::load()));
-    let setting = Arc::new(RwLock::new(server_settings));
-
-    // here we're setting the sender command to app state before the builder.
-    let app_state = AppState {
-        manager,
-        to_network,
-        setting,
-        jobs: Vec::new(),
-    };
-
-    let mut_app_state = Mutex::new(app_state);
-
-    builder
-        .manage(mut_app_state)
-        .invoke_handler(tauri::generate_handler![
-            create_job,
-            delete_job,
-            list_jobs,
-            list_versions,
-            import_blend,
-            get_server_settings,
-            set_server_settings,
-            add_blender_installation,
-            list_blender_installation,
-            remove_blender_installation,
-            fetch_blender_installation,
-        ])
-        .build(tauri::generate_context!())
-        .expect("Unable to build tauri app!")
-}
 
 #[derive(Parser)]
 struct Cli {
@@ -110,7 +59,193 @@ struct Cli {
     client: Option<bool>,
 }
 
-// not sure why I'm getting a lint warning about the mobile macro? Need to bug the dev and see if this macro has changed.
+struct DisplayApp {
+    from_ui: Receiver<NetCommand>,
+    event_callback: Receiver<NetEvent>,
+    net_service: NetworkService,
+}
+
+impl DisplayApp {
+    pub fn new(
+        net_service: NetworkService,
+        event_callback: Receiver<NetEvent>,
+        buffer_size: usize,
+    ) -> (Self, Sender<NetCommand>) {
+        let (to_network, from_ui) = mpsc::channel::<NetCommand>(buffer_size);
+        (
+            Self {
+                from_ui,
+                event_callback,
+                net_service,
+            },
+            to_network,
+        )
+    }
+
+    // Create a builder to make Tauri application
+    fn config_tauri_builder(to_network: Sender<NetCommand>) -> App {
+        let server_settings = ServerSetting::load();
+
+        // I would like to find a better way to update or append data to render_nodes,
+        // "Do not communicate with shared memory"
+        let builder = tauri::Builder::default()
+            .plugin(tauri_plugin_cli::init())
+            .plugin(tauri_plugin_os::init())
+            .plugin(tauri_plugin_fs::init())
+            .plugin(tauri_plugin_persisted_scope::init())
+            .plugin(tauri_plugin_shell::init())
+            .plugin(tauri_plugin_dialog::init())
+            .setup(|_| Ok(()));
+
+        let manager = Arc::new(RwLock::new(BlenderManager::load()));
+        let setting = Arc::new(RwLock::new(server_settings));
+
+        // here we're setting the sender command to app state before the builder.
+        let app_state = AppState {
+            manager,
+            to_network,
+            setting,
+            jobs: Vec::new(),
+        };
+
+        let mut_app_state = Mutex::new(app_state);
+
+        builder
+            .manage(mut_app_state)
+            .invoke_handler(tauri::generate_handler![
+                create_job,
+                delete_job,
+                list_jobs,
+                list_versions,
+                import_blend,
+                get_server_settings,
+                set_server_settings,
+                add_blender_installation,
+                list_blender_installation,
+                remove_blender_installation,
+                fetch_blender_installation,
+            ])
+            .build(tauri::generate_context!())
+            .expect("Unable to build tauri app!")
+    }
+
+    async fn handle_ui_message(&mut self, _app_handle: &Arc<RwLock<AppHandle>>, cmd: NetCommand) {
+        println!("Received command: {cmd:?}");
+        if let Err(e) = self.to_network.send(cmd).await {
+            println!("Fail to send net service message: {e:?}");
+        }
+    }
+
+    async fn handle_net_message(&mut self, event: NetEvent) {
+        match event {
+            //     NetEvent::Render(job) => println!("Receive Job: {job:?}"),
+            //     NetEvent::Status(peer_id, msg) => println!("Status from {peer_id} : {msg:?}"),
+            //     NetEvent::NodeDiscovered(peer_id) => {
+            //         let handle = app_handle.read().unwrap();
+            //         handle.emit("node_discover", peer_id).unwrap();
+            //         self.to_network.send(NetCommand::SendIdentity).await;
+            //     }
+            //     NetEvent::NodeDisconnected(peer_id) => {
+            //         let handle = app_handle.read().unwrap();
+            //         handle.emit("node_disconnect", peer_id).unwrap();
+            //     }
+            //     NetEvent::Identity(peer_id, comp_spec) => {
+            //         let handle = app_handle.read().unwrap();
+            //         println!("Received node identity for id {peer_id} : {comp_spec:?}");
+            //         handle
+            //             .emit("node_identity", (peer_id, comp_spec))
+            //             .unwrap();
+            //     }
+            _ => println!("{:?}", event),
+        }
+        println!("Receive net event: {event:?}");
+    }
+
+    pub async fn run(&mut self) {
+        let (to_network, mut from_ui) = mpsc::channel(32);
+        let app = Self::config_tauri_builder(to_network);
+        let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
+
+        self.net_service.run().await;
+
+        loop {
+            select! {
+                Some(msg) = from_ui.recv() => self.handle_ui_message(&app_handle, msg).await,
+                event = self.event_callback.recv() => match event {
+                    Some(event) => self.handle_net_message(event).await,
+                    None => break,
+                }
+            }
+        }
+        // let _thread = tokio::spawn(async move {
+
+        // });
+
+        app.run(|_, event| match event {
+            RunEvent::Ready => {
+                // TODO: find a way to start receiving the client handle here instead?
+            }
+            // tauri::RunEvent::Exit => {
+            //     // There should be a call to notify all other peers the GUI is shutting down.
+            //     println!("Program exit!");
+            // }
+            RunEvent::ExitRequested { .. } => {
+                // sender.send(NetCommand::Shutdown); // instruct to shutdown loops
+            }
+            tauri::RunEvent::WindowEvent { .. } => {} // invokes when program moves, gain/lose focus
+            tauri::RunEvent::MainEventsCleared => {}  // this spam the console log.
+            _ => println!("Program event: {event:?}"),
+        });
+    }
+
+    //         NetEvent::Render(job) => {
+    //             // Here we'll check the job -
+    //             // TODO: It would be nice to check and see if there's any jobs currently running, otherwise put it in a poll?
+    //             let project_file = job.project_file;
+    //             let version: &Version = project_file.as_ref();
+    //             let blender = self
+    //                 .manager
+    //                 .fetch_blender(version)
+    //                 .expect("Should have blender installed?");
+    //             let file_path: &Path = project_file.as_ref();
+    //             let args = Args::new(file_path, job.output, job.mode);
+    //             let rx = blender.render(args);
+    // for this particular loop, let's extract this out to simplier function.
+    // loop {
+    //         if let Ok(msg) = rx.recv() {
+    //             let msg = match msg {
+    //                 Status::Idle => "Idle".to_owned(),
+    //                 Status::Running { status } => status,
+    //                 Status::Log { status } => status,
+    //                 Status::Warning { message } => message,
+    //                 Status::Error(err) => format!("{err:?}").to_owned(),
+    //                 Status::Completed { result } => {
+    //                     // we'll send the message back?
+    //                     // net_service
+    //                     // here we will state that the render is complete, and send a message to network service
+    //                     // TODO: Find a better way to not use the `.clone()` method.
+    //                     let msg = Command::FrameCompleted(
+    //                         result.clone(),
+    //                         job.current_frame,
+    //                     );
+    //                     let _ = net_service.send(msg).await;
+    //                     let path_str = &result.to_string_lossy();
+    //                     format!(
+    //                         "Finished job frame {} at {path_str}",
+    //                         job.current_frame
+    //                     )
+    //                     .to_owned()
+    //                     // here we'll send the job back to the peer who requested us the job initially.
+    //                     // net_service.swarm.behaviour_mut().gossipsub.publish( peer_id, )
+    //                 }
+    //             };
+    //             println!("[Status] {msg}");
+    //         }
+    //             // }
+    //         }
+    // }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     let _ = tracing_subscriber::fmt()
@@ -119,97 +254,20 @@ pub async fn run() {
 
     let cli = Cli::parse();
 
-    // Just realize that libp2p mdns won't run offline mode?
-    // TODO: Find a way to connect to local host itself regardless offline/online mode.
-    let mut net_service = NetworkService::new(60)
+    let (net_service, sender, mut receiver) = NetworkService::new()
         .await
-        .expect("Unable to start network service!");
+        .expect("Fail to start network service!");
 
     match cli.client {
+        // run as client mode.
         Some(true) => {
-            // TODO: Extract this into separate model
-            let mut manager = BlenderManager::load();
-            println!("Client is running");
-            loop {
-                select! {
-                    Some(msg) = net_service.rx_recv.recv() => match msg {
-                        NetEvent::Render(job) => {
-                            // Here we'll check the job -
-                            // TODO: It would be nice to check and see if there's any jobs currently running, otherwise put it in a poll?
-                            let project_file = job.project_file;
-                            let version: &Version = project_file.as_ref();
-                            let blender = manager.fetch_blender(version).expect("Should have blender installed?");
-                            let file_path: &Path = project_file.as_ref();
-                            let args = Args::new(file_path, job.output, job.mode);
-                            let rx = blender.render(args);
-
-                            loop {
-                                if let Ok(msg) = rx.recv() {
-                                        let msg = match msg {
-                                            Status::Idle => "Idle".to_owned(),
-                                            Status::Running { status } => status,
-                                            Status::Log { status } => status,
-                                            Status::Warning { message } => message,
-                                            Status::Error(err) => format!("{err:?}").to_owned(),
-                                            Status::Completed { result } => {
-                                                // we'll send the message back?
-                                                // net_service
-                                                // here we will state that the render is complete, and send a message to network service
-                                                // TODO: Find a better way to not use the `.clone()` method.
-                                                let msg = Command::FrameCompleted(result.clone(), job.current_frame);
-                                                let _ = net_service.send(msg).await;
-                                                let path_str = &result.to_string_lossy();
-                                                format!("Finished job frame {} at {path_str}", job.current_frame).to_owned()
-                                            },
-                                        };
-                                        println!("[Status] {msg}");
-                                    }
-
-                            }
-
-                        },
-                        NetEvent::Status(s) => println!("[Client] Status: {s}"),
-                        NetEvent::NodeDiscovered(peer_id) => println!("Node discovered!: {peer_id}"),
-                        // For some reason when we exit the application, this doesn't get called?
-                        NetEvent::NodeDisconnected(peer_id) => println!("Node disconnected!: {peer_id}"),
-                        NetEvent::Identity(comp_spec) => {
-                            println!("Node Identity received: {comp_spec:?}");
-                        }
-                    }
-                }
-            }
+            net_service.run().await;
         }
+
+        // run as GUI mode.
         _ => {
-            // channel is created to send the receiver to the builder
-            // the sender is then pass on to the network service and host loop event
-            let (to_network, from_ui) = mpsc::channel::<Command>(32);
-            let app = config_tauri_builder(to_network);
-
-            // So I think this is where I last left off from? Trying to simplify this loop process by pushing into a separate struct container
-            // I ran into a problem where I cannot move Receiver<Command> into the handler down below.
-            // To resolve this I was going to create a new struct object that holds the Receiver<Command> and then actively read it inside the loop while the app is running.
-
-            let mut host = Host::new(net_service, from_ui);
-            let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
-            // Problem here - I need to start capturing the data as soon as the app starts -
-            // but I cannot move host object because receiver does not implement clone copy(), cannot move the struct inside this closure?
-            let _thread = tokio::spawn(async move {
-                host.run(app_handle).await;
-            });
-
-            app.run(|_, event| match event {
-                tauri::RunEvent::Ready => {
-                    // TODO: find a way to start receiving the client handle here instead?
-                }
-                tauri::RunEvent::Exit => {
-                    // There should be a call to notify all other peers the GUI is shutting down.
-                    println!("Program exit!");
-                }
-                tauri::RunEvent::ExitRequested { .. } => {
-                    println!("Exit requested");
-                }
-                _ => {}
-            });
+            let app = DisplayApp::new(net_service, 32);
+            app.run().await;
         }
     };
 }

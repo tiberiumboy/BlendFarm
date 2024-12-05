@@ -8,6 +8,13 @@ use uuid::Uuid;
 
 use super::{computer_spec::ComputerSpec, job::Job};
 
+// TODO figure out what I was doing here?
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct FileRequest(String);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileResponse(Vec<u8>);
+
 #[derive(Debug, Error)]
 pub enum NetworkError {
     #[error("Not Connected")]
@@ -20,37 +27,37 @@ pub enum NetworkError {
     SendError(String),
 }
 
-// TODO: Extract this into separate file
+// Send commands to network.
 #[derive(Debug)]
-pub enum Command {
+pub enum NetCommand {
     StartJob(Job),
     FrameCompleted(PathBuf, i32),
-    EndJob {
-        job_id: Uuid,
-    },
+    EndJob { job_id: Uuid },
     Status(String),
-    RequestFile {
-        file_name: String,
-        peer: PeerId,
-        sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
-    },
-    RespondFile {
-        file: Vec<u8>,
-        channel: ResponseChannel<FileResponse>,
-    },
+    // RequestFile {
+    //     file_name: String,
+    //     peer: PeerId,
+    //     sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
+    // },
+    // RespondFile {
+    //     file: Vec<u8>,
+    //     channel: ResponseChannel<FileResponse>,
+    // },
+    SendIdentity,
+    Shutdown,
 }
 
-// TODO: Extract this into separate file
+// TODO: Received network events.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NetEvent {
-    Identity(ComputerSpec),
-    // Heartbeat() // share hardware statistic monitor heartbeat. (CPU/GPU/RAM usage realtime)
-    Render(Job),
-    // think I need to send this somewhere else.
-    // SendFile { file_name: String, data: Vec<u8> },
-    Status(String),
-    NodeDiscovered(String),
-    NodeDisconnected(String),
+    // Share basic computer configuration for sharing Blender compatible executable over the network. (To help speed up the installation over the network.)
+    Identity(String, ComputerSpec),
+    // TODO: Future impl. Use this to send computer activity
+    // Heartbeat() // share hardware statistic monitor heartbeat. (CPU/GPU/RAM activity readings)
+    Render(Job),              // Receive a new render job
+    Status(String, String), // Receive message status (To GUI?) Could I treat this like Chat messages?
+    NodeDiscovered(String), // On Node discover
+    NodeDisconnected(String), // On Node disconnected
 }
 
 // TODO: Learn about macro rules? This would be a great substitution for meta programming
@@ -63,9 +70,3 @@ impl NetEvent {
         bincode::deserialize(data)
     }
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct FileRequest(String);
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileResponse(Vec<u8>);

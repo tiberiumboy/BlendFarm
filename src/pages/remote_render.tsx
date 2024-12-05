@@ -58,12 +58,64 @@ function JobDetail(prop: { job: RenderJobProps | undefined }) {
   }
 }
 
-function JobCreationDialog(versions: string[], path: string, selectedVersion: string, jobCreated: (job: RenderJobProps) => void) {
+export interface RemoteRenderProps {
+  versions: string[];
+  jobs: RenderJobProps[];
+  onJobCreated(job: RenderJobProps): void;
+}
+
+const unlisten = await listen("version-update", (event) => {
+  console.log(event);
+})
+
+export default function RemoteRender(props: RemoteRenderProps) {
+  const [selectedJob, setSelectedJob] = useState<RenderJobProps>();
+  const [path, setPath] = useState<string>("");
+  const [version, setVersion] = useState<string>("");
   const [mode, setMode] = useState(components["frame"]());
-  const [version, setVersion] = useState(selectedVersion);
+
+  //#region Dialogs
+  async function showDialog() {
+    // Is there a way I could just reference this directly? Or just create a new component for this?
+    // TOOD: Invoke rust backend service to open dialog and then parse the blend file
+    // if the user cancel or unable to parse - return a message back to the front end explaining why
+    // Otherwise, display the info needed to re-populate the information.
+    const file_path = await open({
+      directory: false,
+      multiple: false,
+      filters: [
+        {
+          name: "Blender",
+          extensions: ["blend"],
+        },
+      ],
+    });
+
+    if (file_path == null) {
+      return;
+    }
+
+    invoke("import_blend", { path: file_path }).then((ctx) => {
+      if (ctx == null) {
+        return;
+      }
+
+      // TODO: For future impl. : We will try and read the file from the backend to extract information to show the user information about the blender
+      // then we will populate those data into the dialog form, allowing user what BlendFarm sees, making any last adjustment before creating a new job.
+      let data = JSON.parse(ctx as string);
+      setPath(file_path);
+      setVersion(data.blend_version);
+      openDialog();
+    })
+  }
+
+  function onJobSelected(job: RenderJobProps): void {
+    setSelectedJob(job);
+  }
 
   const handleSubmitJobForm = (e: React.FormEvent) => {
     e.preventDefault();
+
     // How do I structure this?
     const info = e.target as HTMLFormElement;
     const selectedMode = info.modes.value;
@@ -83,9 +135,15 @@ function JobCreationDialog(versions: string[], path: string, selectedVersion: st
       if (ctx == null) {
         return;
       }
-      jobCreated(ctx as RenderJobProps); // chances are it could be invalid data? todo; unit test this?
+      console.log("After create_job post", ctx);
+      props.onJobCreated(ctx as RenderJobProps);
     });
     closeDialog();
+  }
+
+  function openDialog() {
+    let dialog = document.getElementById("create_process") as HTMLDialogElement;
+    dialog?.showModal();
   }
 
   function closeDialog() {
@@ -130,121 +188,6 @@ function JobCreationDialog(versions: string[], path: string, selectedVersion: st
     }
   }
 
-  /*
-      Display this window with a list of available nodes to select from,
-      TODO: Test argument passing to rust and verify all system working as intended.
-  
-      once that is completed, it set forth a new queue instruction to all nodes.
-      Send the project file for each nodes available on the network.
-      Then, invoke blender with configurations (which frames) to the downloaded project file.
-      Once blender completed, transfer result image back to the server.
-      The host will display received image progress. 
-      Feature: It would be nice to stream render image input from any computer node. See their rendering progress.
-    */
-  return (
-    /**
-     * TODO: Change the process so that we instead ask the user to open the .blend file
-     * then with the backend service to parse the .blend file we can extract information 
-     * Once we get that info - we display the create_process dialog to display the information provided by the blend file.
-     */
-    <dialog id="create_process">
-      <form method="dialog" onSubmit={handleSubmitJobForm}>
-        <h1>Create new Render Job</h1>
-        <label>Project File Path:</label>
-        <input type="text" value={path} placeholder="Project path" id="file_path" name="file_path" readOnly={true} /*onClick={onFileSelect}*/ />
-        <br />
-        <label>Choose rendering mode</label>
-        <select name="modes" onChange={handleRenderModeChange}>
-          {Object.entries(components).map((item) => (
-            <option value={item[0]}>{item[0]}</option>
-          ))}
-        </select>
-        <br />
-        <label>Blender Version:</label>
-        {/* TODO: Set blender version from reading the file */}
-        <select value={version} onChange={(e) => setVersion(e.target.value)}>
-          {versions.map((item) => (
-            <option value={item}>{item}</option>
-          ))}
-        </select>
-        {mode}
-        <label>Output destination:</label>
-        <input
-          type="text"
-          placeholder="Output Path"
-          id="output"
-          name="output"
-          value={"/Users/Shared/"}
-          readOnly={true}
-          onClick={onDirectorySelect}
-        />
-        <menu>
-          <button type="button" value="cancel" onClick={closeDialog}>
-            Cancel
-          </button>
-          <button type="submit">Ok</button>
-        </menu>
-      </form>
-    </dialog >
-  );
-}
-
-export interface RemoteRenderProps {
-  versions: string[];
-  jobs: RenderJobProps[];
-  onJobCreated(job: RenderJobProps): void;
-}
-
-const unlisten = await listen("version-update", (event) => {
-  console.log(event);
-})
-
-export default function RemoteRender(props: RemoteRenderProps) {
-  const [selectedJob, setSelectedJob] = useState<RenderJobProps>();
-  const [path, setPath] = useState<string>("");
-  const [selectedVersion, setSelectedVersion] = useState<string>("");
-
-  //#region Dialogs
-  async function showDialog() {
-    // Is there a way I could just reference this directly? Or just create a new component for this?
-    // TOOD: Invoke rust backend service to open dialog and then parse the blend file
-    // if the user cancel or unable to parse - return a message back to the front end explaining why
-    // Otherwise, display the info needed to re-populate the information.
-    const file_path = await open({
-      directory: false,
-      multiple: false,
-      filters: [
-        {
-          name: "Blender",
-          extensions: ["blend"],
-        },
-      ],
-    });
-
-    if (file_path == null) {
-      return;
-    }
-
-    invoke("import_blend", { path: file_path }).then((ctx) => {
-      if (ctx == null) {
-        return;
-      }
-
-      // TODO: For future impl. : We will try and read the file from the backend to extract information to show the user information about the blender
-      // then we will populate those data into the dialog form, allowing user what BlendFarm sees, making any last adjustment before creating a new job.
-      let data = JSON.parse(ctx as string);
-      let dialog = document.getElementById("create_process") as HTMLDialogElement;
-      // TODO: How do I set the information in the create_process field?
-      setPath(file_path);
-      dialog?.showModal();
-      // also need to set the path in the create_process dialog.
-    })
-  }
-
-  function onJobSelected(job: RenderJobProps): void {
-    setSelectedJob(job);
-  }
-
   return (
     <div className="content">
       <h2>Remote Jobs</h2>
@@ -259,7 +202,42 @@ export default function RemoteRender(props: RemoteRenderProps) {
 
       <JobDetail job={selectedJob} />
 
-      {JobCreationDialog(props.versions, path, selectedVersion, props.onJobCreated)}
+      <dialog id="create_process">
+        <form method="dialog" onSubmit={handleSubmitJobForm}>
+          <h1>Create new Render Job</h1>
+          <label>Project File Path:</label>
+          <input type="text" value={path} placeholder="Project path" id="file_path" name="file_path" readOnly={true} />
+          <br />
+          <label>Choose rendering mode</label>
+          <select name="modes" onChange={handleRenderModeChange}>
+            {Object.entries(components).map((item) => (
+              <option value={item[0]}>{item[0]}</option>
+            ))}
+          </select>
+          <br />
+          <label>Blender Version:</label>
+          <select value={version} onChange={(e) => setVersion(e.target.value)}>
+            {props.versions.map((item) => (
+              <option value={item}>{item}</option>
+            ))}
+          </select>
+          {mode}
+          <label>Output destination:</label>
+          <input
+            type="text"
+            placeholder="Output Path"
+            id="output"
+            name="output"
+            value={"/Users/Shared/"}  // change this?
+            readOnly={true}
+            onClick={onDirectorySelect}
+          />
+          <menu>
+            <button type="button" value="cancel" onClick={closeDialog}>Cancel</button>
+            <button type="submit">Ok</button>
+          </menu>
+        </form>
+      </dialog>
     </div>
   );
 }

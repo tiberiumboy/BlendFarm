@@ -1,5 +1,5 @@
 use super::{job::Job, server_setting::ServerSetting};
-use crate::models::message::Command;
+use crate::models::message::NetCommand;
 use blender::manager::Manager as BlenderManager;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc::Sender;
@@ -12,7 +12,7 @@ pub struct AppState {
     // to keep things simple, we're going to run the network service separately than the main application, and find a way to invoke network command somehow elsewhere.
     // pub network: SafeLock<NetworkService>,
     pub manager: SafeLock<BlenderManager>,
-    pub to_network: Sender<Command>,
+    pub to_network: Sender<NetCommand>,
     pub setting: SafeLock<ServerSetting>,
     pub jobs: Vec<Job>,
 }
