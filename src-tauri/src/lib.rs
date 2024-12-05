@@ -60,26 +60,20 @@ struct Cli {
 }
 
 struct DisplayApp {
-    from_ui: Receiver<NetCommand>,
-    event_callback: Receiver<NetEvent>,
+    cmd_sender: Sender<NetCommand>,
+    event_receiver: Receiver<NetEvent>,
     net_service: NetworkService,
 }
 
 impl DisplayApp {
-    pub fn new(
-        net_service: NetworkService,
-        event_callback: Receiver<NetEvent>,
-        buffer_size: usize,
-    ) -> (Self, Sender<NetCommand>) {
-        let (to_network, from_ui) = mpsc::channel::<NetCommand>(buffer_size);
-        (
-            Self {
-                from_ui,
-                event_callback,
-                net_service,
-            },
-            to_network,
-        )
+    pub async fn new() -> Self {
+        let (net_service, cmd_sender, event_receiver) = 
+            NetworkService::new().await.expect("Unable to create network service!");
+        Self {
+            cmd_sender,
+            event_receiver,
+            net_service,
+        }
     }
 
     // Create a builder to make Tauri application
@@ -129,14 +123,13 @@ impl DisplayApp {
             .expect("Unable to build tauri app!")
     }
 
-    async fn handle_ui_message(&mut self, _app_handle: &Arc<RwLock<AppHandle>>, cmd: NetCommand) {
-        println!("Received command: {cmd:?}");
-        if let Err(e) = self.to_network.send(cmd).await {
-            println!("Fail to send net service message: {e:?}");
-        }
+    // command received from UI
+    async fn handle_ui_command(&mut self, _app_handle: &Arc<RwLock<AppHandle>>, cmd: NetCommand) {
+        println!("Received UI command: {cmd:?}");
     }
 
-    async fn handle_net_message(&mut self, event: NetEvent) {
+    // commands received from network
+    async fn handle_net_event(&mut self, event: NetEvent) {
         match event {
             //     NetEvent::Render(job) => println!("Receive Job: {job:?}"),
             //     NetEvent::Status(peer_id, msg) => println!("Status from {peer_id} : {msg:?}"),
@@ -163,6 +156,7 @@ impl DisplayApp {
 
     pub async fn run(&mut self) {
         let (to_network, mut from_ui) = mpsc::channel(32);
+        // we send the sender to the tauri builder - which will send commands to "from_ui".
         let app = Self::config_tauri_builder(to_network);
         let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
 
@@ -170,16 +164,13 @@ impl DisplayApp {
 
         loop {
             select! {
-                Some(msg) = from_ui.recv() => self.handle_ui_message(&app_handle, msg).await,
-                event = self.event_callback.recv() => match event {
-                    Some(event) => self.handle_net_message(event).await,
+                Some(msg) = from_ui.recv() => self.handle_ui_command(&app_handle, msg).await,
+                event = self.event_receiver.recv() => match event {
+                    Some(event) => self.handle_net_event(event).await,
                     None => break,
                 }
             }
         }
-        // let _thread = tokio::spawn(async move {
-
-        // });
 
         app.run(|_, event| match event {
             RunEvent::Ready => {
@@ -266,8 +257,8 @@ pub async fn run() {
 
         // run as GUI mode.
         _ => {
-            let app = DisplayApp::new(net_service, 32);
-            app.run().await;
+            let mut app = DisplayApp::new();
+            let _ = app.run().await;
         }
     };
 }

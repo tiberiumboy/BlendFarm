@@ -34,15 +34,18 @@ pub static TOPIC: LazyLock<IdentTopic> = LazyLock::new(|| IdentTopic::new("blend
 
 // this will help launch libp2p network. Should use QUIC whenever possible!
 pub struct NetworkService {
-    // Command is to send the signal to Network service what message to sent out
+    // swarm behaviour - interface to the network
     swarm: Swarm<BlendFarmBehaviour>,
-    command_receiver: Receiver<NetCommand>,
+    // receive Network command
+    pub command_receiver: Receiver<NetCommand>,
+    // send network events
     event_sender: Sender<NetEvent>,
-    //     // pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
-    //     // pending_start_receiving: HashMap<kad::QueryId, oneshot::Sender<()>>,
-    //     // pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
-    //     // pending_request_file:
-    //     //     HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
+
+    // pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
+    // pending_start_receiving: HashMap<kad::QueryId, oneshot::Sender<()>>,
+    // pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
+    // pending_request_file:
+    //     HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
 }
 
 impl NetworkService {
@@ -64,8 +67,8 @@ impl NetworkService {
             }
 
             // TODO: For Future impl. See how we can transfer the file using kad's behaviour (DHT)
-            NetCommand::RequestFile { .. } => todo!(),
-            NetCommand::RespondFile { .. } => todo!(),
+            // NetCommand::RequestFile { .. } => todo!(),
+            // NetCommand::RespondFile { .. } => todo!(),
             NetCommand::SendIdentity => {
                 let peer_id = self.swarm.local_peer_id().to_string();
                 NetEvent::Identity(peer_id, ComputerSpec::default()).ser()
@@ -140,8 +143,12 @@ impl NetworkService {
 
     async fn handle_mdns(&mut self, event: mdns::Event) {
         match event {
-            mdns::Event::Discovered(list) => for (peer_id, ..) in list {},
-            mdns::Event::Expired(list) => for (peer_id, ..) in list {},
+            mdns::Event::Discovered(list) => for (peer_id, ..) in list {
+                println!("Peer discovered {}", peer_id.to_string());
+            },
+            mdns::Event::Expired(list) => for (peer_id, ..) in list {
+                println!("Peer disconnected {}", peer_id.to_string());
+            },
             _ => {}
         };
     }
@@ -165,6 +172,10 @@ impl NetworkService {
         }
     }
 
+    // the tuples return three objects
+    // the NetworkService itself
+    // the sender command to send command to network service
+    // the receiver command from network services
     pub async fn new() -> Result<(Self, Sender<NetCommand>, Receiver<NetEvent>), NetworkError> {
         let duration = Duration::from_secs(u64::MAX);
         let id_keys = identity::Keypair::generate_ed25519();
@@ -245,8 +256,10 @@ impl NetworkService {
             eprintln!("Fail to dial swarm with random ID: {e:?}"); // I need to figure out what the error message here?
         }
 
-        let (command_sender, command_receiver) = mpsc::channel::<NetCommand>(32); // create a new channel with a capacity of at most 32 message max.
-        let (event_sender, event_receiver) = mpsc::channel::<NetEvent>(32); // create a new receiver from the network stack of at most 32 message max.
+        // the command sender is used for outside method to send command to the receiver signal
+        let (command_sender, command_receiver) = mpsc::channel::<NetCommand>(32);
+        // the event sender is used for inside this method to send the event receiver for outside method
+        let (event_sender, event_receiver) = mpsc::channel::<NetEvent>(32);
 
         Ok((
             Self {
@@ -269,5 +282,11 @@ impl NetworkService {
                 }
             }
         }
+    }
+}
+
+impl AsRef<Receiver<NetCommand>> for NetworkService {
+    fn as_ref(&self) -> &Receiver<NetCommand> {
+        &self.command_receiver
     }
 }
