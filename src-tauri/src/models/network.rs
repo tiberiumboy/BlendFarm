@@ -5,17 +5,11 @@ use crate::models::behaviour::BlendFarmBehaviourEvent;
 use libp2p::futures::StreamExt;
 use libp2p::{
     gossipsub::{self, IdentTopic},
-    identity,
-    kad,
-    mdns,
-    // request_response::OutboundRequestId,
+    identity, kad, mdns,
     swarm::{Swarm, SwarmEvent},
-    tcp,
-    Multiaddr,
-    SwarmBuilder,
+    tcp, Multiaddr, SwarmBuilder,
 };
 use std::collections::hash_map::DefaultHasher;
-// use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -39,11 +33,6 @@ pub struct NetworkService {
     pub command_receiver: Receiver<NetCommand>,
     // send network events
     event_sender: Sender<NetEvent>,
-    // pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
-    // pending_start_receiving: HashMap<kad::QueryId, oneshot::Sender<()>>,
-    // pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
-    // pending_request_file:
-    //     HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
 }
 
 impl NetworkService {

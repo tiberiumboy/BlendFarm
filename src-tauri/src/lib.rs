@@ -59,24 +59,9 @@ struct Cli {
     client: Option<bool>,
 }
 
-struct DisplayApp {
-    cmd_sender: Sender<NetCommand>,
-    event_receiver: Receiver<NetEvent>,
-    net_service: NetworkService,
-}
+struct DisplayApp {}
 
 impl DisplayApp {
-    pub async fn new() -> Self {
-        let (net_service, cmd_sender, event_receiver) = NetworkService::new()
-            .await
-            .expect("Unable to create network service!");
-        Self {
-            cmd_sender,
-            event_receiver,
-            net_service,
-        }
-    }
-
     // Create a builder to make Tauri application
     fn config_tauri_builder(to_network: Sender<NetCommand>) -> App {
         let server_settings = ServerSetting::load();
@@ -125,53 +110,66 @@ impl DisplayApp {
     }
 
     // command received from UI
-    async fn handle_ui_command(&mut self, _app_handle: &Arc<RwLock<AppHandle>>, cmd: NetCommand) {
+    async fn handle_ui_command(cmd: NetCommand) {
         println!("Received UI command: {cmd:?}");
     }
 
     // commands received from network
-    async fn handle_net_event(&mut self, app_handle: &Arc<RwLock<AppHandle>>, event: NetEvent) {
+    async fn handle_net_event(event: NetEvent) {
         match event {
             NetEvent::Render(job) => println!("Receive Job: {job:?}"),
             NetEvent::Status(peer_id, msg) => println!("Status from {peer_id} : {msg:?}"),
             NetEvent::NodeDiscovered(peer_id) => {
                 println!("Node Discovered {peer_id}");
-                let handle = app_handle.read().unwrap();
-                handle.emit("node_discover", peer_id).unwrap();
-                if let Err(e) = self.cmd_sender.send(NetCommand::SendIdentity).await {
-                    eprintln!("Fail to send command to network: {e:?}");
-                }
+                // let handle = app_handle.read().unwrap();
+                // handle.emit("node_discover", peer_id).unwrap();
+                // if let Err(e) = cmd_sender.send(NetCommand::SendIdentity).await {
+                //     eprintln!("Fail to send command to network: {e:?}");
+                // }
             }
             NetEvent::NodeDisconnected(peer_id) => {
                 println!("Node disconnected {peer_id}");
-                let handle = app_handle.read().unwrap();
-                handle.emit("node_disconnect", peer_id).unwrap();
+                // let handle = app_handle.read().unwrap();
+                // handle.emit("node_disconnect", peer_id).unwrap();
             }
             NetEvent::Identity(peer_id, comp_spec) => {
-                let handle = app_handle.read().unwrap();
                 println!("Received node identity for id {peer_id} : {comp_spec:?}");
-                handle.emit("node_identity", (peer_id, comp_spec)).unwrap();
+                // let handle = app_handle.read().unwrap();
+                // handle.emit("node_identity", (peer_id, comp_spec)).unwrap();
             } // _ => println!("{:?}", event),
         }
     }
 
-    pub async fn run(&mut self) {
+    async fn handle_net_command(cmd: NetCommand) {
+        todo!("handle incoming network commands {cmd:?}");
+    }
+
+    pub async fn run() {
+        // this channel is used to send command to the network, and receive network notification back.
         let (to_network, mut from_ui) = mpsc::channel(32);
+        // TODO: figure out how I can use this cmd_sender?
+        let (mut net_service, _cmd_sender, mut event_receiver) = NetworkService::new()
+            .await
+            .expect("Unable to create network service!");
+
         // we send the sender to the tauri builder - which will send commands to "from_ui".
         let app = Self::config_tauri_builder(to_network);
-        let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
 
-        self.net_service.run().await;
+        // let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
 
-        loop {
-            select! {
-                Some(msg) = from_ui.recv() => self.handle_ui_command(&app_handle, msg).await,
-                event = self.event_receiver.recv() => match event {
-                    Some(event) => self.handle_net_event(&app_handle, event).await,
-                    None => break,
+        let _task = tokio::spawn(async move {
+            let _ = net_service.run().await;
+            loop {
+                select! {
+
+                    Some(msg) = from_ui.recv() => Self::handle_ui_command(msg).await,
+                    event = event_receiver.recv() => match event {
+                        Some(event) => Self::handle_net_event(event).await,
+                        None => break,
+                    }
                 }
             }
-        }
+        });
 
         app.run(|_, event| match event {
             RunEvent::Ready => {
@@ -238,25 +236,17 @@ impl DisplayApp {
     // }
 }
 
-struct HeadlessClient {
-    cmd_sender: Sender<NetCommand>,
-    event_receiver: Receiver<NetEvent>,
-    net_service: NetworkService,
-}
+struct HeadlessClient {}
 
 impl HeadlessClient {
-    pub async fn new() -> Self {
-        let (net_service, cmd_sender, event_receiver) = NetworkService::new()
+    pub async fn run() {
+        // TODO: Handle this inside headlessclient implementation
+        let (mut net_service, _sender, _receiver) = NetworkService::new()
             .await
             .expect("Fail to start network service!");
-        Self {
-            cmd_sender,
-            event_receiver,
-            net_service,
-        }
-    }
 
-    pub async fn run(&mut self) {}
+        net_service.run().await;
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -266,21 +256,11 @@ pub async fn run() {
         .try_init();
 
     let cli = Cli::parse();
-    // TODO: Handle this inside headlessclient implementation
-    let (mut net_service, _sender, _receiver) = NetworkService::new()
-        .await
-        .expect("Fail to start network service!");
 
     match cli.client {
         // run as client mode.
-        Some(true) => {
-            net_service.run().await;
-        }
-
+        Some(true) => HeadlessClient::run().await,
         // run as GUI mode.
-        _ => {
-            let mut app = DisplayApp::new().await;
-            app.run().await;
-        }
+        _ => DisplayApp::run().await,
     };
 }
