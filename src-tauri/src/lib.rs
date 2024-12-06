@@ -35,7 +35,7 @@ use blender::manager::Manager as BlenderManager;
 use clap::Parser;
 use models::app_state::AppState;
 use models::message::{NetCommand, NetEvent};
-use models::network::{self, NetworkController, NetworkService};
+use models::network::{self, NetworkController};
 use models::server_setting::ServerSetting;
 use std::sync::{Arc, RwLock};
 use tauri::{App, RunEvent};

@@ -9,8 +9,12 @@ pub struct FileResponse(Vec<u8>);
 
 #[derive(NetworkBehaviour)]
 pub struct BlendFarmBehaviour {
+    // file transfer response protocol
     pub request_response: cbor::Behaviour<FileRequest, FileResponse>,
+    // Communication between peers to pepers
     pub gossipsub: gossipsub::Behaviour,
+    // self discovery network service
     pub mdns: mdns::tokio::Behaviour,
-    pub kad: kad::Behaviour<kad::store::MemoryStore>, // Ok so I need to figure out how this works? Figure out about TStore trait
+    // used to provide file availability
+    pub kad: kad::Behaviour<kad::store::MemoryStore>,
 }
