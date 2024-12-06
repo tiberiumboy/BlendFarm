@@ -24,9 +24,9 @@ pub enum ProjectFileError {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ProjectFile {
-    file_name: String,
+    pub file_name: String,
     blender_version: Version,
-    path: PathBuf,
+    pub path: PathBuf,
 }
 
 impl ProjectFile {
@@ -43,6 +43,10 @@ impl ProjectFile {
             Err(_) => Err(ProjectFileError::InvalidFileType),
         }
     }
+
+    pub fn get_file_name(&self) -> &str {
+        &self.file_name
+    }
 }
 
 impl AsRef<Path> for ProjectFile {
@@ -57,6 +61,13 @@ impl AsRef<Version> for ProjectFile {
     }
 }
 
+impl AsRef<str> for ProjectFile {
+    fn as_ref(&self) -> &str {
+        &self.file_name
+    }
+}
+
+// hmm
 impl FromStr for ProjectFile {
     type Err = ProjectFileError;
 

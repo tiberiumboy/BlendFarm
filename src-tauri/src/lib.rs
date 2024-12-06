@@ -35,13 +35,13 @@ use blender::manager::Manager as BlenderManager;
 use clap::Parser;
 use models::app_state::AppState;
 use models::message::{NetCommand, NetEvent};
-use models::network::NetworkService;
+use models::network::{Client, NetworkService};
 use models::server_setting::ServerSetting;
 use std::sync::{Arc, RwLock};
-use tauri::{App, AppHandle, Emitter, Manager, RunEvent};
+use tauri::{App, RunEvent};
 use tokio::select;
 use tokio::sync::{
-    mpsc::{self, Receiver, Sender},
+    mpsc::{self, Sender},
     Mutex,
 };
 use tracing_subscriber::EnvFilter;
@@ -110,22 +110,27 @@ impl DisplayApp {
     }
 
     // command received from UI
-    async fn handle_ui_command(cmd: NetCommand) {
-        println!("Received UI command: {cmd:?}");
+    async fn handle_ui_command(client: &mut Client, cmd: NetCommand) {
+        match cmd {
+            NetCommand::SendIdentity => client.share_computer_info().await,
+            NetCommand::StartJob(job) => {
+                // first make the file available on the network
+                let project_file = job.project_file;
+                let file_name = project_file.get_file_name().to_string();
+                client.start_providing(file_name).await;
+            }
+            _ => println!("Unhandled cmd! {cmd:?}"),
+        }
     }
 
     // commands received from network
-    async fn handle_net_event(event: NetEvent) {
+    async fn handle_net_event(client: &mut Client, event: NetEvent) {
         match event {
             NetEvent::Render(job) => println!("Receive Job: {job:?}"),
             NetEvent::Status(peer_id, msg) => println!("Status from {peer_id} : {msg:?}"),
             NetEvent::NodeDiscovered(peer_id) => {
                 println!("Node Discovered {peer_id}");
-                // let handle = app_handle.read().unwrap();
-                // handle.emit("node_discover", peer_id).unwrap();
-                // if let Err(e) = cmd_sender.send(NetCommand::SendIdentity).await {
-                //     eprintln!("Fail to send command to network: {e:?}");
-                // }
+                client.share_computer_info().await;
             }
             NetEvent::NodeDisconnected(peer_id) => {
                 println!("Node disconnected {peer_id}");
@@ -148,23 +153,21 @@ impl DisplayApp {
         // this channel is used to send command to the network, and receive network notification back.
         let (to_network, mut from_ui) = mpsc::channel(32);
         // TODO: figure out how I can use this cmd_sender?
-        let (mut net_service, _cmd_sender, mut event_receiver) = NetworkService::new()
+        let (mut net_service, mut client, mut event_receiver) = NetworkService::new()
             .await
             .expect("Unable to create network service!");
 
         // we send the sender to the tauri builder - which will send commands to "from_ui".
         let app = Self::config_tauri_builder(to_network);
-
-        // let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
+        // let client = Arc::new(RwLock::new(client));
 
         let _task = tokio::spawn(async move {
             let _ = net_service.run().await;
             loop {
                 select! {
-
-                    Some(msg) = from_ui.recv() => Self::handle_ui_command(msg).await,
+                    Some(msg) = from_ui.recv() => Self::handle_ui_command(&mut client, msg).await,
                     event = event_receiver.recv() => match event {
-                        Some(event) => Self::handle_net_event(event).await,
+                        Some(event) => Self::handle_net_event(&mut client, event).await,
                         None => break,
                     }
                 }

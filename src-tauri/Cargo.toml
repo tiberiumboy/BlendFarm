@@ -34,8 +34,8 @@ libp2p = { version = "^0.54", features = [
     "tls",
     "quic",
     "kad",
-    "request-response",
 ] }
+libp2p-request-response = { version = "^0.27", features = ["cbor"] }
 bincode = "1.3.3"
 dirs = "5.0.1"
 pnet = "^0.35"

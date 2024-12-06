@@ -1,17 +1,15 @@
 use std::path::PathBuf;
+use std::{collections::HashSet, error::Error};
 
+use futures::channel::oneshot;
+use libp2p::PeerId;
+use libp2p_request_response::ResponseChannel;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
+use super::behaviour::FileResponse;
 use super::{computer_spec::ComputerSpec, job::Job};
-
-// TODO figure out what I was doing here?
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct FileRequest(String);
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileResponse(Vec<u8>);
 
 #[derive(Debug, Error)]
 pub enum NetworkError {
@@ -30,17 +28,28 @@ pub enum NetworkError {
 pub enum NetCommand {
     StartJob(Job),
     FrameCompleted(PathBuf, i32),
-    EndJob { job_id: Uuid },
+    EndJob {
+        job_id: Uuid,
+    },
     Status(String),
-    // RequestFile {
-    //     file_name: String,
-    //     peer: PeerId,
-    //     sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
-    // },
-    // RespondFile {
-    //     file: Vec<u8>,
-    //     channel: ResponseChannel<FileResponse>,
-    // },
+    // this sends a notification to the network to make this file available to fetch.
+    RequestFile {
+        file_name: String,
+        peer: PeerId,
+        sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
+    },
+    RespondFile {
+        file: Vec<u8>,
+        channel: ResponseChannel<FileResponse>,
+    },
+    StartProviding {
+        file_name: String,
+        sender: oneshot::Sender<NetEvent>,
+    },
+    GetProviders {
+        file_name: String,
+        sender: oneshot::Sender<HashSet<PeerId>>,
+    },
     SendIdentity,
     Shutdown,
 }

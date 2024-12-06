@@ -1,4 +1,5 @@
 use blender::models::mode::Mode;
+use futures::channel::oneshot;
 use semver::Version;
 use std::path::PathBuf;
 use tauri::{command, Error, State};
@@ -12,19 +13,26 @@ use crate::models::{
 #[command(async)]
 pub async fn create_job(
     state: State<'_, Mutex<AppState>>,
-    file_path: PathBuf,
+    project_file: ProjectFile,
     output: PathBuf,
-    version: Version,
     mode: Mode,
 ) -> Result<Job, Error> {
-    println!("{version:?}");
-    let file_path = file_path;
-    let output = output;
-    let project_file =
-        ProjectFile::new(file_path, version).map_err(|e| Error::AssetNotFound(e.to_string()))?;
+    let file_name = project_file.get_file_name().to_string();
     let job = Job::new(project_file, output, mode);
     let mut server = state.lock().await;
     server.jobs.push(job.clone());
+
+    let (sender, receiver) = oneshot::channel();
+
+    // upload the file to file share services
+    if let Err(e) = server
+        .to_network
+        .send(NetCommand::StartProviding { file_name, sender })
+        .await
+    {
+        eprintln!("Fail to upload file! {e:?}");
+    }
+    receiver.await.expect("Sender should not be dropped!");
 
     // send job to server
     if let Err(e) = server
@@ -33,10 +41,8 @@ pub async fn create_job(
         .await
     {
         println!("Fail to send job to the server! \n{e:?}");
-    }
+    };
 
-    // TODO: Impl a way to send the files to the rendering nodes.
-    // _server.send_job(job.clone());
     Ok(job)
 }
 

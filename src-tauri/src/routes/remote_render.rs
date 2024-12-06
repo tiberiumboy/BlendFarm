@@ -47,6 +47,8 @@ pub async fn list_versions(state: State<'_, Mutex<AppState>>) -> Result<String, 
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BlenderInfo {
+    file_name: String,
+    path: PathBuf,
     blend_version: Version,
     frame: i32,
     // could also provide other info like Eevee or Cycle?
@@ -123,18 +125,10 @@ pub async fn import_blend(
     // }
     // debug_file.flush().unwrap();
 
-    // take a look into kad?
-    // Right here, using kad, we will create a new entry for the host provider to publish a file available to download from the network.
-    if let Err(e) = app_state
-        .to_network
-        .send(NetCommand::Status(file_name))
-        .await
-    {
-        println!("Fail to send to network from application state {e:?}");
-    }
-
     // Here I'd like to know how I can extract information from the blend file such as Eevee/Cycle usage, Frame start and End.
     let info = BlenderInfo {
+        file_name,
+        path,
         blend_version,
         frame: 1,
     };
