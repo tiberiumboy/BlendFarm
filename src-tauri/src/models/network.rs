@@ -28,12 +28,126 @@ Includes mDNS ()
 
 pub static TOPIC: LazyLock<IdentTopic> = LazyLock::new(|| IdentTopic::new("blendfarm-rpc-msg"));
 
+// the tuples return three objects
+// the NetworkService holds the network loop operation
+// the Network Controller to send command to network service
+// the receiver command from network services
+pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEvent>), NetworkError>
+{
+    let duration = Duration::from_secs(u64::MAX);
+    let id_keys = identity::Keypair::generate_ed25519();
+    let tcp_config: tcp::Config = tcp::Config::default();
+
+    let mut swarm = SwarmBuilder::with_new_identity()
+        .with_tokio()
+        .with_tcp(
+            tcp_config,
+            libp2p::tls::Config::new,
+            libp2p::yamux::Config::default,
+        )
+        .expect("Should be able to build with tcp configuration?")
+        .with_quic()
+        .with_behaviour(|key| {
+            let message_id_fn = |message: &gossipsub::Message| {
+                let mut s = DefaultHasher::new();
+                message.data.hash(&mut s);
+                gossipsub::MessageId::from(s.finish().to_string())
+            };
+
+            let gossipsub_config = gossipsub::ConfigBuilder::default()
+                .heartbeat_interval(Duration::from_secs(10))
+                .validation_mode(gossipsub::ValidationMode::Strict)
+                .message_id_fn(message_id_fn)
+                .build()
+                .map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))?;
+
+            let gossipsub = gossipsub::Behaviour::new(
+                gossipsub::MessageAuthenticity::Signed(key.clone()),
+                gossipsub_config,
+            )
+            .expect("Fail to create gossipsub behaviour");
+
+            let mdns =
+                mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())
+                    .expect("Fail to create mdns behaviour!");
+
+            /*
+                Used as a DHT - can be a provider or a client.
+                TODO: Future Impl. need to read the documentation for more information about kademline implementation. (It acts like bitTorrent)
+                    We will be using this for file transfer for both blend files, blender version, and render image result.
+                    For now we're going to use
+            */
+            let kad = kad::Behaviour::new(
+                key.public().to_peer_id(),
+                kad::store::MemoryStore::new(key.public().to_peer_id()),
+            );
+
+            let rr_config = libp2p_request_response::Config::default();
+            let protocol = [(
+                StreamProtocol::new("/file-exchange/1"),
+                ProtocolSupport::Full,
+            )];
+            let request_response = libp2p_request_response::Behaviour::new(protocol, rr_config);
+
+            Ok(BlendFarmBehaviour {
+                request_response,
+                gossipsub,
+                mdns,
+                kad,
+            })
+        })
+        .expect("Expect to build behaviour")
+        .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
+        .build();
+
+    // should move this?
+    if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&TOPIC) {
+        println!("Fail to subscribe topic! {e:?}");
+    };
+
+    // TODO: Find a way to fetch user configuration. Refactor this when possible.
+    let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
+        .parse()
+        .expect("Must be valid multiaddr");
+
+    let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
+        .parse()
+        .expect("Must be valid multiaddr");
+
+    swarm.listen_on(tcp).expect("Fail to listen on TCP");
+    swarm.listen_on(udp.clone()).expect("Fail to listen on UDP");
+
+    if let Err(e) = swarm.dial(id_keys.public().to_peer_id()) {
+        eprintln!("Fail to dial swarm with random ID: {e:?}"); // I need to figure out what the error message here?
+    }
+
+    // the command sender is used for outside method to send message commands to network queue
+    let (command_sender, command_receiver) = mpsc::channel::<NetCommand>(32);
+    // the event sender is used to handle incoming network message. E.g. RunJob
+    let (event_sender, event_receiver) = mpsc::channel::<NetEvent>(32);
+
+    Ok((
+        NetworkService {
+            swarm,
+            command_receiver,
+            event_sender,
+            pending_get_providers: Default::default(),
+            pending_start_providing: Default::default(),
+            pending_request_file: Default::default(),
+        },
+        NetworkController {
+            sender: command_sender,
+        },
+        event_receiver,
+    ))
+}
+
 #[derive(Clone)]
-pub struct Client {
+pub struct NetworkController {
     sender: mpsc::Sender<NetCommand>,
 }
 
-impl Client {
+impl NetworkController {
     pub async fn share_computer_info(&mut self) {
         self.sender
             .send(NetCommand::SendIdentity)
@@ -308,119 +422,6 @@ impl NetworkService {
             } => {}
             _ => {}
         }
-    }
-
-    // the tuples return three objects
-    // the NetworkService itself
-    // the sender command to send command to network service
-    // the receiver command from network services
-    pub async fn new() -> Result<(Self, Client, Receiver<NetEvent>), NetworkError> {
-        let duration = Duration::from_secs(u64::MAX);
-        let id_keys = identity::Keypair::generate_ed25519();
-        let tcp_config: tcp::Config = tcp::Config::default();
-
-        let mut swarm = SwarmBuilder::with_new_identity()
-            .with_tokio()
-            .with_tcp(
-                tcp_config,
-                libp2p::tls::Config::new,
-                libp2p::yamux::Config::default,
-            )
-            .expect("Should be able to build with tcp configuration?")
-            .with_quic()
-            .with_behaviour(|key| {
-                let message_id_fn = |message: &gossipsub::Message| {
-                    let mut s = DefaultHasher::new();
-                    message.data.hash(&mut s);
-                    gossipsub::MessageId::from(s.finish().to_string())
-                };
-
-                let gossipsub_config = gossipsub::ConfigBuilder::default()
-                    .heartbeat_interval(Duration::from_secs(10))
-                    .validation_mode(gossipsub::ValidationMode::Strict)
-                    .message_id_fn(message_id_fn)
-                    .build()
-                    .map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))?;
-
-                let gossipsub = gossipsub::Behaviour::new(
-                    gossipsub::MessageAuthenticity::Signed(key.clone()),
-                    gossipsub_config,
-                )
-                .expect("Fail to create gossipsub behaviour");
-
-                let mdns =
-                    mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())
-                        .expect("Fail to create mdns behaviour!");
-
-                /*
-                    Used as a DHT - can be a provider or a client.
-                    TODO: Future Impl. need to read the documentation for more information about kademline implementation. (It acts like bitTorrent)
-                        We will be using this for file transfer for both blend files, blender version, and render image result.
-                        For now we're going to use
-                */
-                let kad = kad::Behaviour::new(
-                    key.public().to_peer_id(),
-                    kad::store::MemoryStore::new(key.public().to_peer_id()),
-                );
-
-                let rr_config = libp2p_request_response::Config::default();
-                let protocol = [(
-                    StreamProtocol::new("/file-exchange/1"),
-                    ProtocolSupport::Full,
-                )];
-                let request_response = libp2p_request_response::Behaviour::new(protocol, rr_config);
-
-                Ok(BlendFarmBehaviour {
-                    request_response,
-                    gossipsub,
-                    mdns,
-                    kad,
-                })
-            })
-            .expect("Expect to build behaviour")
-            .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
-            .build();
-
-        // should move this?
-        if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&TOPIC) {
-            println!("Fail to subscribe topic! {e:?}");
-        };
-
-        // TODO: Find a way to fetch user configuration. Refactor this when possible.
-        let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
-            .parse()
-            .expect("Must be valid multiaddr");
-
-        let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
-            .parse()
-            .expect("Must be valid multiaddr");
-
-        swarm.listen_on(tcp).expect("Fail to listen on TCP");
-        swarm.listen_on(udp.clone()).expect("Fail to listen on UDP");
-
-        if let Err(e) = swarm.dial(id_keys.public().to_peer_id()) {
-            eprintln!("Fail to dial swarm with random ID: {e:?}"); // I need to figure out what the error message here?
-        }
-
-        // the command sender is used for outside method to send message commands to network queue
-        let (command_sender, command_receiver) = mpsc::channel::<NetCommand>(32);
-        // the event sender is used to handle incoming network message. E.g. RunJob
-        let (event_sender, event_receiver) = mpsc::channel::<NetEvent>(32);
-
-        Ok((
-            Self {
-                swarm,
-                command_receiver,
-                event_sender,
-                pending_get_providers: Default::default(),
-                pending_start_providing: Default::default(),
-                pending_request_file: Default::default(),
-            },
-            Client {
-                sender: command_sender,
-            },
-            event_receiver,
-        ))
     }
 
     pub async fn run(&mut self) {

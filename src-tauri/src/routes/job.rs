@@ -1,6 +1,5 @@
 use blender::models::mode::Mode;
 use futures::channel::oneshot;
-use semver::Version;
 use std::path::PathBuf;
 use tauri::{command, Error, State};
 use tokio::sync::Mutex;

@@ -35,7 +35,7 @@ use blender::manager::Manager as BlenderManager;
 use clap::Parser;
 use models::app_state::AppState;
 use models::message::{NetCommand, NetEvent};
-use models::network::{Client, NetworkService};
+use models::network::{self, NetworkController, NetworkService};
 use models::server_setting::ServerSetting;
 use std::sync::{Arc, RwLock};
 use tauri::{App, RunEvent};
@@ -110,7 +110,7 @@ impl DisplayApp {
     }
 
     // command received from UI
-    async fn handle_ui_command(client: &mut Client, cmd: NetCommand) {
+    async fn handle_ui_command(client: &mut NetworkController, cmd: NetCommand) {
         match cmd {
             NetCommand::SendIdentity => client.share_computer_info().await,
             NetCommand::StartJob(job) => {
@@ -121,74 +121,6 @@ impl DisplayApp {
             }
             _ => println!("Unhandled cmd! {cmd:?}"),
         }
-    }
-
-    // commands received from network
-    async fn handle_net_event(client: &mut Client, event: NetEvent) {
-        match event {
-            NetEvent::Render(job) => println!("Receive Job: {job:?}"),
-            NetEvent::Status(peer_id, msg) => println!("Status from {peer_id} : {msg:?}"),
-            NetEvent::NodeDiscovered(peer_id) => {
-                println!("Node Discovered {peer_id}");
-                client.share_computer_info().await;
-            }
-            NetEvent::NodeDisconnected(peer_id) => {
-                println!("Node disconnected {peer_id}");
-                // let handle = app_handle.read().unwrap();
-                // handle.emit("node_disconnect", peer_id).unwrap();
-            }
-            NetEvent::Identity(peer_id, comp_spec) => {
-                println!("Received node identity for id {peer_id} : {comp_spec:?}");
-                // let handle = app_handle.read().unwrap();
-                // handle.emit("node_identity", (peer_id, comp_spec)).unwrap();
-            } // _ => println!("{:?}", event),
-        }
-    }
-
-    async fn handle_net_command(cmd: NetCommand) {
-        todo!("handle incoming network commands {cmd:?}");
-    }
-
-    pub async fn run() {
-        // this channel is used to send command to the network, and receive network notification back.
-        let (to_network, mut from_ui) = mpsc::channel(32);
-        // TODO: figure out how I can use this cmd_sender?
-        let (mut net_service, mut client, mut event_receiver) = NetworkService::new()
-            .await
-            .expect("Unable to create network service!");
-
-        // we send the sender to the tauri builder - which will send commands to "from_ui".
-        let app = Self::config_tauri_builder(to_network);
-        // let client = Arc::new(RwLock::new(client));
-
-        let _task = tokio::spawn(async move {
-            let _ = net_service.run().await;
-            loop {
-                select! {
-                    Some(msg) = from_ui.recv() => Self::handle_ui_command(&mut client, msg).await,
-                    event = event_receiver.recv() => match event {
-                        Some(event) => Self::handle_net_event(&mut client, event).await,
-                        None => break,
-                    }
-                }
-            }
-        });
-
-        app.run(|_, event| match event {
-            RunEvent::Ready => {
-                // TODO: find a way to start receiving the client handle here instead?
-            }
-            // tauri::RunEvent::Exit => {
-            //     // There should be a call to notify all other peers the GUI is shutting down.
-            //     println!("Program exit!");
-            // }
-            RunEvent::ExitRequested { .. } => {
-                // sender.send(NetCommand::Shutdown); // instruct to shutdown loops
-            }
-            tauri::RunEvent::WindowEvent { .. } => {} // invokes when program moves, gain/lose focus
-            tauri::RunEvent::MainEventsCleared => {}  // this spam the console log.
-            _ => println!("Program event: {event:?}"),
-        });
     }
 
     //         NetEvent::Render(job) => {
@@ -237,18 +169,102 @@ impl DisplayApp {
     //             // }
     //         }
     // }
+
+    // commands received from network
+    async fn handle_net_event(client: &mut NetworkController, event: NetEvent) {
+        match event {
+            NetEvent::Render(job) => println!("Receive Job: {job:?}"),
+            NetEvent::Status(peer_id, msg) => println!("Status from {peer_id} : {msg:?}"),
+            NetEvent::NodeDiscovered(peer_id) => {
+                println!("Node Discovered {peer_id}");
+                client.share_computer_info().await;
+            }
+            NetEvent::NodeDisconnected(peer_id) => {
+                println!("Node disconnected {peer_id}");
+                // let handle = app_handle.read().unwrap();
+                // handle.emit("node_disconnect", peer_id).unwrap();
+            }
+            NetEvent::Identity(peer_id, comp_spec) => {
+                println!("Received node identity for id {peer_id} : {comp_spec:?}");
+                // let handle = app_handle.read().unwrap();
+                // handle.emit("node_identity", (peer_id, comp_spec)).unwrap();
+            } // _ => println!("{:?}", event),
+        }
+    }
+
+    async fn handle_net_command(cmd: NetCommand) {
+        todo!("handle incoming network commands {cmd:?}");
+    }
+
+    pub async fn run() {
+        // this channel is used to send command to the network, and receive network notification back.
+        let (to_network, mut from_ui) = mpsc::channel(32);
+        // TODO: figure out how I can use this cmd_sender?
+        let (mut net_service, mut client, mut event_receiver) = network::new()
+            .await
+            .expect("Unable to create network service!");
+
+        // we send the sender to the tauri builder - which will send commands to "from_ui".
+        let app = Self::config_tauri_builder(to_network);
+        // let client = Arc::new(RwLock::new(client));
+
+        // create a background loop to send and process network event
+        let _task = tokio::spawn(async move {
+            let _ = net_service.run().await;
+            loop {
+                select! {
+                    Some(msg) = from_ui.recv() => Self::handle_ui_command(&mut client, msg).await,
+                    event = event_receiver.recv() => match event {
+                        Some(event) => Self::handle_net_event(&mut client, event).await,
+                        None => break,
+                    }
+                }
+            }
+        });
+
+        app.run(|_, event| match event {
+            RunEvent::Ready => {
+                // TODO: find a way to start receiving the client handle here instead?
+            }
+            // tauri::RunEvent::Exit => {
+            //     // There should be a call to notify all other peers the GUI is shutting down.
+            //     println!("Program exit!");
+            // }
+            RunEvent::ExitRequested { .. } => {
+                // sender.send(NetCommand::Shutdown); // instruct to shutdown loops
+            }
+            tauri::RunEvent::WindowEvent { .. } => {} // invokes when program moves, gain/lose focus
+            tauri::RunEvent::MainEventsCleared => {}  // this spam the console log.
+            _ => println!("Program event: {event:?}"),
+        });
+    }
 }
 
 struct HeadlessClient {}
 
 impl HeadlessClient {
+    async fn handle_message(_controller: &NetworkController, event: NetEvent) {
+        match event {
+            _ => println!("Received event from network: {event:?}"),
+        }
+    }
+
     pub async fn run() {
         // TODO: Handle this inside headlessclient implementation
-        let (mut net_service, _sender, _receiver) = NetworkService::new()
+        let (mut net_service, sender, mut receiver) = network::new()
             .await
             .expect("Fail to start network service!");
 
         net_service.run().await;
+
+        loop {
+            select! {
+                event = receiver.recv() => match event {
+                    Some(msg) => Self::handle_message(&sender, msg).await,
+                    None => break,
+                }
+            }
+        }
     }
 }
 
