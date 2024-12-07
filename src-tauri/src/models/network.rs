@@ -129,12 +129,8 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .parse()
         .expect("Must be valid multiaddr");
 
-    let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
-        .parse()
-        .expect("Must be valid multiaddr");
-
     swarm.listen_on(tcp).expect("Fail to listen on TCP");
-    swarm.listen_on(udp.clone()).expect("Fail to listen on UDP");
+    // swarm.listen_on(udp.clone()).expect("Fail to listen on UDP");
 
     if let Err(e) = swarm.dial(id_keys.public().to_peer_id()) {
         eprintln!("Fail to dial swarm with random ID: {e:?}"); // I need to figure out what the error message here?
