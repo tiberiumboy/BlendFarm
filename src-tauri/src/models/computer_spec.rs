@@ -4,6 +4,7 @@ use std::env::consts;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ComputerSpec {
+    // id: String,
     host: String,
     os: String,
     arch: String,

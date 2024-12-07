@@ -24,27 +24,15 @@ Developer blog:
 */
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
-use crate::routes::job::{create_job, delete_job, list_jobs};
-use crate::routes::remote_render::{import_blend, list_versions};
-use crate::routes::settings::{
-    add_blender_installation, fetch_blender_installation, get_server_settings,
-    list_blender_installation, remove_blender_installation, set_server_settings,
-};
-use blender::manager::Manager as BlenderManager;
 use clap::Parser;
 use models::app_state::AppState;
-use models::message::{NetCommand, NetEvent};
-use models::network::{self, NetworkController};
-use models::server_setting::ServerSetting;
-use std::sync::{Arc, RwLock};
-use tauri::{App, RunEvent};
-use tokio::select;
-use tokio::sync::{
-    mpsc::{self, Sender},
-    Mutex,
-};
-use tracing_subscriber::EnvFilter;
+use models::job::Job;
+use models::network;
+use services::{blend_farm::BlendFarm, cli_app::CliApp, display_app::DisplayApp};
+use std::path::PathBuf;
+use tokio::spawn;
+// use tracing_subscriber::EnvFilter;
+use uuid::Uuid;
 
 // TODO: Create a miro diagram structure of how this application suppose to work
 // Need a mapping to explain how network should perform over intranet
@@ -52,6 +40,7 @@ use tracing_subscriber::EnvFilter;
 
 pub mod models;
 pub mod routes;
+pub mod services;
 
 #[derive(Parser)]
 struct Cli {
@@ -59,227 +48,32 @@ struct Cli {
     client: Option<bool>,
 }
 
-struct DisplayApp {}
-
-impl DisplayApp {
-    // Create a builder to make Tauri application
-    fn config_tauri_builder(to_network: Sender<NetCommand>) -> App {
-        let server_settings = ServerSetting::load();
-
-        // I would like to find a better way to update or append data to render_nodes,
-        // "Do not communicate with shared memory"
-        let builder = tauri::Builder::default()
-            .plugin(tauri_plugin_cli::init())
-            .plugin(tauri_plugin_os::init())
-            .plugin(tauri_plugin_fs::init())
-            .plugin(tauri_plugin_persisted_scope::init())
-            .plugin(tauri_plugin_shell::init())
-            .plugin(tauri_plugin_dialog::init())
-            .setup(|_| Ok(()));
-
-        let manager = Arc::new(RwLock::new(BlenderManager::load()));
-        let setting = Arc::new(RwLock::new(server_settings));
-
-        // here we're setting the sender command to app state before the builder.
-        let app_state = AppState {
-            manager,
-            to_network,
-            setting,
-            jobs: Vec::new(),
-        };
-
-        let mut_app_state = Mutex::new(app_state);
-
-        builder
-            .manage(mut_app_state)
-            .invoke_handler(tauri::generate_handler![
-                create_job,
-                delete_job,
-                list_jobs,
-                list_versions,
-                import_blend,
-                get_server_settings,
-                set_server_settings,
-                add_blender_installation,
-                list_blender_installation,
-                remove_blender_installation,
-                fetch_blender_installation,
-            ])
-            .build(tauri::generate_context!())
-            .expect("Unable to build tauri app!")
-    }
-
-    // command received from UI
-    async fn handle_ui_command(client: &mut NetworkController, cmd: NetCommand) {
-        match cmd {
-            NetCommand::SendIdentity => client.share_computer_info().await,
-            NetCommand::StartJob(job) => {
-                // first make the file available on the network
-                let project_file = job.project_file;
-                let file_name = project_file.get_file_name().to_string();
-                client.start_providing(file_name).await;
-            }
-            _ => println!("Unhandled cmd! {cmd:?}"),
-        }
-    }
-
-    //         NetEvent::Render(job) => {
-    //             // Here we'll check the job -
-    //             // TODO: It would be nice to check and see if there's any jobs currently running, otherwise put it in a poll?
-    //             let project_file = job.project_file;
-    //             let version: &Version = project_file.as_ref();
-    //             let blender = self
-    //                 .manager
-    //                 .fetch_blender(version)
-    //                 .expect("Should have blender installed?");
-    //             let file_path: &Path = project_file.as_ref();
-    //             let args = Args::new(file_path, job.output, job.mode);
-    //             let rx = blender.render(args);
-    // for this particular loop, let's extract this out to simplier function.
-    // loop {
-    //         if let Ok(msg) = rx.recv() {
-    //             let msg = match msg {
-    //                 Status::Idle => "Idle".to_owned(),
-    //                 Status::Running { status } => status,
-    //                 Status::Log { status } => status,
-    //                 Status::Warning { message } => message,
-    //                 Status::Error(err) => format!("{err:?}").to_owned(),
-    //                 Status::Completed { result } => {
-    //                     // we'll send the message back?
-    //                     // net_service
-    //                     // here we will state that the render is complete, and send a message to network service
-    //                     // TODO: Find a better way to not use the `.clone()` method.
-    //                     let msg = Command::FrameCompleted(
-    //                         result.clone(),
-    //                         job.current_frame,
-    //                     );
-    //                     let _ = net_service.send(msg).await;
-    //                     let path_str = &result.to_string_lossy();
-    //                     format!(
-    //                         "Finished job frame {} at {path_str}",
-    //                         job.current_frame
-    //                     )
-    //                     .to_owned()
-    //                     // here we'll send the job back to the peer who requested us the job initially.
-    //                     // net_service.swarm.behaviour_mut().gossipsub.publish( peer_id, )
-    //                 }
-    //             };
-    //             println!("[Status] {msg}");
-    //         }
-    //             // }
-    //         }
-    // }
-
-    // commands received from network
-    async fn handle_net_event(client: &mut NetworkController, event: NetEvent) {
-        match event {
-            NetEvent::Render(job) => println!("Receive Job: {job:?}"),
-            NetEvent::Status(peer_id, msg) => println!("Status from {peer_id} : {msg:?}"),
-            NetEvent::NodeDiscovered(peer_id) => {
-                println!("Node Discovered {peer_id}");
-                client.share_computer_info().await;
-            }
-            NetEvent::NodeDisconnected(peer_id) => {
-                println!("Node disconnected {peer_id}");
-                // let handle = app_handle.read().unwrap();
-                // handle.emit("node_disconnect", peer_id).unwrap();
-            }
-            NetEvent::Identity(peer_id, comp_spec) => {
-                println!("Received node identity for id {peer_id} : {comp_spec:?}");
-                // let handle = app_handle.read().unwrap();
-                // handle.emit("node_identity", (peer_id, comp_spec)).unwrap();
-            } // _ => println!("{:?}", event),
-        }
-    }
-
-    async fn handle_net_command(cmd: NetCommand) {
-        todo!("handle incoming network commands {cmd:?}");
-    }
-
-    pub async fn run() {
-        // this channel is used to send command to the network, and receive network notification back.
-        let (to_network, mut from_ui) = mpsc::channel(32);
-        // TODO: figure out how I can use this cmd_sender?
-        let (mut net_service, mut client, mut event_receiver) = network::new()
-            .await
-            .expect("Unable to create network service!");
-
-        // we send the sender to the tauri builder - which will send commands to "from_ui".
-        let app = Self::config_tauri_builder(to_network);
-        // let client = Arc::new(RwLock::new(client));
-
-        // create a background loop to send and process network event
-        let _task = tokio::spawn(async move {
-            let _ = net_service.run().await;
-            loop {
-                select! {
-                    Some(msg) = from_ui.recv() => Self::handle_ui_command(&mut client, msg).await,
-                    event = event_receiver.recv() => match event {
-                        Some(event) => Self::handle_net_event(&mut client, event).await,
-                        None => break,
-                    }
-                }
-            }
-        });
-
-        app.run(|_, event| match event {
-            RunEvent::Ready => {
-                // TODO: find a way to start receiving the client handle here instead?
-            }
-            // tauri::RunEvent::Exit => {
-            //     // There should be a call to notify all other peers the GUI is shutting down.
-            //     println!("Program exit!");
-            // }
-            RunEvent::ExitRequested { .. } => {
-                // sender.send(NetCommand::Shutdown); // instruct to shutdown loops
-            }
-            tauri::RunEvent::WindowEvent { .. } => {} // invokes when program moves, gain/lose focus
-            tauri::RunEvent::MainEventsCleared => {}  // this spam the console log.
-            _ => println!("Program event: {event:?}"),
-        });
-    }
-}
-
-struct HeadlessClient {}
-
-impl HeadlessClient {
-    async fn handle_message(_controller: &NetworkController, event: NetEvent) {
-        match event {
-            _ => println!("Received event from network: {event:?}"),
-        }
-    }
-
-    pub async fn run() {
-        // TODO: Handle this inside headlessclient implementation
-        let (mut net_service, sender, mut receiver) = network::new()
-            .await
-            .expect("Fail to start network service!");
-
-        net_service.run().await;
-
-        loop {
-            select! {
-                event = receiver.recv() => match event {
-                    Some(msg) => Self::handle_message(&sender, msg).await,
-                    None => break,
-                }
-            }
-        }
-    }
+// This UI Command represent the top level UI that user clicks and interface with.
+#[derive(Debug)]
+pub(crate) enum UiCommand {
+    StartJob(Job),
+    StopJob(Uuid),
+    UploadFile(PathBuf),
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .try_init();
+    // let _ = tracing_subscriber::fmt()
+    //     .with_env_filter(EnvFilter::from_default_env())
+    //     .try_init();
 
     let cli = Cli::parse();
 
+    let (service, controller, receiver) =
+        network::new().await.expect("Fail to start network service");
+
+    // start network service
+    spawn(service.run());
+
     match cli.client {
         // run as client mode.
-        Some(true) => HeadlessClient::run().await,
+        Some(true) => CliApp::default().run(controller, receiver).await,
         // run as GUI mode.
-        _ => DisplayApp::run().await,
+        _ => DisplayApp::default().run(controller, receiver).await,
     };
 }

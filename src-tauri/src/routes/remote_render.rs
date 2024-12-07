@@ -9,7 +9,6 @@ when you create a new job, it immediately sends a new job to the server farm
 for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
-use crate::models::message::NetCommand;
 use crate::AppState;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -21,7 +20,7 @@ use tokio::sync::Mutex;
 #[command(async)]
 pub async fn list_versions(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let server = state.lock().await;
-    let manager = server.manager.read().unwrap();
+    let manager = server.manager.read().await;
     let mut versions: Vec<Version> = manager
         .home
         .as_ref()
@@ -32,7 +31,7 @@ pub async fn list_versions(state: State<'_, Mutex<AppState>>) -> Result<String, 
         })
         .collect();
 
-    let manager = server.manager.read().unwrap();
+    let manager = server.manager.read().await;
     let mut installed: Vec<Version> = manager
         .get_blenders()
         .iter()
@@ -88,7 +87,7 @@ pub async fn import_blend(
     let app_state = state.lock().await;
     // using scope to drop manager usage.
     let blend_version = {
-        let manager = app_state.manager.read().unwrap();
+        let manager = app_state.manager.read().await;
 
         // Get the latest patch from blender home
         match manager

@@ -1,7 +1,9 @@
-use super::behaviour::{BlendFarmBehaviour, FileResponse};
+use super::behaviour::{BlendFarmBehaviour, FileRequest, FileResponse};
 use super::computer_spec::ComputerSpec;
+use super::job::Job;
 use super::message::{NetCommand, NetEvent, NetworkError};
 use crate::models::behaviour::BlendFarmBehaviourEvent;
+use core::str;
 use futures::channel::oneshot;
 use libp2p::futures::StreamExt;
 use libp2p::{
@@ -15,7 +17,6 @@ use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChanne
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::error::Error;
 use std::hash::{Hash, Hasher};
-use std::sync::LazyLock;
 use std::time::Duration;
 use std::u64;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -26,7 +27,9 @@ Network Service - Provides simple network interface for peer-to-peer network for
 Includes mDNS ()
 */
 
-pub static TOPIC: LazyLock<IdentTopic> = LazyLock::new(|| IdentTopic::new("blendfarm-rpc-msg"));
+const STATUS: &str = "blendfarm/status";
+const SPEC: &str = "blendfarm/spec";
+const JOB: &str = "blendfarm/job";
 
 // the tuples return three objects
 // the NetworkService holds the network loop operation
@@ -100,10 +103,26 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
         .build();
 
-    // should move this?
-    if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&TOPIC) {
-        println!("Fail to subscribe topic! {e:?}");
-    };
+    let static_topic = IdentTopic::new(STATUS.to_owned());
+    let spec_topic = IdentTopic::new(SPEC.to_owned());
+    let job_topic = IdentTopic::new(JOB.to_owned());
+
+    // TOOD: May have to move this elsewhere? we'll see.
+    swarm
+        .behaviour_mut()
+        .gossipsub
+        .subscribe(&static_topic)
+        .unwrap();
+    swarm
+        .behaviour_mut()
+        .gossipsub
+        .subscribe(&job_topic)
+        .unwrap();
+    swarm
+        .behaviour_mut()
+        .gossipsub
+        .subscribe(&spec_topic)
+        .unwrap();
 
     // TODO: Find a way to fetch user configuration. Refactor this when possible.
     let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
@@ -148,6 +167,13 @@ pub struct NetworkController {
 }
 
 impl NetworkController {
+    pub async fn send_status(&mut self, status: String) {
+        self.sender
+            .send(NetCommand::Status(status))
+            .await
+            .expect("Command should not have been dropped");
+    }
+
     pub async fn share_computer_info(&mut self) {
         self.sender
             .send(NetCommand::SendIdentity)
@@ -174,16 +200,23 @@ impl NetworkController {
         receiver.await.expect("Sender should not be dropped")
     }
 
+    pub async fn send_network_job(&mut self, job: Job) {
+        self.sender
+            .send(NetCommand::StartJob(job))
+            .await
+            .expect("Command should not have been dropped!");
+    }
+
     pub(crate) async fn request_file(
         &mut self,
-        peer: PeerId,
+        peer_id: PeerId,
         file_name: String,
     ) -> Result<Vec<u8>, Box<dyn Error + Send>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(NetCommand::RequestFile {
+                peer_id,
                 file_name,
-                peer,
                 sender,
             })
             .await
@@ -218,56 +251,113 @@ pub struct NetworkService {
 }
 
 impl NetworkService {
+    /*
+
+        TODO: Figure out what I was suppose to do with this file?
+
+    //         NetEvent::Render(job) => {
+        //             // Here we'll check the job -
+        //             // TODO: It would be nice to check and see if there's any jobs currently running, otherwise put it in a poll?
+        //             let project_file = job.project_file;
+        //             let version: &Version = project_file.as_ref();
+        //             let blender = self
+        //                 .manager
+        //                 .fetch_blender(version)
+        //                 .expect("Should have blender installed?");
+        //             let file_path: &Path = project_file.as_ref();
+        //             let args = Args::new(file_path, job.output, job.mode);
+        //             let rx = blender.render(args);
+        // for this particular loop, let's extract this out to simplier function.
+        // loop {
+        //         if let Ok(msg) = rx.recv() {
+        //             let msg = match msg {
+        //                 Status::Idle => "Idle".to_owned(),
+        //                 Status::Running { status } => status,
+        //                 Status::Log { status } => status,
+        //                 Status::Warning { message } => message,
+        //                 Status::Error(err) => format!("{err:?}").to_owned(),
+        //                 Status::Completed { result } => {
+        //                     // we'll send the message back?
+        //                     // net_service
+        //                     // here we will state that the render is complete, and send a message to network service
+        //                     // TODO: Find a better way to not use the `.clone()` method.
+        //                     let msg = Command::FrameCompleted(
+        //                         result.clone(),
+        //                         job.current_frame,
+        //                     );
+        //                     let _ = net_service.send(msg).await;
+        //                     let path_str = &result.to_string_lossy();
+        //                     format!(
+        //                         "Finished job frame {} at {path_str}",
+        //                         job.current_frame
+        //                     )
+        //                     .to_owned()
+        //                     // here we'll send the job back to the peer who requested us the job initially.
+        //                     // net_service.swarm.behaviour_mut().gossipsub.publish( peer_id, )
+        //                 }
+        //             };
+        //             println!("[Status] {msg}");
+        //         }
+        //             // }
+        //         }
+        // }
+
+    */
+
     // send command
     async fn handle_command(&mut self, cmd: NetCommand) {
-        println!("Handle command: {cmd:?}");
         match cmd {
             // Begin the job
             // The idea here is that we received a new job from the host -
             // we would need to upload blender to kad service and make it public available for DHT to access for other nodes to obtain
             // then we send out notification to all of the node to start the job
             NetCommand::StartJob(job) => {
-                // NetEvent::Render(job).ser()
                 // receives a job request. can do fancy behaviour like split up the job into different frames?
-                // todo: For now, send the job request.
-                let data = NetEvent::Render(job).ser();
-                if let Err(e) = self
-                    .swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .publish(TOPIC.clone(), data)
-                {
+                // TODO: For now, send the job request.
+                let data = bincode::serialize(&job).unwrap();
+                let topic = IdentTopic::new(JOB);
+                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to send job! {e:?}");
                 }
             }
             // Send message to all other peer to stop the target job ID and remove from kad provider
             NetCommand::EndJob { .. } => todo!(),
             // send status update
-            NetCommand::Status(s) => {
-                let peer_id = self.swarm.local_peer_id().to_string();
-                let data = NetEvent::Status(peer_id, s).ser();
-                if let Err(e) = self
-                    .swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .publish(TOPIC.clone(), data)
-                {
+            NetCommand::Status(msg) => {
+                let data = msg.as_bytes();
+                let topic = IdentTopic::new(STATUS);
+                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to send status over network! {e:?}");
                 }
             }
 
             // TODO: For Future impl. See how we can transfer the file using kad's behaviour (DHT)
-            // NetCommand::RequestFile { .. } => todo!(),
-            // NetCommand::RespondFile { .. } => todo!(),
-            NetCommand::SendIdentity => {
-                let peer_id = self.swarm.local_peer_id().to_string();
-                let data = NetEvent::Identity(peer_id, ComputerSpec::default()).ser();
-                if let Err(e) = self
+            NetCommand::RequestFile {
+                peer_id,
+                file_name,
+                sender,
+            } => {
+                let request_id = self
                     .swarm
                     .behaviour_mut()
-                    .gossipsub
-                    .publish(TOPIC.clone(), data)
-                {
+                    .request_response
+                    .send_request(&peer_id, FileRequest(file_name));
+                self.pending_request_file
+                    .insert(request_id, sender)
+                    .expect("msg");
+            }
+            NetCommand::RespondFile { file, channel } => {
+                self.swarm
+                    .behaviour_mut()
+                    .request_response
+                    .send_response(channel, FileResponse(file))
+                    .expect("Connection to peer may still be open?");
+            }
+            NetCommand::SendIdentity => {
+                let spec = ComputerSpec::default();
+                let data = bincode::serialize(&spec).unwrap();
+                let topic = IdentTopic::new(SPEC);
+                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to publish message to swarm! {e:?}");
                     // return Err(NetworkError::SendError(e.to_string()));
                 };
@@ -279,6 +369,15 @@ impl NetworkService {
                     .kad
                     .get_providers(file_name.into_bytes().into());
                 self.pending_get_providers.insert(query_id, sender);
+            }
+            NetCommand::StartProviding { file_name, sender } => {
+                let query_id = self
+                    .swarm
+                    .behaviour_mut()
+                    .kad
+                    .start_providing(file_name.into_bytes().into())
+                    .expect("No store error.");
+                self.pending_start_providing.insert(query_id, sender);
             }
             _ => {
                 todo!("What happen here? {cmd:?}");
@@ -294,26 +393,19 @@ impl NetworkService {
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Gossipsub(gossip)) => {
                 self.handle_gossip(gossip).await
             }
-            SwarmEvent::Behaviour(BlendFarmBehaviourEvent::RequestResponse(
-                libp2p_request_response::Event::OutboundFailure {
-                    request_id, error, ..
-                },
-            )) => {
-                let _ = self
-                    .pending_request_file
-                    .remove(&request_id)
-                    .expect("Request to is still pending")
-                    .send(Err(Box::new(error)));
+            SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Kad(kad)) => {
+                self.handle_kademila(kad).await
             }
-            SwarmEvent::Behaviour(BlendFarmBehaviourEvent::RequestResponse(
-                libp2p_request_response::Event::ResponseSent { .. },
-            )) => {}
+            SwarmEvent::Behaviour(BlendFarmBehaviourEvent::RequestResponse(rr)) => {
+                self.handle_response(rr).await
+            }
+
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                 self.swarm
                     .behaviour_mut()
                     .gossipsub
                     .add_explicit_peer(&peer_id);
-
+                println!("Node connection established!");
                 // here we'll say that the node was disconnected.
                 // send a message back to the Ui confirming we discover a node (Use this to populate UI element on the front end facing app)
                 // let event = LoopEvent(peer_id, NetEvent::NodeDiscovered);
@@ -328,6 +420,8 @@ impl NetworkService {
                     .gossipsub
                     .remove_explicit_peer(&peer_id);
 
+                println!("Node Disconnected!");
+
                 // send a message back to the UI notifying the disconnnection of the node
                 // let event = LoopEvent(peer_id, NetEvent::NodeDisconnected);
                 let event = NetEvent::NodeDisconnected(peer_id.to_string());
@@ -335,9 +429,56 @@ impl NetworkService {
                     println!("Error sending node disconnected signal to UI: {e:?}");
                 }
             }
+
+            // omitting message.
+            SwarmEvent::NewListenAddr { .. } => {}
+            SwarmEvent::IncomingConnection { .. } => {}
             _ => {
                 println!("Unhandle swarm behaviour event: {event:?}")
             }
+        }
+    }
+
+    async fn handle_response(
+        &mut self,
+        event: libp2p_request_response::Event<FileRequest, FileResponse>,
+    ) {
+        match event {
+            libp2p_request_response::Event::Message { message, .. } => match message {
+                libp2p_request_response::Message::Request {
+                    request, channel, ..
+                } => {
+                    // frustration ensue - I need to think better how I can deal with simple file transfer protocol...
+                    self.event_sender
+                        .send(NetEvent::InboundRequest {
+                            request: request.0,
+                            channel,
+                        })
+                        .await
+                        .expect("Event receiver should not be dropped!");
+                }
+                libp2p_request_response::Message::Response {
+                    request_id,
+                    response,
+                } => {
+                    let _ = self
+                        .pending_request_file
+                        .remove(&request_id)
+                        .expect("Request is still pending?")
+                        .send(Ok(response.0));
+                }
+            },
+            libp2p_request_response::Event::OutboundFailure {
+                request_id, error, ..
+            } => {
+                let _ = self
+                    .pending_request_file
+                    .remove(&request_id)
+                    .expect("Request to is still pending")
+                    .send(Err(Box::new(error)));
+            }
+            libp2p_request_response::Event::ResponseSent { .. } => {}
+            _ => {}
         }
     }
 
@@ -364,26 +505,47 @@ impl NetworkService {
         };
     }
 
+    // TODO: Figure out how I can use the match operator for TopicHash. I'd like to use the TopicHash static variable above.
     async fn handle_gossip(&mut self, event: gossipsub::Event) {
         match event {
-            gossipsub::Event::Message { message, .. } => {
-                // This message internally is used to share NetEvent across the p2p network.
-                if let Ok(msg) = NetEvent::de(&message.data) {
-                    println!("Received message {msg:?}");
-                    // let event = LoopEvent(propagation_source, msg); // here I'd like to capture the peer_id that sent me the message?
-                    // if let Err(e) = self.event_sender.send(event).await {
-                    //     eprintln!("Fail to send loop event! {e:?}");
-                    // }
-                    if let Err(e) = self.event_sender.send(msg).await {
-                        eprintln!("Fail to send loop event! {e:?}");
+            gossipsub::Event::Message { message, .. } => match message.topic.as_str() {
+                SPEC => {
+                    let source = message.source.expect("Source cannot be empty!");
+                    let specs =
+                        bincode::deserialize(&message.data).expect("Fail to parse Computer Specs!");
+                    if let Err(e) = self
+                        .event_sender
+                        .send(NetEvent::Identity(source, specs))
+                        .await
+                    {
+                        eprintln!("Something failed? {e:?}");
                     }
                 }
-            }
+                STATUS => {
+                    let source = message.source.expect("Source cannot be empty!");
+                    let msg = String::from_utf8(message.data).unwrap();
+                    if let Err(e) = self.event_sender.send(NetEvent::Status(source, msg)).await {
+                        eprintln!("Something failed? {e:?}");
+                    }
+                }
+                JOB => {
+                    let source = message.source.expect("Source cannot be empty!");
+                    let job: Job =
+                        bincode::deserialize(&message.data).expect("Fail to parse Job data!");
+                    if let Err(e) = self.event_sender.send(NetEvent::Render(source, job)).await {
+                        eprintln!("SOmething failed? {e:?}");
+                    }
+                }
+                _ => eprintln!(
+                    "Received unknown topic hash! Potential malicious foreign command received?"
+                ),
+            },
             _ => {}
         }
     }
 
     async fn handle_kademila(&mut self, event: kad::Event) {
+        println!("Receive kademila service request");
         match event {
             kad::Event::OutboundQueryProgressed {
                 id,
@@ -424,15 +586,18 @@ impl NetworkService {
         }
     }
 
-    pub async fn run(&mut self) {
-        loop {
-            select! {
-                event = self.swarm.select_next_some() => self.handle_event(event).await,
-                signal = self.command_receiver.recv() => match signal {
-                    Some(command) => self.handle_command(command).await,
-                    None => break,
+    pub async fn run(mut self) {
+        if let Err(e) = tokio::spawn(async move {
+            loop {
+                select! {
+                    event = self.swarm.select_next_some() => self.handle_event(event).await,
+                    Some(cmd) = self.command_receiver.recv() => self.handle_command(cmd).await,
                 }
             }
+        })
+        .await
+        {
+            println!("fail to start background pool for network run! {e:?}");
         }
     }
 }

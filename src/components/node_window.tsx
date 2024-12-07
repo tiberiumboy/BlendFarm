@@ -23,6 +23,10 @@ export default function NodeWindow() {
     setNodes(result);
   });
 
+  listen('node_identity', (event: any) => {
+    console.log(event);
+  })
+
   function nodeWindow() {
     return (
       <div>

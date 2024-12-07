@@ -3,9 +3,9 @@ use libp2p_request_response::cbor;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileRequest(String);
+pub struct FileRequest(pub String);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileResponse(Vec<u8>);
+pub struct FileResponse(pub Vec<u8>);
 
 #[derive(NetworkBehaviour)]
 pub struct BlendFarmBehaviour {

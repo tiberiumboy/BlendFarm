@@ -123,11 +123,15 @@ export default function RemoteRender(props: RemoteRenderProps) {
     const output = info.output.value;
 
     let mode = generateMode(selectedMode, e.target);
+    let projectFile = {
+      file_name: filePath.split('\\').pop().split('/').pop(),
+      blender_version: version,
+      path: filePath
+    };
 
     let data = {
-      filePath,
+      projectFile,
       output,
-      version,
       mode,
     };
 
