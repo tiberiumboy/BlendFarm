@@ -6,6 +6,7 @@ use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
 use futures::channel::oneshot;
 use libp2p::futures::StreamExt;
+use libp2p::gossipsub::SubscriptionError;
 use libp2p::{
     gossipsub::{self, IdentTopic},
     kad, mdns,
@@ -14,6 +15,7 @@ use libp2p::{
 };
 use libp2p::{PeerId, StreamProtocol};
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
+use machine_info::Machine;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::time::Duration;
@@ -29,7 +31,16 @@ Includes mDNS ()
 const STATUS: &str = "blendfarm/status";
 const SPEC: &str = "blendfarm/spec";
 const JOB: &str = "blendfarm/job";
+const HEARTBEAT: &str = "blendfarm/heartbeat";
 const TRANSFER: &str = "/file-transfer/1";
+
+fn subscribe(
+    swarm: &mut Swarm<BlendFarmBehaviour>,
+    topic: &str,
+) -> Result<bool, SubscriptionError> {
+    let ident_topic = IdentTopic::new(topic);
+    swarm.behaviour_mut().gossipsub.subscribe(&ident_topic)
+}
 
 // the tuples return three objects
 // the NetworkService holds the network loop operation
@@ -91,28 +102,10 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
         .build();
 
-    let static_topic = IdentTopic::new(STATUS.to_owned());
-    let spec_topic = IdentTopic::new(SPEC.to_owned());
-    let job_topic = IdentTopic::new(JOB.to_owned());
-
-    // TOOD: May have to move this elsewhere? we'll see.
-    swarm
-        .behaviour_mut()
-        .gossipsub
-        .subscribe(&static_topic)
-        .unwrap();
-
-    swarm
-        .behaviour_mut()
-        .gossipsub
-        .subscribe(&job_topic)
-        .unwrap();
-
-    swarm
-        .behaviour_mut()
-        .gossipsub
-        .subscribe(&spec_topic)
-        .unwrap();
+    subscribe(&mut swarm, STATUS).unwrap();
+    subscribe(&mut swarm, SPEC).unwrap();
+    subscribe(&mut swarm, JOB).unwrap();
+    subscribe(&mut swarm, HEARTBEAT).unwrap();
 
     let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
         .parse()
@@ -122,7 +115,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .map_err(|_| NetworkError::BadInput)?;
 
     swarm
-        .listen_on(tcp.clone())
+        .listen_on(tcp)
         .map_err(|e| NetworkError::UnableToListen(e.to_string()))?;
     swarm
         .listen_on(udp)
@@ -138,6 +131,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
             swarm,
             command_receiver,
             event_sender,
+            machine: Machine::new(),
             pending_get_providers: Default::default(),
             pending_start_providing: Default::default(),
             pending_request_file: Default::default(),
@@ -232,6 +226,7 @@ pub struct NetworkService {
     swarm: Swarm<BlendFarmBehaviour>,
     // receive Network command
     pub command_receiver: Receiver<NetCommand>,
+    machine: Machine,
     // send network events
     event_sender: Sender<NetEvent>,
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
@@ -342,7 +337,7 @@ impl NetworkService {
                     .expect("Connection to peer may still be open?");
             }
             NetCommand::SendIdentity => {
-                let spec = ComputerSpec::default();
+                let spec = ComputerSpec::new(&mut self.machine);
                 let data = bincode::serialize(&spec).unwrap();
                 let topic = IdentTopic::new(SPEC);
                 // how do I sent the specs to only the computer I want to communicate to or connect to?

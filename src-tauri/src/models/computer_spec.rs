@@ -4,7 +4,6 @@ use std::env::consts;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ComputerSpec {
-    // id: String,
     host: String,
     os: String,
     arch: String,
@@ -14,10 +13,9 @@ pub struct ComputerSpec {
     cores: usize,
 }
 
-impl Default for ComputerSpec {
-    fn default() -> Self {
-        let mut m = Machine::new();
-        let sys_info = &m.system_info();
+impl ComputerSpec {
+    pub fn new(machine: &mut Machine) -> Self {
+        let sys_info = machine.system_info();
         let memory = &sys_info.memory;
         let host = &sys_info.hostname;
         let gpu = &sys_info
@@ -32,10 +30,7 @@ impl Default for ComputerSpec {
             arch: consts::ARCH.to_owned(),
             memory: memory.to_owned(),
             gpu: gpu.to_owned(),
-            cpu: format!(
-                "{} | {}",
-                &sys_info.processor.vendor, &sys_info.processor.brand
-            ),
+            cpu: sys_info.processor.brand.to_owned(),
             cores: cores.to_owned(),
         }
     }

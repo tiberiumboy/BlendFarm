@@ -22,18 +22,16 @@ Developer blog:
 [F] - consider using channel to stream data https://v2.tauri.app/develop/calling-frontend/#channels
 [F] - Before release - find a way to add updater  https://v2.tauri.app/plugin/updater/
 */
+// TODO: Create a miro diagram structure of how this application suppose to work
+// Need a mapping to explain how network should perform over intranet
+// Need a mapping to explain how blender manager is used and invoked for the job
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use clap::Parser;
 use models::app_state::AppState;
 use models::network;
-use services::{blend_farm::BlendFarm, cli_app::CliApp, display_app::TauriApp};
+use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
 use tokio::spawn;
-// use tracing_subscriber::EnvFilter;
-
-// TODO: Create a miro diagram structure of how this application suppose to work
-// Need a mapping to explain how network should perform over intranet
-// Need a mapping to explain how blender manager is used and invoked for the job
 
 pub mod models;
 pub mod routes;
@@ -47,10 +45,6 @@ struct Cli {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
-    // let _ = tracing_subscriber::fmt()
-    //     .with_env_filter(EnvFilter::from_default_env())
-    //     .try_init();
-
     // to run custom behaviour
     let cli = Cli::parse();
 

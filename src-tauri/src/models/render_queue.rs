@@ -38,7 +38,8 @@ impl RenderQueue {
         }
     }
 
-    pub fn run(&self, output: impl AsRef<Path>) -> Result<RenderInfo, RenderError> {
+    // may not be in use?
+    pub async fn run(&self, output: impl AsRef<Path>) -> Result<RenderInfo, RenderError> {
         let path: &Path = self.project_file.as_ref();
         let args = Args::new(
             path,
@@ -49,7 +50,7 @@ impl RenderQueue {
 
         let mut manager = BlenderManager::load();
         let blender = manager.fetch_blender(&self.version).unwrap();
-        let listener = blender.render(args);
+        let listener = blender.render(args).await;
 
         while let Ok(event) = listener.recv() {
             match event {

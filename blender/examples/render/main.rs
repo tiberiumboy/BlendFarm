@@ -2,7 +2,7 @@ use blender::blender::Manager;
 use blender::models::{args::Args, mode::Mode, status::Status};
 use std::path::PathBuf;
 
-fn render_with_manager() {
+async fn render_with_manager() {
     let args = std::env::args().collect::<Vec<String>>();
     let blend_path = match args.get(1) {
         None => PathBuf::from("./examples/assets/test.blend"),
@@ -28,7 +28,7 @@ fn render_with_manager() {
     let args = Args::new(blend_path, output, mode);
 
     // render the frame. Completed render will return the path of the rendered frame, error indicates failure to render due to blender incompatible hardware settings or configurations. (CPU vs GPU / Metal vs OpenGL)
-    let listener = blender.render(args);
+    let listener = blender.render(args).await;
 
     // Handle blender status
     while let Ok(status) = listener.recv() {
@@ -52,6 +52,7 @@ fn render_with_manager() {
     }
 }
 
-fn main() {
-    render_with_manager();
+#[tokio::main]
+async fn main() {
+    render_with_manager().await;
 }

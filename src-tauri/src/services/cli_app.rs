@@ -1,3 +1,7 @@
+/*
+   Have a look into TUI for CLI status display window to show user entertainment on screen
+   https://docs.rs/tui/latest/tui/
+*/
 use super::blend_farm::BlendFarm;
 use crate::models::{
     message::{NetEvent, NetworkError},

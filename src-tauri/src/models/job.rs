@@ -87,8 +87,7 @@ impl Job {
     // TODO: consider about how I can invoke this command from network protocol?
     // Invoke blender to run the job
     // Find out if I need to run this locally, or just rely on the server to perform the operation?
-    #[allow(dead_code)]
-    pub fn run(&mut self, frame: i32) -> Result<RenderInfo> {
+    pub async fn run(&mut self, frame: i32) -> Result<RenderInfo> {
         let path: &Path = self.project_file.as_ref();
         let version: &Version = self.project_file.as_ref();
         // TODO: How can I split this up to run async task? E.g. Keep this task running while we still have frames left over.
@@ -102,7 +101,7 @@ impl Job {
         // here's the question - if I'm on a network node, how do I send the host the image of the completed rendered job?
         // yeah here's a good question?
         // we can use the same principle as we were doing before :o!! Nice?
-        let listener = blender.render(args);
+        let listener = blender.render(args).await;
 
         while let Ok(status) = listener.recv() {
             // Return completed render info to the caller

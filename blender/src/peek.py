@@ -4,7 +4,7 @@
 #Start
 import bpy # type: ignore
 import json
-import struct
+import os
 
 scn = bpy.context.scene
 
@@ -30,6 +30,8 @@ try:
     for scene in bpy.data.scenes:
         peekObj["Scenes"].append(scene.name)
 
+    # how can I clear any message before this?
+    os.system( 'cls' )
     print(json.dumps(peekObj)+"\n")
 
 except Exception as e:

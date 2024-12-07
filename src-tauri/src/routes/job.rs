@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     models::{app_state::AppState, job::Job, project_file::ProjectFile},
-    services::display_app::UiCommand,
+    services::tauri_app::UiCommand,
 };
 
 #[command(async)]

@@ -149,7 +149,7 @@ impl BlenderRenderSetting {
         }
     }
 
-    pub fn parse_from(args: &Args, info: &BlenderPeekResponse) -> Self {
+    pub fn parse_from(args: Args, info: BlenderPeekResponse) -> Self {
         let frame = match args.mode {
             Mode::Frame(frame) => frame.to_owned(),
             Mode::Animation { start, end: _ } => start.to_owned(),
@@ -158,7 +158,7 @@ impl BlenderRenderSetting {
         // it would be nice to get the formatting rules out of this but oh well?
         // this args.output is the only place being used right now. I don't see any reason why I should have this?
         let output = args.output.join(format!("{:0>5}", frame)).to_owned();
-        let compute_unit = args.device.clone().unwrap_or_default().to_owned();
+        let compute_unit = args.device.clone();
         let border = Window {
             x: Range {
                 start: 0.0,
@@ -169,8 +169,8 @@ impl BlenderRenderSetting {
                 end: 1.0,
             },
         };
-        let engine = args.engine.clone().unwrap_or_default();
-        let format = args.format.clone().unwrap_or_default();
+        let engine = args.engine.clone();
+        let format = args.format.clone();
 
         BlenderRenderSetting::new(
             output.to_owned(),
@@ -186,8 +186,8 @@ impl BlenderRenderSetting {
             info.samples,
             info.render_width,
             info.render_height,
-            engine.to_owned(),
-            format.to_owned(),
+            engine,
+            format,
         )
     }
 }

@@ -131,6 +131,7 @@ impl TauriApp {
             }
             NetEvent::Identity(peer_id, comp_spec) => {
                 let handle = app_handle.read().await;
+                println!("Received Node identity from computers! {:?}", &comp_spec);
                 handle
                     .emit("node_identity", (peer_id.to_base58(), comp_spec))
                     .unwrap();
@@ -170,7 +171,9 @@ impl BlendFarm for TauriApp {
         app.run(|_, event| {
             match event {
                 // TODO: find a way to spawn the network listener thread inside here?
-                tauri::RunEvent::Ready => println!("Application is ready!"),
+                tauri::RunEvent::Ready => {
+                    println!("Application is ready!");
+                }
                 _ => {}
             }
         });

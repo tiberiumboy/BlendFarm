@@ -61,6 +61,7 @@ use crate::models::{
     blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderRenderSetting,
     status::Status,
 };
+use blend::Blend;
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -70,9 +71,9 @@ use std::{
     path::{self, Path, PathBuf},
     process::{Command, Stdio},
     sync::mpsc::{self, Receiver},
-    thread,
 };
 use thiserror::Error;
+use tokio::spawn;
 // TODO: this is ugly, and I want to get rid of this. How can I improve this?
 // Backstory: Win and linux can be invoked via their direct app link. However, MacOS .app is just a bundle, which contains the executable inside.
 // To run process::Command, I must properly reference the executable path inside the blender.app on MacOS, using the hardcoded path below.
@@ -80,16 +81,16 @@ const MACOS_PATH: &str = "Contents/MacOS/Blender";
 
 #[derive(Debug, Error)]
 pub enum BlenderError {
-    #[error("Path to executable not found! {0}")]
-    ExecutableNotFound(PathBuf),
     #[error("Unable to call blender!")]
     ExecutableInvalid,
+    #[error("Path to executable not found! {0}")]
+    ExecutableNotFound(PathBuf),
+    #[error("Invalid file path! {0}")]
+    InvalidFile(String),
     #[error("Unable to render! Error: {0}")]
     RenderError(String),
     #[error("Unable to launch blender! Received Python errors: {0}")]
     PythonError(String),
-    // #[error("Ran into IO issue extracting contents")]
-    // UnableToExtract,
 }
 
 /// Blender structure to hold path to executable and version of blender installed.
@@ -212,7 +213,122 @@ impl Blender {
     /// To do this, we must have a valid blender executable path, and run the peek.py code to fetch a json response.
     // TODO: Consider using blend library to read the data instead.
     // TODO: This function may be deprecated as we may use blend library instead to avoid coupling.
-    pub fn peek(&self, blend_file: impl AsRef<Path>) -> Result<BlenderPeekResponse, BlenderError> {
+    pub async fn peek(
+        &self,
+        blend_file: impl AsRef<Path>,
+    ) -> Result<BlenderPeekResponse, BlenderError> {
+        /*
+        Experimental code, trying to use blend plugin to extract information rather than opening up blender for this.
+
+        Problem: I can't seem to find a way to obtain the following information:
+            - True scene name (Not SCScene)
+            - True camera name (Not CACamera)
+            - frame_start/end variable.
+            - render_height/width variable.
+        - denoiser/sample rate (From cycle?)
+            - fps?
+            // from peek.py
+            RenderWidth = scn.render.resolution_x,
+            RenderHeight = scn.render.resolution_y,
+            FrameStart = scn.frame_start,
+            FrameEnd = scn.frame_end,
+            FPS = scn.render.fps,
+            Denoiser = scn.cycles.denoiser,
+            Samples = scn.cycles.samples,
+            // do note here - we're capturing the OB name not the CA name!
+            Cameras = scn.objects.obj.type["CAMERA"].obj.name,
+            SelectedCamera = scn.camera.name,
+            Scenes = bpy.data.scenes.scene.name
+            SelectedScene = scn.name
+
+            */
+
+        let blend = Blend::from_path(&blend_file)
+            .map_err(|_| BlenderError::InvalidFile("Received BlenderParseError".to_owned()))?;
+
+        // blender version are display as three digits number, e.g. 404 is major: 4, minor: 4.
+        // treat this as a u16 major = u16 / 100, minor = u16 % 100;
+        let value: u64 = std::str::from_utf8(&blend.blend.header.version)
+            .expect("Fail to parse version into utf8")
+            .parse()
+            .expect("Fail to parse string to value");
+        let major = value / 100;
+        let minor = value % 100;
+
+        // using scope to drop manager usage.
+        let blend_version = {
+            let manager = Manager::load();
+
+            // Get the latest patch from blender home
+            match manager
+                .home
+                .as_ref()
+                .iter()
+                .find(|v| v.major.eq(&major) && v.minor.eq(&minor))
+            {
+                // TODO: Find a better way to handle this without using unwrap
+                Some(v) => v.fetch_latest().unwrap().as_ref().clone(),
+                // potentially could be a problem, if there's no internet connection, then we can't rely on zero patch?
+                // For now this will do.
+                None => Version::new(major.into(), minor.into(), 0),
+            }
+        };
+
+        let mut scenes: Vec<String> = Vec::new();
+        let mut cameras: Vec<String> = Vec::new();
+        let mut frame_start: i32 = 0;
+        let mut frame_end: i32 = 0;
+        let mut render_width: i32 = 0;
+        let mut render_height: i32 = 0;
+
+        // this denotes how many scene objects there are.
+        for obj in blend.instances_with_code(*b"SC") {
+            let scene = obj.get("id").get_string("name").replace("SC", ""); // not the correct name usage?
+            let render = &obj.get("r");
+
+            // nice I can grab the engine this scene is currently using! This is useful!
+            // let engine = &obj.get("r").get_string("engine"); // will show BLENDER_EEVEE_NEXT
+            // let device = &render.get_i32("compositor_device"); // not sure how I can translate this to represent CPU/GPU? but currently show 0 for cpu
+
+            // dbg!(device);
+            // bpy.data.scenes["Scene2"].frame_start
+            // render/output/properties/frame_range
+            dbg!(&render.get_i32("stamp"));
+            render_width = render.get_i32("xsch");
+            render_height = render.get_i32("ysch");
+            frame_start = render.get_i32("sfra");
+            frame_end = render.get_i32("efra");
+
+            scenes.push(scene);
+        }
+
+        // interesting - I'm picking up the wrong camera here?
+        for obj in blend.instances_with_code(*b"CA") {
+            let camera = obj.get("id").get_string("name").replace("CA", "");
+            cameras.push(camera);
+        }
+
+        let selected_camera = cameras.get(0).unwrap_or(&"".to_owned()).to_owned();
+        let selected_scene = scenes.get(0).unwrap_or(&"".to_owned()).to_owned();
+
+        let result = BlenderPeekResponse {
+            last_version: blend_version,
+            render_width,
+            render_height,
+            frame_start,
+            frame_end,
+            fps: 0,
+            denoiser: "".to_owned(),
+            samples: 0,
+            cameras,
+            selected_camera,
+            scenes,
+            selected_scene,
+        };
+        // dbg!(result);
+
+        Ok(result)
+        /*
         let peek_path = Self::get_config_path().join("peek.py");
 
         // if peek file does not exist - create one.
@@ -240,6 +356,7 @@ impl Blender {
         let json = parse[0].to_owned();
 
         serde_json::from_str(&json).map_err(|e| BlenderError::PythonError(e.to_string()))
+        */
     }
 
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
@@ -252,20 +369,26 @@ impl Blender {
     /// let final_output = blender.render(&args).unwrap();
     /// ```
     // so instead of just returning the string of render result or blender error, we'll simply use the single producer to produce result from this class.
-    pub fn render(self, args: Args) -> Receiver<Status> {
+    pub async fn render(self, args: Args) -> Receiver<Status> {
         let (rx, tx) = mpsc::channel::<Status>();
-        thread::spawn(move || {
+        spawn(async move {
             // So far this part of the code works - but I'm getting an unusual error
             // I'm rececing an exception on stdout. [Errno 32] broken pipe?
             // thread panic here - err - Serde { source: Error("expected value", line: 1, column: 1) } ??
             // TODO: peek will be deprecated - See if we need to do anything different here?
-            let blend_info = &self.peek(&args.file).unwrap();
-            let setting = BlenderRenderSetting::parse_from(&args, blend_info);
+            let blend_info = self
+                .peek(&args.file)
+                .await
+                .expect("Fail to parse blend file!"); // TODO: Need to clean this error up a bit.
+
+            dbg!(&blend_info);
+
+            let tmp_path = Self::get_config_path().join("blender_render.json");
+            let col = &args.create_arg_list(&tmp_path);
+            let setting = BlenderRenderSetting::parse_from(args, blend_info);
             let arr = vec![setting];
             let data = serde_json::to_string(&arr).unwrap();
-            let tmp_path = Self::get_config_path().join("blender_render.json");
             fs::write(&tmp_path, data).unwrap();
-            let col = &args.create_arg_list(tmp_path);
 
             let stdout = Command::new(&self.executable)
                 .args(col)

@@ -2,7 +2,8 @@ use blender::manager::Manager as BlenderManager;
 use std::path::PathBuf;
 
 /// Peek into the blend file to see what's inside.
-fn main() {
+#[tokio::main]
+async fn main() {
     let args = std::env::args().collect::<Vec<String>>();
     let blend_path = match args.get(1) {
         None => PathBuf::from("./examples/assets/test.blend"),
@@ -16,7 +17,7 @@ fn main() {
         None => manager.download_latest_version().unwrap(),
     };
 
-    match blender.peek(blend_path) {
+    match blender.peek(blend_path).await {
         Ok(result) => println!("{:?}", &result),
         Err(e) => println!("Error: {:?}", e),
     }
