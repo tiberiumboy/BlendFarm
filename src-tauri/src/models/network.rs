@@ -40,7 +40,7 @@ const TRANSFER: &str = "/file-transfer/1";
 pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEvent>), NetworkError>
 {
     let duration = Duration::from_secs(u64::MAX);
-    let id_keys = identity::Keypair::generate_ed25519();
+    // let id_keys = identity::Keypair::generate_ed25519();
     let tcp_config: tcp::Config = tcp::Config::default();
 
     let mut swarm = SwarmBuilder::with_new_identity()
@@ -351,6 +351,7 @@ impl NetworkService {
                 let spec = ComputerSpec::default();
                 let data = bincode::serialize(&spec).unwrap();
                 let topic = IdentTopic::new(SPEC);
+                // how do I sent the specs to only the computer I want to communicate to or connect to?
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to publish message to swarm! {e:?}");
                     // return Err(NetworkError::SendError(e.to_string()));
@@ -395,9 +396,12 @@ impl NetworkService {
             }
 
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                let event = NetEvent::Identity(peer_id, ComputerSpec::default());
-                if let Err(e) = self.event_sender.send(event).await {
-                    println!("Fail to send pc specs: {e:?}");
+                if let Err(e) = self
+                    .event_sender
+                    .send(NetEvent::NodeDiscovered(peer_id))
+                    .await
+                {
+                    eprintln!("Fail to send node discovery from establishment {e:?}");
                 }
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
@@ -417,6 +421,9 @@ impl NetworkService {
             SwarmEvent::OutgoingConnectionError { error, .. } => {
                 // More likely The address is in used, but I'm not sure why or how that's possible?
                 println!("Received outgoing connection error: {error:?}");
+            }
+            SwarmEvent::IncomingConnectionError { error, .. } => {
+                println!("Received incoming connection error: {error:?}");
             }
             _ => {
                 println!("Unhandle swarm behaviour event: {event:?}")

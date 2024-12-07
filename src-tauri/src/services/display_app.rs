@@ -122,12 +122,10 @@ impl TauriApp {
             }
             NetEvent::Status(peer_id, msg) => println!("Status from {peer_id} : {msg:?}"),
             NetEvent::NodeDiscovered(peer_id) => {
-                println!("Node Discovered {peer_id}");
                 let handle = app_handle.read().await;
                 handle.emit("node_discover", peer_id.to_base58()).unwrap();
             }
             NetEvent::NodeDisconnected(peer_id) => {
-                println!("Node disconnected {peer_id}");
                 let handle = app_handle.read().await;
                 handle.emit("node_disconnect", peer_id.to_base58()).unwrap();
             }
