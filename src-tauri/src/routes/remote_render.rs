@@ -35,7 +35,7 @@ pub async fn list_versions(state: State<'_, Mutex<AppState>>) -> Result<String, 
     let mut installed: Vec<Version> = manager
         .get_blenders()
         .iter()
-        .map(|b| AsRef::<Version>::as_ref(b).clone())
+        .map(|b| b.get_version().clone())
         .collect();
 
     versions.append(&mut installed);

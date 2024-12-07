@@ -65,7 +65,7 @@ pub struct Manager {
     has_modified: bool,
 }
 
-impl Manager {
+impl Default for Manager {
     // the default method implement should be private because I do not want people to use this function.
     // instead they should rely on "load" function instead.
     fn default() -> Self {
@@ -81,7 +81,9 @@ impl Manager {
             has_modified: false,
         }
     }
+}
 
+impl Manager {
     fn set_config(&mut self, config: BlenderConfig) -> &mut Self {
         self.config = config;
         self
@@ -247,7 +249,7 @@ impl Manager {
             .config
             .blenders
             .iter()
-            .find(|x| AsRef::<Version>::as_ref(&x).eq(version));
+            .find(|x| x.get_version().eq(version));
         match result {
             Some(blender) => Ok(blender.clone()),
             None => self.download(version),
@@ -258,7 +260,7 @@ impl Manager {
         self.config
             .blenders
             .iter()
-            .any(|x| AsRef::<Version>::as_ref(&x).eq(version))
+            .any(|x| x.get_version().eq(version))
     }
 
     /// Fetch the latest version of blender available from Blender.org
@@ -283,14 +285,6 @@ impl Manager {
             Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
         self.config.blenders.push(blender.clone());
         Ok(blender)
-    }
-
-    // TODO: have a reference from manager instead of initializing new BlenderHome struct
-    pub fn list_all_blender_version(&self) -> &Vec<BlenderCategory> {
-        // here we will return a list of all blender version stored.
-        // Dive into the parent directory, and get the last update version
-        // can we create a single sharable mutable state reference? This feels like a hack and may cause internet disruptance.
-        self.home.as_ref()
     }
 }
 

@@ -27,10 +27,10 @@ Network Service - Provides simple network interface for peer-to-peer network for
 Includes mDNS ()
 */
 
-const STATUS: &str = "blendfarm/status";
-const SPEC: &str = "blendfarm/spec";
-const JOB: &str = "blendfarm/job";
-const TRANSFER: &str = "blendfarm/file-transfer";
+const STATUS: &str = "/blendfarm/status";
+const SPEC: &str = "/blendfarm/spec";
+const JOB: &str = "/blendfarm/job";
+const TRANSFER: &str = "/file-transfer/1";
 
 // the tuples return three objects
 // the NetworkService holds the network loop operation
@@ -123,7 +123,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .unwrap();
 
     // TODO: Find a way to fetch user configuration. Refactor this when possible.
-    let tcp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
+    let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
         .parse()
         .expect("Must be valid multiaddr");
 
@@ -218,6 +218,7 @@ impl NetworkController {
         receiver.await.expect("Sender should not be dropped")
     }
 
+    #[allow(dead_code)]
     pub(crate) async fn respond_file(
         &mut self,
         file: Vec<u8>,
@@ -398,12 +399,14 @@ impl NetworkService {
                 self.swarm
                     .behaviour_mut()
                     .gossipsub
-                    .add_explicit_peer(&peer_id);
-                println!("Node connection established!");
-                // here we'll say that the node was disconnected.
-                // send a message back to the Ui confirming we discover a node (Use this to populate UI element on the front end facing app)
-                // let event = LoopEvent(peer_id, NetEvent::NodeDiscovered);
-                let event = NetEvent::NodeDiscovered(peer_id.to_string());
+                    .add_explicit_peer(&peer_id); // how can I make the peers connect automatically?
+
+                for peer in self.swarm.behaviour_mut().gossipsub.all_peers() {
+                    dbg!(&peer);
+                }
+
+                // send a message back confirming a node is discoverable (Use this to populate UI element on the front end facing app)
+                let event = NetEvent::NodeDiscovered(peer_id);
                 if let Err(e) = self.event_sender.send(event).await {
                     println!("Error sending node discovered signal to UI: {e:?}");
                 }
@@ -414,11 +417,12 @@ impl NetworkService {
                     .gossipsub
                     .remove_explicit_peer(&peer_id);
 
-                println!("Node Disconnected!");
+                for peer in self.swarm.behaviour_mut().gossipsub.all_peers() {
+                    dbg!(&peer);
+                }
 
-                // send a message back to the UI notifying the disconnnection of the node
-                // let event = LoopEvent(peer_id, NetEvent::NodeDisconnected);
-                let event = NetEvent::NodeDisconnected(peer_id.to_string());
+                // send a message back notifying a node was disconnnected
+                let event = NetEvent::NodeDisconnected(peer_id);
                 if let Err(e) = self.event_sender.send(event).await {
                     println!("Error sending node disconnected signal to UI: {e:?}");
                 }

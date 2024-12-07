@@ -13,7 +13,6 @@ pub struct CliApp;
 
 impl CliApp {
     async fn handle_message(controller: &mut NetworkController, event: NetEvent) {
-        println!("Receive network event {event:?}");
         match event {
             NetEvent::NodeDiscovered(_) => {
                 controller.share_computer_info().await;
@@ -41,6 +40,7 @@ impl CliApp {
                 // TODO: Finish the rest of this implementation once we can transfer blend file from different machine.
                 let _rx = blender.render(args);
             }
+
             _ => println!("Received event from network: {event:?}"),
         }
     }

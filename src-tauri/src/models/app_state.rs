@@ -1,5 +1,5 @@
 use super::{job::Job, server_setting::ServerSetting};
-use crate::UiCommand;
+use crate::services::display_app::UiCommand;
 use blender::manager::Manager as BlenderManager;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;

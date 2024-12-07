@@ -1,21 +1,15 @@
-// use crate::routes::remote_render::
-// use crate::routes::remote_render::{import_blend, list_versions};
-// use crate::routes::settings::{
-//     add_blender_installation, fetch_blender_installation, get_server_settings,
-//     list_blender_installation, remove_blender_installation, set_server_settings,
-// };
 use crate::{
     models::{
         app_state::AppState,
+        job::Job,
         message::{NetEvent, NetworkError},
         network::NetworkController,
         server_setting::ServerSetting,
     },
     routes::{job::*, remote_render::*, settings::*},
-    UiCommand,
 };
 use blender::manager::Manager as BlenderManager;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use tauri::{self, App, AppHandle, Emitter, Manager};
 use tokio::{
     select, spawn,
@@ -24,6 +18,15 @@ use tokio::{
         Mutex, RwLock,
     },
 };
+use uuid::Uuid;
+
+// This UI Command represent the top level UI that user clicks and interface with.
+#[derive(Debug)]
+pub enum UiCommand {
+    StartJob(Job),
+    StopJob(Uuid),
+    UploadFile(PathBuf),
+}
 
 use super::blend_farm::BlendFarm;
 
@@ -120,12 +123,14 @@ impl DisplayApp {
             NetEvent::Status(peer_id, msg) => println!("Status from {peer_id} : {msg:?}"),
             NetEvent::NodeDiscovered(peer_id) => {
                 println!("Node Discovered {peer_id}");
+                let handle = app_handle.read().await;
+                handle.emit("node_discover", peer_id.to_base58()).unwrap();
                 client.share_computer_info().await;
             }
             NetEvent::NodeDisconnected(peer_id) => {
                 println!("Node disconnected {peer_id}");
                 let handle = app_handle.read().await;
-                handle.emit("node_disconnect", peer_id).unwrap();
+                handle.emit("node_disconnect", peer_id.to_base58()).unwrap();
             }
             NetEvent::Identity(peer_id, comp_spec) => {
                 println!("Received node identity for id {peer_id} : {comp_spec:?}");
@@ -168,7 +173,13 @@ impl BlendFarm for DisplayApp {
         });
 
         // Run the app.
-        app.run(|_, _| {});
+        app.run(|_, event| {
+            match event {
+                // TODO: find a way to spawn the network listener thread inside here?
+                tauri::RunEvent::Ready => println!("Application is ready!"),
+                _ => {}
+            }
+        });
 
         Ok(())
     }

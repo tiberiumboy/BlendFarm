@@ -155,6 +155,16 @@ impl Blender {
         dirs::config_dir().unwrap().join("Blender")
     }
 
+    /// Return the executable path to blender (Entry point for CLI)
+    pub fn get_executable(&self) -> &Path {
+        &self.executable
+    }
+
+    /// Return validated Blender Version
+    pub fn get_version(&self) -> &Version {
+        &self.version
+    }
+
     /// Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
     /// Otherwise, if Blender is not install, or a version is not found, an error will be thrown
     ///
@@ -332,20 +342,6 @@ impl Blender {
             });
         });
         tx
-    }
-}
-
-/// fetch the blender executable path, used to pass into Command::process implementation
-impl AsRef<PathBuf> for Blender {
-    fn as_ref(&self) -> &PathBuf {
-        &self.executable
-    }
-}
-
-/// fetch the version of blender
-impl AsRef<Version> for Blender {
-    fn as_ref(&self) -> &Version {
-        &self.version
     }
 }
 

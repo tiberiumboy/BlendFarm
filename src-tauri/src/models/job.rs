@@ -125,6 +125,11 @@ impl Job {
         ))
     }
 
+    /// Returns the unique identifier for this job.
+    pub fn get_id(&self) -> &Uuid {
+        &self.id
+    }
+
     // TOOD: These commented out function appears best to be implemented in a manager class of some sort.
     /*
     fn compare_and_increment(&mut self, max: i32) -> Option<i32> {
@@ -144,12 +149,6 @@ impl Job {
         }
     }
     */
-}
-
-impl AsRef<Uuid> for Job {
-    fn as_ref(&self) -> &Uuid {
-        &self.id
-    }
 }
 
 impl PartialEq for Job {

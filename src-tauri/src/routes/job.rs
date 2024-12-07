@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     models::{app_state::AppState, job::Job, project_file::ProjectFile},
-    UiCommand,
+    services::display_app::UiCommand,
 };
 
 #[command(async)]
@@ -43,7 +43,7 @@ pub async fn create_job(
 pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> Result<(), ()> {
     let mut server = state.lock().await; // Should I worry about posion error?
     server.jobs.retain(|x| x.eq(&target_job));
-    let msg = UiCommand::StopJob(target_job.as_ref().clone());
+    let msg = UiCommand::StopJob(*target_job.get_id());
     if let Err(e) = server.to_network.send(msg).await {
         eprintln!("Fail to send stop job command! {e:?}");
     }

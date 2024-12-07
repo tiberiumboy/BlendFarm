@@ -26,13 +26,10 @@ Developer blog:
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use clap::Parser;
 use models::app_state::AppState;
-use models::job::Job;
 use models::network;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, display_app::DisplayApp};
-use std::path::PathBuf;
 use tokio::spawn;
 // use tracing_subscriber::EnvFilter;
-use uuid::Uuid;
 
 // TODO: Create a miro diagram structure of how this application suppose to work
 // Need a mapping to explain how network should perform over intranet
@@ -48,32 +45,28 @@ struct Cli {
     client: Option<bool>,
 }
 
-// This UI Command represent the top level UI that user clicks and interface with.
-#[derive(Debug)]
-pub(crate) enum UiCommand {
-    StartJob(Job),
-    StopJob(Uuid),
-    UploadFile(PathBuf),
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     // let _ = tracing_subscriber::fmt()
     //     .with_env_filter(EnvFilter::from_default_env())
     //     .try_init();
 
+    // to run custom behaviour
     let cli = Cli::parse();
 
+    // must have working network services
     let (service, controller, receiver) =
         network::new().await.expect("Fail to start network service");
 
-    // start network service
+    // start network service async
     spawn(service.run());
 
-    match cli.client {
+    if let Err(e) = match cli.client {
         // run as client mode.
         Some(true) => CliApp::default().run(controller, receiver).await,
         // run as GUI mode.
         _ => DisplayApp::default().run(controller, receiver).await,
-    };
+    } {
+        eprintln!("Something went terribly wrong? {e:?}");
+    }
 }

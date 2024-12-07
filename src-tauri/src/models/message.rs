@@ -61,8 +61,8 @@ pub enum NetEvent {
     // TODO: Future impl. Use this to send computer activity
     // Heartbeat() // share hardware statistic monitor heartbeat. (CPU/GPU/RAM activity readings)
     Render(PeerId, Job),      // Receive a new render job
-    NodeDiscovered(String),   // On Node discover
-    NodeDisconnected(String), // On Node disconnected
+    NodeDiscovered(PeerId),   // On Node discover
+    NodeDisconnected(PeerId), // On Node disconnected
     InboundRequest {
         request: String,
         channel: ResponseChannel<FileResponse>,
