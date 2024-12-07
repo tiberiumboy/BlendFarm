@@ -30,6 +30,7 @@ Includes mDNS ()
 const STATUS: &str = "blendfarm/status";
 const SPEC: &str = "blendfarm/spec";
 const JOB: &str = "blendfarm/job";
+const TRANSFER: &str = "blendfarm/file-transfer";
 
 // the tuples return three objects
 // the NetworkService holds the network loop operation
@@ -86,10 +87,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
             );
 
             let rr_config = libp2p_request_response::Config::default();
-            let protocol = [(
-                StreamProtocol::new("/file-exchange/1"),
-                ProtocolSupport::Full,
-            )];
+            let protocol = [(StreamProtocol::new(TRANSFER), ProtocolSupport::Full)];
             let request_response = libp2p_request_response::Behaviour::new(protocol, rr_config);
 
             Ok(BlendFarmBehaviour {
@@ -125,7 +123,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .unwrap();
 
     // TODO: Find a way to fetch user configuration. Refactor this when possible.
-    let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
+    let tcp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
         .parse()
         .expect("Must be valid multiaddr");
 
