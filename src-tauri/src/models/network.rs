@@ -6,6 +6,7 @@ use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
 use futures::channel::oneshot;
 use libp2p::futures::StreamExt;
+use libp2p::swarm::PeerAddresses;
 use libp2p::{
     gossipsub::{self, IdentTopic},
     identity, kad, mdns,
@@ -27,9 +28,9 @@ Network Service - Provides simple network interface for peer-to-peer network for
 Includes mDNS ()
 */
 
-const STATUS: &str = "/blendfarm/status";
-const SPEC: &str = "/blendfarm/spec";
-const JOB: &str = "/blendfarm/job";
+const STATUS: &str = "blendfarm/status";
+const SPEC: &str = "blendfarm/spec";
+const JOB: &str = "blendfarm/job";
 const TRANSFER: &str = "/file-transfer/1";
 
 // the tuples return three objects
@@ -111,11 +112,13 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .gossipsub
         .subscribe(&static_topic)
         .unwrap();
+
     swarm
         .behaviour_mut()
         .gossipsub
         .subscribe(&job_topic)
         .unwrap();
+
     swarm
         .behaviour_mut()
         .gossipsub
@@ -127,12 +130,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .parse()
         .expect("Must be valid multiaddr");
 
-    swarm.listen_on(tcp).expect("Fail to listen on TCP");
-    // swarm.listen_on(udp.clone()).expect("Fail to listen on UDP");
-
-    if let Err(e) = swarm.dial(id_keys.public().to_peer_id()) {
-        eprintln!("Fail to dial swarm with random ID: {e:?}"); // I need to figure out what the error message here?
-    }
+    swarm.listen_on(tcp.clone()).expect("Fail to listen on TCP");
 
     // the command sender is used for outside method to send message commands to network queue
     let (command_sender, command_receiver) = mpsc::channel::<NetCommand>(32);
@@ -168,6 +166,7 @@ impl NetworkController {
             .expect("Command should not have been dropped");
     }
 
+    // may not be in use?
     pub async fn share_computer_info(&mut self) {
         self.sender
             .send(NetCommand::SendIdentity)
@@ -396,31 +395,13 @@ impl NetworkService {
             }
 
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                self.swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .add_explicit_peer(&peer_id); // how can I make the peers connect automatically?
-
-                for peer in self.swarm.behaviour_mut().gossipsub.all_peers() {
-                    dbg!(&peer);
-                }
-
-                // send a message back confirming a node is discoverable (Use this to populate UI element on the front end facing app)
-                let event = NetEvent::NodeDiscovered(peer_id);
+                let event = NetEvent::Identity(peer_id, ComputerSpec::default());
                 if let Err(e) = self.event_sender.send(event).await {
-                    println!("Error sending node discovered signal to UI: {e:?}");
+                    println!("Fail to send pc specs: {e:?}");
                 }
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                self.swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .remove_explicit_peer(&peer_id);
-
-                for peer in self.swarm.behaviour_mut().gossipsub.all_peers() {
-                    dbg!(&peer);
-                }
-
+                println!("Connection closed!");
                 // send a message back notifying a node was disconnnected
                 let event = NetEvent::NodeDisconnected(peer_id);
                 if let Err(e) = self.event_sender.send(event).await {
@@ -429,8 +410,18 @@ impl NetworkService {
             }
 
             // omitting message.
-            SwarmEvent::NewListenAddr { .. } => {}
-            SwarmEvent::IncomingConnection { .. } => {}
+            SwarmEvent::NewListenAddr { address, .. } => println!("Now listening on {address}"),
+            SwarmEvent::IncomingConnection { local_addr, .. } => {
+                println!("Receiving Incoming Connection... {local_addr}")
+            }
+            SwarmEvent::Dialing { peer_id, .. } => match peer_id {
+                Some(peer_id) => println!("Dialing {peer_id}..."),
+                None => println!("Dialing no peer_id?"),
+            },
+            SwarmEvent::OutgoingConnectionError { error, .. } => {
+                // More likely The address is in used, but I'm not sure why or how that's possible?
+                println!("Received outgoing connection error: {error:?}");
+            }
             _ => {
                 println!("Unhandle swarm behaviour event: {event:?}")
             }
@@ -484,16 +475,22 @@ impl NetworkService {
         match event {
             mdns::Event::Discovered(list) => {
                 for (peer_id, ..) in list {
-                    println!("Peer discovered {}", peer_id.to_string());
+                    println!("mDNS discovered a new peer: {peer_id}");
                     self.swarm
                         .behaviour_mut()
                         .gossipsub
                         .add_explicit_peer(&peer_id);
+
+                    // send a message back confirming a node is discoverable (Use this to populate UI element on the front end facing app)
+                    let event = NetEvent::NodeDiscovered(peer_id);
+                    if let Err(e) = self.event_sender.send(event).await {
+                        println!("Error sending node discovered signal to UI: {e:?}");
+                    }
                 }
             }
             mdns::Event::Expired(list) => {
                 for (peer_id, ..) in list {
-                    println!("Peer disconnected {}", peer_id.to_string());
+                    println!("mDNS expired peer: {peer_id}");
                     self.swarm
                         .behaviour_mut()
                         .gossipsub
@@ -506,16 +503,25 @@ impl NetworkService {
     // TODO: Figure out how I can use the match operator for TopicHash. I'd like to use the TopicHash static variable above.
     async fn handle_gossip(&mut self, event: gossipsub::Event) {
         match event {
-            gossipsub::Event::Message { message, .. } => match message.topic.as_str() {
-                SPEC => {
-                    let source = message.source.expect("Source cannot be empty!");
-                    let specs =
+            gossipsub::Event::Message {
+                propagation_source,
+                message_id,
+                message,
+            } => {
+                let msg = String::from_utf8_lossy(&message.data);
+                println!("Received message {message_id} from {propagation_source} :{msg}");
+            }
+            /*
+                match message.topic.as_str() {
+                    SPEC => {
+                        let source = message.source.expect("Source cannot be empty!");
+                        let specs =
                         bincode::deserialize(&message.data).expect("Fail to parse Computer Specs!");
-                    if let Err(e) = self
+                        if let Err(e) = self
                         .event_sender
                         .send(NetEvent::Identity(source, specs))
                         .await
-                    {
+                        {
                         eprintln!("Something failed? {e:?}");
                     }
                 }
@@ -529,7 +535,7 @@ impl NetworkService {
                 JOB => {
                     let source = message.source.expect("Source cannot be empty!");
                     let job: Job =
-                        bincode::deserialize(&message.data).expect("Fail to parse Job data!");
+                    bincode::deserialize(&message.data).expect("Fail to parse Job data!");
                     if let Err(e) = self.event_sender.send(NetEvent::Render(source, job)).await {
                         eprintln!("SOmething failed? {e:?}");
                     }
@@ -538,6 +544,7 @@ impl NetworkService {
                     "Received unknown topic hash! Potential malicious foreign command received?"
                 ),
             },
+            */
             _ => {}
         }
     }

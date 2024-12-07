@@ -31,9 +31,9 @@ pub enum UiCommand {
 use super::blend_farm::BlendFarm;
 
 #[derive(Default)]
-pub struct DisplayApp {}
+pub struct TauriApp {}
 
-impl DisplayApp {
+impl TauriApp {
     // Create a builder to make Tauri application
     fn config_tauri_builder(to_network: Sender<UiCommand>) -> App {
         let server_settings = ServerSetting::load();
@@ -125,7 +125,6 @@ impl DisplayApp {
                 println!("Node Discovered {peer_id}");
                 let handle = app_handle.read().await;
                 handle.emit("node_discover", peer_id.to_base58()).unwrap();
-                client.share_computer_info().await;
             }
             NetEvent::NodeDisconnected(peer_id) => {
                 println!("Node disconnected {peer_id}");
@@ -147,7 +146,7 @@ impl DisplayApp {
 }
 
 #[async_trait::async_trait]
-impl BlendFarm for DisplayApp {
+impl BlendFarm for TauriApp {
     async fn run(
         &self,
         mut client: NetworkController,

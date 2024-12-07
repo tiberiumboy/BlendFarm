@@ -27,7 +27,7 @@ Developer blog:
 use clap::Parser;
 use models::app_state::AppState;
 use models::network;
-use services::{blend_farm::BlendFarm, cli_app::CliApp, display_app::DisplayApp};
+use services::{blend_farm::BlendFarm, cli_app::CliApp, display_app::TauriApp};
 use tokio::spawn;
 // use tracing_subscriber::EnvFilter;
 
@@ -65,7 +65,7 @@ pub async fn run() {
         // run as client mode.
         Some(true) => CliApp::default().run(controller, receiver).await,
         // run as GUI mode.
-        _ => DisplayApp::default().run(controller, receiver).await,
+        _ => TauriApp::default().run(controller, receiver).await,
     } {
         eprintln!("Something went terribly wrong? {e:?}");
     }
