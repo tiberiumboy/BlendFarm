@@ -14,10 +14,9 @@ pub struct CliApp;
 impl CliApp {
     async fn handle_message(controller: &mut NetworkController, event: NetEvent) {
         match event {
-            // NetEvent::NodeDiscovered(_) => {
-            //     controller.share_computer_info().await;
-            // }
-            // receive network job queue.
+            NetEvent::NodeDiscovered(_) => {}   // don't care about this
+            NetEvent::NodeDisconnected(_) => {} // don't care about this.
+            NetEvent::Identity(_, _) => {}
             NetEvent::Render(peer_id, job) => {
                 // first check and see if we have blender installation installed for this job.
                 let blend_version: &Version = &job.project_file.as_ref();

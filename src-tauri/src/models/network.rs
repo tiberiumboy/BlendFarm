@@ -401,12 +401,7 @@ impl NetworkService {
                 }
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                println!("Connection closed!");
-                // send a message back notifying a node was disconnnected
-                let event = NetEvent::NodeDisconnected(peer_id);
-                if let Err(e) = self.event_sender.send(event).await {
-                    println!("Error sending node disconnected signal to UI: {e:?}");
-                }
+                self.remove_peer(peer_id).await;
             }
 
             // omitting message.
@@ -471,16 +466,31 @@ impl NetworkService {
         }
     }
 
+    fn add_peer(&mut self, peer_id: &PeerId) {
+        self.swarm
+            .behaviour_mut()
+            .gossipsub
+            .add_explicit_peer(&peer_id);
+    }
+
+    async fn remove_peer(&mut self, peer_id: PeerId) {
+        self.swarm
+            .behaviour_mut()
+            .gossipsub
+            .remove_explicit_peer(&peer_id);
+
+        // send a message back notifying a node was disconnnected
+        let event = NetEvent::NodeDisconnected(peer_id);
+        if let Err(e) = self.event_sender.send(event).await {
+            println!("Error sending node disconnected signal to UI: {e:?}");
+        }
+    }
+
     async fn handle_mdns(&mut self, event: mdns::Event) {
         match event {
             mdns::Event::Discovered(list) => {
                 for (peer_id, ..) in list {
-                    println!("mDNS discovered a new peer: {peer_id}");
-                    self.swarm
-                        .behaviour_mut()
-                        .gossipsub
-                        .add_explicit_peer(&peer_id);
-
+                    self.add_peer(&peer_id);
                     // send a message back confirming a node is discoverable (Use this to populate UI element on the front end facing app)
                     let event = NetEvent::NodeDiscovered(peer_id);
                     if let Err(e) = self.event_sender.send(event).await {
@@ -490,11 +500,7 @@ impl NetworkService {
             }
             mdns::Event::Expired(list) => {
                 for (peer_id, ..) in list {
-                    println!("mDNS expired peer: {peer_id}");
-                    self.swarm
-                        .behaviour_mut()
-                        .gossipsub
-                        .remove_explicit_peer(&peer_id);
+                    self.remove_peer(peer_id).await;
                 }
             } // _ => {}
         };
