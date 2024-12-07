@@ -12,6 +12,8 @@ use super::{computer_spec::ComputerSpec, job::Job};
 
 #[derive(Debug, Error)]
 pub enum NetworkError {
+    #[error("Unable to listen: {0}")]
+    UnableToListen(String),
     #[error("Not Connected")]
     NotConnected,
     #[error("Invalid connection")]
@@ -41,7 +43,6 @@ pub enum NetCommand {
     },
     SendIdentity,
     RequestFile {
-        // ack?
         peer_id: PeerId,
         file_name: String,
         sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,

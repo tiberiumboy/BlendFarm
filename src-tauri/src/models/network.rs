@@ -6,18 +6,16 @@ use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
 use futures::channel::oneshot;
 use libp2p::futures::StreamExt;
-use libp2p::swarm::PeerAddresses;
 use libp2p::{
     gossipsub::{self, IdentTopic},
-    identity, kad, mdns,
+    kad, mdns,
     swarm::{Swarm, SwarmEvent},
     tcp, Multiaddr, SwarmBuilder,
 };
 use libp2p::{PeerId, StreamProtocol};
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
-use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::hash::{Hash, Hasher};
 use std::time::Duration;
 use std::u64;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -36,7 +34,7 @@ const TRANSFER: &str = "/file-transfer/1";
 // the tuples return three objects
 // the NetworkService holds the network loop operation
 // the Network Controller to send command to network service
-// the receiver command from network services
+// the Receiver<NetCommand> from network services
 pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEvent>), NetworkError>
 {
     let duration = Duration::from_secs(u64::MAX);
@@ -53,12 +51,6 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .expect("Should be able to build with tcp configuration?")
         .with_quic()
         .with_behaviour(|key| {
-            // let message_id_fn = |message: &gossipsub::Message| {
-            //     let mut s = DefaultHasher::new();
-            //     message.data.hash(&mut s);
-            //     gossipsub::MessageId::from(s.finish().to_string())
-            // };
-
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 // .heartbeat_interval(Duration::from_secs(10))
                 // .validation_mode(gossipsub::ValidationMode::Strict)
@@ -66,22 +58,19 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
                 .build()
                 .map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))?;
 
+            // p2p communication
             let gossipsub = gossipsub::Behaviour::new(
                 gossipsub::MessageAuthenticity::Signed(key.clone()),
                 gossipsub_config,
             )
             .expect("Fail to create gossipsub behaviour");
 
+            // network discovery usage
             let mdns =
                 mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())
                     .expect("Fail to create mdns behaviour!");
 
-            /*
-                Used as a DHT - can be a provider or a client.
-                TODO: Future Impl. need to read the documentation for more information about kademline implementation. (It acts like bitTorrent)
-                    We will be using this for file transfer for both blend files, blender version, and render image result.
-                    For now we're going to use
-            */
+            // Used to provide file provision list
             let kad = kad::Behaviour::new(
                 key.public().to_peer_id(),
                 kad::store::MemoryStore::new(key.public().to_peer_id()),
@@ -125,12 +114,19 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .subscribe(&spec_topic)
         .unwrap();
 
-    // TODO: Find a way to fetch user configuration. Refactor this when possible.
+    let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
+        .parse()
+        .map_err(|e| NetworkError::BadInput)?;
     let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
         .parse()
-        .expect("Must be valid multiaddr");
+        .map_err(|_| NetworkError::BadInput)?;
 
-    swarm.listen_on(tcp.clone()).expect("Fail to listen on TCP");
+    swarm
+        .listen_on(tcp.clone())
+        .map_err(|e| NetworkError::UnableToListen(e.to_string()))?;
+    swarm
+        .listen_on(udp)
+        .map_err(|e| NetworkError::UnableToListen(e.to_string()))?;
 
     // the command sender is used for outside method to send message commands to network queue
     let (command_sender, command_receiver) = mpsc::channel::<NetCommand>(32);
@@ -336,9 +332,7 @@ impl NetworkService {
                     .behaviour_mut()
                     .request_response
                     .send_request(&peer_id, FileRequest(file_name));
-                self.pending_request_file
-                    .insert(request_id, sender)
-                    .expect("msg");
+                self.pending_request_file.insert(request_id, sender);
             }
             NetCommand::RespondFile { file, channel } => {
                 self.swarm
@@ -440,7 +434,6 @@ impl NetworkService {
                 libp2p_request_response::Message::Request {
                     request, channel, ..
                 } => {
-                    // frustration ensue - I need to think better how I can deal with simple file transfer protocol...
                     self.event_sender
                         .send(NetEvent::InboundRequest {
                             request: request.0,
@@ -517,25 +510,16 @@ impl NetworkService {
     // TODO: Figure out how I can use the match operator for TopicHash. I'd like to use the TopicHash static variable above.
     async fn handle_gossip(&mut self, event: gossipsub::Event) {
         match event {
-            gossipsub::Event::Message {
-                propagation_source,
-                message_id,
-                message,
-            } => {
-                let msg = String::from_utf8_lossy(&message.data);
-                println!("Received message {message_id} from {propagation_source} :{msg}");
-            }
-            /*
-                match message.topic.as_str() {
-                    SPEC => {
-                        let source = message.source.expect("Source cannot be empty!");
-                        let specs =
+            gossipsub::Event::Message { message, .. } => match message.topic.as_str() {
+                SPEC => {
+                    let source = message.source.expect("Source cannot be empty!");
+                    let specs =
                         bincode::deserialize(&message.data).expect("Fail to parse Computer Specs!");
-                        if let Err(e) = self
+                    if let Err(e) = self
                         .event_sender
                         .send(NetEvent::Identity(source, specs))
                         .await
-                        {
+                    {
                         eprintln!("Something failed? {e:?}");
                     }
                 }
@@ -549,7 +533,7 @@ impl NetworkService {
                 JOB => {
                     let source = message.source.expect("Source cannot be empty!");
                     let job: Job =
-                    bincode::deserialize(&message.data).expect("Fail to parse Job data!");
+                        bincode::deserialize(&message.data).expect("Fail to parse Job data!");
                     if let Err(e) = self.event_sender.send(NetEvent::Render(source, job)).await {
                         eprintln!("SOmething failed? {e:?}");
                     }
@@ -558,7 +542,6 @@ impl NetworkService {
                     "Received unknown topic hash! Potential malicious foreign command received?"
                 ),
             },
-            */
             _ => {}
         }
     }

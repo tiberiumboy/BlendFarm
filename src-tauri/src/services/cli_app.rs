@@ -14,7 +14,9 @@ pub struct CliApp;
 impl CliApp {
     async fn handle_message(controller: &mut NetworkController, event: NetEvent) {
         match event {
-            NetEvent::NodeDiscovered(_) => {}   // don't care about this
+            NetEvent::NodeDiscovered(_) => {
+                controller.share_computer_info().await;
+            }
             NetEvent::NodeDisconnected(_) => {} // don't care about this.
             NetEvent::Identity(_, _) => {}
             NetEvent::Render(peer_id, job) => {

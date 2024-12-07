@@ -151,8 +151,8 @@ impl Blender {
     }
 
     /// Fetch the configuration path for blender. This is used to store temporary files and configuration files for blender.
-    fn get_config_path() -> PathBuf {
-        dirs::config_dir().unwrap().join("Blender")
+    pub fn get_config_path() -> PathBuf {
+        dirs::config_dir().unwrap().join("BlendFarm")
     }
 
     /// Return the executable path to blender (Entry point for CLI)

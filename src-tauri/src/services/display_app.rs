@@ -112,7 +112,7 @@ impl TauriApp {
 
     // commands received from network
     async fn handle_net_event(
-        client: &mut NetworkController,
+        _client: &mut NetworkController,
         event: NetEvent,
         app_handle: Arc<RwLock<AppHandle>>,
     ) {
@@ -130,10 +130,7 @@ impl TauriApp {
                 handle.emit("node_disconnect", peer_id.to_base58()).unwrap();
             }
             NetEvent::Identity(peer_id, comp_spec) => {
-                println!("Received node identity for id {peer_id} : {comp_spec:?}");
                 let handle = app_handle.read().await;
-                // would this be ideal to store a bytes instead?
-                // TODO: Change this to target Node by peer_id - See
                 handle
                     .emit("node_identity", (peer_id.to_base58(), comp_spec))
                     .unwrap();
