@@ -53,16 +53,16 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .expect("Should be able to build with tcp configuration?")
         .with_quic()
         .with_behaviour(|key| {
-            let message_id_fn = |message: &gossipsub::Message| {
-                let mut s = DefaultHasher::new();
-                message.data.hash(&mut s);
-                gossipsub::MessageId::from(s.finish().to_string())
-            };
+            // let message_id_fn = |message: &gossipsub::Message| {
+            //     let mut s = DefaultHasher::new();
+            //     message.data.hash(&mut s);
+            //     gossipsub::MessageId::from(s.finish().to_string())
+            // };
 
             let gossipsub_config = gossipsub::ConfigBuilder::default()
-                .heartbeat_interval(Duration::from_secs(10))
-                .validation_mode(gossipsub::ValidationMode::Strict)
-                .message_id_fn(message_id_fn)
+                // .heartbeat_interval(Duration::from_secs(10))
+                // .validation_mode(gossipsub::ValidationMode::Strict)
+                // .message_id_fn(message_id_fn)
                 .build()
                 .map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))?;
 
@@ -413,6 +413,7 @@ impl NetworkService {
                 Some(peer_id) => println!("Dialing {peer_id}..."),
                 None => println!("Dialing no peer_id?"),
             },
+            // I am getting this strange InappropriateHandshakeMessage after Node is discovered?
             SwarmEvent::OutgoingConnectionError { error, .. } => {
                 // More likely The address is in used, but I'm not sure why or how that's possible?
                 println!("Received outgoing connection error: {error:?}");
