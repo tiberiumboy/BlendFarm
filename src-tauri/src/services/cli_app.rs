@@ -30,6 +30,59 @@ impl Default for CliApp {
 }
 
 impl CliApp {
+
+     /*
+
+        TODO: Figure out what I was suppose to do with this file?
+
+    //         NetEvent::Render(job) => {
+        //             // Here we'll check the job -
+        //             // TODO: It would be nice to check and see if there's any jobs currently running, otherwise put it in a poll?
+        //             let project_file = job.project_file;
+        //             let version: &Version = project_file.as_ref();
+        //             let blender = self
+        //                 .manager
+        //                 .fetch_blender(version)
+        //                 .expect("Should have blender installed?");
+        //             let file_path: &Path = project_file.as_ref();
+        //             let args = Args::new(file_path, job.output, job.mode);
+        //             let rx = blender.render(args);
+        // for this particular loop, let's extract this out to simplier function.
+        // loop {
+        //         if let Ok(msg) = rx.recv() {
+        //             let msg = match msg {
+        //                 Status::Idle => "Idle".to_owned(),
+        //                 Status::Running { status } => status,
+        //                 Status::Log { status } => status,
+        //                 Status::Warning { message } => message,
+        //                 Status::Error(err) => format!("{err:?}").to_owned(),
+        //                 Status::Completed { result } => {
+        //                     // we'll send the message back?
+        //                     // net_service
+        //                     // here we will state that the render is complete, and send a message to network service
+        //                     // TODO: Find a better way to not use the `.clone()` method.
+        //                     let msg = Command::FrameCompleted(
+        //                         result.clone(),
+        //                         job.current_frame,
+        //                     );
+        //                     let _ = net_service.send(msg).await;
+        //                     let path_str = &result.to_string_lossy();
+        //                     format!(
+        //                         "Finished job frame {} at {path_str}",
+        //                         job.current_frame
+        //                     )
+        //                     .to_owned()
+        //                     // here we'll send the job back to the peer who requested us the job initially.
+        //                     // net_service.swarm.behaviour_mut().gossipsub.publish( peer_id, )
+        //                 }
+        //             };
+        //             println!("[Status] {msg}");
+        //         }
+        //             // }
+        //         }
+        // }
+
+    */
     async fn handle_message(&mut self, controller: &mut NetworkController, event: NetEvent) {
         match event {
             NetEvent::OnConnected => controller.share_computer_info().await,
