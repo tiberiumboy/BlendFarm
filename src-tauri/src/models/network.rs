@@ -97,8 +97,13 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .parse()
         .map_err(|_| NetworkError::BadInput)?;
 
+    let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1".parse().map_err(|_| NetworkError::BadInput)?;
+
     swarm
         .listen_on(tcp)
+        .map_err(|e| NetworkError::UnableToListen(e.to_string()))?;
+    swarm
+        .listen_on(udp)
         .map_err(|e| NetworkError::UnableToListen(e.to_string()))?;
 
     // the command sender is used for outside method to send message commands to network queue
