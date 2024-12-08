@@ -1,4 +1,4 @@
-import { ProjectFileProps } from "../components/project_file";
+import { GetFileName, ProjectFileProps } from "../components/project_file";
 import { CiCircleMore, CiTrash } from "react-icons/ci";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 
@@ -22,12 +22,14 @@ export default function RenderJob(job: RenderJobProps, callback: (job: RenderJob
     console.log("more action was pressed | TODO: add impl.");
   };
 
+
+
   return (
     <div>
       <table>
         <tbody>
           <tr onClick={() => callback(job)}>
-            <td style={{ width: "100%" }}>{job.project_file.file_name}</td>
+            <td style={{ width: "100%" }}>{GetFileName(job.project_file)}</td>
             <td>
               <CiTrash onClick={deleteJob} />
             </td>

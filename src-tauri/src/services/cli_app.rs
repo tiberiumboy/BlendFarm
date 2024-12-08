@@ -10,12 +10,13 @@ use async_trait::async_trait;
 use blender::{blender::Args, manager::Manager as BlenderManager};
 use machine_info::Machine;
 use semver::Version;
-use std::env::consts;
+use std::{env::consts, ops::Deref};
 use tokio::{select, sync::mpsc::Receiver};
 
 pub struct CliApp {
     machine: Machine,
     // job that this machine is busy working on.
+    #[allow(dead_code)]
     active_job: Option<Job>,
 }
 
@@ -46,8 +47,8 @@ impl CliApp {
                     .expect("Fail to download blender!");
 
                 let tmp_path = dirs::cache_dir().unwrap().join("Blender");
-                let file_name = job.project_file.file_name;
-                let project_file = tmp_path.join(&file_name);
+                let file_name = job.project_file.deref().file_name().unwrap().to_str().unwrap().to_string();
+                let project_file = tmp_path.join(&job.project_file.deref());
                 if !project_file.exists() {
                     // go fetch the project file from the network.
                     let _ = controller.request_file(peer_id.clone(), file_name).await;

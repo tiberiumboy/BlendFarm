@@ -11,6 +11,7 @@ use blender::blender::Manager;
 use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 use std::path::Path;
 use std::{
     collections::HashSet,
@@ -58,7 +59,7 @@ pub struct Job {
     /// What kind of mode should this job run as
     pub mode: Mode,
     /// Path to blender files
-    pub project_file: ProjectFile,
+    pub project_file: ProjectFile<PathBuf>,
     // Path to completed image result - May not be needed?
     renders: HashSet<RenderInfo>,
     // I should probably take responsibility for this, Once render is complete - I need to send a signal back to the host saying here's the frame, and here's the raw image data.
@@ -68,7 +69,7 @@ pub struct Job {
 }
 
 impl Job {
-    pub fn new(project_file: ProjectFile, output: PathBuf, mode: Mode) -> Job {
+    pub fn new(project_file: ProjectFile<PathBuf>, output: PathBuf, mode: Mode) -> Job {
         let current_frame = match mode {
             Mode::Frame(frame) => frame,
             Mode::Animation { start, .. } => start,
@@ -88,7 +89,7 @@ impl Job {
     // Invoke blender to run the job
     // Find out if I need to run this locally, or just rely on the server to perform the operation?
     pub async fn run(&mut self, frame: i32) -> Result<RenderInfo> {
-        let path: &Path = self.project_file.as_ref();
+        let path: &Path = self.project_file.deref();
         let version: &Version = self.project_file.as_ref();
         // TODO: How can I split this up to run async task? E.g. Keep this task running while we still have frames left over.
         let args = Args::new(path, self.output.clone(), Mode::Frame(frame));

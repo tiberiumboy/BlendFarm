@@ -440,13 +440,13 @@ impl NetworkService {
     }
 
     // TODO: Haven't found a place for this yet, but still thinking about how to handle node disconnection?
-    async fn remove_peer(&mut self, peer_id: PeerId) {
-        // send a message back notifying a node was disconnnected
-        let event = NetEvent::NodeDisconnected(peer_id);
-        if let Err(e) = self.event_sender.send(event).await {
-            println!("Error sending node disconnected signal to UI: {e:?}");
-        }
-    }
+    // async fn remove_peer(&mut self, peer_id: PeerId) {
+    //     // send a message back notifying a node was disconnnected
+    //     let event = NetEvent::NodeDisconnected(peer_id);
+    //     if let Err(e) = self.event_sender.send(event).await {
+    //         println!("Error sending node disconnected signal to UI: {e:?}");
+    //     }
+    // }
 
     async fn handle_mdns(&mut self, event: mdns::Event) {
         match event {

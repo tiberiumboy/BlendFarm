@@ -35,7 +35,7 @@ pub struct TauriApp {
 
 impl TauriApp {
     // Create a builder to make Tauri application
-    fn config_tauri_builder(to_network: Sender<UiCommand>) -> App {
+    fn config_tauri_builder(to_network: Sender<UiCommand>) -> Result<App, tauri::Error> {
         let server_settings = ServerSetting::load();
 
         // I would like to find a better way to update or append data to render_nodes,
@@ -78,7 +78,6 @@ impl TauriApp {
                 fetch_blender_installation,
             ])
             .build(tauri::generate_context!())
-            .expect("Unable to build tauri app!")
     }
 
     // command received from UI
@@ -90,8 +89,7 @@ impl TauriApp {
         match cmd {
             UiCommand::StartJob(job) => {
                 // first make the file available on the network
-                let project_file = &job.project_file;
-                let file_name = project_file.get_file_name().to_string();
+                let file_name = job.project_file.file_name().unwrap().to_str().unwrap().to_string();
                 client.start_providing(file_name).await;
                 client.send_network_job(job).await;
             }
@@ -162,7 +160,8 @@ impl BlendFarm for TauriApp {
         let (to_network, mut from_ui) = mpsc::channel(32);
 
         // we send the sender to the tauri builder - which will send commands to "from_ui".
-        let app = Self::config_tauri_builder(to_network);
+        let app = Self::config_tauri_builder(to_network)
+            .expect("Fail to build tauri app - Is there an active display session running?");
 
         // create a safe and mutable way to pass application handler to send notification from network event.
         let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));

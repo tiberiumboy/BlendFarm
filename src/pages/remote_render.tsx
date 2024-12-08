@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { ChangeEvent, useState } from "react";
 import RenderJob, { RenderJobProps } from "../components/render_job";
+import { GetFileName } from "../components/project_file";
 import { listen } from "@tauri-apps/api/event";
 
 // TODO: Have a look into channels: https://v2.tauri.app/develop/calling-frontend/#channels
@@ -38,7 +39,7 @@ function JobDetail(prop: { job: RenderJobProps | undefined }) {
     return (
       < div >
         <h2>Job Details: {prop.job.id}</h2>
-        <p>File name: {prop.job.project_file.file_name}</p>
+        <p>File name: {GetFileName(prop.job.project_file)}</p>
         <p>Status: Finish</p>
         <p>Progress: 100/100%</p>
         {/* Find a way to pipe the image here? or call fetch the last image received */}
@@ -124,7 +125,6 @@ export default function RemoteRender(props: RemoteRenderProps) {
 
     let mode = generateMode(selectedMode, e.target);
     let projectFile = {
-      file_name: filePath.split('\\').pop().split('/').pop(),
       blender_version: version,
       path: filePath
     };
