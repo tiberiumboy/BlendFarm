@@ -1,15 +1,12 @@
 use crate::{
     models::{
-        app_state::AppState,
-        job::Job,
-        message::{NetEvent, NetworkError},
-        network::NetworkController,
-        server_setting::ServerSetting,
+        app_state::AppState, computer_spec::ComputerSpec, job::Job, message::{NetEvent, NetworkError}, network::{NetworkController, HEARTBEAT, SPEC, STATUS}, server_setting::ServerSetting
     },
     routes::{job::*, remote_render::*, settings::*},
 };
 use blender::manager::Manager as BlenderManager;
-use std::{path::PathBuf, sync::Arc};
+use libp2p::PeerId;
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tauri::{self, App, AppHandle, Emitter, Manager};
 use tokio::{
     select, spawn,
@@ -31,7 +28,10 @@ pub enum UiCommand {
 use super::blend_farm::BlendFarm;
 
 #[derive(Default)]
-pub struct TauriApp {}
+pub struct TauriApp {
+    peers: HashMap<PeerId, ComputerSpec>,
+    // jobs: Vec<Job>,
+}
 
 impl TauriApp {
     // Create a builder to make Tauri application
@@ -112,29 +112,33 @@ impl TauriApp {
 
     // commands received from network
     async fn handle_net_event(
+        &mut self,
         _client: &mut NetworkController,
         event: NetEvent,
         app_handle: Arc<RwLock<AppHandle>>,
     ) {
         match event {
-            NetEvent::Render(peer_id, job) => {
-                println!("Receive Job from peerid {peer_id:?}: {job:?}")
-            }
-            NetEvent::Status(peer_id, msg) => println!("Status from {peer_id} : {msg:?}"),
-            NetEvent::NodeDiscovered(peer_id) => {
+            NetEvent::Status(peer_id, msg) => {
                 let handle = app_handle.read().await;
-                handle.emit("node_discover", peer_id.to_base58()).unwrap();
+                handle.emit("node_status", (peer_id.to_base58(), msg)).unwrap();
             }
+            NetEvent::NodeDiscovered(peer_id, comp_spec) => {
+                let handle = app_handle.read().await;
+                // println!("Received Node identity from computers! {:?}", &comp_spec);
+                handle
+                    .emit("node_discover", (peer_id.to_base58(), comp_spec.clone()))
+                    .unwrap();
+                self.peers.insert(peer_id, comp_spec);
+            }
+            // don't think there's a way for me to get this working?
             NetEvent::NodeDisconnected(peer_id) => {
+                // println!("Received node disconnection: {peer_id}");
                 let handle = app_handle.read().await;
                 handle.emit("node_disconnect", peer_id.to_base58()).unwrap();
             }
-            NetEvent::Identity(peer_id, comp_spec) => {
-                let handle = app_handle.read().await;
-                println!("Received Node identity from computers! {:?}", &comp_spec);
-                handle
-                    .emit("node_identity", (peer_id.to_base58(), comp_spec))
-                    .unwrap();
+            NetEvent::RequestJob => {
+                // a peer on the network is asking for a job to work on.
+                // TODO: implment a way to notify job manager to request a new rendering job...?
             }
             _ => println!("{:?}", event),
         }
@@ -144,10 +148,16 @@ impl TauriApp {
 #[async_trait::async_trait]
 impl BlendFarm for TauriApp {
     async fn run(
-        &self,
+        mut self,
         mut client: NetworkController,
         mut event_receiver: Receiver<NetEvent>,
     ) -> Result<(), NetworkError> {
+
+        // for application side, we will subscribe to message event that's important to us to intercept.
+        client.subscribe_to_topic(SPEC.to_owned()).await;
+        client.subscribe_to_topic(HEARTBEAT.to_owned()).await;
+        client.subscribe_to_topic(STATUS.to_owned()).await;
+        
         // this channel is used to send command to the network, and receive network notification back.
         let (to_network, mut from_ui) = mpsc::channel(32);
 
@@ -162,17 +172,21 @@ impl BlendFarm for TauriApp {
             loop {
                 select! {
                     Some(msg) = from_ui.recv() => Self::handle_ui_command(&mut client, msg, app_handle.clone()).await,
-                    Some(event) = event_receiver.recv() => Self::handle_net_event(&mut client, event, app_handle.clone()).await,
+                    Some(event) = event_receiver.recv() => self.handle_net_event(&mut client, event, app_handle.clone()).await,
                 }
             }
         });
 
         // Run the app.
-        app.run(|_, event| {
+        app.run(|_app_handle, event| {
             match event {
                 // TODO: find a way to spawn the network listener thread inside here?
                 tauri::RunEvent::Ready => {
                     println!("Application is ready!");
+                    // can't do this either :(
+                    // for peer in &self.peers {
+                    //     app_handle.emit("node_discover", (peer.0.to_base58(), peer.1));
+                    // }
                 }
                 _ => {}
             }

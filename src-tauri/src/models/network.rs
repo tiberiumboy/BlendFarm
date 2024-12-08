@@ -6,7 +6,6 @@ use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
 use futures::channel::oneshot;
 use libp2p::futures::StreamExt;
-use libp2p::gossipsub::SubscriptionError;
 use libp2p::{
     gossipsub::{self, IdentTopic},
     kad, mdns,
@@ -28,19 +27,11 @@ Network Service - Provides simple network interface for peer-to-peer network for
 Includes mDNS ()
 */
 
-const STATUS: &str = "blendfarm/status";
-const SPEC: &str = "blendfarm/spec";
-const JOB: &str = "blendfarm/job";
-const HEARTBEAT: &str = "blendfarm/heartbeat";
+pub const STATUS: &str = "blendfarm/status";
+pub const SPEC: &str = "blendfarm/spec";
+pub const JOB: &str = "blendfarm/job";
+pub const HEARTBEAT: &str = "blendfarm/heartbeat";
 const TRANSFER: &str = "/file-transfer/1";
-
-fn subscribe(
-    swarm: &mut Swarm<BlendFarmBehaviour>,
-    topic: &str,
-) -> Result<bool, SubscriptionError> {
-    let ident_topic = IdentTopic::new(topic);
-    swarm.behaviour_mut().gossipsub.subscribe(&ident_topic)
-}
 
 // the tuples return three objects
 // the NetworkService holds the network loop operation
@@ -102,23 +93,12 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
         .build();
 
-    subscribe(&mut swarm, STATUS).unwrap();
-    subscribe(&mut swarm, SPEC).unwrap();
-    subscribe(&mut swarm, JOB).unwrap();
-    subscribe(&mut swarm, HEARTBEAT).unwrap();
-
-    let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
-        .parse()
-        .map_err(|e| NetworkError::BadInput)?;
     let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
         .parse()
         .map_err(|_| NetworkError::BadInput)?;
 
     swarm
         .listen_on(tcp)
-        .map_err(|e| NetworkError::UnableToListen(e.to_string()))?;
-    swarm
-        .listen_on(udp)
         .map_err(|e| NetworkError::UnableToListen(e.to_string()))?;
 
     // the command sender is used for outside method to send message commands to network queue
@@ -149,6 +129,18 @@ pub struct NetworkController {
 }
 
 impl NetworkController {
+    pub async fn subscribe_to_topic(&mut self, topic: String) {
+        self.sender.send(NetCommand::SubscribeTopic(topic)).await.unwrap();
+    }
+
+    pub async fn unsubscribe_from_topic(&mut self, topic: String) {
+        self.sender.send(NetCommand::UnsubscribeTopic(topic)).await.unwrap();
+    }
+    
+    pub async fn request_job(&mut self ) {
+        self.sender.send(NetCommand::RequestJob).await.unwrap();
+    }
+
     pub async fn send_status(&mut self, status: String) {
         self.sender
             .send(NetCommand::Status(status))
@@ -340,10 +332,8 @@ impl NetworkService {
                 let spec = ComputerSpec::new(&mut self.machine);
                 let data = bincode::serialize(&spec).unwrap();
                 let topic = IdentTopic::new(SPEC);
-                // how do I sent the specs to only the computer I want to communicate to or connect to?
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to publish message to swarm! {e:?}");
-                    // return Err(NetworkError::SendError(e.to_string()));
                 };
             }
             NetCommand::GetProviders { file_name, sender } => {
@@ -362,6 +352,18 @@ impl NetworkService {
                     .start_providing(file_name.into_bytes().into())
                     .expect("No store error.");
                 self.pending_start_providing.insert(query_id, sender);
+            }
+            NetCommand::SubscribeTopic(topic) => {
+                let ident_topic = IdentTopic::new(topic);
+                self.swarm.behaviour_mut().gossipsub.subscribe(&ident_topic).unwrap();
+            },
+            NetCommand::UnsubscribeTopic(topic) => {
+                let ident_topic = IdentTopic::new(topic);
+                self.swarm.behaviour_mut().gossipsub.unsubscribe(&ident_topic).unwrap();
+            },
+            NetCommand::RequestJob => {
+                // hmm I assume a node is asking the host for job?
+                // will have to come back for this one and think.
             }
             _ => {
                 todo!("What happen here? {cmd:?}");
@@ -383,39 +385,14 @@ impl NetworkService {
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::RequestResponse(rr)) => {
                 self.handle_response(rr).await
             }
-
-            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                if let Err(e) = self
-                    .event_sender
-                    .send(NetEvent::NodeDiscovered(peer_id))
-                    .await
-                {
-                    eprintln!("Fail to send node discovery from establishment {e:?}");
-                }
+            SwarmEvent::ConnectionEstablished { .. } => {
+                self.event_sender.send(NetEvent::OnConnected).await.unwrap();
             }
-            SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                self.remove_peer(peer_id).await;
-            }
-
-            // omitting message.
-            SwarmEvent::NewListenAddr { address, .. } => println!("Now listening on {address}"),
-            SwarmEvent::IncomingConnection { local_addr, .. } => {
-                println!("Receiving Incoming Connection... {local_addr}")
-            }
-            SwarmEvent::Dialing { peer_id, .. } => match peer_id {
-                Some(peer_id) => println!("Dialing {peer_id}..."),
-                None => println!("Dialing no peer_id?"),
-            },
-            // I am getting this strange InappropriateHandshakeMessage after Node is discovered?
-            SwarmEvent::OutgoingConnectionError { error, .. } => {
-                // More likely The address is in used, but I'm not sure why or how that's possible?
-                println!("Received outgoing connection error: {error:?}");
-            }
-            SwarmEvent::IncomingConnectionError { error, .. } => {
-                println!("Received incoming connection error: {error:?}");
+            SwarmEvent::ConnectionClosed { peer_id, ..} => {
+                self.event_sender.send(NetEvent::NodeDisconnected(peer_id)).await.unwrap();
             }
             _ => {
-                println!("Unhandle swarm behaviour event: {event:?}")
+                println!("{event:?}")
             }
         }
     }
@@ -462,19 +439,8 @@ impl NetworkService {
         }
     }
 
-    fn add_peer(&mut self, peer_id: &PeerId) {
-        self.swarm
-            .behaviour_mut()
-            .gossipsub
-            .add_explicit_peer(&peer_id);
-    }
-
+    // TODO: Haven't found a place for this yet, but still thinking about how to handle node disconnection?
     async fn remove_peer(&mut self, peer_id: PeerId) {
-        self.swarm
-            .behaviour_mut()
-            .gossipsub
-            .remove_explicit_peer(&peer_id);
-
         // send a message back notifying a node was disconnnected
         let event = NetEvent::NodeDisconnected(peer_id);
         if let Err(e) = self.event_sender.send(event).await {
@@ -484,21 +450,22 @@ impl NetworkService {
 
     async fn handle_mdns(&mut self, event: mdns::Event) {
         match event {
-            mdns::Event::Discovered(list) => {
-                for (peer_id, ..) in list {
-                    self.add_peer(&peer_id);
-                    // send a message back confirming a node is discoverable (Use this to populate UI element on the front end facing app)
-                    let event = NetEvent::NodeDiscovered(peer_id);
-                    if let Err(e) = self.event_sender.send(event).await {
-                        println!("Error sending node discovered signal to UI: {e:?}");
-                    }
+            mdns::Event::Discovered(peers) => {
+                for (peer_id, ..) in peers {
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .add_explicit_peer(&peer_id);
+                }
+            },
+            mdns::Event::Expired(peers) => {
+                for (peer_id, .. ) in peers {
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .remove_explicit_peer(&peer_id);
                 }
             }
-            mdns::Event::Expired(list) => {
-                for (peer_id, ..) in list {
-                    self.remove_peer(peer_id).await;
-                }
-            } // _ => {}
         };
     }
 
@@ -512,7 +479,7 @@ impl NetworkService {
                         bincode::deserialize(&message.data).expect("Fail to parse Computer Specs!");
                     if let Err(e) = self
                         .event_sender
-                        .send(NetEvent::Identity(source, specs))
+                        .send(NetEvent::NodeDiscovered(source, specs))
                         .await
                     {
                         eprintln!("Something failed? {e:?}");

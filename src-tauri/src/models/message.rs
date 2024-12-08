@@ -51,6 +51,9 @@ pub enum NetCommand {
         file: Vec<u8>,
         channel: ResponseChannel<FileResponse>,
     },
+    RequestJob,
+    SubscribeTopic(String),
+    UnsubscribeTopic(String),
 }
 
 // TODO: Received network events.
@@ -58,14 +61,15 @@ pub enum NetCommand {
 pub enum NetEvent {
     // Share basic computer configuration for sharing Blender compatible executable over the network. (To help speed up the installation over the network.)
     Status(PeerId, String), // Receive message status (To GUI?) Could I treat this like Chat messages?
-    Identity(PeerId, ComputerSpec),
+    OnConnected,
+    NodeDiscovered(PeerId, ComputerSpec), 
     // TODO: Future impl. Use this to send computer activity
     // Heartbeat() // share hardware statistic monitor heartbeat. (CPU/GPU/RAM activity readings)
     Render(PeerId, Job),      // Receive a new render job
-    NodeDiscovered(PeerId),   // On Node discover
     NodeDisconnected(PeerId), // On Node disconnected
     InboundRequest {
         request: String,
         channel: ResponseChannel<FileResponse>,
     },
+    RequestJob,
 }

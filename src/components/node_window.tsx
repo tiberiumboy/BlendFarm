@@ -11,42 +11,34 @@ export interface node {
 export default function NodeWindow() {
   const [nodes, setNodes] = useState<RenderNodeProps[]>([]);
 
-  //TODO: Do I need this? I use this to make node reveal to the GUI to say Hey I'm connecting... Be patient.
-  listen<string>('node_discover', (event: any) => {
-    let tmp = [...nodes];
-    // once discover, parse the payload into the name field.
-    let id = event.payload;
-    let prop: RenderNodeProps = { name: id };   
-    
-    if (!tmp.includes(id)) {
-      tmp.push(id);
-    }
-    setNodes(tmp);
-  });
-
-  listen('node_disconnect', (event: any) => {
-    let tmp = [...nodes];
-    let id = event.payload;
-    tmp.filter((t) => t.name == id);
-    setNodes(tmp);
-  });
+  const unlisten_status = listen('node_status', (event: any) => {
+    let id = event.payload[0];  // which node is reporting the status message
+    let msg = event.payload[1]; // the content of the message
+  })
 
   // This is later fetch after the node sends the host information about the specs.
-  listen('node_identity', (event: any) => {
-    // here we'll parse teh information into json format
+  const unlisten_identity = listen('node_discover', (event: any) => {
+    console.log("Node discovered");
     // 0 is peer_id in base58, 1 is computer specs object
     let id = event.payload[0];
     // 1 is the computer spec payload
     let spec: ComputerSpec = event.payload[1];
 
-    let node: RenderNodeProps = { name: id, spec };
-    
+    let node: RenderNodeProps = { name: id, spec, status: "Idle" };
     let tmp = [...nodes];
-    tmp.filter((t) => t.name === id);
     tmp.push(node); 
-    console.log(tmp);
     setNodes(tmp);
   })
+
+  // this probably won't happen... 
+  const unlisten_disconnect = listen('node_disconnect', (event: any) => {
+    console.log("Node Disconnected");
+    let tmp = [...nodes];
+    let id = event.payload;
+    tmp.filter((t) => t.name == id);
+    console.log("Node disconnected", id, tmp);
+    setNodes(tmp);
+  });
 
   // TODO: Find a way to make this node selectable, and refresh the screen to display node property and information (E.g. Blender preview window, Activity monitor, specs, files completed, etc.)
   function nodeWindow() {

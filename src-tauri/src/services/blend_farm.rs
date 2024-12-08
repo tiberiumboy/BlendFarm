@@ -8,7 +8,7 @@ use tokio::sync::mpsc::Receiver;
 #[async_trait]
 pub trait BlendFarm {
     async fn run(
-        &self,
+        mut self,
         client: NetworkController,
         event_receiver: Receiver<NetEvent>,
     ) -> Result<(), NetworkError>;

@@ -1,28 +1,39 @@
 /*
-   Have a look into TUI for CLI status display window to show user entertainment on screen
-   https://docs.rs/tui/latest/tui/
+Have a look into TUI for CLI status display window to show user entertainment on screen
+https://docs.rs/tui/latest/tui/
 */
 use super::blend_farm::BlendFarm;
 use crate::models::{
-    message::{NetEvent, NetworkError},
-    network::NetworkController,
+    job::Job, message::{NetEvent, NetworkError}, network::NetworkController
 };
 use async_trait::async_trait;
 use blender::{blender::Args, manager::Manager as BlenderManager};
+use machine_info::Machine;
 use semver::Version;
+use std::env::consts;
 use tokio::{select, sync::mpsc::Receiver};
 
-#[derive(Default)]
-pub struct CliApp;
+pub struct CliApp {
+    machine: Machine,
+    // job that this machine is busy working on.
+    active_job: Option<Job>,
+}
+
+impl Default for CliApp {
+    fn default() -> Self {
+        Self { 
+            machine: Machine::new(), 
+            active_job: Default::default() 
+        }
+    }
+}
 
 impl CliApp {
-    async fn handle_message(controller: &mut NetworkController, event: NetEvent) {
+    async fn handle_message(&mut self, controller: &mut NetworkController, event: NetEvent) {
         match event {
-            NetEvent::NodeDiscovered(_) => {
-                controller.share_computer_info().await;
-            }
-            NetEvent::NodeDisconnected(_) => {} // don't care about this.
-            NetEvent::Identity(_, _) => {}
+            NetEvent::OnConnected => controller.share_computer_info().await,
+            NetEvent::NodeDiscovered(..) => println!("Cli is subscribe to SPEC topic, which should never happen!"), // should not happen? We're not subscribe to this topic.
+            NetEvent::NodeDisconnected(_) => {} // don't care about this
             NetEvent::Render(peer_id, job) => {
                 // first check and see if we have blender installation installed for this job.
                 let blend_version: &Version = &job.project_file.as_ref();
@@ -45,8 +56,7 @@ impl CliApp {
                 // TODO: Finish the rest of this implementation once we can transfer blend file from different machine.
                 let _rx = blender.render(args);
             }
-
-            _ => println!("Received event from network: {event:?}"),
+            _ => println!("[CLI] Unhandled event from network: {event:?}"),
         }
     }
 }
@@ -54,17 +64,24 @@ impl CliApp {
 #[async_trait]
 impl BlendFarm for CliApp {
     async fn run(
-        &self,
+        mut self,
         mut client: NetworkController,
         mut event_receiver: Receiver<NetEvent>,
     ) -> Result<(), NetworkError> {
-        // may need to add one more for response back to network controller for job completion/status/updates
-        // should be handle on it's own job thread? We'll see.
+        
+        // Future Impl. Make this machine available to other peers that share the same operating system and arch 
+        // - so that we can distribute blender across network rather than download blender per each peers.
+        let system = self.machine.system_info();
+        let system_info = format!("blendfarm/{}{}", consts::OS, &system.processor.brand );  
+        client.subscribe_to_topic(system_info).await;
+
         loop {
             select! {
-                Some(event) = event_receiver.recv() => Self::handle_message(&mut client, event).await,
+                Some(event) = event_receiver.recv() => self.handle_message(&mut client, event).await,
                 // Some(msg) = from_cli.recv() => Self::handle_command(&mut controller, msg).await,
             }
         }
+        // if somehow we were able to get out of the loop, we would best send a shutdown notice here.
+        // client.shutdown().await;
     }
 }
