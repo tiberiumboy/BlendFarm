@@ -1,7 +1,9 @@
-use crate::models::{device::Device, engine::Engine, format::Format, mode::Mode};
+use crate::{
+    blender::Blender,
+    models::{device::Device, engine::Engine, format::Format, mode::Mode},
+};
 use serde::{Deserialize, Serialize};
 use std::{
-    env::temp_dir,
     fs,
     path::{Path, PathBuf},
 };
@@ -30,9 +32,9 @@ pub struct Args {
     pub file: PathBuf,          // required
     pub output: PathBuf,        // optional
     pub mode: Mode,             // required
-    pub engine: Option<Engine>, // optional
-    pub device: Option<Device>, // optional
-    pub format: Option<Format>, // optional - default to Png
+    pub engine: Engine,         // optional
+    pub device: Device,         // optional
+    pub format: Format,         // optional - default to Png
     pub use_continuation: bool, // optional - default to false
 }
 
@@ -42,17 +44,17 @@ impl Args {
             file: file.as_ref().to_path_buf(),
             output: output.as_ref().to_path_buf(),
             mode,
-            engine: None,
-            device: None,
-            format: None,
+            engine: Default::default(),
+            device: Default::default(),
+            format: Default::default(),
             use_continuation: false,
         }
     }
 
-    pub fn create_arg_list(&self, json_path: PathBuf) -> Vec<String> {
+    pub fn create_arg_list(&self, json_path: impl AsRef<Path>) -> Vec<String> {
         // so - in this code - the guy created a temp json file and have python load that json file instead.
         // string arg = $"--factory-startup -noaudio -b \"{Path.GetFullPath(file)}\" -P \"{GetRenderScriptPath()}\" -- \"{path}\" {USE_CONTINUATION}";z
-        let script_path = temp_dir().join("render.py");
+        let script_path = Blender::get_config_path().join("render.py");
         if !script_path.exists() {
             let data = include_bytes!("../render.py");
             fs::write(&script_path, data).unwrap();
@@ -66,7 +68,7 @@ impl Args {
             "-P".to_owned(),
             script_path.to_str().unwrap().to_owned(),
             "--".to_owned(),
-            json_path.to_str().unwrap().to_string(),
+            json_path.as_ref().to_str().unwrap().to_string(),
             format!("{}", self.use_continuation),
         ]
         /*

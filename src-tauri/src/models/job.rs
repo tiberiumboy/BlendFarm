@@ -11,6 +11,7 @@ use blender::blender::Manager;
 use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 use std::path::Path;
 use std::{
     collections::HashSet,
@@ -57,10 +58,8 @@ pub struct Job {
     pub output: PathBuf,
     /// What kind of mode should this job run as
     pub mode: Mode,
-    /// What version of blender we need to use to render this project job.
-    version: Version,
     /// Path to blender files
-    pub project_file: ProjectFile,
+    pub project_file: ProjectFile<PathBuf>,
     // Path to completed image result - May not be needed?
     renders: HashSet<RenderInfo>,
     // I should probably take responsibility for this, Once render is complete - I need to send a signal back to the host saying here's the frame, and here's the raw image data.
@@ -70,7 +69,7 @@ pub struct Job {
 }
 
 impl Job {
-    pub fn new(project_file: ProjectFile, output: PathBuf, version: Version, mode: Mode) -> Job {
+    pub fn new(project_file: ProjectFile<PathBuf>, output: PathBuf, mode: Mode) -> Job {
         let current_frame = match mode {
             Mode::Frame(frame) => frame,
             Mode::Animation { start, .. } => start,
@@ -78,7 +77,6 @@ impl Job {
         };
         Job {
             id: Uuid::new_v4(),
-            version,
             output,
             project_file,
             mode,
@@ -90,21 +88,21 @@ impl Job {
     // TODO: consider about how I can invoke this command from network protocol?
     // Invoke blender to run the job
     // Find out if I need to run this locally, or just rely on the server to perform the operation?
-    #[allow(dead_code)]
-    pub fn run(&mut self, frame: i32) -> Result<RenderInfo> {
-        let path: &Path = self.project_file.as_ref();
+    pub async fn run(&mut self, frame: i32) -> Result<RenderInfo> {
+        let path: &Path = self.project_file.deref();
+        let version: &Version = self.project_file.as_ref();
         // TODO: How can I split this up to run async task? E.g. Keep this task running while we still have frames left over.
         let args = Args::new(path, self.output.clone(), Mode::Frame(frame));
 
         // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
         // TODO: This looks like I could move this code block somewhere else?
         let mut manager = Manager::load();
-        let blender = manager.fetch_blender(&self.version).unwrap();
+        let blender = manager.fetch_blender(version).unwrap();
 
         // here's the question - if I'm on a network node, how do I send the host the image of the completed rendered job?
         // yeah here's a good question?
         // we can use the same principle as we were doing before :o!! Nice?
-        let listener = blender.render(args);
+        let listener = blender.render(args).await;
 
         while let Ok(status) = listener.recv() {
             // Return completed render info to the caller
@@ -127,6 +125,11 @@ impl Job {
         ))
     }
 
+    /// Returns the unique identifier for this job.
+    pub fn get_id(&self) -> &Uuid {
+        &self.id
+    }
+
     // TOOD: These commented out function appears best to be implemented in a manager class of some sort.
     /*
     fn compare_and_increment(&mut self, max: i32) -> Option<i32> {
@@ -146,12 +149,6 @@ impl Job {
         }
     }
     */
-}
-
-impl AsRef<Uuid> for Job {
-    fn as_ref(&self) -> &Uuid {
-        &self.id
-    }
 }
 
 impl PartialEq for Job {

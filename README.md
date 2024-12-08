@@ -1,10 +1,12 @@
 # BlendFarm
 
-## An open source, cli friendly, Decenterialized Network Render Application specifically design for [Blender 3D](https://www.blender.org).
+## An Open Source, Decenterialized Network Render Farm Application
 
-This project was inspired by the original project - [LogicReinc](https://github.com/LogicReinc/LogicReinc.BlendFarm)
+This project is inspired by the original project - [LogicReinc](https://github.com/LogicReinc/LogicReinc.BlendFarm)
 
-s backburner application, which saved me many hours of rendering projects for school. I took a turn and realize that Blender soar through popularity among the community and industry. As soon as I realized that Blender, out of the box, does not have any solution to support similar functionality as Autodesk backburner, was the moment I realize this was the piece that is still missing from this amazing open-source, industry leading, software. Digging through online, there are few tools out there that provides "good enough", but I felt like there's so much potential waiting to be tapped into that unlocks the powertrain to speed development all the way to production velocity by utilizing network resources.
+### Why I created this application:
+
+Learning 3D animation back in college, there exist a priorietary application used by Autodesk that allows network rendering possible on school computer called [Autodesk Backburner](https://apps.autodesk.com/en/Detail/Index?id=3481100546473279788&appLang=en&os=Linux) that came with Autodesk foundation that saved me many hours of rendering shots for my school projects. When Blender soar through popularity among the community and industry, I shifted my focus to use Blender 3D tool instead of using Autodesk 3ds Max and Maya. It wasn't until I realized that Blender, out of the box, does not have any network rendering solution similar to Autodesk backburner, I realize this was the piece that is still missing from this amazing open-source, industry leading, software tool. Digging through online, there are few tools out there that provides "good enough", but I felt like there's so much potential waiting to be tapped into that unlocks the powertrain to speed development all the way to production velocity by utilizing network resources.
 I humbly present you BlendFarm 2.0, a open-source software completely re-written in Rust from scratch with memory safety in mind, simplified UI for artist friendly, and easy to setup by launching the application with minimal to no experience required. Thanks to Tauri library, the use of this tool comes into three separate parts - 
 
 ## Library usage:
@@ -14,8 +16,16 @@ I humbly present you BlendFarm 2.0, a open-source software completely re-written
 
 Blender - Custom library I wrote that acts as a blender CLI wrapper to install, invoke, and launch blender 3d.
 
-Blend - Library used to read blender file without blender application to enable extracting information to the user with preconfigured setup (Eevee/Cycle, frame range, Cameras, resolution, etc).
+[Blend](https://docs.rs/blend/latest/blend/) - Used to read blender file without blender application to enable extracting information to the user with pre-configured setup (Eevee/Cycle, frame range, Cameras, resolution, last blender version used, etc).
 
+## Network Infrastructure
+
+The overall level of how the network works can be seen below:
+
+![image](./NetworkInfra_Blender.png "Network Map")
+
+ <!-- TODO: Explain how the node will receive a particular frame to render on? -->
+The GUI will submit a gossip message to all of the connected render node, having the blend file available to download. The node will then kick off a background task to handle the job process. This will interface with the blender library to check for the blender installation. If the node doesn't have the proper blender version, it will ask other peers on the network for matching blender version to reduce network traffic from the internet. Afterward, the blender library will invoke the command to start the job. The library outputs status to provide back to the host for real time updates and progress check. Once Blender is completed with the render, the application will receive the notification and publish the completed render image for the host to obtain the image.
 
 ## GUI 
 For new users and anyone who wants to get things done quickly. Simply run the application. When you run the app on computers that will be used as a rendering farm, simply navigate to the app and run as client instead. This will minimize the app into a service application, and under the traybar, you can monitor and check your render progress. To launch the GUI interface from source - simply run from BlendFarm/ directory `cargo tauri dev` to run in development mode or `cargo run build` for production lightweight shippable mode.

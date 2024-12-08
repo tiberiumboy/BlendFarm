@@ -1,43 +1,39 @@
 use blender::models::mode::Mode;
-use semver::Version;
 use std::path::PathBuf;
 use tauri::{command, Error, State};
 use tokio::sync::Mutex;
 
 use crate::{
     models::{app_state::AppState, job::Job, project_file::ProjectFile},
-    services::network_service::Command,
+    services::tauri_app::UiCommand,
 };
 
-// FIgure out why I can't get this to work?
 #[command(async)]
 pub async fn create_job(
     state: State<'_, Mutex<AppState>>,
-    file_path: PathBuf,
+    project_file: ProjectFile<PathBuf>,
     output: PathBuf,
-    version: Version,
     mode: Mode,
-    // info: CreateJobRequest, // this code is complaining that it's missing required key info?
 ) -> Result<Job, Error> {
-    let file_path = file_path;
-    let output = output;
-    let project_file =
-        ProjectFile::new(file_path).map_err(|e| Error::AssetNotFound(e.to_string()))?;
-    let job = Job::new(project_file, output, version, mode);
+    let job = Job::new(project_file.clone(), output, mode);
     let mut server = state.lock().await;
     server.jobs.push(job.clone());
+
+    // upload the file to file share services
+    let msg = UiCommand::UploadFile(project_file.to_path_buf());
+    if let Err(e) = server.to_network.send(msg).await {
+        eprintln!("Fail to upload file! {e:?}");
+    }
 
     // send job to server
     if let Err(e) = server
         .to_network
-        .send(Command::StartJob(job.clone()))
+        .send(UiCommand::StartJob(job.clone()))
         .await
     {
-        println!("Fail to send job to the server! \n{e:?}");
-    }
+        eprintln!("Fail to send job to the server! \n{e:?}");
+    };
 
-    // TODO: Impl a way to send the files to the rendering nodes.
-    // _server.send_job(job.clone());
     Ok(job)
 }
 
@@ -46,12 +42,14 @@ pub async fn create_job(
 pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> Result<(), ()> {
     let mut server = state.lock().await; // Should I worry about posion error?
     server.jobs.retain(|x| x.eq(&target_job));
+    let msg = UiCommand::StopJob(*target_job.get_id());
+    if let Err(e) = server.to_network.send(msg).await {
+        eprintln!("Fail to send stop job command! {e:?}");
+    }
     Ok(())
 }
 
 /// List all available jobs stored in the collection.
-// this function invoked twice?
-// it may seems like the component is re-rendered twice. Check there first.
 #[command(async)]
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let server = state.lock().await;

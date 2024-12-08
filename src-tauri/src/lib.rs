@@ -15,90 +15,27 @@ Developer blog:
     verify all packet works as intended while I can run the code in parallel to see if there's any issue I need to work overhead.
     This might be another big project to work over the summer to understand how network works in Rust.
 
+- I noticed that some of the function are getting called twice. Check and see what's going on with React UI side of things
+    Research into profiling front end ui to ensure the app is not invoking the same command twice.
+
 [F] - find a way to allow GUI interface to run as client mode for non cli users.
 [F] - consider using channel to stream data https://v2.tauri.app/develop/calling-frontend/#channels
 [F] - Before release - find a way to add updater  https://v2.tauri.app/plugin/updater/
 */
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
-use crate::routes::job::{create_job, delete_job, list_jobs};
-use crate::routes::remote_render::{delete_node, import_blend, list_versions};
-use crate::routes::settings::{
-    add_blender_installation, fetch_blender_installation, get_server_settings,
-    list_blender_installation, remove_blender_installation, set_server_settings,
-};
-use blender::models::status::Status;
-use blender::{manager::Manager as BlenderManager, models::args::Args};
-use clap::Parser;
-use models::app_state::AppState;
-use models::server_setting::ServerSetting;
-use semver::Version;
-use services::network_service::{Command, NetEvent, NetworkService};
-use std::path::Path;
-use std::sync::{Arc, RwLock};
-use tauri::{App, Emitter, Manager};
-use tokio::select;
-use tokio::sync::{
-    mpsc::{self, Sender},
-    Mutex,
-};
-use tracing_subscriber::EnvFilter;
-
-//TODO: Create a miro diagram structure of how this application suppose to work
+// TODO: Create a miro diagram structure of how this application suppose to work
 // Need a mapping to explain how network should perform over intranet
 // Need a mapping to explain how blender manager is used and invoked for the job
+// Prevents additional console window on Windows in release, DO NOT REMOVE!!
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+use clap::Parser;
+use models::app_state::AppState;
+use models::network;
+use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
+use tokio::spawn;
 
 pub mod models;
 pub mod routes;
 pub mod services;
-
-// Create a builder to make Tauri application
-fn config_tauri_builder(to_network: Sender<Command>) -> App {
-    let server_settings = ServerSetting::load();
-
-    // I would like to find a better way to update or append data to render_nodes,
-    // "Do not communicate with shared memory"
-    let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_cli::init())
-        .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_persisted_scope::init())
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init())
-        .setup(|_| Ok(()));
-
-    let manager = Arc::new(RwLock::new(BlenderManager::load()));
-    let setting = Arc::new(RwLock::new(server_settings));
-
-    let app_state = AppState {
-        manager,
-        to_network,
-        setting,
-        jobs: Vec::new(),
-    };
-
-    let mut_app_state = Mutex::new(app_state);
-
-    builder
-        .manage(mut_app_state)
-        .invoke_handler(tauri::generate_handler![
-            create_job,
-            delete_node,
-            delete_job,
-            list_jobs,
-            list_versions,
-            import_blend,
-            get_server_settings,
-            set_server_settings,
-            add_blender_installation,
-            list_blender_installation,
-            remove_blender_installation,
-            fetch_blender_installation,
-        ])
-        .build(tauri::generate_context!())
-        .expect("Unable to build tauri app!")
-}
 
 #[derive(Parser)]
 struct Cli {
@@ -106,110 +43,24 @@ struct Cli {
     client: Option<bool>,
 }
 
-// not sure why I'm getting a lint warning about the mobile macro? Need to bug the dev and see if this macro has changed.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .try_init();
-
+    // to run custom behaviour
     let cli = Cli::parse();
 
-    // Just realize that libp2p mdns won't run offline mode?
-    // TODO: Find a way to connect to local host itself regardless offline/online mode.
-    let mut net_service = NetworkService::new(60)
-        .await
-        .expect("Unable to start network service!");
+    // must have working network services
+    let (service, controller, receiver) =
+        network::new().await.expect("Fail to start network service");
 
-    match cli.client {
-        // TODO: Verify this function works as soon as VM is finish installing linux.
-        Some(true) => {
-            let mut manager = BlenderManager::load();
-            println!("Client is running");
-            loop {
-                select! {
-                    Some(msg) = net_service.rx_recv.recv() => match msg {
-                        NetEvent::Render(job) => {
-                            // Here we'll check the job -
-                            // TODO: It would be nice to check and see if there's any jobs currently running, otherwise put it in a poll?
-                            let project_file = job.project_file;
-                            let version: &Version = project_file.as_ref();
-                            let blender = manager.fetch_blender(version).expect("Should have blender installed?");
-                            let file_path: &Path = project_file.as_ref();
-                            let args = Args::new(file_path, job.output, job.mode);
-                            let rx = blender.render(args);
+    // start network service async
+    spawn(service.run());
 
-                            loop {
-                                if let Ok(msg) = rx.recv() {
-                                        let msg = match msg {
-                                            Status::Idle => "Idle".to_owned(),
-                                            Status::Running { status } => status,
-                                            Status::Log { status } => status,
-                                            Status::Warning { message } => message,
-                                            Status::Error(err) => format!("{err:?}").to_owned(),
-                                            Status::Completed { result } => {
-                                                // we'll send the message back?
-                                                // net_service
-                                                // here we will state that the render is complete, and send a message to network service
-                                                // TODO: Find a better way to not use the `.clone()` method.
-                                                let msg = Command::FrameCompleted(result.clone(), job.current_frame);
-                                                let _ = net_service.send(msg).await;
-                                                let path_str = &result.to_string_lossy();
-                                                format!("Finished job frame {} at {path_str}", job.current_frame).to_owned()
-                                            },
-                                        };
-                                        println!("[Status] {msg}");
-                                    }
-
-                            }
-
-                        },
-                        NetEvent::Status(s) => println!("[Client] Status: {s}"),
-                        NetEvent::NodeDiscovered(peer_id) => println!("Node discovered!: {peer_id}"),
-                        NetEvent::NodeDisconnected(peer_id) => println!("Node disconnected!: {peer_id}"),
-                    }
-                }
-            }
-        }
-        _ => {
-            let (to_network, mut from_ui) = mpsc::channel::<Command>(32);
-            let app = config_tauri_builder(to_network);
-
-            let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
-
-            let _thread = tokio::spawn(async move {
-                loop {
-                    select! {
-                        Some(msg) = from_ui.recv() => {
-                            if let Err(e) = net_service.send(msg).await {
-                                println!("Fail to send net service message: {e:?}");
-                            }
-                        }
-                        Some(info) = net_service.rx_recv.recv() => match info {
-                            NetEvent::Render(job) => println!("Job: {job:?}"),
-                            NetEvent::Status(msg) => println!("Status: {msg:?}"),
-                            NetEvent::NodeDiscovered(peer_id) => {
-                                let handle = app_handle.read().unwrap();
-                                handle.emit("node_discover", peer_id).unwrap();
-                            },
-                            NetEvent::NodeDisconnected(peer_id) => {
-                                let handle = app_handle.read().unwrap();
-                                handle.emit("node_disconnect", peer_id).unwrap();
-                            },
-                        }
-                    }
-                }
-            });
-
-            app.run(|_, event| match event {
-                tauri::RunEvent::Exit => {
-                    println!("Program exit!");
-                }
-                tauri::RunEvent::ExitRequested { .. } => {
-                    println!("Exit requested");
-                }
-                _ => {}
-            });
-        }
-    };
+    if let Err(e) = match cli.client {
+        // run as client mode.
+        Some(true) => CliApp::default().run(controller, receiver).await,
+        // run as GUI mode.
+        _ => TauriApp::default().run(controller, receiver).await,
+    } {
+        eprintln!("Something went terribly wrong? {e:?}");
+    }
 }

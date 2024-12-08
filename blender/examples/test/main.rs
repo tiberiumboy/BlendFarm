@@ -1,7 +1,6 @@
 use blender::models::home::BlenderHome;
 
 fn test_download_blender_home_link() {
-    // TODO: Refactor this code to move BlenderCategory inside BlenderHome.
     let home = BlenderHome::new().expect("Unable to get data");
     let newest = home.as_ref().first().unwrap();
     let link = newest.fetch_latest();

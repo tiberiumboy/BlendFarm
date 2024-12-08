@@ -18,7 +18,7 @@ TODO: Newly added blender doesn't get saved automatically.
 #[command(async)]
 pub async fn list_blender_installation(state: State<'_, Mutex<AppState>>) -> Result<String, Error> {
     let app_state = state.lock().await;
-    let manager = app_state.manager.read().unwrap();
+    let manager = app_state.manager.read().await;
     let blenders = manager.get_blenders();
     let data = serde_json::to_string(&blenders).unwrap();
     Ok(data)
@@ -40,8 +40,8 @@ pub async fn get_server_settings(
     state: State<'_, Mutex<AppState>>,
 ) -> Result<SettingResponse, Error> {
     let app_state = state.lock().await;
-    let server_settings = app_state.setting.read().unwrap();
-    let blender_manager = app_state.manager.read().unwrap();
+    let server_settings = app_state.setting.read().await;
+    let blender_manager = app_state.manager.read().await;
 
     let data = SettingResponse {
         install_path: blender_manager.as_ref().to_owned(),
@@ -59,7 +59,7 @@ pub async fn set_server_settings(
 ) -> Result<(), String> {
     // maybe I'm a bit confused here?
     let app_state = state.lock().await;
-    let mut old_setting = app_state.setting.write().unwrap();
+    let mut old_setting = app_state.setting.write().await;
     new_settings.save();
     *old_setting = new_settings;
     Ok(())
@@ -72,7 +72,7 @@ pub async fn add_blender_installation(
     path: PathBuf,
 ) -> Result<Blender, Error> {
     let app_state = state.lock().await;
-    let mut manager = app_state.manager.write().unwrap();
+    let mut manager = app_state.manager.write().await;
     match manager.add_blender_path(&path) {
         Ok(blender) => Ok(blender),
         Err(e) => Err(Error::AssetNotFound(e.to_string())),
@@ -85,7 +85,7 @@ pub async fn fetch_blender_installation(
     version: &str,
 ) -> Result<Blender, String> {
     let app_state = state.lock().await;
-    let mut manager = app_state.manager.write().unwrap();
+    let mut manager = app_state.manager.write().await;
     let version = Version::parse(version).map_err(|e| e.to_string())?;
     let blender = manager.fetch_blender(&version).map_err(|e| match e {
         blender::manager::ManagerError::DownloadNotFound { arch, os, url } => {
@@ -123,7 +123,7 @@ pub async fn remove_blender_installation(
     blender: Blender,
 ) -> Result<(), Error> {
     let app_state = state.lock().await;
-    let mut manager = app_state.manager.write().unwrap();
+    let mut manager = app_state.manager.write().await;
     manager.remove_blender(&blender);
     Ok(())
 }

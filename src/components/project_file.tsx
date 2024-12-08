@@ -2,11 +2,15 @@ import { CiTrash } from "react-icons/ci";
 import { MdOutlineMovie } from "react-icons/md";
 
 export interface ProjectFileProps {
-  file_name: String;
+  blender_version: String;
   path: String;
   onDataChanged?: () => void;
   onRequestNewJob?: (project: ProjectFileProps) => void;
 }
+
+export function GetFileName(project_file: ProjectFileProps) {
+  return project_file.path.split("\\").pop()?.split("/").pop()
+} 
 
 // todo: expose function controls here. props event handler?
 // No function is referecing this? Do we need this file?
@@ -30,7 +34,7 @@ export default function ProjectFile(props: ProjectFileProps) {
         <tbody>
           <tr>
             <td style={{ width: "100%" }}>
-              <p>{props.file_name}</p>
+              <p>{GetFileName(props)}</p>
             </td>
 
             {/* <td>

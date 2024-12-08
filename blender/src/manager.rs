@@ -35,15 +35,13 @@ pub enum ManagerError {
     },
     #[error("Unable to fetch blender! {0}")]
     RequestError(String),
-    //     // TODO: Find meaningful error message to represent from this struct class?
+    // TODO: Find meaningful error message to represent from this struct class?
     #[error("IO Error: {0}")]
     IoError(String),
     #[error("Url ParseError: {0}")]
     UrlParseError(String),
-    // TODO: may contain at least 272 bytes?
     #[error("Page cache error: {0}")]
     PageCacheError(String),
-    // TODO: may contain at least 272 bytes?
     #[error("Blender error: {source}")]
     BlenderError {
         #[from]
@@ -58,7 +56,6 @@ pub struct BlenderConfig {
     auto_save: bool,
 }
 
-// #[cfg(feature = "manager")]
 // I wanted to keep this struct private only to this library crate?
 #[derive(Debug)]
 pub struct Manager {
@@ -68,8 +65,7 @@ pub struct Manager {
     has_modified: bool,
 }
 
-// #[cfg(feature = "manager")]
-impl Manager {
+impl Default for Manager {
     // the default method implement should be private because I do not want people to use this function.
     // instead they should rely on "load" function instead.
     fn default() -> Self {
@@ -85,7 +81,9 @@ impl Manager {
             has_modified: false,
         }
     }
+}
 
+impl Manager {
     fn set_config(&mut self, config: BlenderConfig) -> &mut Self {
         self.config = config;
         self
@@ -105,10 +103,8 @@ impl Manager {
         let arch = std::env::consts::ARCH.to_owned();
         let os = std::env::consts::OS.to_owned();
 
-        let blender_home =
-            BlenderHome::new().map_err(|e| ManagerError::RequestError(e.to_string()))?;
-
-        let category = blender_home
+        let category = self
+            .home
             .as_ref()
             .iter()
             .find(|&b| b.major.eq(&version.major) && b.minor.eq(&version.minor))
@@ -166,7 +162,7 @@ impl Manager {
                 data.set_config(config);
                 return data;
             } else {
-                println!("Fail to deserialize manager data input!");
+                println!("Fail to deserialize manager config file!");
             }
         } else {
             println!("File not found! Creating a new default one!");
@@ -253,7 +249,7 @@ impl Manager {
             .config
             .blenders
             .iter()
-            .find(|&x| x.get_version() == version);
+            .find(|x| x.get_version().eq(version));
         match result {
             Some(blender) => Ok(blender.clone()),
             None => self.download(version),
@@ -264,7 +260,7 @@ impl Manager {
         self.config
             .blenders
             .iter()
-            .any(|x| x.get_version() == version)
+            .any(|x| x.get_version().eq(version))
     }
 
     /// Fetch the latest version of blender available from Blender.org
@@ -290,14 +286,6 @@ impl Manager {
         self.config.blenders.push(blender.clone());
         Ok(blender)
     }
-
-    // TODO: have a reference from manager instead of initializing new BlenderHome struct
-    pub fn list_all_blender_version(&self) -> &Vec<BlenderCategory> {
-        // here we will return a list of all blender version stored.
-        // Dive into the parent directory, and get the last update version
-        // can we create a single sharable mutable state reference? This feels like a hack and may cause internet disruptance.
-        self.home.as_ref()
-    }
 }
 
 impl AsRef<PathBuf> for Manager {
@@ -306,7 +294,6 @@ impl AsRef<PathBuf> for Manager {
     }
 }
 
-// #[cfg(feature = "manager")]
 impl Drop for Manager {
     fn drop(&mut self) {
         if self.has_modified || self.config.auto_save {

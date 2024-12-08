@@ -1,3 +1,4 @@
+use super::category::BlenderCategory;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -81,20 +82,19 @@ impl DownloadLink {
         use dmg::Attach;
 
         let source = download_path.as_ref();
-
-        // generate destination path
-        let dst = source
+        let dst = source // generate destination path
             .parent()
             .unwrap()
             .join(folder_name)
             .join("Blender.app");
+
         if !dst.exists() {
             let _ = fs::create_dir_all(&dst)?;
         }
 
         let dmg = Attach::new(&source).attach()?; // attach dmg to volume
         let src = PathBuf::from(&dmg.mount_point.join("Blender.app")); // create source path from mount point
-        let _ = Self::copy_dir_all(&src, &dst).unwrap(); // Extract content inside Blender.app to destination
+        Self::copy_dir_all(&src, &dst)?; // Extract content inside Blender.app to destination
         dmg.detach()?; // detach dmg volume
         Ok(dst.join("Contents/MacOS/Blender")) // return path with additional path to invoke blender directly
     }
@@ -129,11 +129,7 @@ impl DownloadLink {
         ))
     }
 
-    pub fn download_and_extract(
-        &self,
-        destination: impl AsRef<Path>,
-        // TODO: Find out why the warning appears - It seems like I might be wrapping something huge inside error?
-    ) -> Result<PathBuf, Error> {
+    pub fn download_and_extract(&self, destination: impl AsRef<Path>) -> Result<PathBuf, Error> {
         let dir = destination.as_ref();
 
         // Download the file from the internet and save it to blender data folder
@@ -149,13 +145,15 @@ impl DownloadLink {
 
         let mut body: Vec<u8> = Vec::with_capacity(len);
         let mut heap = response.into_reader();
-        // TODO: Maybe this is the culprit?
         heap.read_to_end(&mut body)?;
-
         let target = &dir.join(&self.name);
         fs::write(target, &body)?;
 
-        let executable_path = Self::extract_content(target, &self.name)?;
+        // create a target folder name to extract content to.
+        let ext = BlenderCategory::get_extension().expect("Cannot run blender under this OS!");
+        let folder_name = &self.name.replace(&ext, "");
+
+        let executable_path = Self::extract_content(target, folder_name)?;
         Ok(executable_path)
     }
 }

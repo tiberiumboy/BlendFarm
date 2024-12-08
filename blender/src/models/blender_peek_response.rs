@@ -2,29 +2,21 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct BlenderPeekResponse {
-    #[serde(rename = "LastVersion")]
     pub last_version: Version,
-    #[serde(rename = "RenderWidth")]
     pub render_width: i32,
-    #[serde(rename = "RenderHeight")]
     pub render_height: i32,
-    #[serde(rename = "FrameStart")]
     pub frame_start: i32,
-    #[serde(rename = "FrameEnd")]
     pub frame_end: i32,
     #[serde(rename = "FPS")]
     pub fps: u32,
-    #[serde(rename = "Denoiser")]
     pub denoiser: String,
-    #[serde(rename = "Samples")]
     pub samples: i32,
-    #[serde(rename = "Cameras")]
     pub cameras: Vec<String>,
-    #[serde(rename = "SelectedCamera")]
     pub selected_camera: String,
-    #[serde(rename = "Scenes")]
     pub scenes: Vec<String>,
-    #[serde(rename = "SelectedScene")]
     pub selected_scene: String,
+    // TODO: Found a way to save the current engine used in Blender. make this option available as soon as we fix peek.py to use blend lib instead.
+    // pub engine: String,
 }
