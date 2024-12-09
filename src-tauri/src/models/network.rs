@@ -97,7 +97,9 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .parse()
         .map_err(|_| NetworkError::BadInput)?;
 
-    let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1".parse().map_err(|_| NetworkError::BadInput)?;
+    let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
+        .parse()
+        .map_err(|_| NetworkError::BadInput)?;
 
     swarm
         .listen_on(tcp)
@@ -135,14 +137,20 @@ pub struct NetworkController {
 
 impl NetworkController {
     pub async fn subscribe_to_topic(&mut self, topic: String) {
-        self.sender.send(NetCommand::SubscribeTopic(topic)).await.unwrap();
+        self.sender
+            .send(NetCommand::SubscribeTopic(topic))
+            .await
+            .unwrap();
     }
 
     pub async fn unsubscribe_from_topic(&mut self, topic: String) {
-        self.sender.send(NetCommand::UnsubscribeTopic(topic)).await.unwrap();
+        self.sender
+            .send(NetCommand::UnsubscribeTopic(topic))
+            .await
+            .unwrap();
     }
-    
-    pub async fn request_job(&mut self ) {
+
+    pub async fn request_job(&mut self) {
         self.sender.send(NetCommand::RequestJob).await.unwrap();
     }
 
@@ -307,12 +315,20 @@ impl NetworkService {
             }
             NetCommand::SubscribeTopic(topic) => {
                 let ident_topic = IdentTopic::new(topic);
-                self.swarm.behaviour_mut().gossipsub.subscribe(&ident_topic).unwrap();
-            },
+                self.swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .subscribe(&ident_topic)
+                    .unwrap();
+            }
             NetCommand::UnsubscribeTopic(topic) => {
                 let ident_topic = IdentTopic::new(topic);
-                self.swarm.behaviour_mut().gossipsub.unsubscribe(&ident_topic).unwrap();
-            },
+                self.swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .unsubscribe(&ident_topic)
+                    .unwrap();
+            }
             NetCommand::RequestJob => {
                 // hmm I assume a node is asking the host for job?
                 // will have to come back for this one and think.
@@ -340,8 +356,11 @@ impl NetworkService {
             SwarmEvent::ConnectionEstablished { .. } => {
                 self.event_sender.send(NetEvent::OnConnected).await.unwrap();
             }
-            SwarmEvent::ConnectionClosed { peer_id, ..} => {
-                self.event_sender.send(NetEvent::NodeDisconnected(peer_id)).await.unwrap();
+            SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                self.event_sender
+                    .send(NetEvent::NodeDisconnected(peer_id))
+                    .await
+                    .unwrap();
             }
             _ => {
                 println!("{event:?}")
@@ -409,14 +428,14 @@ impl NetworkService {
                         .gossipsub
                         .add_explicit_peer(&peer_id);
                 }
-            },
-            mdns::Event::Expired(..) => {
-                // for (peer_id, .. ) in peers {
-                //     self.swarm
-                //         .behaviour_mut()
-                //         .gossipsub
-                //         .remove_explicit_peer(&peer_id);
-                // }
+            }
+            mdns::Event::Expired(peers) => {
+                for (peer_id, ..) in peers {
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .remove_explicit_peer(&peer_id);
+                }
             }
         };
     }
