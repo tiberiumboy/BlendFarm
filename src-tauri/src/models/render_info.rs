@@ -1,3 +1,4 @@
+/* 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -15,3 +16,4 @@ impl RenderInfo {
         }
     }
 }
+*/

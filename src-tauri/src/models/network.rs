@@ -5,7 +5,6 @@ use super::message::{NetCommand, NetEvent, NetworkError};
 use super::server_setting::ServerSetting;
 use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
-use std::path::PathBuf;
 use futures::channel::oneshot;
 use libp2p::futures::StreamExt;
 use libp2p::{
@@ -163,6 +162,7 @@ impl NetworkController {
     }
 
     pub async fn send_status(&mut self, status: String) {
+        println!("[Status]: {status}");
         self.sender
             .send(NetCommand::Status(status))
             .await
@@ -177,9 +177,9 @@ impl NetworkController {
             .expect("Command should not have been dropped");
     }
 
-    pub async fn start_providing(&mut self, file_name: String, path: PathBuf) {
+    pub async fn start_providing(&mut self, file_name: String ) {
         let (sender, receiver) = oneshot::channel();
-        let cmd = NetCommand::StartProviding { file_name, path, sender };
+        let cmd = NetCommand::StartProviding { file_name, sender };
         self.sender
             .send(cmd)
             .await
@@ -242,7 +242,6 @@ pub struct NetworkService {
     machine: Machine,
     // send network events
     event_sender: Sender<NetEvent>,
-    files_providing: HashMap<String, PathBuf>,
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<()>>,
     pending_request_file:
@@ -313,8 +312,7 @@ impl NetworkService {
                     .get_providers(file_name.into_bytes().into());
                 self.pending_get_providers.insert(query_id, sender);
             }
-            NetCommand::StartProviding { file_name, path, sender } => {
-                self.files_providing.insert(file_name.clone(), path );
+            NetCommand::StartProviding { file_name, sender } => {
                 let query_id = self
                     .swarm
                     .behaviour_mut()
@@ -341,8 +339,9 @@ impl NetworkService {
                     .unwrap();
             }
             NetCommand::RequestJob => {
-                // hmm I assume a node is asking the host for job?
-                // will have to come back for this one and think.
+                if let Err(e) = self.event_sender.send(NetEvent::RequestJob).await {
+                    eprintln!("Fail to send Request Job event! {e:?}");
+                }
             }
             _ => {
                 todo!("What happen here? {cmd:?}");
@@ -394,7 +393,7 @@ impl NetworkService {
                             channel,
                         })
                         .await
-                        .expect("Event receiver should not be dropped!");
+                        .expect("Event receiver should not be dropped!");    
                 }
                 libp2p_request_response::Message::Response {
                     request_id,
@@ -490,7 +489,6 @@ impl NetworkService {
     }
 
     async fn handle_kademila(&mut self, event: kad::Event) {
-        println!("Receive kademila service request");
         match event {
             kad::Event::OutboundQueryProgressed {
                 id,

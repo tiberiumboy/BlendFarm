@@ -1,8 +1,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { ChangeEvent, useState } from "react";
-import RenderJob, { RenderJobProps } from "../components/render_job";
-import { GetFileName } from "../components/project_file";
+import RenderJob, { GetFileName, RenderJobProps } from "../components/render_job";
 import { listen } from "@tauri-apps/api/event";
 
 // TODO: Have a look into channels: https://v2.tauri.app/develop/calling-frontend/#channels
@@ -120,19 +119,15 @@ export default function RemoteRender(props: RemoteRenderProps) {
     // How do I structure this?
     const info = e.target as HTMLFormElement;
     const selectedMode = info.modes.value;
-    const filePath = info.file_path.value;
+    const path = info.file_path.value;
     const output = info.output.value;
 
     let mode = generateMode(selectedMode, e.target);
-    let projectFile = {
-      blender_version: version,
-      path: filePath
-    };
-
     let data = {
-      projectFile,
-      output,
       mode,
+      version,
+      path,
+      output,
     };
 
     invoke("create_job", data).then((ctx: any) => {
@@ -140,7 +135,18 @@ export default function RemoteRender(props: RemoteRenderProps) {
         return;
       }
       console.log("After create_job post", ctx);
-      props.onJobCreated(ctx as RenderJobProps);
+
+      let data: RenderJobProps = {
+        current_frame: 0,
+        id: ctx.job.id,
+        mode: ctx.job.mode,
+        output: ctx.output,
+        project_file: ctx.job.project_file,
+        renders: [],
+        version: ctx.job.blender_version,
+      };
+      console.log(data);
+      props.onJobCreated(data);
     });
     closeDialog();
   }

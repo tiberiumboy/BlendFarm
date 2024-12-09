@@ -6,7 +6,7 @@
     - I need to fetch the handles so that I can maintain and monitor all node activity.
     - TODO: See about migrating Sender code into this module?
 */
-use blender::blender::{Blender, BlenderError, Manager};
+use blender::blender::Manager;
 use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,6 @@ use std::{
 };
 use thiserror::Error;
 use uuid::Uuid;
-use tokio::sync::mpsc::Receiver;
 
 #[derive(Debug, Error)]
 pub enum JobError {
@@ -26,24 +25,6 @@ pub enum JobError {
     // it would be nice to have blender errors here?
     #[error("Invalid blend file: {0}")]
     InvalidFile(String),
-}
-
-// pub trait JobStatus {}
-#[derive(Debug)]
-pub enum JobStatus {
-    /// Job is idle - Do we need this?
-    Idle,
-    /// Pause the working job, (cancel blender process, and wait for incoming packet)
-    Paused,
-    Downloading(String),
-    // find a way to parse output data, and provide percentage of completion here
-    /// percentage of completion
-    Running {
-        frame: f32,
-    },
-    Error(JobError),
-    /// The job has been completed
-    Completed,
 }
 
 pub type Frame = i32;
@@ -74,6 +55,10 @@ impl Job {
             mode,
             renders: Default::default(),
         }
+    }
+
+    pub fn get_project_path(&self) -> &PathBuf {
+        &self.project_file
     }
 
     pub fn get_file_name(&self) -> Option<&str> {

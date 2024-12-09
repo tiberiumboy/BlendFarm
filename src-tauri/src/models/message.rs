@@ -36,7 +36,7 @@ pub enum NetCommand {
     Status(String),
     StartProviding {
         file_name: String,
-        path: PathBuf,
+        // path: PathBuf,
         sender: oneshot::Sender<()>,
     },
     GetProviders {

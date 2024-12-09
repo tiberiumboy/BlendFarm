@@ -30,7 +30,7 @@ use super::blend_farm::BlendFarm;
 #[derive(Default)]
 pub struct TauriApp {
     peers: HashMap<PeerId, ComputerSpec>,
-    // jobs: Vec<Job>,
+    providing_files: HashMap<String, PathBuf>,
 }
 
 impl TauriApp {
@@ -82,6 +82,7 @@ impl TauriApp {
 
     // command received from UI
     async fn handle_ui_command(
+        &mut self,
         client: &mut NetworkController,
         cmd: UiCommand,
         _app_handle: Arc<RwLock<AppHandle>>,
@@ -90,16 +91,17 @@ impl TauriApp {
             UiCommand::StartJob(job) => {
                 // first make the file available on the network
                 let file_name = job.get_file_name().unwrap().to_string();
+                let path = job.get_project_path().clone();
+                self.providing_files.insert(file_name.clone(), path.clone() );
                 client.start_providing(file_name).await;
                 client.send_network_job(job).await;
             }
             UiCommand::UploadFile(path, file_name) => {
-                if let Some(file_name) = path.file_name().unwrap().to_str() {
-                    client
-                        .start_providing(file_name.to_owned())
+                self.providing_files.insert(file_name.clone(), path.clone());
+                client
+                        .start_providing(file_name)
                         .await;
-                }
-            }
+            },
             UiCommand::StopJob(id) => {
                 todo!(
                     "Impl how to send a stop signal to stop the job and remove the job from queue {id:?}"
@@ -111,7 +113,7 @@ impl TauriApp {
     // commands received from network
     async fn handle_net_event(
         &mut self,
-        _client: &mut NetworkController,
+        client: &mut NetworkController,
         event: NetEvent,
         app_handle: Arc<RwLock<AppHandle>>,
     ) {
@@ -137,6 +139,16 @@ impl TauriApp {
             NetEvent::RequestJob => {
                 // a peer on the network is asking for a job to work on.
                 // TODO: implment a way to notify job manager to request a new rendering job...?
+            }
+            NetEvent::InboundRequest {
+                request,
+                channel,
+            } => {
+            println!("Receiving provider file request! {request}");
+                if let Some(path) = self.providing_files.get(&request) {
+                    println!("Sending client file {path:?}");
+                    client.respond_file(std::fs::read(path).unwrap(), channel).await
+                }
             }
             _ => println!("{:?}", event),
         }
@@ -170,7 +182,7 @@ impl BlendFarm for TauriApp {
         spawn(async move {
             loop {
                 select! {
-                    Some(msg) = from_ui.recv() => Self::handle_ui_command(&mut client, msg, app_handle.clone()).await,
+                    Some(msg) = from_ui.recv() => self.handle_ui_command(&mut client, msg, app_handle.clone()).await,
                     Some(event) = event_receiver.recv() => self.handle_net_event(&mut client, event, app_handle.clone()).await,
                 }
             }

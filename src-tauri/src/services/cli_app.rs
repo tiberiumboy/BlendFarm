@@ -2,19 +2,17 @@
 Have a look into TUI for CLI status display window to show user entertainment on screen
 https://docs.rs/tui/latest/tui/
 */
-use futures::{prelude::*, StreamExt};
+use futures::prelude::*;
 use super::blend_farm::BlendFarm;
 use crate::models::{
     job::Job,
     message::{NetEvent, NetworkError},
-    network::NetworkController,
+    network::{NetworkController, JOB},
 };
 use async_trait::async_trait;
-use blender::{blender::Args, manager::Manager as BlenderManager};
+use blender::models::status::Status;
 use machine_info::Machine;
-use semver::Version;
-use std::path::PathBuf;
-use std::{env::consts, ops::Deref};
+use std::{collections::HashMap, env::consts, path::PathBuf};
 use tokio::{select, sync::mpsc::Receiver};
 
 pub struct CliApp {
@@ -22,6 +20,7 @@ pub struct CliApp {
     // job that this machine is busy working on.
     #[allow(dead_code)]
     active_job: Option<Job>,
+    provider_files : HashMap<String, PathBuf>
 }
 
 impl Default for CliApp {
@@ -29,108 +28,57 @@ impl Default for CliApp {
         Self {
             machine: Machine::new(),
             active_job: Default::default(),
+            provider_files: Default::default(),
         }
     }
 }
 
 impl CliApp {
-
-     /*
-
-        TODO: Figure out what I was suppose to do with this file?
-
-    //         NetEvent::Render(job) => {
-        //             // Here we'll check the job -
-        //             // TODO: It would be nice to check and see if there's any jobs currently running, otherwise put it in a poll?
-        //             let project_file = job.project_file;
-        //             let version: &Version = project_file.as_ref();
-        //             let blender = self
-        //                 .manager
-        //                 .fetch_blender(version)
-        //                 .expect("Should have blender installed?");
-        //             let file_path: &Path = project_file.as_ref();
-        //             let args = Args::new(file_path, job.output, job.mode);
-        //             let rx = blender.render(args);
-        // for this particular loop, let's extract this out to simplier function.
-        // loop {
-        //         if let Ok(msg) = rx.recv() {
-        //             let msg = match msg {
-        //                 Status::Idle => "Idle".to_owned(),
-        //                 Status::Running { status } => status,
-        //                 Status::Log { status } => status,
-        //                 Status::Warning { message } => message,
-        //                 Status::Error(err) => format!("{err:?}").to_owned(),
-        //                 Status::Completed { result } => {
-        //                     // we'll send the message back?
-        //                     // net_service
-        //                     // here we will state that the render is complete, and send a message to network service
-        //                     // TODO: Find a better way to not use the `.clone()` method.
-        //                     let msg = Command::FrameCompleted(
-        //                         result.clone(),
-        //                         job.current_frame,
-        //                     );
-        //                     let _ = net_service.send(msg).await;
-        //                     let path_str = &result.to_string_lossy();
-        //                     format!(
-        //                         "Finished job frame {} at {path_str}",
-        //                         job.current_frame
-        //                     )
-        //                     .to_owned()
-        //                     // here we'll send the job back to the peer who requested us the job initially.
-        //                     // net_service.swarm.behaviour_mut().gossipsub.publish( peer_id, )
-        //                 }
-        //             };
-        //             println!("[Status] {msg}");
-        //         }
-        //             // }
-        //         }
-        // }
-
-    */
-
-
     async fn handle_message(&mut self, controller: &mut NetworkController, event: NetEvent) {
         match event {
             NetEvent::OnConnected => controller.share_computer_info().await,
             NetEvent::NodeDiscovered(..) => { } // Ignored
             NetEvent::NodeDisconnected(_) => {} // ignored
-            NetEvent::Render(job) => {
-                // first check and see if we have blender installation installed for this job.
-                // let status = format!("Checking for blender version {}", blend_version);
-                let output = &controller.settings.render_dir;
-
-                // There's simply way too many unwrap here, is there a better way to handle this?
+            NetEvent::Render(mut job) => {
+                let status = format!("Receive render job [{}]", job.as_ref());
+                controller.send_status(status).await; 
+                
+                let output = controller.settings.render_dir.clone();
                 let file_name = job.get_file_name().unwrap().to_string();
-
+                
                 // create a path link where we think the file should be?
                 let project_file = controller.settings.blend_dir.join(&file_name); // append the file name here instead.
+                controller.send_status(format!("Checking for project file {:?}", &project_file)).await;
+
                 if !project_file.exists() {
-                    
+                    println!("Project file do not exist, asking to download from host: {:?}", &project_file);    
                     let providers = controller.get_providers(&file_name).await;
                     if providers.is_empty() {
                         // at this point we'll report back there's an error.
+                        println!("Unable to find provider that have this file! Aborting...");
                         controller.send_status("Could not get source blender file!".to_owned()).await;
                         return;
                     }
-
+                    
+                    println!("Found providers!");
                     let requests = providers.into_iter().map(|p| {
                         let mut client = controller.clone();
                         let file_name = file_name.clone();
                         async move { client.request_file(p, file_name).await }.boxed()
                     });
 
-                    
+                    println!("Awaiting future result!");
                     let content = match futures::future::select_ok(requests)
                     .await {
                         Ok(data) => data.0,
                         Err(e) => {
-                            controller.send_status("No provider return the file.".to_owned()).await;
+                            controller.send_status(format!("No provider return the file. {e:?}")).await;
                             return;
                         }
                     };
-
+                    println!("Downloading project file...");
                     if let Err(e) = std::fs::write(project_file, content) {
-                        controller.send_status("Could not save blender file to blender directory!".to_owned()).await;
+                        controller.send_status(format!("Could not save blender file to blender directory! {e:?}")).await;
                         return;
                     }
 
@@ -139,26 +87,31 @@ impl CliApp {
                     //     eprintln!("Fail to request file from controller? {e:?}");
                     // }
                 }
-            
+                
+                // run the job!
                 match job.run(output).await {
                     Ok(rx) => {
                         loop {
-                            select!{
-                                Some(status) = rx.recv() => match status {
-                                    blender::models::status::Status::Idle => controller.send_status("[Idle]".to_owned()).await,
-                                    blender::models::status::Status::Running { status } => controller.send_status(format!("[Running] {status}")).await,
-                                    blender::models::status::Status::Log { status } => controller.send_status(format!("[Log] {status}")).await,
-                                    blender::models::status::Status::Warning { message } => controller.send_status(format!("[Warning] {message}")).await,
-                                    blender::models::status::Status::Error(blender_error) => controller.send_status(format!(" {}")).await,
-                                    blender::models::status::Status::Completed { frame, result } => {
+                            if let Ok(status) = rx.recv() {
+                                match status {
+                                    Status::Idle => controller.send_status("[Idle]".to_owned()).await,
+                                    Status::Running { status } => controller.send_status(format!("[Running] {status}")).await,
+                                    Status::Log { status } => controller.send_status(format!("[Log] {status}")).await,
+                                    Status::Warning { message } => controller.send_status(format!("[Warning] {message}")).await,
+                                    Status::Error(blender_error) => controller.send_status(format!("[ERR] {blender_error:?}")).await,
+                                    Status::Completed { result, .. } => {
                                         let file_name = result.file_name().unwrap().to_str().unwrap().to_string();
-                                        controller.start_providing(file_name, result).await;
-                                        controller
+                                        self.provider_files.insert(file_name.clone(), result);
+                                        controller.start_providing(file_name).await;
+                                        
+                                        // I think I need to add one more implementation to notify complete image result with frame count
+                                        controller.request_job(None).await;
+                                        break;
                                     },
-                                }
+                                };
                             }
                         }
-                    }
+                    },
                     Err(e) => {
                         controller.request_job(Some(e)).await
                     }
@@ -181,6 +134,7 @@ impl BlendFarm for CliApp {
         let system = self.machine.system_info();
         let system_info = format!("blendfarm/{}{}", consts::OS, &system.processor.brand);
         client.subscribe_to_topic(system_info).await;
+        client.subscribe_to_topic(JOB.to_string()).await;
 
         loop {
             select! {

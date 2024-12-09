@@ -33,7 +33,7 @@ async fn render_with_manager() {
     // Handle blender status
     while let Ok(status) = listener.recv() {
         match status {
-            Status::Completed { result } => {
+            Status::Completed { result, .. } => {
                 println!("[Completed] {:?}", result);
             }
             Status::Log { status } => {
