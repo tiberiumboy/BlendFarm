@@ -2,6 +2,7 @@
 Have a look into TUI for CLI status display window to show user entertainment on screen
 https://docs.rs/tui/latest/tui/
 */
+use futures::{prelude::*, StreamExt};
 use super::blend_farm::BlendFarm;
 use crate::models::{
     job::Job,
@@ -12,6 +13,7 @@ use async_trait::async_trait;
 use blender::{blender::Args, manager::Manager as BlenderManager};
 use machine_info::Machine;
 use semver::Version;
+use std::path::PathBuf;
 use std::{env::consts, ops::Deref};
 use tokio::{select, sync::mpsc::Receiver};
 
@@ -85,43 +87,82 @@ impl CliApp {
         // }
 
     */
+
+
     async fn handle_message(&mut self, controller: &mut NetworkController, event: NetEvent) {
         match event {
             NetEvent::OnConnected => controller.share_computer_info().await,
-            NetEvent::NodeDiscovered(..) => {
-                println!("Cli is subscribe to SPEC topic, which should never happen!")
-            } // should not happen? We're not subscribe to this topic.
-            NetEvent::NodeDisconnected(_) => {} // don't care about this
-            NetEvent::Render(peer_id, job) => {
+            NetEvent::NodeDiscovered(..) => { } // Ignored
+            NetEvent::NodeDisconnected(_) => {} // ignored
+            NetEvent::Render(job) => {
                 // first check and see if we have blender installation installed for this job.
-                let blend_version: &Version = &job.project_file.as_ref();
-                let status = format!("Checking for blender version {}", blend_version);
-                controller.send_status(status).await;
+                // let status = format!("Checking for blender version {}", blend_version);
+                let output = &controller.settings.render_dir;
 
-                let mut manager = BlenderManager::load();
-                let blender = manager
-                    .fetch_blender(blend_version)
-                    .expect("Fail to download blender!");
+                // There's simply way too many unwrap here, is there a better way to handle this?
+                let file_name = job.get_file_name().unwrap().to_string();
 
-                let tmp_path = dirs::cache_dir().unwrap().join("Blender");
-                let file_name = job
-                    .project_file
-                    .deref()
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_string();
-                let project_file = tmp_path.join(&file_name); // append the file name here instead.
+                // create a path link where we think the file should be?
+                let project_file = controller.settings.blend_dir.join(&file_name); // append the file name here instead.
                 if !project_file.exists() {
-                    // go fetch the project file from the network.
-                    if let Err(e) = controller.request_file(peer_id.clone(), file_name).await {
-                        eprintln!("Fail to request file from controller? {e:?}");
+                    
+                    let providers = controller.get_providers(&file_name).await;
+                    if providers.is_empty() {
+                        // at this point we'll report back there's an error.
+                        controller.send_status("Could not get source blender file!".to_owned()).await;
+                        return;
                     }
+
+                    let requests = providers.into_iter().map(|p| {
+                        let mut client = controller.clone();
+                        let file_name = file_name.clone();
+                        async move { client.request_file(p, file_name).await }.boxed()
+                    });
+
+                    
+                    let content = match futures::future::select_ok(requests)
+                    .await {
+                        Ok(data) => data.0,
+                        Err(e) => {
+                            controller.send_status("No provider return the file.".to_owned()).await;
+                            return;
+                        }
+                    };
+
+                    if let Err(e) = std::fs::write(project_file, content) {
+                        controller.send_status("Could not save blender file to blender directory!".to_owned()).await;
+                        return;
+                    }
+
+                    // // go fetch the project file from the network.
+                    // if let Err(e) = controller.request_file(file_name).await {
+                    //     eprintln!("Fail to request file from controller? {e:?}");
+                    // }
                 }
-                let args = Args::new(project_file, tmp_path, job.mode);
-                // TODO: Finish the rest of this implementation once we can transfer blend file from different machine.
-                let _rx = blender.render(args);
+            
+                match job.run(output).await {
+                    Ok(rx) => {
+                        loop {
+                            select!{
+                                Some(status) = rx.recv() => match status {
+                                    blender::models::status::Status::Idle => controller.send_status("[Idle]".to_owned()).await,
+                                    blender::models::status::Status::Running { status } => controller.send_status(format!("[Running] {status}")).await,
+                                    blender::models::status::Status::Log { status } => controller.send_status(format!("[Log] {status}")).await,
+                                    blender::models::status::Status::Warning { message } => controller.send_status(format!("[Warning] {message}")).await,
+                                    blender::models::status::Status::Error(blender_error) => controller.send_status(format!(" {}")).await,
+                                    blender::models::status::Status::Completed { frame, result } => {
+                                        let file_name = result.file_name().unwrap().to_str().unwrap().to_string();
+                                        controller.start_providing(file_name, result).await;
+                                        controller
+                                    },
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        controller.request_job(Some(e)).await
+                    }
+                };
             }
             _ => println!("[CLI] Unhandled event from network: {event:?}"),
         }

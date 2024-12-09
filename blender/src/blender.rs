@@ -65,12 +65,12 @@ use blend::Blend;
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::process::{Command, Stdio};
 use std::{
+    io::{BufReader, BufRead},
     fs,
-    io::{BufRead, BufReader},
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
     sync::mpsc::{self, Receiver},
+    path::{Path, PathBuf},
 };
 use thiserror::Error;
 use tokio::spawn;
@@ -214,8 +214,7 @@ impl Blender {
     // TODO: Consider using blend library to read the data instead.
     // TODO: This function may be deprecated as we may use blend library instead to avoid coupling.
     pub async fn peek(
-        &self,
-        blend_file: impl AsRef<Path>,
+        blend_file: &PathBuf,
     ) -> Result<BlenderPeekResponse, BlenderError> {
         /*
         Experimental code, trying to use blend plugin to extract information rather than opening up blender for this.
@@ -376,12 +375,9 @@ impl Blender {
             // I'm rececing an exception on stdout. [Errno 32] broken pipe?
             // thread panic here - err - Serde { source: Error("expected value", line: 1, column: 1) } ??
             // TODO: peek will be deprecated - See if we need to do anything different here?
-            let blend_info = self
-                .peek(&args.file)
+            let blend_info = Self::peek(&args.file)
                 .await
                 .expect("Fail to parse blend file!"); // TODO: Need to clean this error up a bit.
-
-            dbg!(&blend_info);
 
             let tmp_path = Self::get_config_path().join("blender_render.json");
             let col = &args.create_arg_list(&tmp_path);
@@ -401,6 +397,7 @@ impl Blender {
             let reader = BufReader::new(stdout);
 
             // parse stdout for human to read
+            // OUCH! IO intense by reading stdout
             reader.lines().for_each(|line| {
                 let line = line.unwrap();
 
@@ -437,20 +434,21 @@ impl Blender {
                     line if line.contains("Saved:") => {
                         let location = line.split('\'').collect::<Vec<&str>>();
                         let path = PathBuf::from(location[1]);
-                        let msg = Status::Completed { result: path };
-                        rx.send(msg).unwrap();
+                        rx.send(Status::Completed { 
+                            frame: 1, 
+                            result: 
+                            path })
+                            .unwrap();
                     }
-                    line if line.contains("Warning:") => {
-                        let msg = Status::Warning {
+                    line if line.contains("Warning:") => 
+                        rx.send(
+                            Status::Warning {
                             message: line.to_owned(),
-                        };
-                        rx.send(msg).unwrap();
-                    }
+                        }).unwrap(),
                     line if line.contains("Error:") => {
                         let msg = Status::Error(BlenderError::RenderError(line.to_owned()));
                         rx.send(msg).unwrap();
                     }
-                    // ("Warning:"..) => println!("{}", line),
                     line if !line.is_empty() => {
                         // do not send info if line is empty!
                         let msg = Status::Running {

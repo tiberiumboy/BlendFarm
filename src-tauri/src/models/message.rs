@@ -8,6 +8,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use super::behaviour::FileResponse;
+use super::job::JobError;
 use super::{computer_spec::ComputerSpec, job::Job};
 
 #[derive(Debug, Error)]
@@ -35,6 +36,7 @@ pub enum NetCommand {
     Status(String),
     StartProviding {
         file_name: String,
+        path: PathBuf,
         sender: oneshot::Sender<()>,
     },
     GetProviders {
@@ -52,6 +54,7 @@ pub enum NetCommand {
         channel: ResponseChannel<FileResponse>,
     },
     RequestJob,
+    JobFailure(JobError),
     SubscribeTopic(String),
     UnsubscribeTopic(String),
 }
@@ -65,7 +68,7 @@ pub enum NetEvent {
     NodeDiscovered(PeerId, ComputerSpec), 
     // TODO: Future impl. Use this to send computer activity
     // Heartbeat() // share hardware statistic monitor heartbeat. (CPU/GPU/RAM activity readings)
-    Render(PeerId, Job),      // Receive a new render job
+    Render(Job),      // Receive a new render job
     NodeDisconnected(PeerId), // On Node disconnected
     InboundRequest {
         request: String,

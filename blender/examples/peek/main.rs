@@ -1,4 +1,4 @@
-use blender::manager::Manager as BlenderManager;
+use blender::blender::Blender;
 use std::path::PathBuf;
 
 /// Peek into the blend file to see what's inside.
@@ -11,13 +11,7 @@ async fn main() {
     };
 
     // we reference blender by executable path. Version will be detected upon running command process. (Self validation)
-    let mut manager = BlenderManager::load();
-    let blender = match manager.get_blenders().first() {
-        Some(blender) => blender.to_owned(),
-        None => manager.download_latest_version().unwrap(),
-    };
-
-    match blender.peek(blend_path).await {
+    match Blender::peek(&blend_path).await {
         Ok(result) => println!("{:?}", &result),
         Err(e) => println!("Error: {:?}", e),
     }

@@ -1,26 +1,29 @@
 use blender::models::mode::Mode;
+use semver::Version;
 use std::path::PathBuf;
 use tauri::{command, Error, State};
 use tokio::sync::Mutex;
 
 use crate::{
-    models::{app_state::AppState, job::Job, project_file::ProjectFile},
+    models::{app_state::AppState, job::Job},
     services::tauri_app::UiCommand,
 };
 
 #[command(async)]
 pub async fn create_job(
     state: State<'_, Mutex<AppState>>,
-    project_file: ProjectFile<PathBuf>,
-    output: PathBuf,
     mode: Mode,
+    version: Version,
+    path: PathBuf,
+    output: PathBuf,
 ) -> Result<Job, Error> {
-    let job = Job::new(project_file.clone(), output, mode);
+
+    let job = Job::new(path, version, mode);
     let mut server = state.lock().await;
     server.jobs.push(job.clone());
 
     // upload the file to file share services
-    let msg = UiCommand::UploadFile(project_file.to_path_buf());
+    let msg = UiCommand::UploadFile(project_file);
     if let Err(e) = server.to_network.send(msg).await {
         eprintln!("Fail to upload file! {e:?}");
     }

@@ -1,9 +1,11 @@
 use super::behaviour::{BlendFarmBehaviour, FileRequest, FileResponse};
 use super::computer_spec::ComputerSpec;
-use super::job::Job;
+use super::job::{Job, JobError};
 use super::message::{NetCommand, NetEvent, NetworkError};
+use super::server_setting::ServerSetting;
 use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
+use std::path::PathBuf;
 use futures::channel::oneshot;
 use libp2p::futures::StreamExt;
 use libp2p::{
@@ -125,6 +127,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         },
         NetworkController {
             sender: command_sender,
+            settings: ServerSetting::load(),
         },
         event_receiver,
     ))
@@ -133,6 +136,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
 #[derive(Clone)]
 pub struct NetworkController {
     sender: mpsc::Sender<NetCommand>,
+    pub settings: ServerSetting,
 }
 
 impl NetworkController {
@@ -150,8 +154,12 @@ impl NetworkController {
             .unwrap();
     }
 
-    pub async fn request_job(&mut self) {
-        self.sender.send(NetCommand::RequestJob).await.unwrap();
+    pub async fn request_job(&mut self, event: Option<JobError>) {
+        let cmd = match event {
+            Some(err) => NetCommand::JobFailure(err),
+            None => NetCommand::RequestJob, 
+        };
+        self.sender.send(cmd).await.unwrap();
     }
 
     pub async fn send_status(&mut self, status: String) {
@@ -169,9 +177,9 @@ impl NetworkController {
             .expect("Command should not have been dropped");
     }
 
-    pub async fn start_providing(&mut self, file_name: String) {
+    pub async fn start_providing(&mut self, file_name: String, path: PathBuf) {
         let (sender, receiver) = oneshot::channel();
-        let cmd = NetCommand::StartProviding { file_name, sender };
+        let cmd = NetCommand::StartProviding { file_name, path, sender };
         self.sender
             .send(cmd)
             .await
@@ -179,10 +187,10 @@ impl NetworkController {
         receiver.await.expect("Sender should not be dropped");
     }
 
-    pub async fn get_providers(&mut self, file_name: String) -> HashSet<PeerId> {
+    pub async fn get_providers(&mut self, file_name: &str) -> HashSet<PeerId> {
         let (sender, receiver) = oneshot::channel();
         self.sender
-            .send(NetCommand::GetProviders { file_name, sender })
+            .send(NetCommand::GetProviders { file_name: file_name.to_string(), sender })
             .await
             .expect("Command receiver should not be dropped");
         receiver.await.expect("Sender should not be dropped")
@@ -234,6 +242,7 @@ pub struct NetworkService {
     machine: Machine,
     // send network events
     event_sender: Sender<NetEvent>,
+    files_providing: HashMap<String, PathBuf>,
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<()>>,
     pending_request_file:
@@ -304,13 +313,15 @@ impl NetworkService {
                     .get_providers(file_name.into_bytes().into());
                 self.pending_get_providers.insert(query_id, sender);
             }
-            NetCommand::StartProviding { file_name, sender } => {
+            NetCommand::StartProviding { file_name, path, sender } => {
+                self.files_providing.insert(file_name.clone(), path );
                 let query_id = self
                     .swarm
                     .behaviour_mut()
                     .kad
                     .start_providing(file_name.into_bytes().into())
                     .expect("No store error.");
+                
                 self.pending_start_providing.insert(query_id, sender);
             }
             NetCommand::SubscribeTopic(topic) => {
@@ -464,11 +475,10 @@ impl NetworkService {
                     }
                 }
                 JOB => {
-                    let source = message.source.expect("Source cannot be empty!");
                     let job: Job =
                         bincode::deserialize(&message.data).expect("Fail to parse Job data!");
-                    if let Err(e) = self.event_sender.send(NetEvent::Render(source, job)).await {
-                        eprintln!("SOmething failed? {e:?}");
+                    if let Err(e) = self.event_sender.send(NetEvent::Render(job)).await {
+                        eprintln!("Something failed? {e:?}");
                     }
                 }
                 _ => eprintln!(

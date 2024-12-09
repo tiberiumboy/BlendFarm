@@ -22,7 +22,7 @@ use uuid::Uuid;
 pub enum UiCommand {
     StartJob(Job),
     StopJob(Uuid),
-    UploadFile(PathBuf),
+    UploadFile(PathBuf, String),
 }
 
 use super::blend_farm::BlendFarm;
@@ -89,14 +89,14 @@ impl TauriApp {
         match cmd {
             UiCommand::StartJob(job) => {
                 // first make the file available on the network
-                let file_name = job.project_file.file_name().unwrap().to_str().unwrap().to_string();
+                let file_name = job.get_file_name().unwrap().to_string();
                 client.start_providing(file_name).await;
                 client.send_network_job(job).await;
             }
-            UiCommand::UploadFile(path) => {
-                if let Some(file_name) = path.file_name() {
+            UiCommand::UploadFile(path, file_name) => {
+                if let Some(file_name) = path.file_name().unwrap().to_str() {
                     client
-                        .start_providing(file_name.to_str().unwrap().to_string())
+                        .start_providing(file_name.to_owned())
                         .await;
                 }
             }
