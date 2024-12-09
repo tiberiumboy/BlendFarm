@@ -179,20 +179,27 @@ impl NetworkController {
 
     pub async fn start_providing(&mut self, file_name: String ) {
         let (sender, receiver) = oneshot::channel();
-        let cmd = NetCommand::StartProviding { file_name, sender };
+        println!("Start providing file {file_name}");
+        let cmd = NetCommand::StartProviding { file_name: file_name.clone(), sender };
         self.sender
             .send(cmd)
             .await
             .expect("Command receiver not to be dropped");
+        println!("Awaiting providing completion");
         receiver.await.expect("Sender should not be dropped");
+        println!("File \"{file_name}\" is now available to download");
     }
 
     pub async fn get_providers(&mut self, file_name: &str) -> HashSet<PeerId> {
         let (sender, receiver) = oneshot::channel();
+
+        println!("Calling get providers");
         self.sender
             .send(NetCommand::GetProviders { file_name: file_name.to_string(), sender })
             .await
             .expect("Command receiver should not be dropped");
+
+        println!("Awaiting provider result");
         receiver.await.expect("Sender should not be dropped")
     }
 
@@ -257,9 +264,9 @@ impl NetworkService {
             // we would need to upload blender to kad service and make it public available for DHT to access for other nodes to obtain
             // then we send out notification to all of the node to start the job
             NetCommand::StartJob(job) => {
-                // receives a job request. can do fancy behaviour like split up the job into different frames?
-                // TODO: For now, send the job request.
+                // Send out job request to all node.
                 let data = bincode::serialize(&job).unwrap();
+                // TODO: Find another struct to hold job status or information (Start, Pause, Stop, etc)
                 let topic = IdentTopic::new(JOB);
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to send job! {e:?}");
@@ -275,8 +282,6 @@ impl NetworkService {
                     eprintln!("Fail to send status over network! {e:?}");
                 }
             }
-
-            // TODO: For Future impl. See how we can transfer the file using kad's behaviour (DHT)
             NetCommand::RequestFile {
                 peer_id,
                 file_name,
@@ -383,10 +388,13 @@ impl NetworkService {
         event: libp2p_request_response::Event<FileRequest, FileResponse>,
     ) {
         match event {
-            libp2p_request_response::Event::Message { message, .. } => match message {
+            libp2p_request_response::Event::Message { 
+                message, .. 
+            } => match message {
                 libp2p_request_response::Message::Request {
                     request, channel, ..
                 } => {
+                    println!("receive inbound request");
                     self.event_sender
                         .send(NetEvent::InboundRequest {
                             request: request.0,
@@ -399,6 +407,7 @@ impl NetworkService {
                     request_id,
                     response,
                 } => {
+                    println!("received response back");
                     let _ = self
                         .pending_request_file
                         .remove(&request_id)
@@ -495,9 +504,8 @@ impl NetworkService {
                 result: kad::QueryResult::StartProviding(_),
                 ..
             } => {
-                if let Some(sender) = self.pending_start_providing.remove(&id) {
-                    let _ = sender.send(());
-                }
+                let sender: oneshot::Sender<()> = self.pending_start_providing.remove(&id).expect("Completed query to be previously pending.");
+                let _ = sender.send(());
             }
             kad::Event::OutboundQueryProgressed {
                 id,
@@ -509,6 +517,7 @@ impl NetworkService {
                 ..
             } => {
                 if let Some(sender) = self.pending_get_providers.remove(&id) {
+                    println!("Outbound Query Progressed for query id: {id:?}");
                     sender.send(providers).expect("Receiver not to be dropped");
                     self.swarm
                         .behaviour_mut()

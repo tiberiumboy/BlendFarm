@@ -65,6 +65,7 @@ use blend::Blend;
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use tokio::io::split;
 use std::process::{Command, Stdio};
 use std::{
     io::{BufReader, BufRead},
@@ -396,19 +397,25 @@ impl Blender {
 
             let reader = BufReader::new(stdout);
 
+            let mut frame: i32 = 0;
+
             // parse stdout for human to read
             // OUCH! IO intense by reading stdout
             reader.lines().for_each(|line| {
                 let line = line.unwrap();
-
                 if line.is_empty() {
                     return;
                 }
 
-                // I feel like there's a better way of handling this? Yes!
                 match &line {
                     line if line.contains("Fra:") => {
                         let col = line.split('|').collect::<Vec<&str>>();
+                        
+                        // this seems a bit expensive?
+                        let init = col[0].split(" ").next();
+                        if let Some(value) = init {
+                            frame = value.replace("Fra:", "").parse().unwrap_or(1);
+                        }
                         let last = col.last().unwrap().trim();
                         let slice = last.split(' ').collect::<Vec<&str>>();
                         let msg = match slice[0] {
@@ -435,7 +442,7 @@ impl Blender {
                         let location = line.split('\'').collect::<Vec<&str>>();
                         let path = PathBuf::from(location[1]);
                         rx.send(Status::Completed { 
-                            frame: 1, 
+                            frame, 
                             result: 
                             path })
                             .unwrap();
