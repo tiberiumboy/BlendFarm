@@ -107,7 +107,6 @@ pub struct BlenderRenderSetting {
 }
 
 impl BlenderRenderSetting {
-    #[allow(dead_code)]
     pub fn new(
         output: PathBuf,
         frame: i32,

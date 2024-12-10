@@ -98,7 +98,7 @@ impl Manager {
     }
 
     // Download the specific version from download.blender.org
-    fn download(&mut self, version: &Version) -> Result<Blender, ManagerError> {
+    pub fn download(&mut self, version: &Version) -> Result<Blender, ManagerError> {
         // TODO: As a extra security measure, I would like to verify the hash of the content before extracting the files.
         let arch = std::env::consts::ARCH.to_owned();
         let os = std::env::consts::OS.to_owned();
@@ -245,22 +245,17 @@ impl Manager {
 
     // TODO: Name ambiguous - clarify method name to clear and explicit
     pub fn fetch_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
-        let result = self
-            .config
-            .blenders
-            .iter()
-            .find(|x| x.get_version().eq(version));
-        match result {
+        match self.have_blender(version) {
             Some(blender) => Ok(blender.clone()),
             None => self.download(version),
         }
     }
 
-    pub fn have_blender(&self, version: &Version) -> bool {
+    pub fn have_blender(&self, version: &Version) -> Option<&Blender> {
         self.config
             .blenders
             .iter()
-            .any(|x| x.get_version().eq(version))
+            .find(|x| x.get_version().eq(version))
     }
 
     /// Fetch the latest version of blender available from Blender.org
