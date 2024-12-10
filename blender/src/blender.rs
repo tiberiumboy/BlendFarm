@@ -398,7 +398,6 @@ impl Blender {
             let mut frame: i32 = 0;
 
             // parse stdout for human to read
-            // OUCH! IO intense by reading stdout
             reader.lines().for_each(|line| {
                 if let Ok(line) = line {
                     match line {

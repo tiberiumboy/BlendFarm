@@ -11,30 +11,32 @@ use crate::models::{
 };
 use async_trait::async_trait;
 use blender::models::status::Status;
-use machine_info::Machine;
-use std::{collections::HashMap, env::consts, path::PathBuf};
+// use machine_info::Machine;
+use std::{collections::HashMap, /* env::consts, */ path::PathBuf};
 use tokio::{select, sync::mpsc::Receiver};
 
 pub struct CliApp {
-    machine: Machine,
+    // machine: Machine,
     // job that this machine is busy working on.
     #[allow(dead_code)]
     active_job: Option<Job>,
-    providing_files : HashMap<String, PathBuf>
+    providing_files : HashMap<String, PathBuf>,
+    manager: BlenderManager,
 }
 
 impl Default for CliApp {
     fn default() -> Self {
         Self {
-            machine: Machine::new(),
+            // machine: Machine::new(),
             active_job: Default::default(),
             providing_files: Default::default(),
+            manager: BlenderManager::load(),
         }
     }
 }
 
 impl CliApp {
-    async fn render_job(&mut self, controller: &mut NetworkController, job: &mut Job) {
+    async fn render_job(&mut self, controller: &mut NetworkController, job: Job) {
         let status = format!("Receive render job [{}]", job.as_ref());
         controller.send_status(status).await; 
         
@@ -45,6 +47,7 @@ impl CliApp {
         let blend_dir = controller.settings.blend_dir.clone(); 
         let project_file = blend_dir.join(&file_name); // append the file name here instead.
         controller.send_status(format!("Checking for project file {:?}", &project_file)).await;
+        let mut job = job.set_project_path(project_file.clone());
 
         // Fetch the project from peer if we don't have it.
         if !project_file.exists() {
@@ -66,11 +69,10 @@ impl CliApp {
             }
         }
 
-        let mut manager = BlenderManager::load();
-        
-        // here we'll ask if we have blender installed and ready to use
-        // let's not worry about this right now, let's get this working.
-        let blender = manager.fetch_blender(job.get_version()).expect("Fail to download blender");
+        // here we'll ask if we have blender installed before usage
+        let blender = self.manager.fetch_blender(job.get_version()).expect("Fail to download blender");
+
+        // TODO: Call other network on specific topics to see if there's a version available.
         // match manager.have_blender(job.as_ref()) {
         //     Some(exe) => exe.clone(),
         //     None => {
@@ -118,7 +120,7 @@ impl CliApp {
             NetEvent::NodeDiscovered(..) => { } // Ignored
             NetEvent::NodeDisconnected(_) => {} // ignored
             NetEvent::JobUpdate(job_event) => match job_event {
-                JobEvent::Render(mut job) => self.render_job(controller, &mut job).await,
+                JobEvent::Render(job) => self.render_job(controller, job).await,
                 JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
                 // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
                 JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
@@ -145,9 +147,9 @@ impl BlendFarm for CliApp {
     ) -> Result<(), NetworkError> {
         // Future Impl. Make this machine available to other peers that share the same operating system and arch
         // - so that we can distribute blender across network rather than download blender per each peers.
-        let system = self.machine.system_info();
-        let system_info = format!("blendfarm/{}{}", consts::OS, &system.processor.brand);
-        client.subscribe_to_topic(system_info).await;
+        // let system = self.machine.system_info();
+        // let system_info = format!("blendfarm/{}{}", consts::OS, &system.processor.brand);
+        // client.subscribe_to_topic(system_info).await;
         client.subscribe_to_topic(JOB.to_string()).await;
 
         loop {

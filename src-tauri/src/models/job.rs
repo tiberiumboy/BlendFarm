@@ -71,6 +71,11 @@ impl Job {
         &self.project_file
     }
 
+    pub fn set_project_path(mut self, new_path: PathBuf) -> Self {
+        self.project_file = new_path;
+        self
+    }
+
     pub fn get_file_name(&self) -> Option<&str> {
         match self.project_file.file_name() {
             Some(v) => v.to_str(),
@@ -94,11 +99,6 @@ impl Job {
         // here's the question - how do I send the host the image of the completed rendered job? topic? provider?
         let receiver = blender.render(args).await;
         Ok(receiver)
-    }
-
-    pub fn set_project_file(mut self, project_file: PathBuf) -> Self {
-        self.project_file = project_file;
-        self
     }
 }
 
