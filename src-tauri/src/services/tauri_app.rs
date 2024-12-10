@@ -1,6 +1,11 @@
 use crate::{
     models::{
-        app_state::AppState, computer_spec::ComputerSpec, job::Job, message::{NetEvent, NetworkError}, network::{NetworkController, HEARTBEAT, SPEC, STATUS}, server_setting::ServerSetting
+        app_state::AppState, 
+        computer_spec::ComputerSpec, 
+        job::{Job, JobEvent}, 
+        message::{NetEvent, NetworkError}, 
+        network::{NetworkController, HEARTBEAT, JOB, SPEC, STATUS}, 
+        server_setting::ServerSetting
     },
     routes::{job::*, remote_render::*, settings::*},
 };
@@ -22,7 +27,7 @@ use uuid::Uuid;
 pub enum UiCommand {
     StartJob(Job),
     StopJob(Uuid),
-    UploadFile(PathBuf),
+    UploadFile(PathBuf, String),
 }
 
 use super::blend_farm::BlendFarm;
@@ -30,7 +35,7 @@ use super::blend_farm::BlendFarm;
 #[derive(Default)]
 pub struct TauriApp {
     peers: HashMap<PeerId, ComputerSpec>,
-    // jobs: Vec<Job>,
+    providing_files: HashMap<String, PathBuf>,
 }
 
 impl TauriApp {
@@ -82,6 +87,7 @@ impl TauriApp {
 
     // command received from UI
     async fn handle_ui_command(
+        &mut self,
         client: &mut NetworkController,
         cmd: UiCommand,
         _app_handle: Arc<RwLock<AppHandle>>,
@@ -89,17 +95,18 @@ impl TauriApp {
         match cmd {
             UiCommand::StartJob(job) => {
                 // first make the file available on the network
-                let file_name = job.project_file.file_name().unwrap().to_str().unwrap().to_string();
+                let file_name = job.get_file_name().unwrap().to_string();
+                let path = job.get_project_path().clone();
+                self.providing_files.insert(file_name.clone(), path.clone() );
                 client.start_providing(file_name).await;
-                client.send_network_job(job).await;
+                client.send_job_message(JobEvent::Render(job)).await;
             }
-            UiCommand::UploadFile(path) => {
-                if let Some(file_name) = path.file_name() {
-                    client
-                        .start_providing(file_name.to_str().unwrap().to_string())
+            UiCommand::UploadFile(path, file_name) => {
+                self.providing_files.insert(file_name.clone(), path.clone());
+                client
+                        .start_providing(file_name)
                         .await;
-                }
-            }
+            },
             UiCommand::StopJob(id) => {
                 todo!(
                     "Impl how to send a stop signal to stop the job and remove the job from queue {id:?}"
@@ -111,7 +118,7 @@ impl TauriApp {
     // commands received from network
     async fn handle_net_event(
         &mut self,
-        _client: &mut NetworkController,
+        client: &mut NetworkController,
         event: NetEvent,
         app_handle: Arc<RwLock<AppHandle>>,
     ) {
@@ -134,9 +141,36 @@ impl TauriApp {
                 let handle = app_handle.read().await;
                 handle.emit("node_disconnect", peer_id.to_base58()).unwrap();
             }
-            NetEvent::RequestJob => {
-                // a peer on the network is asking for a job to work on.
-                // TODO: implment a way to notify job manager to request a new rendering job...?
+            NetEvent::InboundRequest {
+                request,
+                channel,
+            } => {
+                if let Some(path) = self.providing_files.get(&request) {
+                    println!("Sending client file {path:?}");
+                    client.respond_file(std::fs::read(path).unwrap(), channel).await
+                }
+            }
+            NetEvent::JobUpdate(job_event) => match job_event {
+                // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
+                JobEvent::ImageCompleted { id, frame, file_name } => {
+
+                    let destination = client.settings.render_dir.clone();
+                    // first I need to fetch the file from the network.
+                    if let Ok(file) = client.get_file_from_peers(&file_name, &destination).await {
+                        let handle = app_handle.write().await;
+                        if let Err(e) = handle.emit("job_image_complete", (id, frame, file)) {
+                            eprintln!("Fail to publish image completion emit to front end! {e:?}");
+                        }
+                    }
+                },
+                // when a job is complete, check the poll for next available job queue?
+                JobEvent::JobComplete => {},    // Hmm how do I go about handling this one?
+                // TODO: how do we handle error from node? What kind of errors are we expecting here and what can the host do about it?
+                JobEvent::Error(job_error) => todo!("See how this can be replicated? {job_error:?}"),
+                // send a render job - 
+                JobEvent::Render(_) => {},    // should be ignored.
+                // Received a request job?
+                JobEvent::RequestJob => {},
             }
             _ => println!("{:?}", event),
         }
@@ -155,6 +189,7 @@ impl BlendFarm for TauriApp {
         client.subscribe_to_topic(SPEC.to_owned()).await;
         client.subscribe_to_topic(HEARTBEAT.to_owned()).await;
         client.subscribe_to_topic(STATUS.to_owned()).await;
+        client.subscribe_to_topic(JOB.to_owned()).await;
         
         // this channel is used to send command to the network, and receive network notification back.
         let (to_network, mut from_ui) = mpsc::channel(32);
@@ -170,7 +205,7 @@ impl BlendFarm for TauriApp {
         spawn(async move {
             loop {
                 select! {
-                    Some(msg) = from_ui.recv() => Self::handle_ui_command(&mut client, msg, app_handle.clone()).await,
+                    Some(msg) = from_ui.recv() => self.handle_ui_command(&mut client, msg, app_handle.clone()).await,
                     Some(event) = event_receiver.recv() => self.handle_net_event(&mut client, event, app_handle.clone()).await,
                 }
             }

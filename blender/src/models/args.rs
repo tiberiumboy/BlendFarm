@@ -39,10 +39,10 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn new(file: impl AsRef<Path>, output: impl AsRef<Path>, mode: Mode) -> Self {
+    pub fn new(file: PathBuf, output: PathBuf, mode: Mode) -> Self {
         Args {
-            file: file.as_ref().to_path_buf(),
-            output: output.as_ref().to_path_buf(),
+            file: file,
+            output: output,
             mode,
             engine: Default::default(),
             device: Default::default(),

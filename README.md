@@ -32,7 +32,7 @@ For new users and anyone who wants to get things done quickly. Simply run the ap
 
 ## CLI 
 For those who wish to run the tools on headless server and network farm solution, this tool provide ease of comfort to setup, robust dialogs and information, and thread safety throughout application lifespan. To launch the application as a client mode simply run the following command inside src-tauri/ directory:
-`cargo run -- --client true`
+`cargo run -- client`
 
 <!-- TOOD: For future impl. WE won't have to worry about this for this sprint milestone for now. ## Library
 .rlib are publicly available and exposed by compiling rust into the library bundle. You can compile the blender package separately and use the codebase to allow your program to interface blender. Or interface to the manager of the toolchain to help prebuild your assembly with out of box template to interface with blender program.    -->
@@ -60,7 +60,7 @@ First - Install tauri-cli as this component is needed to run `cargo tauri` comma
 
 To run Tauri app - run the following command under `/BlendFarm/` directory - `cargo tauri dev`
 
-To run the client app - run the following command under `/BlendFarm/src-tauri/` directory - `cargo run -- --client true`
+To run the client app - run the following command under `/BlendFarm/src-tauri/` directory - `cargo run -- client`
 
 ### Network:
 

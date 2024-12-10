@@ -3,16 +3,16 @@ Have a look into TUI for CLI status display window to show user entertainment on
 https://docs.rs/tui/latest/tui/
 */
 use super::blend_farm::BlendFarm;
+use blender::blender::Manager as BlenderManager;
 use crate::models::{
-    job::Job,
+    job::{Job, JobEvent},
     message::{NetEvent, NetworkError},
-    network::NetworkController,
+    network::{NetworkController, JOB},
 };
 use async_trait::async_trait;
-use blender::{blender::Args, manager::Manager as BlenderManager};
+use blender::models::status::Status;
 use machine_info::Machine;
-use semver::Version;
-use std::{env::consts, ops::Deref};
+use std::{collections::HashMap, env::consts, path::PathBuf};
 use tokio::{select, sync::mpsc::Receiver};
 
 pub struct CliApp {
@@ -20,6 +20,7 @@ pub struct CliApp {
     // job that this machine is busy working on.
     #[allow(dead_code)]
     active_job: Option<Job>,
+    providing_files : HashMap<String, PathBuf>
 }
 
 impl Default for CliApp {
@@ -27,101 +28,108 @@ impl Default for CliApp {
         Self {
             machine: Machine::new(),
             active_job: Default::default(),
+            providing_files: Default::default(),
         }
     }
 }
 
 impl CliApp {
+    async fn render_job(&mut self, controller: &mut NetworkController, job: &mut Job) {
+        let status = format!("Receive render job [{}]", job.as_ref());
+        controller.send_status(status).await; 
+        
+        let output = controller.settings.render_dir.clone();
+        let file_name = job.get_file_name().unwrap().to_string();
+        
+        // create a path link where we think the file should be?
+        let blend_dir = controller.settings.blend_dir.clone(); 
+        let project_file = blend_dir.join(&file_name); // append the file name here instead.
+        controller.send_status(format!("Checking for project file {:?}", &project_file)).await;
 
-     /*
+        // Fetch the project from peer if we don't have it.
+        if !project_file.exists() {
+            println!("Project file do not exist, asking to download from host: {:?}", &file_name);    
+            match controller.get_file_from_peers(&file_name, &blend_dir).await {
+                Ok(_) => println!("File successfully download from peers!"),
+                Err(e) => match e {
+                    NetworkError::UnableToListen(_) => todo!(),
+                    NetworkError::NotConnected => todo!(),
+                    NetworkError::SendError(_) => {},
+                    NetworkError::NoPeerProviderFound => {
+                        controller.send_status("No peer provider founkd on the network?".to_owned()).await
+                    },
+                    NetworkError::UnableToSave(e) => {
+                        controller.send_status(format!("Fail to save file to disk: {e}")).await
+                    },
+                    _ => println!("Unhandle error received {e:?}") // shouldn't be covered?
+                }    
+            }
+        }
 
-        TODO: Figure out what I was suppose to do with this file?
+        let mut manager = BlenderManager::load();
+        
+        // here we'll ask if we have blender installed and ready to use
+        // let's not worry about this right now, let's get this working.
+        let blender = manager.fetch_blender(job.get_version()).expect("Fail to download blender");
+        // match manager.have_blender(job.as_ref()) {
+        //     Some(exe) => exe.clone(),
+        //     None => {
+        //         // try to fetch from other peers with matching os / arch.
+        //         // question is, how do I make them publicly available with the right blender version? or do I just find it by the executable name instead?
 
-    //         NetEvent::Render(job) => {
-        //             // Here we'll check the job -
-        //             // TODO: It would be nice to check and see if there's any jobs currently running, otherwise put it in a poll?
-        //             let project_file = job.project_file;
-        //             let version: &Version = project_file.as_ref();
-        //             let blender = self
-        //                 .manager
-        //                 .fetch_blender(version)
-        //                 .expect("Should have blender installed?");
-        //             let file_path: &Path = project_file.as_ref();
-        //             let args = Args::new(file_path, job.output, job.mode);
-        //             let rx = blender.render(args);
-        // for this particular loop, let's extract this out to simplier function.
-        // loop {
-        //         if let Ok(msg) = rx.recv() {
-        //             let msg = match msg {
-        //                 Status::Idle => "Idle".to_owned(),
-        //                 Status::Running { status } => status,
-        //                 Status::Log { status } => status,
-        //                 Status::Warning { message } => message,
-        //                 Status::Error(err) => format!("{err:?}").to_owned(),
-        //                 Status::Completed { result } => {
-        //                     // we'll send the message back?
-        //                     // net_service
-        //                     // here we will state that the render is complete, and send a message to network service
-        //                     // TODO: Find a better way to not use the `.clone()` method.
-        //                     let msg = Command::FrameCompleted(
-        //                         result.clone(),
-        //                         job.current_frame,
-        //                     );
-        //                     let _ = net_service.send(msg).await;
-        //                     let path_str = &result.to_string_lossy();
-        //                     format!(
-        //                         "Finished job frame {} at {path_str}",
-        //                         job.current_frame
-        //                     )
-        //                     .to_owned()
-        //                     // here we'll send the job back to the peer who requested us the job initially.
-        //                     // net_service.swarm.behaviour_mut().gossipsub.publish( peer_id, )
-        //                 }
-        //             };
-        //             println!("[Status] {msg}");
-        //         }
-        //             // }
-        //         }
+        //     }
         // }
+        
+        // run the job!
+        match job.run(output, &blender).await {
+            Ok(rx) => {
+                loop {
+                    if let Ok(status) = rx.recv() {
+                        match status {
+                            Status::Idle => controller.send_status("[Idle]".to_owned()).await,
+                            Status::Running { status } => controller.send_status(format!("[Running] {status}")).await,
+                            Status::Log { status } => controller.send_status(format!("[Log] {status}")).await,
+                            Status::Warning { message } => controller.send_status(format!("[Warning] {message}")).await,
+                            Status::Error(blender_error) => controller.send_status(format!("[ERR] {blender_error:?}")).await,
+                            Status::Completed { frame, result, .. } => {
+                                let file_name = result.file_name().unwrap().to_str().unwrap().to_string();
+                                self.providing_files.insert(file_name.clone(), result);
+                                let event = JobEvent::ImageCompleted { id: job.as_ref().clone(), frame, file_name: file_name.clone() };
+                                controller.start_providing(file_name).await;
+                                controller.send_job_message(event).await;
+                            },
+                            Status::Exit => {
+                                controller.send_job_message(JobEvent::JobComplete).await;
+                                break;
+                            }
+                        };
+                    }
+                }
+            },
+            Err(e) => {
+                controller.send_job_message(JobEvent::Error(e)).await;
+            }
+        };
+    }
 
-    */
     async fn handle_message(&mut self, controller: &mut NetworkController, event: NetEvent) {
         match event {
             NetEvent::OnConnected => controller.share_computer_info().await,
-            NetEvent::NodeDiscovered(..) => {
-                println!("Cli is subscribe to SPEC topic, which should never happen!")
-            } // should not happen? We're not subscribe to this topic.
-            NetEvent::NodeDisconnected(_) => {} // don't care about this
-            NetEvent::Render(peer_id, job) => {
-                // first check and see if we have blender installation installed for this job.
-                let blend_version: &Version = &job.project_file.as_ref();
-                let status = format!("Checking for blender version {}", blend_version);
-                controller.send_status(status).await;
-
-                let mut manager = BlenderManager::load();
-                let blender = manager
-                    .fetch_blender(blend_version)
-                    .expect("Fail to download blender!");
-
-                let tmp_path = dirs::cache_dir().unwrap().join("Blender");
-                let file_name = job
-                    .project_file
-                    .deref()
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_string();
-                let project_file = tmp_path.join(&file_name); // append the file name here instead.
-                if !project_file.exists() {
-                    // go fetch the project file from the network.
-                    if let Err(e) = controller.request_file(peer_id.clone(), file_name).await {
-                        eprintln!("Fail to request file from controller? {e:?}");
-                    }
+            NetEvent::NodeDiscovered(..) => { } // Ignored
+            NetEvent::NodeDisconnected(_) => {} // ignored
+            NetEvent::JobUpdate(job_event) => match job_event {
+                JobEvent::Render(mut job) => self.render_job(controller, &mut job).await,
+                JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
+                // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
+                JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
+                _ => println!("Unhandle Job Event: {job_event:?}"),
+            }
+            // maybe move this inside Network code? Seems repeative in both cli and Tauri side of application here.
+            NetEvent::InboundRequest { request, channel } => {
+                if let Some(path) = self.providing_files.get(&request) {
+                    println!("Sending file {path:?}");
+                    controller.respond_file(std::fs::read(path).unwrap(), channel).await;
                 }
-                let args = Args::new(project_file, tmp_path, job.mode);
-                // TODO: Finish the rest of this implementation once we can transfer blend file from different machine.
-                let _rx = blender.render(args);
             }
             _ => println!("[CLI] Unhandled event from network: {event:?}"),
         }
@@ -140,6 +148,7 @@ impl BlendFarm for CliApp {
         let system = self.machine.system_info();
         let system_info = format!("blendfarm/{}{}", consts::OS, &system.processor.brand);
         client.subscribe_to_topic(system_info).await;
+        client.subscribe_to_topic(JOB.to_string()).await;
 
         loop {
             select! {

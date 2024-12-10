@@ -65,12 +65,12 @@ use blend::Blend;
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::process::{Command, Stdio};
 use std::{
+    io::{BufReader, BufRead},
     fs,
-    io::{BufRead, BufReader},
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
     sync::mpsc::{self, Receiver},
+    path::{Path, PathBuf},
 };
 use thiserror::Error;
 use tokio::spawn;
@@ -210,12 +210,9 @@ impl Blender {
     }
 
     /// Peek is a function design to read and fetch information about the blender file.
-    /// To do this, we must have a valid blender executable path, and run the peek.py code to fetch a json response.
     // TODO: Consider using blend library to read the data instead.
-    // TODO: This function may be deprecated as we may use blend library instead to avoid coupling.
     pub async fn peek(
-        &self,
-        blend_file: impl AsRef<Path>,
+        blend_file: &PathBuf,
     ) -> Result<BlenderPeekResponse, BlenderError> {
         /*
         Experimental code, trying to use blend plugin to extract information rather than opening up blender for this.
@@ -325,7 +322,6 @@ impl Blender {
             scenes,
             selected_scene,
         };
-        // dbg!(result);
 
         Ok(result)
         /*
@@ -369,19 +365,18 @@ impl Blender {
     /// let final_output = blender.render(&args).unwrap();
     /// ```
     // so instead of just returning the string of render result or blender error, we'll simply use the single producer to produce result from this class.
-    pub async fn render(self, args: Args) -> Receiver<Status> {
+    pub async fn render(&self, args: Args) -> Receiver<Status> {
         let (rx, tx) = mpsc::channel::<Status>();
+        let executable = self.executable.clone();
+
         spawn(async move {
             // So far this part of the code works - but I'm getting an unusual error
             // I'm rececing an exception on stdout. [Errno 32] broken pipe?
             // thread panic here - err - Serde { source: Error("expected value", line: 1, column: 1) } ??
             // TODO: peek will be deprecated - See if we need to do anything different here?
-            let blend_info = self
-                .peek(&args.file)
+            let blend_info = Self::peek(&args.file)
                 .await
                 .expect("Fail to parse blend file!"); // TODO: Need to clean this error up a bit.
-
-            dbg!(&blend_info);
 
             let tmp_path = Self::get_config_path().join("blender_render.json");
             let col = &args.create_arg_list(&tmp_path);
@@ -390,7 +385,7 @@ impl Blender {
             let data = serde_json::to_string(&arr).unwrap();
             fs::write(&tmp_path, data).unwrap();
 
-            let stdout = Command::new(&self.executable)
+            let stdout = Command::new(executable)
                 .args(col)
                 .stdout(Stdio::piped())
                 .spawn()
@@ -400,67 +395,74 @@ impl Blender {
 
             let reader = BufReader::new(stdout);
 
+            let mut frame: i32 = 0;
+
             // parse stdout for human to read
+            // OUCH! IO intense by reading stdout
             reader.lines().for_each(|line| {
-                let line = line.unwrap();
-
-                if line.is_empty() {
-                    return;
-                }
-
-                // I feel like there's a better way of handling this? Yes!
-                match &line {
-                    line if line.contains("Fra:") => {
-                        let col = line.split('|').collect::<Vec<&str>>();
-                        let last = col.last().unwrap().trim();
-                        let slice = last.split(' ').collect::<Vec<&str>>();
-                        let msg = match slice[0] {
-                            "Rendering" => {
-                                let current = slice[1].parse::<f32>().unwrap();
-                                let total = slice[3].parse::<f32>().unwrap();
-                                let percentage = current / total * 100.0;
-                                let render_perc = format!("{} {:.2}%", last, percentage);
-                                Status::Running {
-                                    status: render_perc,
-                                }
+                if let Ok(line) = line {
+                    match line {
+                        line if line.contains("Fra:") => {
+                            let col = line.split('|').collect::<Vec<&str>>();
+                            
+                            // this seems a bit expensive?
+                            let init = col[0].split(" ").next();
+                            if let Some(value) = init {
+                                frame = value.replace("Fra:", "").parse().unwrap_or(1);
                             }
-                            "Sample" => Status::Running {
-                                status: last.to_owned(),
-                            },
-                            _ => Status::Log {
-                                status: last.to_owned(),
-                            },
-                        };
-                        rx.send(msg).unwrap();
-                    }
-                    // If blender completes the saving process then we should return the path
-                    line if line.contains("Saved:") => {
-                        let location = line.split('\'').collect::<Vec<&str>>();
-                        let path = PathBuf::from(location[1]);
-                        let msg = Status::Completed { result: path };
-                        rx.send(msg).unwrap();
-                    }
-                    line if line.contains("Warning:") => {
-                        let msg = Status::Warning {
-                            message: line.to_owned(),
-                        };
-                        rx.send(msg).unwrap();
-                    }
-                    line if line.contains("Error:") => {
-                        let msg = Status::Error(BlenderError::RenderError(line.to_owned()));
-                        rx.send(msg).unwrap();
-                    }
-                    // ("Warning:"..) => println!("{}", line),
-                    line if !line.is_empty() => {
-                        // do not send info if line is empty!
-                        let msg = Status::Running {
-                            status: line.to_owned(),
-                        };
-                        rx.send(msg).unwrap();
-                    }
-                    _ => {
-                        // Only empty log entry would show up here...
-                    }
+                            let last = col.last().unwrap().trim();
+                            let slice = last.split(' ').collect::<Vec<&str>>();
+                            let msg = match slice[0] {
+                                "Rendering" => {
+                                    let current = slice[1].parse::<f32>().unwrap();
+                                    let total = slice[3].parse::<f32>().unwrap();
+                                    let percentage = current / total * 100.0;
+                                    let render_perc = format!("{} {:.2}%", last, percentage);
+                                    Status::Running {
+                                        status: render_perc,
+                                    }
+                                }
+                                "Sample" => Status::Running {
+                                    status: last.to_owned(),
+                                },
+                                _ => Status::Log {
+                                    status: last.to_owned(),
+                                },
+                            };
+                            rx.send(msg).unwrap();
+                        }
+                        line if line.contains("Saved:") => {
+                            let location = line.split('\'').collect::<Vec<&str>>();
+                            let path = PathBuf::from(location[1]);
+                            rx.send(Status::Completed { 
+                                frame, 
+                                result: 
+                                path })
+                                .unwrap();
+                        }
+                        line if line.contains("Warning:") => {
+                            rx.send(
+                                Status::Warning {
+                                    message: line.to_owned(),
+                                }).unwrap();
+                        } 
+                        line if line.contains("Error:") => {
+                            let msg = Status::Error(BlenderError::RenderError(line.to_owned()));
+                            rx.send(msg).unwrap();
+                        }
+                        line if line.contains("Blender quit") => {
+                            rx.send(Status::Exit).unwrap();
+                        }
+                        line if !line.is_empty() => {
+                            let msg = Status::Running {
+                                status: line.to_owned(),
+                            };
+                            rx.send(msg).unwrap();
+                        }
+                        _ => {
+                            // Only empty log entry would show up here...
+                        }
+                    };
                 };
             });
         });

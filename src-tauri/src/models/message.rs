@@ -1,14 +1,11 @@
-use std::path::PathBuf;
-use std::{collections::HashSet, error::Error};
-
+use super::behaviour::FileResponse;
+use super::computer_spec::ComputerSpec;
+use super::job::JobEvent;
 use futures::channel::oneshot;
 use libp2p::PeerId;
 use libp2p_request_response::ResponseChannel;
+use std::{collections::HashSet, error::Error};
 use thiserror::Error;
-use uuid::Uuid;
-
-use super::behaviour::FileResponse;
-use super::{computer_spec::ComputerSpec, job::Job};
 
 #[derive(Debug, Error)]
 pub enum NetworkError {
@@ -22,26 +19,29 @@ pub enum NetworkError {
     BadInput,
     #[error("Send Error: {0}")]
     SendError(String),
+    #[error("No peers on network have this file available to download!")]
+    NoPeerProviderFound,
+    #[error("Unable to save download file: {0}")]
+    UnableToSave(String),
 }
 
 // Send commands to network.
 #[derive(Debug)]
 pub enum NetCommand {
-    StartJob(Job),
-    FrameCompleted(PathBuf, i32),
-    EndJob {
-        job_id: Uuid,
-    },
+    SendIdentity,
     Status(String),
+    SubscribeTopic(String),
+    UnsubscribeTopic(String),
+    JobStatus(JobEvent),
     StartProviding {
         file_name: String,
+        // path: PathBuf,
         sender: oneshot::Sender<()>,
     },
     GetProviders {
         file_name: String,
         sender: oneshot::Sender<HashSet<PeerId>>,
     },
-    SendIdentity,
     RequestFile {
         peer_id: PeerId,
         file_name: String,
@@ -51,9 +51,6 @@ pub enum NetCommand {
         file: Vec<u8>,
         channel: ResponseChannel<FileResponse>,
     },
-    RequestJob,
-    SubscribeTopic(String),
-    UnsubscribeTopic(String),
 }
 
 // TODO: Received network events.
@@ -65,11 +62,10 @@ pub enum NetEvent {
     NodeDiscovered(PeerId, ComputerSpec), 
     // TODO: Future impl. Use this to send computer activity
     // Heartbeat() // share hardware statistic monitor heartbeat. (CPU/GPU/RAM activity readings)
-    Render(PeerId, Job),      // Receive a new render job
     NodeDisconnected(PeerId), // On Node disconnected
     InboundRequest {
         request: String,
         channel: ResponseChannel<FileResponse>,
     },
-    RequestJob,
+    JobUpdate(JobEvent),
 }

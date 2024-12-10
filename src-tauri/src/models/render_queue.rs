@@ -1,3 +1,5 @@
+/* 
+
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
@@ -19,8 +21,6 @@ pub enum RenderError {
     BlenderError(#[from] blender::blender::BlenderError),
 }
 
-// maybe it 's best to split up? Let me take a look into traits? How can I use traits effectively?
-// we will use this render queue to inform node minimal info as possible.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RenderQueue {
     pub frame: i32,
@@ -66,3 +66,4 @@ impl RenderQueue {
         Err(RenderError::BrokenPipe)
     }
 }
+*/
