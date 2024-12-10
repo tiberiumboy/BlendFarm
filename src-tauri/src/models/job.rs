@@ -6,7 +6,7 @@
     - I need to fetch the handles so that I can maintain and monitor all node activity.
     - TODO: See about migrating Sender code into this module?
 */
-use blender::blender::Manager;
+use blender::blender::Blender;
 use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -18,13 +18,22 @@ use std::{
 use thiserror::Error;
 use uuid::Uuid;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Serialize, Deserialize, Error)]
 pub enum JobError {
     #[error("Job failed to run: {0}")]
     FailedToRun(String),
     // it would be nice to have blender errors here?
     #[error("Invalid blend file: {0}")]
     InvalidFile(String),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum JobEvent {
+    Render(Job),
+    RequestJob,
+    ImageCompleted { id: Uuid, frame: Frame, file_name: String },
+    JobComplete,
+    Error(JobError),
 }
 
 pub type Frame = i32;
@@ -43,6 +52,7 @@ pub struct Job {
     // target blender version
     blender_version: Version,
     // completed render data.
+    // TODO: discuss this? Let's map this out and see how we can better utilize this structure?
     renders: HashMap<Frame, PathBuf>,
 }
 
@@ -68,18 +78,18 @@ impl Job {
         }
     }
 
+    pub fn get_version(&self) -> &Version {
+        &self.blender_version
+    }
+
     // TODO: consider about how I can invoke this command from network protocol?
     // Invoke blender to run the job
     // Find out if I need to run this locally, or just rely on the server to perform the operation?
-    pub async fn run(&mut self, output: PathBuf) -> Result<std::sync::mpsc::Receiver<Status>, JobError> {    
+    pub async fn run(&mut self, output: PathBuf, blender: &Blender) -> Result<std::sync::mpsc::Receiver<Status>, JobError> {    
         
         let file = self.project_file.clone();
         let mode = self.mode.clone();
         let args = Args::new(file, output, mode);
-
-        // TODO: how can I ask peers for copy of blender?
-        let mut manager = Manager::load();
-        let blender = manager.fetch_blender(&self.blender_version).map_err(|e| JobError::FailedToRun(e.to_string()))?;
 
         // here's the question - how do I send the host the image of the completed rendered job? topic? provider?
         let receiver = blender.render(args).await;

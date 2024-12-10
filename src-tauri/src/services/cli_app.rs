@@ -2,10 +2,10 @@
 Have a look into TUI for CLI status display window to show user entertainment on screen
 https://docs.rs/tui/latest/tui/
 */
-use futures::prelude::*;
 use super::blend_farm::BlendFarm;
+use blender::blender::Manager as BlenderManager;
 use crate::models::{
-    job::Job,
+    job::{Job, JobEvent},
     message::{NetEvent, NetworkError},
     network::{NetworkController, JOB},
 };
@@ -20,7 +20,7 @@ pub struct CliApp {
     // job that this machine is busy working on.
     #[allow(dead_code)]
     active_job: Option<Job>,
-    provider_files : HashMap<String, PathBuf>
+    providing_files : HashMap<String, PathBuf>
 }
 
 impl Default for CliApp {
@@ -28,94 +28,108 @@ impl Default for CliApp {
         Self {
             machine: Machine::new(),
             active_job: Default::default(),
-            provider_files: Default::default(),
+            providing_files: Default::default(),
         }
     }
 }
 
 impl CliApp {
+    async fn render_job(&mut self, controller: &mut NetworkController, job: &mut Job) {
+        let status = format!("Receive render job [{}]", job.as_ref());
+        controller.send_status(status).await; 
+        
+        let output = controller.settings.render_dir.clone();
+        let file_name = job.get_file_name().unwrap().to_string();
+        
+        // create a path link where we think the file should be?
+        let blend_dir = controller.settings.blend_dir.clone(); 
+        let project_file = blend_dir.join(&file_name); // append the file name here instead.
+        controller.send_status(format!("Checking for project file {:?}", &project_file)).await;
+
+        // Fetch the project from peer if we don't have it.
+        if !project_file.exists() {
+            println!("Project file do not exist, asking to download from host: {:?}", &file_name);    
+            match controller.get_file_from_peers(&file_name, &blend_dir).await {
+                Ok(_) => println!("File successfully download from peers!"),
+                Err(e) => match e {
+                    NetworkError::UnableToListen(_) => todo!(),
+                    NetworkError::NotConnected => todo!(),
+                    NetworkError::SendError(_) => {},
+                    NetworkError::NoPeerProviderFound => {
+                        controller.send_status("No peer provider founkd on the network?".to_owned()).await
+                    },
+                    NetworkError::UnableToSave(e) => {
+                        controller.send_status(format!("Fail to save file to disk: {e}")).await
+                    },
+                    _ => println!("Unhandle error received {e:?}") // shouldn't be covered?
+                }    
+            }
+        }
+
+        let mut manager = BlenderManager::load();
+        
+        // here we'll ask if we have blender installed and ready to use
+        // let's not worry about this right now, let's get this working.
+        let blender = manager.fetch_blender(job.get_version()).expect("Fail to download blender");
+        // match manager.have_blender(job.as_ref()) {
+        //     Some(exe) => exe.clone(),
+        //     None => {
+        //         // try to fetch from other peers with matching os / arch.
+        //         // question is, how do I make them publicly available with the right blender version? or do I just find it by the executable name instead?
+
+        //     }
+        // }
+        
+        // run the job!
+        match job.run(output, &blender).await {
+            Ok(rx) => {
+                loop {
+                    if let Ok(status) = rx.recv() {
+                        match status {
+                            Status::Idle => controller.send_status("[Idle]".to_owned()).await,
+                            Status::Running { status } => controller.send_status(format!("[Running] {status}")).await,
+                            Status::Log { status } => controller.send_status(format!("[Log] {status}")).await,
+                            Status::Warning { message } => controller.send_status(format!("[Warning] {message}")).await,
+                            Status::Error(blender_error) => controller.send_status(format!("[ERR] {blender_error:?}")).await,
+                            Status::Completed { frame, result, .. } => {
+                                let file_name = result.file_name().unwrap().to_str().unwrap().to_string();
+                                self.providing_files.insert(file_name.clone(), result);
+                                let event = JobEvent::ImageCompleted { id: job.as_ref().clone(), frame, file_name: file_name.clone() };
+                                controller.start_providing(file_name).await;
+                                controller.send_job_message(event).await;
+                            },
+                            Status::Exit => {
+                                controller.send_job_message(JobEvent::JobComplete).await;
+                                break;
+                            }
+                        };
+                    }
+                }
+            },
+            Err(e) => {
+                controller.send_job_message(JobEvent::Error(e)).await;
+            }
+        };
+    }
+
     async fn handle_message(&mut self, controller: &mut NetworkController, event: NetEvent) {
         match event {
             NetEvent::OnConnected => controller.share_computer_info().await,
             NetEvent::NodeDiscovered(..) => { } // Ignored
             NetEvent::NodeDisconnected(_) => {} // ignored
-            NetEvent::Render(mut job) => {
-                let status = format!("Receive render job [{}]", job.as_ref());
-                controller.send_status(status).await; 
-                
-                let output = controller.settings.render_dir.clone();
-                let file_name = job.get_file_name().unwrap().to_string();
-                
-                // create a path link where we think the file should be?
-                let project_file = controller.settings.blend_dir.join(&file_name); // append the file name here instead.
-                controller.send_status(format!("Checking for project file {:?}", &project_file)).await;
-
-                if !project_file.exists() {
-                    println!("Project file do not exist, asking to download from host: {:?}", &project_file);    
-                    let providers = controller.get_providers(&file_name).await;
-                    if providers.is_empty() {
-                        // at this point we'll report back there's an error.
-                        println!("Unable to find provider that have this file! Aborting...");
-                        controller.send_status("Could not get source blender file!".to_owned()).await;
-                        return;
-                    }
-                    
-                    println!("Found providers!");
-                    let requests = providers.into_iter().map(|p| {
-                        let mut client = controller.clone();
-                        let file_name = file_name.clone();
-                        async move { client.request_file(p, file_name).await }.boxed()
-                    });
-
-                    println!("Awaiting future result!");
-                    let content = match futures::future::select_ok(requests)
-                    .await {
-                        Ok(data) => data.0,
-                        Err(e) => {
-                            controller.send_status(format!("No provider return the file. {e:?}")).await;
-                            return;
-                        }
-                    };
-                    println!("Downloading project file...");
-                    if let Err(e) = std::fs::write(project_file, content) {
-                        controller.send_status(format!("Could not save blender file to blender directory! {e:?}")).await;
-                        return;
-                    }
-
-                    // // go fetch the project file from the network.
-                    // if let Err(e) = controller.request_file(file_name).await {
-                    //     eprintln!("Fail to request file from controller? {e:?}");
-                    // }
+            NetEvent::JobUpdate(job_event) => match job_event {
+                JobEvent::Render(mut job) => self.render_job(controller, &mut job).await,
+                JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
+                // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
+                JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
+                _ => println!("Unhandle Job Event: {job_event:?}"),
+            }
+            // maybe move this inside Network code? Seems repeative in both cli and Tauri side of application here.
+            NetEvent::InboundRequest { request, channel } => {
+                if let Some(path) = self.providing_files.get(&request) {
+                    println!("Sending file {path:?}");
+                    controller.respond_file(std::fs::read(path).unwrap(), channel).await;
                 }
-                
-                // run the job!
-                match job.run(output).await {
-                    Ok(rx) => {
-                        loop {
-                            if let Ok(status) = rx.recv() {
-                                match status {
-                                    Status::Idle => controller.send_status("[Idle]".to_owned()).await,
-                                    Status::Running { status } => controller.send_status(format!("[Running] {status}")).await,
-                                    Status::Log { status } => controller.send_status(format!("[Log] {status}")).await,
-                                    Status::Warning { message } => controller.send_status(format!("[Warning] {message}")).await,
-                                    Status::Error(blender_error) => controller.send_status(format!("[ERR] {blender_error:?}")).await,
-                                    Status::Completed { result, .. } => {
-                                        let file_name = result.file_name().unwrap().to_str().unwrap().to_string();
-                                        self.provider_files.insert(file_name.clone(), result);
-                                        controller.start_providing(file_name).await;
-                                        
-                                        // I think I need to add one more implementation to notify complete image result with frame count
-                                        controller.request_job(None).await;
-                                        break;
-                                    },
-                                };
-                            }
-                        }
-                    },
-                    Err(e) => {
-                        controller.request_job(Some(e)).await
-                    }
-                };
             }
             _ => println!("[CLI] Unhandled event from network: {event:?}"),
         }

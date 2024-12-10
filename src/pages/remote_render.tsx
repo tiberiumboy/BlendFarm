@@ -1,5 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core"; 
 import { ChangeEvent, useState } from "react";
 import RenderJob, { GetFileName, RenderJobProps } from "../components/render_job";
 import { listen } from "@tauri-apps/api/event";
@@ -42,7 +42,7 @@ function JobDetail(prop: { job: RenderJobProps | undefined }) {
         <p>Status: Finish</p>
         <p>Progress: 100/100%</p>
         {/* Find a way to pipe the image here? or call fetch the last image received */}
-        <img src={prop.job.renders[0]} />
+        <img src={convertFileSrc(prop.job.renders[0])} />
       </div >
     )
   } else {
