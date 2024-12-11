@@ -1,24 +1,14 @@
 {
+  "$schema": "https://schema.tauri.app/config/2.0.0",
+  "productName": "BlendFarm",
+  "version": "0.1.0",
+  "identifier": "com.blendfarm.dev",
   "build": {
     "beforeDevCommand": "npm run dev",
     "frontendDist": "../dist",
     "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1420/"
   },
-  "bundle": {
-    "active": true,
-    "targets": "all",
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ]
-  },
-  "productName": "BlendFarm",
-  "version": "0.1.0",
-  "identifier": "com.blendfarm.dev",
   "app": {
     "windows": [
       {
@@ -39,6 +29,17 @@
       },
       "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost; connect-src ipc: http://ipc.localhost"
     }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
   },
   "plugins": {
     "cli": {

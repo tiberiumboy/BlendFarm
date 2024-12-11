@@ -27,11 +27,12 @@ Developer blog:
 // Need a mapping to explain how blender manager is used and invoked for the job
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use models::app_state::AppState;
 use models::network;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
 use tokio::spawn;
+use tracing_subscriber::EnvFilter;
 
 pub mod models;
 pub mod routes;
@@ -39,12 +40,19 @@ pub mod services;
 
 #[derive(Parser)]
 struct Cli {
-    #[arg(short, long, default_value = "false")]
-    client: Option<bool>,
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    Client,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
+    let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
+
     // to run custom behaviour
     let cli = Cli::parse();
 
@@ -55,9 +63,9 @@ pub async fn run() {
     // start network service async
     spawn(service.run());
 
-    if let Err(e) = match cli.client {
+    if let Err(e) = match cli.command {
         // run as client mode.
-        Some(true) => CliApp::default().run(controller, receiver).await,
+        Some(Commands::Client) => CliApp::default().run(controller, receiver).await,
         // run as GUI mode.
         _ => TauriApp::default().run(controller, receiver).await,
     } {

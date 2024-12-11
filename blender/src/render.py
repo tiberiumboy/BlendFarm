@@ -27,7 +27,7 @@ argv = argv[argv.index("--") + 1:]
 
 scn = bpy.context.scene
 
-jsonPathInitial = argv[0];
+jsonPathInitial = argv[0]
 useContinue = len(argv) > 1 and argv[1] == 'true'
 
 if(useContinue):
@@ -82,10 +82,7 @@ def useDevices(type, allowGPU, allowCPU):
 
 #Renders provided settings with id to path
 def renderWithSettings(renderSettings, id, path):
-        #Dump
-        # print(json.dumps(renderSettings, indent = 2) + "\n");
-        
-        global scn;
+        global scn
 
         scen = renderSettings["Scene"]
         if(scen is None):
@@ -109,7 +106,6 @@ def renderWithSettings(renderSettings, id, path):
         else:
             print("Blender > 3.0 doesn't support tile size, thus ignored")
         
-
         # Set constraints
         scn.render.use_border = True
         scn.render.use_crop_to_border = renderSettings["Crop"]
@@ -129,11 +125,10 @@ def renderWithSettings(renderSettings, id, path):
         #Set Resolution
         scn.render.resolution_x = int(renderSettings["Width"])
         scn.render.resolution_y = int(renderSettings["Height"])
-        scn.render.resolution_percentage = 100;
+        scn.render.resolution_percentage = 100
 
         #Set Samples
         scn.cycles.samples = int(renderSettings["Samples"])
-
         scn.render.use_persistent_data = True
 
         #Render Device
@@ -230,89 +225,81 @@ def renderWithSettings(renderSettings, id, path):
         scn.frame_set(frame)
         
         # Set Output
-        scn.render.filepath = path;
-
+        scn.render.filepath = path
 
         # Render
-        print("RENDER_START: " + str(id) + "\n", flush=True);
-
+        print("RENDER_START: " + str(id) + "\n", flush=True)
         bpy.ops.render.render(animation=False, write_still=True, use_viewport=False, layer="", scene = scen)
-
-        print("SUCCESS: " + str(id) + "\n", flush=True);
-
-
-
+        print("SUCCESS: " + str(id) + "\n", flush=True)
 
 def runBatch(jsonPath):
-    print("Json Path:" + jsonPath + "\n");
+    print("Json Path:" + jsonPath + "\n")
 
     # Load Json
-    print("Reading Json Config\n");
-    jsonFile = open(jsonPath);
-    jsonData = jsonFile.read();
-    jsonFile.close();
+    print("Reading Json Config\n")
+    jsonFile = open(jsonPath)
+    jsonData = jsonFile.read()
+    jsonFile.close()
 
     # Parse Json
-    print("Parsing Json Config\n");
-    renderSettingsBatch = json.loads(jsonData);
+    print("Parsing Json Config\n")
+    renderSettingsBatch = json.loads(jsonData)
 
     isFirst = True
-        
     scn.render.engine = "CYCLES"
-    
 
     # Loop over batches
     for i in range(len(renderSettingsBatch)):
-        current = renderSettingsBatch[i];
-        renderSettings = current;
+        current = renderSettingsBatch[i]
+        renderSettings = current
         
-        renderFormat = renderSettings["RenderFormat"];
+        renderFormat = renderSettings["RenderFormat"]
         if (not renderFormat):
-            scn.render.image_settings.file_format = "PNG";
+            scn.render.image_settings.file_format = "PNG"
         else:
-            scn.render.image_settings.file_format = renderFormat;
+            scn.render.image_settings.file_format = renderFormat
 
-        output = renderSettings["Output"];
-        id = renderSettings["TaskID"];
+        output = renderSettings["Output"]
+        id = renderSettings["TaskID"]
 
         #Workaround for scene not updating...
         if not isFirst and renderSettings["Workaround"] and (len(renderSettingsBatch) > 1 and i < len(renderSettingsBatch)):
-            previous = renderSettingsBatch[i - 1];
-            output = previous["Output"];
-            id = previous["TaskID"];
+            previous = renderSettingsBatch[i - 1]
+            output = previous["Output"]
+            id = previous["TaskID"]
             
-        renderWithSettings(renderSettings, id, output);
+        renderWithSettings(renderSettings, id, output)
         
         #Workaround for scene not updating...
         if (renderSettings["Workaround"] and len(renderSettingsBatch) > 1 and i == len(renderSettingsBatch) - 1):
-            renderWithSettings(current, current["TaskID"], current["Output"]);
+            renderWithSettings(current, current["TaskID"], current["Output"])
 
         isFirst = False
 
-    print("BATCH_COMPLETE\n");
+    print("BATCH_COMPLETE\n")
 
 #Main
 
 try:
-    newJsonPath = jsonPathInitial;
-    count = 0;
+    newJsonPath = jsonPathInitial
+    count = 0
     while newJsonPath.strip():
         if(count > 0):
-            print("Continue count: " + str(count));
+            print("Continue count: " + str(count))
 
-        runBatch(newJsonPath);
-        newJsonPath = "";
+        runBatch(newJsonPath)
+        newJsonPath = ""
         
         if(useContinue):
-            print("AWAITING CONTINUE:\n");
-            newInput = input("");
-            newInput = newInput.strip();
-            print("Received:" + newInput + "\n");
+            print("AWAITING CONTINUE:\n")
+            newInput = input("")
+            newInput = newInput.strip()
+            print("Received:" + newInput + "\n")
             if(newInput):
-                newJsonPath = newInput;
-                count = count + 1;
+                newJsonPath = newInput
+                count = count + 1
             else:
-                break;
+                break
         
 except Exception as e:
-    print("EXCEPTION:" + str(e));
+    print("EXCEPTION:" + str(e))

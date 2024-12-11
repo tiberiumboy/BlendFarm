@@ -1,3 +1,4 @@
+/* 
 use blend::Blend;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -8,8 +9,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ProjectFileError {
-    #[error("Invalid file type")]
-    InvalidFileType,
+    // #[error("Invalid file type")]
+    // InvalidFileType,
     #[error("Unexpected error - Programmer needs to specify exact error representation")]
     UnexpectedError, // should never happen.
 }
@@ -54,3 +55,5 @@ impl Deref for ProjectFile<PathBuf> {
         &self.path
     }
 }
+
+*/

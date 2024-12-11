@@ -9,16 +9,36 @@ import RemoteRender from "./pages/remote_render";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { RenderJobProps } from "./components/render_job";
+import { listen } from "@tauri-apps/api/event";
 
 function App() {
   const [versions, setVersions] = useState([] as string[]);
   const [jobs, setJobs] = useState(fetchJobs);
 
-  // TODO: Find a way to load current jobs collection in the server settings?
+  const unlisten_job_complete = listen("job_image_complete", (event: any) => {
+    console.log(event); // should be a path which we can load into the job props?
+    let id = event.payload[0];
+    // let frame = event.payload[1];
+    let path = event.payload[2];
+    let tmp = [...jobs];
+    // I would have expect that this should not fail.. but if it does, I need to do something about it.
+    let index = tmp.findIndex(j => j.id == id);
+    console.log(tmp, index);
+    if (index === -1 ) {
+      console.error("Unable to find matching id from local collection to backend id? What did you do?");
+      return;
+    }
+    
+    if( tmp[index].renders === undefined ) {
+      tmp[index].renders = [path];
+    } else {
+      tmp[index].renders.unshift(path);
+    }
+    setJobs(tmp);
+  })
+
   function loadJobs() {
-    // wouldn't this create a loop feedback?
     invoke("list_jobs").then((ctx: any) => {
-      // this spammed out of control...
       if (ctx == null) {
         return;
       }
@@ -50,6 +70,7 @@ function App() {
   function onJobCreated(job: RenderJobProps): void {
     const data = [...jobs];
     data.push(job);
+    console.log("OnJobCreated",data);
     setJobs(data);
   }
 

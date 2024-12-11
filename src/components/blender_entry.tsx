@@ -26,8 +26,6 @@ export default function BlenderEntry(props: BlenderProps) {
                     </tr>
                 </tbody>
             </table>
-            {/* Find a way to get the blender's icon? Do we need it? */}
-            {/* <div>{getFileName()}</div> */}
         </div>
     )
 }
