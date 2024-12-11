@@ -129,7 +129,6 @@ impl TauriApp {
             }
             NetEvent::NodeDiscovered(peer_id, comp_spec) => {
                 let handle = app_handle.read().await;
-                // println!("Received Node identity from computers! {:?}", &comp_spec);
                 handle
                     .emit("node_discover", (peer_id.to_base58(), comp_spec.clone()))
                     .unwrap();
@@ -137,7 +136,6 @@ impl TauriApp {
             }
             // don't think there's a way for me to get this working?
             NetEvent::NodeDisconnected(peer_id) => {
-                // println!("Received node disconnection: {peer_id}");
                 let handle = app_handle.read().await;
                 handle.emit("node_disconnect", peer_id.to_base58()).unwrap();
             }
@@ -154,8 +152,13 @@ impl TauriApp {
                 // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
                 JobEvent::ImageCompleted { id, frame, file_name } => {
 
-                    let destination = client.settings.render_dir.clone();
-                    // first I need to fetch the file from the network.
+                    // create a destination with respective job id path.
+                    let destination = client.settings.render_dir.join(id.to_string());
+                    if let Err(e) = async_std::fs::create_dir_all(destination.clone()).await {
+                        println!("Issue creating temp job directory! {e:?}");
+                    }
+
+                    // Fetch the completed image file from the network
                     if let Ok(file) = client.get_file_from_peers(&file_name, &destination).await {
                         let handle = app_handle.write().await;
                         if let Err(e) = handle.emit("job_image_complete", (id, frame, file)) {

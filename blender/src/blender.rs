@@ -290,7 +290,7 @@ impl Blender {
             // dbg!(device);
             // bpy.data.scenes["Scene2"].frame_start
             // render/output/properties/frame_range
-            dbg!(&render.get_i32("stamp"));
+            // dbg!(&render.get_i32("stamp"));
             render_width = render.get_i32("xsch");
             render_height = render.get_i32("ysch");
             frame_start = render.get_i32("sfra");

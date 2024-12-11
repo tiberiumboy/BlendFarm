@@ -33,6 +33,14 @@ const components: any = {
   section: Section,
 };
 
+function showImage(path: string) {
+  if (path !== undefined) {
+    return <img className="center-fit" src={convertFileSrc(path)}  />
+  } else {
+    return <div></div>
+  }
+}
+
 function JobDetail(prop: { job: RenderJobProps | undefined }) {
   if (prop.job != null) {
     return (
@@ -40,9 +48,9 @@ function JobDetail(prop: { job: RenderJobProps | undefined }) {
         <h2>Job Details: {prop.job.id}</h2>
         <p>File name: {GetFileName(prop.job.project_file)}</p>
         <p>Status: Finish</p>
-        <p>Progress: 100/100%</p>
-        {/* Find a way to pipe the image here? or call fetch the last image received */}
-        <img src={convertFileSrc(prop.job.renders[0])} />
+        <div className="imgbox">
+          { showImage( prop.job.renders[0]) }
+        </div>
       </div >
     )
   } else {
@@ -64,9 +72,9 @@ export interface RemoteRenderProps {
   onJobCreated(job: RenderJobProps): void;
 }
 
-const unlisten = await listen("version-update", (event) => {
-  console.log(event);
-})
+// const unlisten = await listen("version-update", (event) => {
+//   console.log(event);
+// })
 
 export default function RemoteRender(props: RemoteRenderProps) {
   const [selectedJob, setSelectedJob] = useState<RenderJobProps>();
@@ -76,9 +84,7 @@ export default function RemoteRender(props: RemoteRenderProps) {
 
   //#region Dialogs
   async function showDialog() {
-    // Is there a way I could just reference this directly? Or just create a new component for this?
     // TOOD: Invoke rust backend service to open dialog and then parse the blend file
-    // if the user cancel or unable to parse - return a message back to the front end explaining why
     // Otherwise, display the info needed to re-populate the information.
     const file_path = await open({
       directory: false,
@@ -96,6 +102,7 @@ export default function RemoteRender(props: RemoteRenderProps) {
     }
 
     invoke("import_blend", { path: file_path }).then((ctx) => {
+      // I can't imagine how this would be null?
       if (ctx == null) {
         return;
       }
@@ -103,6 +110,8 @@ export default function RemoteRender(props: RemoteRenderProps) {
       // TODO: For future impl. : We will try and read the file from the backend to extract information to show the user information about the blender
       // then we will populate those data into the dialog form, allowing user what BlendFarm sees, making any last adjustment before creating a new job.
       let data = JSON.parse(ctx as string);
+      
+      // why is this not properly refreshing the UI elements?
       setPath(file_path);
       setVersion(data.blend_version);
       openDialog();
@@ -119,16 +128,17 @@ export default function RemoteRender(props: RemoteRenderProps) {
     // How do I structure this?
     const info = e.target as HTMLFormElement;
     const selectedMode = info.modes.value;
-    const path = info.file_path.value;
     const output = info.output.value;
 
-    let mode = generateMode(selectedMode, e.target);
+    let selected_mode = generateMode(selectedMode, e.target);
     let data = {
-      mode,
+      mode: selected_mode,
       version,
       path,
       output,
     };
+
+    console.log(data);
 
     invoke("create_job", data).then((ctx: any) => {
       if (ctx == null) {
@@ -145,7 +155,6 @@ export default function RemoteRender(props: RemoteRenderProps) {
         renders: [],
         version: ctx.job.blender_version,
       };
-      console.log(data);
       props.onJobCreated(data);
     });
     closeDialog();

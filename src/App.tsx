@@ -37,11 +37,8 @@ function App() {
     setJobs(tmp);
   })
 
-  // TODO: Find a way to load current jobs collection in the server settings?
   function loadJobs() {
-    // wouldn't this create a loop feedback?
     invoke("list_jobs").then((ctx: any) => {
-      // this spammed out of control...
       if (ctx == null) {
         return;
       }

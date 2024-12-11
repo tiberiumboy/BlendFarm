@@ -64,7 +64,6 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> R
 #[command(async)]
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let server = state.lock().await;
-    let jobs = server.jobs.clone();
-    let data = serde_json::to_string(&jobs).unwrap();
+    let data = serde_json::to_string(&server.jobs).unwrap();
     Ok(data)
 }

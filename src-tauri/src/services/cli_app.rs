@@ -39,21 +39,26 @@ impl CliApp {
     async fn render_job(&mut self, controller: &mut NetworkController, job: Job) {
         let status = format!("Receive render job [{}]", job.as_ref());
         controller.send_status(status).await; 
-        
-        let output = controller.settings.render_dir.clone();
+         
         let file_name = job.get_file_name().unwrap().to_string();
-        
-        // create a path link where we think the file should be?
-        let blend_dir = controller.settings.blend_dir.clone(); 
+        let id = job.as_ref().clone();
+        // create a path link where we think the file should be
+        let blend_dir = controller.settings.blend_dir.join(id.to_string()); 
+        if let Err(e) = async_std::fs::create_dir_all(&blend_dir).await {
+            eprintln!("Error creating blend directory! {e:?}");
+        }
+        // assume project file is located inside this directory.
         let project_file = blend_dir.join(&file_name); // append the file name here instead.
+        
         controller.send_status(format!("Checking for project file {:?}", &project_file)).await;
         let mut job = job.set_project_path(project_file.clone());
 
         // Fetch the project from peer if we don't have it.
         if !project_file.exists() {
-            println!("Project file do not exist, asking to download from host: {:?}", &file_name);    
+            println!("Project file do not exist, asking to download from host: {:?}", &file_name);
+            // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
             match controller.get_file_from_peers(&file_name, &blend_dir).await {
-                Ok(_) => println!("File successfully download from peers!"),
+                Ok(path) => println!("File successfully download from peers! path: {path:?}"),
                 Err(e) => match e {
                     NetworkError::UnableToListen(_) => todo!(),
                     NetworkError::NotConnected => todo!(),
@@ -65,7 +70,7 @@ impl CliApp {
                         controller.send_status(format!("Fail to save file to disk: {e}")).await
                     },
                     _ => println!("Unhandle error received {e:?}") // shouldn't be covered?
-                }    
+                }   
             }
         }
 
@@ -81,6 +86,12 @@ impl CliApp {
 
         //     }
         // }
+
+        // create a output destination for the render image
+        let output = controller.settings.render_dir.join(id.to_string());
+        if let Err(e) = async_std::fs::create_dir_all(&output).await {
+            eprintln!("Error creating render directory: {e:?}");
+        }
         
         // run the job!
         match job.run(output, &blender).await {
@@ -94,9 +105,9 @@ impl CliApp {
                             Status::Warning { message } => controller.send_status(format!("[Warning] {message}")).await,
                             Status::Error(blender_error) => controller.send_status(format!("[ERR] {blender_error:?}")).await,
                             Status::Completed { frame, result, .. } => {
-                                let file_name = result.file_name().unwrap().to_str().unwrap().to_string();
+                                let file_name = format!("{}_{}",id.to_string(), result.file_name().unwrap().to_str().unwrap().to_string());
                                 self.providing_files.insert(file_name.clone(), result);
-                                let event = JobEvent::ImageCompleted { id: job.as_ref().clone(), frame, file_name: file_name.clone() };
+                                let event = JobEvent::ImageCompleted { id, frame, file_name: file_name.clone() };
                                 controller.start_providing(file_name).await;
                                 controller.send_job_message(event).await;
                             },
