@@ -22,7 +22,7 @@ async fn render_with_manager() {
 
     // Tells blender what kind of rendering mode are we performing, two options available, third one still in review for future impl.
     // let mode = Mode::Frame(1);
-    let mode = Mode::Animation{ start: 2, end: 12};
+    let mode = Mode::Animation { start: 2, end: 12 };
 
     // Create blender argument
     let args = Args::new(blend_path, output, mode);
@@ -33,7 +33,7 @@ async fn render_with_manager() {
     // Handle blender status
     while let Ok(status) = listener.recv() {
         match status {
-            Status::Completed { frame, result} => {
+            Status::Completed { frame, result } => {
                 println!("[Completed] {frame} {result:?}");
             }
             Status::Log { status } => {
@@ -44,6 +44,9 @@ async fn render_with_manager() {
             }
             Status::Error(e) => {
                 println!("[ERROR] {:?}", e);
+            }
+            Status::Exit => {
+                println!("[Exit]");
             }
             _ => {
                 println!("Unhandled blender status! {:?}", status);

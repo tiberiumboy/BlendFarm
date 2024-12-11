@@ -27,7 +27,7 @@ use std::{
 */
 
 // ref: https://docs.blender.org/manual/en/latest/advanced/command_line/render.html
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Args {
     pub file: PathBuf,          // required
     pub output: PathBuf,        // optional

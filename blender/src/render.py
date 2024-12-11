@@ -112,10 +112,10 @@ def renderWithSettings(renderSettings, id, path):
         if not renderSettings["Crop"]:
             scn.render.film_transparent = True
 
-        scn.render.border_min_x = float(renderSettings["border"]["X"])
-        scn.render.border_max_x = float(renderSettings["border"]["X2"])
-        scn.render.border_min_y = float(renderSettings["border"]["Y"])
-        scn.render.border_max_y = float(renderSettings["border"]["Y2"])
+        scn.render.border_min_x = float(renderSettings["Border"]["X"])
+        scn.render.border_max_x = float(renderSettings["Border"]["X2"])
+        scn.render.border_min_y = float(renderSettings["Border"]["Y"])
+        scn.render.border_max_y = float(renderSettings["Border"]["Y2"])
 
         #Set Camera
         camera = renderSettings["Camera"]

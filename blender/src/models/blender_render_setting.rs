@@ -1,6 +1,6 @@
 use super::{
     args::Args, blender_peek_response::BlenderPeekResponse, device::Device, engine::Engine,
-    format::Format, mode::Mode,
+    format::Format,
 };
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Serialize};
 use std::{ops::Range, path::PathBuf};
@@ -63,45 +63,30 @@ impl<'de> Deserialize<'de> for Window {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct BlenderRenderSetting {
     #[serde(rename = "TaskID")]
     pub id: Uuid,
-    #[serde(rename = "Output")]
     pub output: PathBuf,
-    #[serde(rename = "Frame")]
     pub frame: i32,
-    #[serde(rename = "Scene")]
     pub scene: String,
-    #[serde(rename = "Camera")]
     pub camera: String,
-    #[serde(rename = "Cores")]
     pub cores: usize,
-    #[serde(rename = "ComputeUnit")]
     pub compute_unit: i32,
-    #[serde(rename = "Denoiser")]
     pub denoiser: String,
     #[serde(rename = "FPS")]
     pub fps: u32,
-    // hmm worth checking if it can serialize/deserialize this?
     pub border: Window,
-    #[serde(rename = "TileWidth")]
     pub tile_width: i32,
-    #[serde(rename = "TileHeight")]
     pub tile_height: i32,
-    #[serde(rename = "Samples")]
     pub samples: i32,
-    #[serde(rename = "Width")]
     pub width: i32,
-    #[serde(rename = "Height")]
     pub height: i32,
-    #[serde(rename = "Engine")]
     pub engine: i32,
     #[serde(rename = "RenderFormat")]
     pub format: Format,
     // discourage?
-    #[serde(rename = "Crop")]
     pub crop: bool,
-    #[serde(rename = "Workaround")]
     // TODO: find a better name for this workaround
     pub workaround: bool,
 }
@@ -148,13 +133,7 @@ impl BlenderRenderSetting {
         }
     }
 
-    pub fn parse_from(args: Args, info: BlenderPeekResponse) -> Self {
-        let frame = match args.mode {
-            Mode::Frame(frame) => frame.to_owned(),
-            Mode::Animation { start, end: _ } => start.to_owned(),
-            _ => 0,
-        };
-        // it would be nice to get the formatting rules out of this but oh well?
+    pub fn parse_from(args: &Args, frame: i32, info: &BlenderPeekResponse) -> Self {
         // this args.output is the only place being used right now. I don't see any reason why I should have this?
         let output = args.output.join(format!("{:0>5}", frame)).to_owned();
         let compute_unit = args.device.clone();

@@ -1,5 +1,4 @@
 /*
-
 Developer blog:
 - Re-reading through this code several times, it seems like I got the bare surface working to get started with the rest of the components.
 - Invoking blender should be called asyncronously on OS thread level. You have the ability to set priority for blender.
@@ -13,6 +12,9 @@ Currently, there is no error handling situation from blender side of things. If 
 
 - As of Blender 4.2 - they introduced BLENDER_EEVEE_NEXT as a replacement to BLENDER_EEVEE. Will need to make sure I pass in the correct enum for version 4.2 and above.
 
+- Spoke to Sheepit - another "Intranet" distribution render service (Closed source)
+    - In order to get Render preview window, there needs to be a GPU context to attach to. Otherwise, we'll have to wait for the render to complete the process before sending the image back to the user.
+    - They mention to enforce compute methods, do not mix cpu and gpu. (Why?)
 
 Trial:
 - Try docker?
@@ -56,7 +58,7 @@ private and public method are unorganized.
     */
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
-
+use crate::models::mode::Mode;
 use crate::models::{
     blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderRenderSetting,
     status::Status,
@@ -67,13 +69,14 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::process::{Command, Stdio};
 use std::{
-    io::{BufReader, BufRead},
     fs,
-    sync::mpsc::{self, Receiver},
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
+    sync::mpsc::{self, Receiver},
 };
 use thiserror::Error;
 use tokio::spawn;
+
 // TODO: this is ugly, and I want to get rid of this. How can I improve this?
 // Backstory: Win and linux can be invoked via their direct app link. However, MacOS .app is just a bundle, which contains the executable inside.
 // To run process::Command, I must properly reference the executable path inside the blender.app on MacOS, using the hardcoded path below.
@@ -211,9 +214,7 @@ impl Blender {
 
     /// Peek is a function design to read and fetch information about the blender file.
     // TODO: Consider using blend library to read the data instead.
-    pub async fn peek(
-        blend_file: &PathBuf,
-    ) -> Result<BlenderPeekResponse, BlenderError> {
+    pub async fn peek(blend_file: &PathBuf) -> Result<BlenderPeekResponse, BlenderError> {
         /*
         Experimental code, trying to use blend plugin to extract information rather than opening up blender for this.
 
@@ -237,7 +238,6 @@ impl Blender {
             SelectedCamera = scn.camera.name,
             Scenes = bpy.data.scenes.scene.name
             SelectedScene = scn.name
-
             */
 
         let blend = Blend::from_path(&blend_file)
@@ -283,7 +283,7 @@ impl Blender {
             let scene = obj.get("id").get_string("name").replace("SC", ""); // not the correct name usage?
             let render = &obj.get("r");
 
-            // nice I can grab the engine this scene is currently using! This is useful!
+            // Grab the engine this scene is set to! This is useful!
             // let engine = &obj.get("r").get_string("engine"); // will show BLENDER_EEVEE_NEXT
             // let device = &render.get_i32("compositor_device"); // not sure how I can translate this to represent CPU/GPU? but currently show 0 for cpu
 
@@ -324,35 +324,6 @@ impl Blender {
         };
 
         Ok(result)
-        /*
-        let peek_path = Self::get_config_path().join("peek.py");
-
-        // if peek file does not exist - create one.
-        if !peek_path.exists() {
-            let bytes = include_bytes!("peek.py");
-            fs::write(&peek_path, bytes).unwrap();
-        }
-
-        let full_path = path::absolute(blend_file).unwrap();
-        let args = vec![
-            "--factory-startup".to_owned(),
-            "-noaudio".to_owned(),
-            "-b".to_owned(),
-            full_path.to_str().unwrap().to_owned(),
-            "-P".to_owned(),
-            peek_path.to_str().unwrap().to_owned(),
-        ];
-        let output = Command::new(&self.executable)
-            .args(args)
-            .output()
-            .map_err(|_| BlenderError::ExecutableInvalid)?;
-
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let parse = stdout.split("\n").collect::<Vec<&str>>();
-        let json = parse[0].to_owned();
-
-        serde_json::from_str(&json).map_err(|e| BlenderError::PythonError(e.to_string()))
-        */
     }
 
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
@@ -380,8 +351,21 @@ impl Blender {
 
             let tmp_path = Self::get_config_path().join("blender_render.json");
             let col = &args.create_arg_list(&tmp_path);
-            let setting = BlenderRenderSetting::parse_from(args, blend_info);
-            let arr = vec![setting];
+            let mut arr = Vec::new();
+            match args.mode {
+                // if we just need to render one frame.
+                Mode::Frame(frame) => {
+                    let entry = BlenderRenderSetting::parse_from(&args, frame, &blend_info);
+                    arr.push(entry);
+                }
+                Mode::Animation { start, end } => {
+                    for frame in start..=end {
+                        let entry = BlenderRenderSetting::parse_from(&args, frame, &blend_info);
+                        arr.push(entry);
+                    }
+                }
+            };
+
             let data = serde_json::to_string(&arr).unwrap();
             fs::write(&tmp_path, data).unwrap();
 
@@ -394,7 +378,6 @@ impl Blender {
                 .unwrap();
 
             let reader = BufReader::new(stdout);
-
             let mut frame: i32 = 0;
 
             // parse stdout for human to read
@@ -403,7 +386,7 @@ impl Blender {
                     match line {
                         line if line.contains("Fra:") => {
                             let col = line.split('|').collect::<Vec<&str>>();
-                            
+
                             // this seems a bit expensive?
                             let init = col[0].split(" ").next();
                             if let Some(value) = init {
@@ -432,19 +415,15 @@ impl Blender {
                         }
                         line if line.contains("Saved:") => {
                             let location = line.split('\'').collect::<Vec<&str>>();
-                            let path = PathBuf::from(location[1]);
-                            rx.send(Status::Completed { 
-                                frame, 
-                                result: 
-                                path })
-                                .unwrap();
+                            let result = PathBuf::from(location[1]);
+                            rx.send(Status::Completed { frame, result }).unwrap();
                         }
                         line if line.contains("Warning:") => {
-                            rx.send(
-                                Status::Warning {
-                                    message: line.to_owned(),
-                                }).unwrap();
-                        } 
+                            rx.send(Status::Warning {
+                                message: line.to_owned(),
+                            })
+                            .unwrap();
+                        }
                         line if line.contains("Error:") => {
                             let msg = Status::Error(BlenderError::RenderError(line.to_owned()));
                             rx.send(msg).unwrap();
