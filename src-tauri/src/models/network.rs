@@ -5,13 +5,12 @@ use super::message::{NetCommand, NetEvent, NetworkError};
 use super::server_setting::ServerSetting;
 use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
-use futures::{channel::oneshot, StreamExt, prelude::*};
+use futures::{channel::oneshot, prelude::*, StreamExt};
 use libp2p::{
     gossipsub::{self, IdentTopic},
     kad, mdns,
     swarm::{Swarm, SwarmEvent},
-    tcp, Multiaddr, SwarmBuilder,
-    PeerId, StreamProtocol,
+    tcp, Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
 };
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
 use machine_info::Machine;
@@ -129,6 +128,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         NetworkController {
             sender: command_sender,
             settings: ServerSetting::load(),
+            providing_files: Default::default(),
         },
         event_receiver,
     ))
@@ -138,6 +138,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
 pub struct NetworkController {
     sender: mpsc::Sender<NetCommand>,
     pub settings: ServerSetting,
+    pub providing_files: HashMap<String, PathBuf>,
 }
 
 impl NetworkController {
@@ -163,7 +164,7 @@ impl NetworkController {
             .expect("Command should not been dropped");
     }
 
-    pub async fn send_job_message(&mut self, event: JobEvent ) {
+    pub async fn send_job_message(&mut self, event: JobEvent) {
         self.sender
             .send(NetCommand::JobStatus(event))
             .await
@@ -178,10 +179,14 @@ impl NetworkController {
             .expect("Command should not have been dropped");
     }
 
-    pub async fn start_providing(&mut self, file_name: String ) {
+    pub async fn start_providing(&mut self, file_name: String, path: PathBuf) {
         let (sender, receiver) = oneshot::channel();
         println!("Start providing file {file_name}");
-        let cmd = NetCommand::StartProviding { file_name: file_name.clone(), sender };
+        self.providing_files.insert(file_name.clone(), path);
+        let cmd = NetCommand::StartProviding {
+            file_name: file_name.clone(),
+            sender,
+        };
         self.sender
             .send(cmd)
             .await
@@ -196,7 +201,10 @@ impl NetworkController {
 
         println!("Calling get providers");
         self.sender
-            .send(NetCommand::GetProviders { file_name: file_name.to_string(), sender })
+            .send(NetCommand::GetProviders {
+                file_name: file_name.to_string(),
+                sender,
+            })
             .await
             .expect("Command receiver should not be dropped");
 
@@ -204,10 +212,14 @@ impl NetworkController {
         receiver.await.expect("Sender should not be dropped")
     }
 
-    pub async fn get_file_from_peers(&mut self, file_name: &str, destination: &PathBuf) -> Result<PathBuf, NetworkError> {
+    pub async fn get_file_from_peers(
+        &mut self,
+        file_name: &str,
+        destination: &PathBuf,
+    ) -> Result<PathBuf, NetworkError> {
         let providers = self.get_providers(file_name).await;
         if providers.is_empty() {
-            return Err(NetworkError::NoPeerProviderFound)
+            return Err(NetworkError::NoPeerProviderFound);
         }
 
         let requests = providers.into_iter().map(|p| {
@@ -219,14 +231,14 @@ impl NetworkController {
             Ok(data) => data.0,
             Err(e) => {
                 eprintln!("No peer found? {e:?}");
-                return Err(NetworkError::NoPeerProviderFound)
+                return Err(NetworkError::NoPeerProviderFound);
             }
-        };  
+        };
 
         let file_path = destination.join(file_name);
         match async_std::fs::write(file_path.clone(), content).await {
             Ok(_) => Ok(file_path),
-            Err(e) => Err(NetworkError::UnableToSave(e.to_string()))
+            Err(e) => Err(NetworkError::UnableToSave(e.to_string())),
         }
     }
 
@@ -328,7 +340,7 @@ impl NetworkService {
                     .kad
                     .start_providing(file_name.into_bytes().into())
                     .expect("No store error.");
-                
+
                 self.pending_start_providing.insert(query_id, sender);
             }
             NetCommand::SubscribeTopic(topic) => {
@@ -353,7 +365,7 @@ impl NetworkService {
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to send job! {e:?}");
                 }
-            },
+            }
         };
     }
 
@@ -391,9 +403,7 @@ impl NetworkService {
         event: libp2p_request_response::Event<FileRequest, FileResponse>,
     ) {
         match event {
-            libp2p_request_response::Event::Message { 
-                message, .. 
-            } => match message {
+            libp2p_request_response::Event::Message { message, .. } => match message {
                 libp2p_request_response::Message::Request {
                     request, channel, ..
                 } => {
@@ -403,7 +413,7 @@ impl NetworkService {
                             channel,
                         })
                         .await
-                        .expect("Event receiver should not be dropped!");    
+                        .expect("Event receiver should not be dropped!");
                 }
                 libp2p_request_response::Message::Response {
                     request_id,
@@ -443,7 +453,7 @@ impl NetworkService {
                     self.swarm
                         .behaviour_mut()
                         .kad
-                        .add_address(&peer_id, address);                    
+                        .add_address(&peer_id, address);
                 }
             }
             mdns::Event::Expired(peers) => {
@@ -505,7 +515,8 @@ impl NetworkService {
                 result: kad::QueryResult::StartProviding(_),
                 ..
             } => {
-                let sender: oneshot::Sender<()> = self.pending_start_providing
+                let sender: oneshot::Sender<()> = self
+                    .pending_start_providing
                     .remove(&id)
                     .expect("Completed query to be previously pending.");
                 let _ = sender.send(());
