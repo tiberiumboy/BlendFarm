@@ -27,7 +27,7 @@ use std::{
 */
 
 // ref: https://docs.blender.org/manual/en/latest/advanced/command_line/render.html
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Args {
     pub file: PathBuf,          // required
     pub output: PathBuf,        // optional
@@ -39,10 +39,10 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn new(file: impl AsRef<Path>, output: impl AsRef<Path>, mode: Mode) -> Self {
+    pub fn new(file: PathBuf, output: PathBuf, mode: Mode) -> Self {
         Args {
-            file: file.as_ref().to_path_buf(),
-            output: output.as_ref().to_path_buf(),
+            file: file,
+            output: output,
             mode,
             engine: Default::default(),
             device: Default::default(),

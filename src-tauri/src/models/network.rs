@@ -1,22 +1,22 @@
 use super::behaviour::{BlendFarmBehaviour, FileRequest, FileResponse};
 use super::computer_spec::ComputerSpec;
-use super::job::Job;
+use super::job::JobEvent;
 use super::message::{NetCommand, NetEvent, NetworkError};
+use super::server_setting::ServerSetting;
 use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
-use futures::channel::oneshot;
-use libp2p::futures::StreamExt;
+use futures::{channel::oneshot, prelude::*, StreamExt};
 use libp2p::{
     gossipsub::{self, IdentTopic},
     kad, mdns,
     swarm::{Swarm, SwarmEvent},
-    tcp, Multiaddr, SwarmBuilder,
+    tcp, Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
 };
-use libp2p::{PeerId, StreamProtocol};
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
 use machine_info::Machine;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::path::PathBuf;
 use std::time::Duration;
 use std::u64;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -108,6 +108,8 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .listen_on(udp)
         .map_err(|e| NetworkError::UnableToListen(e.to_string()))?;
 
+    swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Server));
+
     // the command sender is used for outside method to send message commands to network queue
     let (command_sender, command_receiver) = mpsc::channel::<NetCommand>(32);
     // the event sender is used to handle incoming network message. E.g. RunJob
@@ -125,6 +127,8 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         },
         NetworkController {
             sender: command_sender,
+            settings: ServerSetting::load(),
+            providing_files: Default::default(),
         },
         event_receiver,
     ))
@@ -133,6 +137,8 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
 #[derive(Clone)]
 pub struct NetworkController {
     sender: mpsc::Sender<NetCommand>,
+    pub settings: ServerSetting,
+    pub providing_files: HashMap<String, PathBuf>,
 }
 
 impl NetworkController {
@@ -150,15 +156,19 @@ impl NetworkController {
             .unwrap();
     }
 
-    pub async fn request_job(&mut self) {
-        self.sender.send(NetCommand::RequestJob).await.unwrap();
-    }
-
     pub async fn send_status(&mut self, status: String) {
+        println!("[Status]: {status}");
         self.sender
             .send(NetCommand::Status(status))
             .await
-            .expect("Command should not have been dropped");
+            .expect("Command should not been dropped");
+    }
+
+    pub async fn send_job_message(&mut self, event: JobEvent) {
+        self.sender
+            .send(NetCommand::JobStatus(event))
+            .await
+            .expect("Command should not be dropped");
     }
 
     // may not be in use?
@@ -169,33 +179,70 @@ impl NetworkController {
             .expect("Command should not have been dropped");
     }
 
-    pub async fn start_providing(&mut self, file_name: String) {
+    pub async fn start_providing(&mut self, file_name: String, path: PathBuf) {
         let (sender, receiver) = oneshot::channel();
-        let cmd = NetCommand::StartProviding { file_name, sender };
+        println!("Start providing file {file_name}");
+        self.providing_files.insert(file_name.clone(), path);
+        let cmd = NetCommand::StartProviding {
+            file_name: file_name.clone(),
+            sender,
+        };
         self.sender
             .send(cmd)
             .await
             .expect("Command receiver not to be dropped");
+        println!("Awaiting providing completion");
         receiver.await.expect("Sender should not be dropped");
+        println!("File \"{file_name}\" is now available to download");
     }
 
-    pub async fn get_providers(&mut self, file_name: String) -> HashSet<PeerId> {
+    pub async fn get_providers(&mut self, file_name: &str) -> HashSet<PeerId> {
         let (sender, receiver) = oneshot::channel();
+
+        println!("Calling get providers");
         self.sender
-            .send(NetCommand::GetProviders { file_name, sender })
+            .send(NetCommand::GetProviders {
+                file_name: file_name.to_string(),
+                sender,
+            })
             .await
             .expect("Command receiver should not be dropped");
+
+        println!("Awaiting provider result");
         receiver.await.expect("Sender should not be dropped")
     }
 
-    pub async fn send_network_job(&mut self, job: Job) {
-        self.sender
-            .send(NetCommand::StartJob(job))
-            .await
-            .expect("Command should not have been dropped!");
+    pub async fn get_file_from_peers(
+        &mut self,
+        file_name: &str,
+        destination: &PathBuf,
+    ) -> Result<PathBuf, NetworkError> {
+        let providers = self.get_providers(file_name).await;
+        if providers.is_empty() {
+            return Err(NetworkError::NoPeerProviderFound);
+        }
+
+        let requests = providers.into_iter().map(|p| {
+            let mut client = self.clone();
+            async move { client.request_file(p, file_name.to_owned()).await }.boxed()
+        });
+
+        let content = match futures::future::select_ok(requests).await {
+            Ok(data) => data.0,
+            Err(e) => {
+                eprintln!("No peer found? {e:?}");
+                return Err(NetworkError::NoPeerProviderFound);
+            }
+        };
+
+        let file_path = destination.join(file_name);
+        match async_std::fs::write(file_path.clone(), content).await {
+            Ok(_) => Ok(file_path),
+            Err(e) => Err(NetworkError::UnableToSave(e.to_string())),
+        }
     }
 
-    pub(crate) async fn request_file(
+    async fn request_file(
         &mut self,
         peer_id: PeerId,
         file_name: String,
@@ -244,22 +291,6 @@ impl NetworkService {
     // send command
     async fn handle_command(&mut self, cmd: NetCommand) {
         match cmd {
-            // Begin the job
-            // The idea here is that we received a new job from the host -
-            // we would need to upload blender to kad service and make it public available for DHT to access for other nodes to obtain
-            // then we send out notification to all of the node to start the job
-            NetCommand::StartJob(job) => {
-                // receives a job request. can do fancy behaviour like split up the job into different frames?
-                // TODO: For now, send the job request.
-                let data = bincode::serialize(&job).unwrap();
-                let topic = IdentTopic::new(JOB);
-                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                    eprintln!("Fail to send job! {e:?}");
-                }
-            }
-            // Send message to all other peer to stop the target job ID and remove from kad provider
-            NetCommand::EndJob { .. } => todo!(),
-            // send status update
             NetCommand::Status(msg) => {
                 let data = msg.as_bytes();
                 let topic = IdentTopic::new(STATUS);
@@ -267,8 +298,6 @@ impl NetworkService {
                     eprintln!("Fail to send status over network! {e:?}");
                 }
             }
-
-            // TODO: For Future impl. See how we can transfer the file using kad's behaviour (DHT)
             NetCommand::RequestFile {
                 peer_id,
                 file_name,
@@ -311,6 +340,7 @@ impl NetworkService {
                     .kad
                     .start_providing(file_name.into_bytes().into())
                     .expect("No store error.");
+
                 self.pending_start_providing.insert(query_id, sender);
             }
             NetCommand::SubscribeTopic(topic) => {
@@ -329,12 +359,12 @@ impl NetworkService {
                     .unsubscribe(&ident_topic)
                     .unwrap();
             }
-            NetCommand::RequestJob => {
-                // hmm I assume a node is asking the host for job?
-                // will have to come back for this one and think.
-            }
-            _ => {
-                todo!("What happen here? {cmd:?}");
+            NetCommand::JobStatus(status) => {
+                let data = bincode::serialize(&status).unwrap();
+                let topic = IdentTopic::new(JOB);
+                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+                    eprintln!("Fail to send job! {e:?}");
+                }
             }
         };
     }
@@ -402,7 +432,7 @@ impl NetworkService {
                 let _ = self
                     .pending_request_file
                     .remove(&request_id)
-                    .expect("Request to is still pending")
+                    .expect("Request is still pending")
                     .send(Err(Box::new(error)));
             }
             libp2p_request_response::Event::ResponseSent { .. } => {}
@@ -410,23 +440,20 @@ impl NetworkService {
         }
     }
 
-    // TODO: Haven't found a place for this yet, but still thinking about how to handle node disconnection?
-    // async fn remove_peer(&mut self, peer_id: PeerId) {
-    //     // send a message back notifying a node was disconnnected
-    //     let event = NetEvent::NodeDisconnected(peer_id);
-    //     if let Err(e) = self.event_sender.send(event).await {
-    //         println!("Error sending node disconnected signal to UI: {e:?}");
-    //     }
-    // }
-
     async fn handle_mdns(&mut self, event: mdns::Event) {
         match event {
             mdns::Event::Discovered(peers) => {
-                for (peer_id, ..) in peers {
+                for (peer_id, address) in peers {
                     self.swarm
                         .behaviour_mut()
                         .gossipsub
                         .add_explicit_peer(&peer_id);
+
+                    // add the discover node to kademlia list.
+                    self.swarm
+                        .behaviour_mut()
+                        .kad
+                        .add_address(&peer_id, address);
                 }
             }
             mdns::Event::Expired(peers) => {
@@ -464,32 +491,35 @@ impl NetworkService {
                     }
                 }
                 JOB => {
-                    let source = message.source.expect("Source cannot be empty!");
-                    let job: Job =
+                    let job_event =
                         bincode::deserialize(&message.data).expect("Fail to parse Job data!");
-                    if let Err(e) = self.event_sender.send(NetEvent::Render(source, job)).await {
-                        eprintln!("SOmething failed? {e:?}");
+                    if let Err(e) = self.event_sender.send(NetEvent::JobUpdate(job_event)).await {
+                        eprintln!("Something failed? {e:?}");
                     }
                 }
-                _ => eprintln!(
-                    "Received unknown topic hash! Potential malicious foreign command received?"
-                ),
+                _ => {
+                    let topic = message.topic.as_str();
+                    let data = String::from_utf8(message.data).unwrap();
+                    println!("Intercepted signal here? How to approach this? topic:{topic} | data:{data}");
+                    // TODO: We may intercept signal for other purpose here, how can I do that?
+                }
             },
             _ => {}
         }
     }
 
     async fn handle_kademila(&mut self, event: kad::Event) {
-        println!("Receive kademila service request");
         match event {
             kad::Event::OutboundQueryProgressed {
                 id,
                 result: kad::QueryResult::StartProviding(_),
                 ..
             } => {
-                if let Some(sender) = self.pending_start_providing.remove(&id) {
-                    let _ = sender.send(());
-                }
+                let sender: oneshot::Sender<()> = self
+                    .pending_start_providing
+                    .remove(&id)
+                    .expect("Completed query to be previously pending.");
+                let _ = sender.send(());
             }
             kad::Event::OutboundQueryProgressed {
                 id,

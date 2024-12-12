@@ -9,9 +9,6 @@ pub type SafeLock<T> = Arc<RwLock<T>>;
 
 #[derive(Clone)]
 pub struct AppState {
-    // Had an issue dealing with thread safety over tauri app management state.
-    // to keep things simple, we're going to run the network service separately than the main application, and find a way to invoke network command somehow elsewhere.
-    // pub network: SafeLock<NetworkService>,
     pub manager: SafeLock<BlenderManager>,
     pub to_network: Sender<UiCommand>,
     pub setting: SafeLock<ServerSetting>,

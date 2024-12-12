@@ -98,7 +98,7 @@ impl Manager {
     }
 
     // Download the specific version from download.blender.org
-    fn download(&mut self, version: &Version) -> Result<Blender, ManagerError> {
+    pub fn download(&mut self, version: &Version) -> Result<Blender, ManagerError> {
         // TODO: As a extra security measure, I would like to verify the hash of the content before extracting the files.
         let arch = std::env::consts::ARCH.to_owned();
         let os = std::env::consts::OS.to_owned();
@@ -125,7 +125,6 @@ impl Manager {
         fs::create_dir_all(&destination).unwrap();
 
         // TODO: verify this is working for windows (.zip)?
-        println!("Begin downloading blender and extract content!");
         let destination = download_link
             .download_and_extract(&destination)
             .map_err(|e| ManagerError::IoError(e.to_string()))?;
@@ -245,22 +244,17 @@ impl Manager {
 
     // TODO: Name ambiguous - clarify method name to clear and explicit
     pub fn fetch_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
-        let result = self
-            .config
-            .blenders
-            .iter()
-            .find(|x| x.get_version().eq(version));
-        match result {
+        match self.have_blender(version) {
             Some(blender) => Ok(blender.clone()),
             None => self.download(version),
         }
     }
 
-    pub fn have_blender(&self, version: &Version) -> bool {
+    pub fn have_blender(&self, version: &Version) -> Option<&Blender> {
         self.config
             .blenders
             .iter()
-            .any(|x| x.get_version().eq(version))
+            .find(|x| x.get_version().eq(version))
     }
 
     /// Fetch the latest version of blender available from Blender.org
@@ -276,11 +270,19 @@ impl Manager {
     pub fn download_latest_version(&mut self) -> Result<Blender, ManagerError> {
         // in this case - we need to fetch the latest version from somewhere, download.blender.org will let us fetch the parent before we need to dive into
         let list = self.home.as_ref();
-        let newest = list.first().unwrap();
-        let link = newest.fetch_latest().unwrap();
+        // TODO: Find a way to replace these unwrap()
+        let category = list.first().unwrap();
+        let destination = self.config.install_path.join(&category.name);
+
+        // got a permission denied here? Interesting?
+        // I need to figure out why and how I can stop this from happening?
+        fs::create_dir_all(&destination).unwrap();
+
+        let link = category.fetch_latest().unwrap();
         let path = link
-            .download_and_extract(&self.config.install_path)
-            .unwrap();
+            .download_and_extract(&destination)
+            .map_err(|e| ManagerError::IoError(e.to_string()))?;
+        dbg!(&path);
         let blender =
             Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
         self.config.blenders.push(blender.clone());

@@ -1,6 +1,11 @@
 use crate::{
     models::{
-        app_state::AppState, computer_spec::ComputerSpec, job::Job, message::{NetEvent, NetworkError}, network::{NetworkController, HEARTBEAT, SPEC, STATUS}, server_setting::ServerSetting
+        app_state::AppState,
+        computer_spec::ComputerSpec,
+        job::{Job, JobEvent},
+        message::{NetEvent, NetworkError},
+        network::{NetworkController, HEARTBEAT, JOB, SPEC, STATUS},
+        server_setting::ServerSetting,
     },
     routes::{job::*, remote_render::*, settings::*},
 };
@@ -22,7 +27,7 @@ use uuid::Uuid;
 pub enum UiCommand {
     StartJob(Job),
     StopJob(Uuid),
-    UploadFile(PathBuf),
+    UploadFile(PathBuf, String),
 }
 
 use super::blend_farm::BlendFarm;
@@ -30,7 +35,6 @@ use super::blend_farm::BlendFarm;
 #[derive(Default)]
 pub struct TauriApp {
     peers: HashMap<PeerId, ComputerSpec>,
-    // jobs: Vec<Job>,
 }
 
 impl TauriApp {
@@ -81,24 +85,17 @@ impl TauriApp {
     }
 
     // command received from UI
-    async fn handle_ui_command(
-        client: &mut NetworkController,
-        cmd: UiCommand,
-        _app_handle: Arc<RwLock<AppHandle>>,
-    ) {
+    async fn handle_ui_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
         match cmd {
             UiCommand::StartJob(job) => {
                 // first make the file available on the network
-                let file_name = job.project_file.file_name().unwrap().to_str().unwrap().to_string();
-                client.start_providing(file_name).await;
-                client.send_network_job(job).await;
+                let file_name = job.get_file_name().unwrap().to_string();
+                let path = job.get_project_path().clone();
+                client.start_providing(file_name, path).await;
+                client.send_job_message(JobEvent::Render(job)).await;
             }
-            UiCommand::UploadFile(path) => {
-                if let Some(file_name) = path.file_name() {
-                    client
-                        .start_providing(file_name.to_str().unwrap().to_string())
-                        .await;
-                }
+            UiCommand::UploadFile(path, file_name) => {
+                client.start_providing(file_name, path).await;
             }
             UiCommand::StopJob(id) => {
                 todo!(
@@ -111,18 +108,19 @@ impl TauriApp {
     // commands received from network
     async fn handle_net_event(
         &mut self,
-        _client: &mut NetworkController,
+        client: &mut NetworkController,
         event: NetEvent,
         app_handle: Arc<RwLock<AppHandle>>,
     ) {
         match event {
             NetEvent::Status(peer_id, msg) => {
                 let handle = app_handle.read().await;
-                handle.emit("node_status", (peer_id.to_base58(), msg)).unwrap();
+                handle
+                    .emit("node_status", (peer_id.to_base58(), msg))
+                    .unwrap();
             }
             NetEvent::NodeDiscovered(peer_id, comp_spec) => {
                 let handle = app_handle.read().await;
-                // println!("Received Node identity from computers! {:?}", &comp_spec);
                 handle
                     .emit("node_discover", (peer_id.to_base58(), comp_spec.clone()))
                     .unwrap();
@@ -130,14 +128,50 @@ impl TauriApp {
             }
             // don't think there's a way for me to get this working?
             NetEvent::NodeDisconnected(peer_id) => {
-                // println!("Received node disconnection: {peer_id}");
                 let handle = app_handle.read().await;
                 handle.emit("node_disconnect", peer_id.to_base58()).unwrap();
             }
-            NetEvent::RequestJob => {
-                // a peer on the network is asking for a job to work on.
-                // TODO: implment a way to notify job manager to request a new rendering job...?
+            NetEvent::InboundRequest { request, channel } => {
+                if let Some(path) = client.providing_files.get(&request) {
+                    println!("Sending client file {path:?}");
+                    client
+                        .respond_file(std::fs::read(path).unwrap(), channel)
+                        .await
+                }
             }
+            NetEvent::JobUpdate(job_event) => match job_event {
+                // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
+                JobEvent::ImageCompleted {
+                    id,
+                    frame,
+                    file_name,
+                } => {
+                    // create a destination with respective job id path.
+                    let destination = client.settings.render_dir.join(id.to_string());
+                    if let Err(e) = async_std::fs::create_dir_all(destination.clone()).await {
+                        println!("Issue creating temp job directory! {e:?}");
+                    }
+
+                    // Fetch the completed image file from the network
+                    if let Ok(file) = client.get_file_from_peers(&file_name, &destination).await {
+                        let handle = app_handle.write().await;
+                        if let Err(e) = handle.emit("job_image_complete", (id, frame, file)) {
+                            eprintln!("Fail to publish image completion emit to front end! {e:?}");
+                        }
+                    }
+                }
+
+                // when a job is complete, check the poll for next available job queue?
+                JobEvent::JobComplete => {} // Hmm how do I go about handling this one?
+                // TODO: how do we handle error from node? What kind of errors are we expecting here and what can the host do about it?
+                JobEvent::Error(job_error) => {
+                    todo!("See how this can be replicated? {job_error:?}")
+                }
+                // send a render job -
+                JobEvent::Render(_) => {} // should be ignored.
+                // Received a request job?
+                JobEvent::RequestJob => {}
+            },
             _ => println!("{:?}", event),
         }
     }
@@ -150,12 +184,12 @@ impl BlendFarm for TauriApp {
         mut client: NetworkController,
         mut event_receiver: Receiver<NetEvent>,
     ) -> Result<(), NetworkError> {
-
         // for application side, we will subscribe to message event that's important to us to intercept.
         client.subscribe_to_topic(SPEC.to_owned()).await;
         client.subscribe_to_topic(HEARTBEAT.to_owned()).await;
         client.subscribe_to_topic(STATUS.to_owned()).await;
-        
+        client.subscribe_to_topic(JOB.to_owned()).await;
+
         // this channel is used to send command to the network, and receive network notification back.
         let (to_network, mut from_ui) = mpsc::channel(32);
 
@@ -170,7 +204,7 @@ impl BlendFarm for TauriApp {
         spawn(async move {
             loop {
                 select! {
-                    Some(msg) = from_ui.recv() => Self::handle_ui_command(&mut client, msg, app_handle.clone()).await,
+                    Some(msg) = from_ui.recv() => self.handle_ui_command(&mut client, msg).await,
                     Some(event) = event_receiver.recv() => self.handle_net_event(&mut client, event, app_handle.clone()).await,
                 }
             }
@@ -182,10 +216,6 @@ impl BlendFarm for TauriApp {
                 // TODO: find a way to spawn the network listener thread inside here?
                 tauri::RunEvent::Ready => {
                     println!("Application is ready!");
-                    // can't do this either :(
-                    // for peer in &self.peers {
-                    //     app_handle.emit("node_discover", (peer.0.to_base58(), peer.1));
-                    // }
                 }
                 _ => {}
             }

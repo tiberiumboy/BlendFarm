@@ -6,46 +6,37 @@
     - I need to fetch the handles so that I can maintain and monitor all node activity.
     - TODO: See about migrating Sender code into this module?
 */
-use super::{project_file::ProjectFile, render_info::RenderInfo};
-use blender::blender::Manager;
+use blender::blender::Blender;
 use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::ops::Deref;
-use std::path::Path;
+use std::collections::HashMap;
 use std::{
-    collections::HashSet,
     hash::Hash,
-    io::{Error, ErrorKind, Result},
     path::PathBuf,
 };
 use thiserror::Error;
 use uuid::Uuid;
 
-#[derive(Debug, Error, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Error)]
 pub enum JobError {
     #[error("Job failed to run: {0}")]
     FailedToRun(String),
     // it would be nice to have blender errors here?
+    #[error("Invalid blend file: {0}")]
+    InvalidFile(String),
 }
 
-// pub trait JobStatus {}
 #[derive(Debug, Serialize, Deserialize)]
-pub enum JobStatus {
-    /// Job is idle - Do we need this?
-    Idle,
-    /// Pause the working job, (cancel blender process, and wait for incoming packet)
-    Paused,
-    Downloading(String),
-    // find a way to parse output data, and provide percentage of completion here
-    /// percentage of completion
-    Running {
-        frame: f32,
-    },
+pub enum JobEvent {
+    Render(Job),
+    RequestJob,
+    ImageCompleted { id: Uuid, frame: Frame, file_name: String },
+    JobComplete,
     Error(JobError),
-    /// The job has been completed
-    Completed,
 }
+
+pub type Frame = i32;
 
 // how do I make this job extend it's lifespan? I need to monitor and regulate all on-going job method?
 // if a node joins the server, we automatically assign a new active job to the node.
@@ -54,101 +45,67 @@ pub enum JobStatus {
 pub struct Job {
     /// Unique job identifier
     id: Uuid,
-    /// Path to the output directory where final render image will be saved to
-    pub output: PathBuf,
     /// What kind of mode should this job run as
-    pub mode: Mode,
+    mode: Mode,
     /// Path to blender files
-    pub project_file: ProjectFile<PathBuf>,
-    // Path to completed image result - May not be needed?
-    renders: HashSet<RenderInfo>,
-    // I should probably take responsibility for this, Once render is complete - I need to send a signal back to the host saying here's the frame, and here's the raw image data.
-    // This would be nice to have to have some kind of historical copy, but then again, all of this value is being sent to the server directly. we should not retain any data behind on the node to remain lightweight and easy on storage space.
-    // pub renders: HashSet<RenderInfo>, // frame, then path to completed image source.
-    pub current_frame: i32,
+    project_file: PathBuf,
+    // target blender version
+    blender_version: Version,
+    // completed render data.
+    // TODO: discuss this? Let's map this out and see how we can better utilize this structure?
+    renders: HashMap<Frame, PathBuf>,
 }
 
 impl Job {
-    pub fn new(project_file: ProjectFile<PathBuf>, output: PathBuf, mode: Mode) -> Job {
-        let current_frame = match mode {
-            Mode::Frame(frame) => frame,
-            Mode::Animation { start, .. } => start,
-            _ => 0,
-        };
+    pub fn new(project_file: PathBuf, blender_version: Version, mode: Mode) -> Job {
         Job {
             id: Uuid::new_v4(),
-            output,
             project_file,
+            blender_version,
             mode,
             renders: Default::default(),
-            current_frame,
         }
+    }
+
+    pub fn get_project_path(&self) -> &PathBuf {
+        &self.project_file
+    }
+
+    pub fn set_project_path(mut self, new_path: PathBuf) -> Self {
+        self.project_file = new_path;
+        self
+    }
+
+    pub fn get_file_name(&self) -> Option<&str> {
+        match self.project_file.file_name() {
+            Some(v) => v.to_str(),
+            None => None
+        }
+    }
+
+    pub fn get_version(&self) -> &Version {
+        &self.blender_version
     }
 
     // TODO: consider about how I can invoke this command from network protocol?
     // Invoke blender to run the job
     // Find out if I need to run this locally, or just rely on the server to perform the operation?
-    pub async fn run(&mut self, frame: i32) -> Result<RenderInfo> {
-        let path: &Path = self.project_file.deref();
-        let version: &Version = self.project_file.as_ref();
-        // TODO: How can I split this up to run async task? E.g. Keep this task running while we still have frames left over.
-        let args = Args::new(path, self.output.clone(), Mode::Frame(frame));
+    pub async fn run(&mut self, output: PathBuf, blender: &Blender) -> Result<std::sync::mpsc::Receiver<Status>, JobError> {    
+        
+        let file = self.project_file.clone();
+        let mode = self.mode.clone();
+        let args = Args::new(file, output, mode);
 
-        // TOOD: How do I find a way when a job is completed, invoke what frame it should render next.
-        // TODO: This looks like I could move this code block somewhere else?
-        let mut manager = Manager::load();
-        let blender = manager.fetch_blender(version).unwrap();
-
-        // here's the question - if I'm on a network node, how do I send the host the image of the completed rendered job?
-        // yeah here's a good question?
-        // we can use the same principle as we were doing before :o!! Nice?
-        let listener = blender.render(args).await;
-
-        while let Ok(status) = listener.recv() {
-            // Return completed render info to the caller
-            match status {
-                Status::Completed { result } => {
-                    let info = RenderInfo {
-                        frame,
-                        path: result,
-                    };
-                    return Ok(info);
-                }
-                Status::Error(e) => return Err(Error::new(ErrorKind::ConnectionAborted, e)),
-                _ => {}
-            }
-        }
-
-        Err(Error::new(
-            ErrorKind::ConnectionRefused,
-            "Unable to render!".to_owned(),
-        ))
+        // here's the question - how do I send the host the image of the completed rendered job? topic? provider?
+        let receiver = blender.render(args).await;
+        Ok(receiver)
     }
+}
 
-    /// Returns the unique identifier for this job.
-    pub fn get_id(&self) -> &Uuid {
+impl AsRef<Uuid> for Job {
+    fn as_ref(&self) -> &Uuid {
         &self.id
     }
-
-    // TOOD: These commented out function appears best to be implemented in a manager class of some sort.
-    /*
-    fn compare_and_increment(&mut self, max: i32) -> Option<i32> {
-        if self.current_frame < max {
-            self.current_frame += 1;
-            Some(self.current_frame)
-        } else {
-            None
-        }
-    }
-
-    pub fn next_frame(&mut self) -> Option<i32> {
-        match self.mode {
-            Mode::Frame(frame) => self.compare_and_increment(frame),
-            Mode::Animation { start: _, end } => self.compare_and_increment(end),
-            _ => None,
-        }
-    }
-    */
 }
 
 impl PartialEq for Job {

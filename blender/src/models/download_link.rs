@@ -99,8 +99,6 @@ impl DownloadLink {
         Ok(dst.join("Contents/MacOS/Blender")) // return path with additional path to invoke blender directly
     }
 
-    // TODO: implement handler to unpack .zip files
-    // TODO: Check and see if we need to return the .exe extension or not?
     #[cfg(target_os = "windows")]
     pub fn extract_content(
         download_path: impl AsRef<Path>,
@@ -108,51 +106,62 @@ impl DownloadLink {
     ) -> Result<PathBuf, Error> {
         use std::fs::File;
         use zip::ZipArchive;
-        let output = download_path.as_ref().join(folder_name);
 
-        let file = File::open(download_path).unwrap();
+        let source = download_path.as_ref();
+        let output = source.parent().unwrap().join(folder_name);
 
-        // how do I unzip files?
+        // check if the directory exist
+        match &output.exists() {
+            // if it does, check and see if blender exist.
+            true => {
+                // if it does exist, then we can skip extracting the file entirely.
+                if output.join("Blender.exe").exists() {
+                    return Ok(output.join("Blender.exe"));
+                }
+            }
+            // create a new directory if it doesn't exist and resume extract process.
+            false => {
+                let _ = std::fs::create_dir_all(&output)?;
+            }
+        }
+
+        let file = File::open(source).unwrap();
         let mut archive = ZipArchive::new(file).unwrap();
-        archive.extract(&output).unwrap();
+        if let Err(e) = archive.extract(&output) {
+            println!("Unable to extract content to target: {e:?}");
+        }
 
-        Ok(output.join("Blender.exe".to_owned()))
+        Ok(output.join("Blender.exe"))
     }
 
-    pub fn fetch_version_url(version: &Version) -> Result<DownloadLink, Error> {
-        // TODO: Find a good reason to keep this?
-
-        Ok(DownloadLink::new(
-            "".to_owned(),
-            Url::parse("https://www.google.com").unwrap(),
-            version.clone(),
-        ))
-    }
-
+    // contains intensive IO operation
+    // TODO: wonder why I'm not using BlenderError for this?
     pub fn download_and_extract(&self, destination: impl AsRef<Path>) -> Result<PathBuf, Error> {
-        let dir = destination.as_ref();
+        // precheck qualification
+        let ext = BlenderCategory::get_extension()
+            .map_err(|e| Error::other(format!("Cannot run blender under this OS: {}!", e)))?;
+        let target = &destination.as_ref().join(&self.name);
+        // Check and see if we haven't already download the file
+        if !target.exists() {
+            // Download the file from the internet and save it to blender data folder
+            let response = ureq::get(self.url.as_str())
+                .call()
+                .map_err(|e: ureq::Error| Error::other(e))?;
 
-        // Download the file from the internet and save it to blender data folder
-        let response = ureq::get(self.url.as_str())
-            .call()
-            .map_err(|e: ureq::Error| Error::other(e))?;
+            let len: usize = response
+                .header("Content-Length")
+                .unwrap()
+                .parse()
+                .unwrap_or(0);
 
-        let len: usize = response
-            .header("Content-Length")
-            .unwrap()
-            .parse()
-            .unwrap_or(0);
-
-        let mut body: Vec<u8> = Vec::with_capacity(len);
-        let mut heap = response.into_reader();
-        heap.read_to_end(&mut body)?;
-        let target = &dir.join(&self.name);
-        fs::write(target, &body)?;
+            let mut body: Vec<u8> = Vec::with_capacity(len);
+            let mut heap = response.into_reader();
+            heap.read_to_end(&mut body)?;
+            fs::write(target, &body)?;
+        }
 
         // create a target folder name to extract content to.
-        let ext = BlenderCategory::get_extension().expect("Cannot run blender under this OS!");
         let folder_name = &self.name.replace(&ext, "");
-
         let executable_path = Self::extract_content(target, folder_name)?;
         Ok(executable_path)
     }

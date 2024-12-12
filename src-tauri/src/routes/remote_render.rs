@@ -10,6 +10,7 @@ for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
 use crate::AppState;
+use blender::blender::Blender;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -53,83 +54,25 @@ pub struct BlenderInfo {
     // could also provide other info like Eevee or Cycle?
 }
 
-// TODO: For some reason when I load this, it crashes the program and restart?
+// TODO: First time loading project would not fetch the file content properly? Why?
 #[command(async)]
-pub async fn import_blend(
-    state: State<'_, Mutex<AppState>>,
-    path: PathBuf,
-) -> Result<String, String> {
-    // open dialog here
-    // let assume that we received a path back from the dialog
-    // then if we have a valid file - use .blend from blender to peek into the file.
-    let file_name = path
-        .file_name()
-        .expect("Should be a valid file from above")
-        .to_str()
-        .unwrap()
-        .to_owned();
-
-    let blend = match blend::Blend::from_path(&path) {
-        Ok(obj) => obj,
-        Err(_) => return Err("Fail to load blender file!".to_owned()),
+pub async fn import_blend(path: PathBuf) -> Result<String, String> {
+    // TODO: Is there any differences using file dialog from Javascript side or rust side?
+    let file_name = match path.file_name() {
+        Some(str) => str.to_str().unwrap().to_owned(),
+        None => return Err("Should be a valid file!".to_owned())
     };
 
-    // blender version are display as three digits number, e.g. 404 is major: 4, minor: 4.
-    // treat this as a u16 major = u16 / 100, minor = u16 % 100;
-    let value: u64 = std::str::from_utf8(&blend.blend.header.version)
-        .expect("Fail to parse version into utf8")
-        .parse()
-        .expect("Fail to parse string to value");
-
-    let major = value / 100;
-    let minor = value % 100;
-
-    let app_state = state.lock().await;
-    // using scope to drop manager usage.
-    let blend_version = {
-        let manager = app_state.manager.read().await;
-
-        // Get the latest patch from blender home
-        match manager
-            .home
-            .as_ref()
-            .iter()
-            .find(|v| v.major.eq(&major) && v.minor.eq(&minor))
-        {
-            // TODO: Find a better way to handle this without using unwrap
-            Some(v) => v.fetch_latest().unwrap().as_ref().clone(),
-            // potentially could be a problem, if there's no internet connection, then we can't rely on zero patch?
-            // For now this will do.
-            None => Version::new(major.into(), minor.into(), 0),
-        }
+    let data = match Blender::peek(&path).await {
+        Ok(data) => data,
+        Err(e) => return Err(e.to_string()),
     };
 
-    // TODO: Find out how I can get the start frame? Surely it's somewhere in the scene file?
-    // or maybe different camera have different start frame to begin with?
-    // I was able to find some useful information with b"SC" which holds scene file. - Take a look in Log1.txt file
-    // let mut debug_file = OpenOptions::new()
-    //     .write(true)
-    //     .create(true)
-    //     .open("log.txt")
-    //     .unwrap();
-
-    // for obj in blend.instances_with_code(b"SC".to_owned()) {
-    //     // Under Scene - find Start Frame and End Frame value.
-    //     // TODO: Maybe provide other cool features? such as frame step?
-    //     // also get Render Data to pull in Resolution X and Resolution Y + FPS + Scale?
-    //     let name = obj.get("id").get_string("name");
-    //     debug_file
-    //         .write(format!("{name}: {obj:?} LINECARRIAGE").as_bytes())
-    //         .unwrap();
-    // }
-    // debug_file.flush().unwrap();
-
-    // Here I'd like to know how I can extract information from the blend file such as Eevee/Cycle usage, Frame start and End.
     let info = BlenderInfo {
         file_name,
         path,
-        blend_version,
-        frame: 1,
+        blend_version: data.last_version,
+        frame: data.frame_start,
     };
 
     let data = serde_json::to_string(&info).unwrap();

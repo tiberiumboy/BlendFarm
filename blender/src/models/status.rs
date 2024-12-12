@@ -9,5 +9,6 @@ pub enum Status {
     Log { status: String },
     Warning { message: String },
     Error(BlenderError),
-    Completed { result: PathBuf }, // should this be a pathbuf instead? or the actual image data?
+    Completed { frame: i32, result: PathBuf },
+    Exit,
 }

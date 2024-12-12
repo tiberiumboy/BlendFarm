@@ -1,127 +1,169 @@
 /*
 Have a look into TUI for CLI status display window to show user entertainment on screen
 https://docs.rs/tui/latest/tui/
+
+Feature request:
+    - See how we can treat this application process as service mode so that it can be initialize and start on machine reboot?
+    - receive command to properly reboot computer when possible?
 */
 use super::blend_farm::BlendFarm;
 use crate::models::{
-    job::Job,
+    job::{Job, JobEvent},
     message::{NetEvent, NetworkError},
-    network::NetworkController,
+    network::{NetworkController, JOB},
 };
 use async_trait::async_trait;
-use blender::{blender::Args, manager::Manager as BlenderManager};
-use machine_info::Machine;
-use semver::Version;
-use std::{env::consts, ops::Deref};
+use blender::blender::Manager as BlenderManager;
+use blender::models::status::Status;
 use tokio::{select, sync::mpsc::Receiver};
 
 pub struct CliApp {
-    machine: Machine,
-    // job that this machine is busy working on.
-    #[allow(dead_code)]
-    active_job: Option<Job>,
+    manager: BlenderManager,
 }
 
 impl Default for CliApp {
     fn default() -> Self {
         Self {
-            machine: Machine::new(),
-            active_job: Default::default(),
+            manager: BlenderManager::load(),
         }
     }
 }
 
 impl CliApp {
+    async fn render_job(&mut self, client: &mut NetworkController, job: Job) {
+        let status = format!("Receive render job [{}]", job.as_ref());
+        client.send_status(status).await;
 
-     /*
+        let file_name = job.get_file_name().unwrap().to_string();
+        let id = job.as_ref().clone();
+        // create a path link where we think the file should be
+        let blend_dir = client.settings.blend_dir.join(id.to_string());
+        if let Err(e) = async_std::fs::create_dir_all(&blend_dir).await {
+            eprintln!("Error creating blend directory! {e:?}");
+        }
+        // assume project file is located inside this directory.
+        let project_file = blend_dir.join(&file_name); // append the file name here instead.
 
-        TODO: Figure out what I was suppose to do with this file?
+        client
+            .send_status(format!("Checking for project file {:?}", &project_file))
+            .await;
+        let mut job = job.set_project_path(project_file.clone());
 
-    //         NetEvent::Render(job) => {
-        //             // Here we'll check the job -
-        //             // TODO: It would be nice to check and see if there's any jobs currently running, otherwise put it in a poll?
-        //             let project_file = job.project_file;
-        //             let version: &Version = project_file.as_ref();
-        //             let blender = self
-        //                 .manager
-        //                 .fetch_blender(version)
-        //                 .expect("Should have blender installed?");
-        //             let file_path: &Path = project_file.as_ref();
-        //             let args = Args::new(file_path, job.output, job.mode);
-        //             let rx = blender.render(args);
-        // for this particular loop, let's extract this out to simplier function.
-        // loop {
-        //         if let Ok(msg) = rx.recv() {
-        //             let msg = match msg {
-        //                 Status::Idle => "Idle".to_owned(),
-        //                 Status::Running { status } => status,
-        //                 Status::Log { status } => status,
-        //                 Status::Warning { message } => message,
-        //                 Status::Error(err) => format!("{err:?}").to_owned(),
-        //                 Status::Completed { result } => {
-        //                     // we'll send the message back?
-        //                     // net_service
-        //                     // here we will state that the render is complete, and send a message to network service
-        //                     // TODO: Find a better way to not use the `.clone()` method.
-        //                     let msg = Command::FrameCompleted(
-        //                         result.clone(),
-        //                         job.current_frame,
-        //                     );
-        //                     let _ = net_service.send(msg).await;
-        //                     let path_str = &result.to_string_lossy();
-        //                     format!(
-        //                         "Finished job frame {} at {path_str}",
-        //                         job.current_frame
-        //                     )
-        //                     .to_owned()
-        //                     // here we'll send the job back to the peer who requested us the job initially.
-        //                     // net_service.swarm.behaviour_mut().gossipsub.publish( peer_id, )
-        //                 }
-        //             };
-        //             println!("[Status] {msg}");
-        //         }
-        //             // }
-        //         }
+        // Fetch the project from peer if we don't have it.
+        if !project_file.exists() {
+            println!(
+                "Project file do not exist, asking to download from host: {:?}",
+                &file_name
+            );
+            // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
+            match client.get_file_from_peers(&file_name, &blend_dir).await {
+                Ok(path) => println!("File successfully download from peers! path: {path:?}"),
+                Err(e) => match e {
+                    NetworkError::UnableToListen(_) => todo!(),
+                    NetworkError::NotConnected => todo!(),
+                    NetworkError::SendError(_) => {}
+                    NetworkError::NoPeerProviderFound => {
+                        client
+                            .send_status("No peer provider founkd on the network?".to_owned())
+                            .await
+                    }
+                    NetworkError::UnableToSave(e) => {
+                        client
+                            .send_status(format!("Fail to save file to disk: {e}"))
+                            .await
+                    }
+                    _ => println!("Unhandle error received {e:?}"), // shouldn't be covered?
+                },
+            }
+        }
+
+        // here we'll ask if we have blender installed before usage
+        let blender = self
+            .manager
+            .fetch_blender(job.get_version())
+            .expect("Fail to download blender");
+
+        // TODO: Call other network on specific topics to see if there's a version available.
+        // match manager.have_blender(job.as_ref()) {
+        //     Some(exe) => exe.clone(),
+        //     None => {
+        //         // try to fetch from other peers with matching os / arch.
+        //         // question is, how do I make them publicly available with the right blender version? or do I just find it by the executable name instead?
+
+        //     }
         // }
 
-    */
-    async fn handle_message(&mut self, controller: &mut NetworkController, event: NetEvent) {
-        match event {
-            NetEvent::OnConnected => controller.share_computer_info().await,
-            NetEvent::NodeDiscovered(..) => {
-                println!("Cli is subscribe to SPEC topic, which should never happen!")
-            } // should not happen? We're not subscribe to this topic.
-            NetEvent::NodeDisconnected(_) => {} // don't care about this
-            NetEvent::Render(peer_id, job) => {
-                // first check and see if we have blender installation installed for this job.
-                let blend_version: &Version = &job.project_file.as_ref();
-                let status = format!("Checking for blender version {}", blend_version);
-                controller.send_status(status).await;
+        // create a output destination for the render image
+        let output = client.settings.render_dir.join(id.to_string());
+        if let Err(e) = async_std::fs::create_dir_all(&output).await {
+            eprintln!("Error creating render directory: {e:?}");
+        }
 
-                let mut manager = BlenderManager::load();
-                let blender = manager
-                    .fetch_blender(blend_version)
-                    .expect("Fail to download blender!");
-
-                let tmp_path = dirs::cache_dir().unwrap().join("Blender");
-                let file_name = job
-                    .project_file
-                    .deref()
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_string();
-                let project_file = tmp_path.join(&file_name); // append the file name here instead.
-                if !project_file.exists() {
-                    // go fetch the project file from the network.
-                    if let Err(e) = controller.request_file(peer_id.clone(), file_name).await {
-                        eprintln!("Fail to request file from controller? {e:?}");
-                    }
+        // run the job!
+        match job.run(output, &blender).await {
+            Ok(rx) => loop {
+                if let Ok(status) = rx.recv() {
+                    match status {
+                        Status::Idle => client.send_status("[Idle]".to_owned()).await,
+                        Status::Running { status } => {
+                            client.send_status(format!("[Running] {status}")).await
+                        }
+                        Status::Log { status } => {
+                            client.send_status(format!("[Log] {status}")).await
+                        }
+                        Status::Warning { message } => {
+                            client.send_status(format!("[Warning] {message}")).await
+                        }
+                        Status::Error(blender_error) => {
+                            client.send_status(format!("[ERR] {blender_error:?}")).await
+                        }
+                        Status::Completed { frame, result, .. } => {
+                            let file_name = format!(
+                                "{}_{}",
+                                id.to_string(),
+                                result.file_name().unwrap().to_str().unwrap().to_string()
+                            );
+                            let event = JobEvent::ImageCompleted {
+                                id,
+                                frame,
+                                file_name: file_name.clone(),
+                            };
+                            client.start_providing(file_name, result).await;
+                            client.send_job_message(event).await;
+                        }
+                        Status::Exit => {
+                            client.send_job_message(JobEvent::JobComplete).await;
+                            break;
+                        }
+                    };
                 }
-                let args = Args::new(project_file, tmp_path, job.mode);
-                // TODO: Finish the rest of this implementation once we can transfer blend file from different machine.
-                let _rx = blender.render(args);
+            },
+            Err(e) => {
+                client.send_job_message(JobEvent::Error(e)).await;
+            }
+        };
+    }
+
+    async fn handle_message(&mut self, client: &mut NetworkController, event: NetEvent) {
+        match event {
+            NetEvent::OnConnected => client.share_computer_info().await,
+            NetEvent::NodeDiscovered(..) => {}  // Ignored
+            NetEvent::NodeDisconnected(_) => {} // ignored
+            NetEvent::JobUpdate(job_event) => match job_event {
+                JobEvent::Render(job) => self.render_job(client, job).await,
+                JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
+                // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
+                JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
+                _ => println!("Unhandle Job Event: {job_event:?}"),
+            },
+            // maybe move this inside Network code? Seems repeative in both cli and Tauri side of application here.
+            NetEvent::InboundRequest { request, channel } => {
+                if let Some(path) = client.providing_files.get(&request) {
+                    println!("Sending file {path:?}");
+                    client
+                        .respond_file(std::fs::read(path).unwrap(), channel)
+                        .await;
+                }
             }
             _ => println!("[CLI] Unhandled event from network: {event:?}"),
         }
@@ -137,9 +179,10 @@ impl BlendFarm for CliApp {
     ) -> Result<(), NetworkError> {
         // Future Impl. Make this machine available to other peers that share the same operating system and arch
         // - so that we can distribute blender across network rather than download blender per each peers.
-        let system = self.machine.system_info();
-        let system_info = format!("blendfarm/{}{}", consts::OS, &system.processor.brand);
-        client.subscribe_to_topic(system_info).await;
+        // let system = self.machine.system_info();
+        // let system_info = format!("blendfarm/{}{}", consts::OS, &system.processor.brand);
+        // client.subscribe_to_topic(system_info).await;
+        client.subscribe_to_topic(JOB.to_string()).await;
 
         loop {
             select! {
