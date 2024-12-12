@@ -22,7 +22,7 @@ Blender - Custom library I wrote that acts as a blender CLI wrapper to install, 
 
 The overall level of how the network works can be seen below:
 
-![image](./NetworkInfra_Blender.png "Network Map")
+![Network Infrastructure](./assets/NetworkInfra_Blender.png "Network Map")
 
  <!-- TODO: Explain how the node will receive a particular frame to render on? -->
 The GUI will submit a gossip message to all of the connected render node, having the blend file available to download. The node will then kick off a background task to handle the job process. This will interface with the blender library to check for the blender installation. If the node doesn't have the proper blender version, it will ask other peers on the network for matching blender version to reduce network traffic from the internet. Afterward, the blender library will invoke the command to start the job. The library outputs status to provide back to the host for real time updates and progress check. Once Blender is completed with the render, the application will receive the notification and publish the completed render image for the host to obtain the image.
