@@ -13,7 +13,9 @@ async fn render_with_manager() {
     let mut manager = Manager::load();
     let blender = match manager.latest_local_avail() {
         Some(blender) => blender,
-        None => manager.download_latest_version().expect("Should be able to download blender! Are you not connected to the internet?"),
+        None => manager
+            .download_latest_version()
+            .expect("Should be able to download blender! Are you not connected to the internet?"),
     };
 
     // Here we ask for the output path, for now we set our path in the same directory as our executable path.
@@ -23,7 +25,7 @@ async fn render_with_manager() {
 
     // Tells blender what kind of rendering mode are we performing, two options available, third one still in review for future impl.
     // let mode = Mode::Frame(1);
-    let mode = Mode::Animation { start: 2, end: 12 };
+    let mode = Mode::Animation { start: 2, end: 6 };
 
     // Create blender argument
     let args = Args::new(blend_path, output, mode);

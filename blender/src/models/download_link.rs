@@ -108,10 +108,7 @@ impl DownloadLink {
         use zip::ZipArchive;
 
         let source = download_path.as_ref();
-        let output = source
-            .parent()
-            .unwrap()
-            .join(folder_name);
+        let output = source.parent().unwrap().join(folder_name);
 
         // check if the directory exist
         match &output.exists() {
@@ -119,7 +116,7 @@ impl DownloadLink {
             true => {
                 // if it does exist, then we can skip extracting the file entirely.
                 if output.join("Blender.exe").exists() {
-                    return Ok(output.join("Blender.exe"))
+                    return Ok(output.join("Blender.exe"));
                 }
             }
             // create a new directory if it doesn't exist and resume extract process.
@@ -127,7 +124,7 @@ impl DownloadLink {
                 let _ = std::fs::create_dir_all(&output)?;
             }
         }
-        
+
         let file = File::open(source).unwrap();
         let mut archive = ZipArchive::new(file).unwrap();
         if let Err(e) = archive.extract(&output) {
@@ -150,19 +147,19 @@ impl DownloadLink {
             let response = ureq::get(self.url.as_str())
                 .call()
                 .map_err(|e: ureq::Error| Error::other(e))?;
-        
+
             let len: usize = response
                 .header("Content-Length")
                 .unwrap()
                 .parse()
                 .unwrap_or(0);
-            
+
             let mut body: Vec<u8> = Vec::with_capacity(len);
             let mut heap = response.into_reader();
             heap.read_to_end(&mut body)?;
             fs::write(target, &body)?;
-        } 
-        
+        }
+
         // create a target folder name to extract content to.
         let folder_name = &self.name.replace(&ext, "");
         let executable_path = Self::extract_content(target, folder_name)?;

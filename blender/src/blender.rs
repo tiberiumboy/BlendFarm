@@ -213,7 +213,6 @@ impl Blender {
     }
 
     /// Peek is a function design to read and fetch information about the blender file.
-    // TODO: Consider using blend library to read the data instead.
     pub async fn peek(blend_file: &PathBuf) -> Result<BlenderPeekResponse, BlenderError> {
         /*
         Experimental code, trying to use blend plugin to extract information rather than opening up blender for this.
