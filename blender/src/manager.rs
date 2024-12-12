@@ -125,7 +125,6 @@ impl Manager {
         fs::create_dir_all(&destination).unwrap();
 
         // TODO: verify this is working for windows (.zip)?
-        println!("Begin downloading blender and extract content!");
         let destination = download_link
             .download_and_extract(&destination)
             .map_err(|e| ManagerError::IoError(e.to_string()))?;
@@ -271,11 +270,19 @@ impl Manager {
     pub fn download_latest_version(&mut self) -> Result<Blender, ManagerError> {
         // in this case - we need to fetch the latest version from somewhere, download.blender.org will let us fetch the parent before we need to dive into
         let list = self.home.as_ref();
-        let newest = list.first().unwrap();
-        let link = newest.fetch_latest().unwrap();
+        // TODO: Find a way to replace these unwrap()
+        let category = list.first().unwrap();
+        let destination = self.config.install_path.join(&category.name);
+
+        // got a permission denied here? Interesting?
+        // I need to figure out why and how I can stop this from happening?
+        fs::create_dir_all(&destination).unwrap();
+
+        let link = category.fetch_latest().unwrap();
         let path = link
-            .download_and_extract(&self.config.install_path)
-            .unwrap();
+            .download_and_extract(&destination)
+            .map_err(|e| ManagerError::IoError(e.to_string()))?;
+        dbg!(&path);
         let blender =
             Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
         self.config.blenders.push(blender.clone());

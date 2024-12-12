@@ -1,6 +1,10 @@
 /*
 Have a look into TUI for CLI status display window to show user entertainment on screen
 https://docs.rs/tui/latest/tui/
+
+Feature request:
+    - See how we can treat this application process as service mode so that it can be initialize and start on machine reboot?
+    - receive command to properly reboot computer when possible?
 */
 use super::blend_farm::BlendFarm;
 use crate::models::{
@@ -11,7 +15,6 @@ use crate::models::{
 use async_trait::async_trait;
 use blender::blender::Manager as BlenderManager;
 use blender::models::status::Status;
-// use machine_info::Machine;
 use tokio::{select, sync::mpsc::Receiver};
 
 pub struct CliApp {
