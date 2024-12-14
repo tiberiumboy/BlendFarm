@@ -22,6 +22,14 @@ use tokio::{
 };
 use uuid::Uuid;
 
+/*
+    Dev blog:
+        Consider looking into real_time_sqlx to create a realtime database update to frontend for any message queue/updates from sqlx.
+        Once I get sqlx implemented.
+        https://docs.rs/real-time-sqlx/latest/real_time_sqlx/
+        https://www.reddit.com/r/rust/comments/1gvslni/realtimesqlx_a_sqlxsqlitebased_realtime_query/
+*/
+
 // This UI Command represent the top level UI that user clicks and interface with.
 #[derive(Debug)]
 pub enum UiCommand {

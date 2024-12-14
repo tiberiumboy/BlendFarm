@@ -11,10 +11,7 @@ use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::{
-    hash::Hash,
-    path::PathBuf,
-};
+use std::{hash::Hash, path::PathBuf};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -31,7 +28,11 @@ pub enum JobError {
 pub enum JobEvent {
     Render(Job),
     RequestJob,
-    ImageCompleted { id: Uuid, frame: Frame, file_name: String },
+    ImageCompleted {
+        id: Uuid,
+        frame: Frame,
+        file_name: String,
+    },
     JobComplete,
     Error(JobError),
 }
@@ -79,7 +80,7 @@ impl Job {
     pub fn get_file_name(&self) -> Option<&str> {
         match self.project_file.file_name() {
             Some(v) => v.to_str(),
-            None => None
+            None => None,
         }
     }
 
@@ -87,16 +88,17 @@ impl Job {
         &self.blender_version
     }
 
-    // TODO: consider about how I can invoke this command from network protocol?
     // Invoke blender to run the job
-    // Find out if I need to run this locally, or just rely on the server to perform the operation?
-    pub async fn run(&mut self, output: PathBuf, blender: &Blender) -> Result<std::sync::mpsc::Receiver<Status>, JobError> {    
-        
+    pub async fn run(
+        &mut self,
+        output: PathBuf,
+        blender: &Blender,
+    ) -> Result<std::sync::mpsc::Receiver<Status>, JobError> {
         let file = self.project_file.clone();
         let mode = self.mode.clone();
         let args = Args::new(file, output, mode);
 
-        // here's the question - how do I send the host the image of the completed rendered job? topic? provider?
+        // TODO: How can I adjust blender jobs when the job is completed?
         let receiver = blender.render(args).await;
         Ok(receiver)
     }

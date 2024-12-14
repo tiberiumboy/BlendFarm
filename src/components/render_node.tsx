@@ -1,8 +1,8 @@
 // import { invoke } from "@tauri-apps/api/core";
 // import { CiTrash, CiCircleMore } from "react-icons/ci";
 
-export interface RenderNodeProps {
-  name: string;
+export interface RenderNodeProp {
+  id: string;
   spec?: ComputerSpec;
   status: string;
 }
@@ -20,9 +20,9 @@ export type ComputerSpec = {
 // it would be nice to be able to make this "targeted" update from the backend services.
 // I want to be able to send status message + heartbeat signal to target rendernodeprops.
 
-export default function RenderNode(node: RenderNodeProps) {
+export default function RenderNode(node: RenderNodeProp) {
   return (
-    <div key={"Node_" + node.name}>
+    <div key={"Node_" + node.id}>
       <table>
         <tbody>
           <tr>
