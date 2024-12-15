@@ -406,7 +406,7 @@ impl Blender {
             .bind(&socket)
             .expect("Unable to open socket for xml_rpc!");
 
-        // run forever!
+        // There's an issue: This code will runs forever with nothing to stop?
         let runner = spawn(async move { bind_server.run() });
 
         spawn(async move {

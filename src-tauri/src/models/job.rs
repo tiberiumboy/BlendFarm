@@ -98,7 +98,7 @@ impl Job {
         let mode = self.mode.clone();
         let args = Args::new(file, output, mode);
 
-        // TODO: How can I adjust blender jobs when the job is completed?
+        // TODO: How can I adjust blender jobs?
         let receiver = blender.render(args).await;
         Ok(receiver)
     }

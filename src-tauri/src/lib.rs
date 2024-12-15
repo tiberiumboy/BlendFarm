@@ -34,6 +34,7 @@ use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
 use tokio::spawn;
 use tracing_subscriber::EnvFilter;
 
+pub mod domains;
 pub mod models;
 pub mod routes;
 pub mod services;
@@ -51,7 +52,9 @@ enum Commands {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
-    let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init();
 
     // to run custom behaviour
     let cli = Cli::parse();
