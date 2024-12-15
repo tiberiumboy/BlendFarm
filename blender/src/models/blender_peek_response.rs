@@ -10,7 +10,7 @@ pub struct BlenderPeekResponse {
     pub frame_start: i32,
     pub frame_end: i32,
     #[serde(rename = "FPS")]
-    pub fps: u32,
+    pub fps: u16,
     pub denoiser: String,
     pub samples: i32,
     pub cameras: Vec<String>,

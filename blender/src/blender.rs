@@ -1,10 +1,5 @@
 /*
 Developer blog:
-- Re-reading through this code several times, it seems like I got the bare surface working to get started with the rest of the components.
-- Invoking blender should be called asyncronously on OS thread level. You have the ability to set priority for blender.
-
-Decided to merge Manager codebase here as accessing from crate would make more sense, e.g. blender::Manager, instead of manager::Manager
-- Although, I would like to know if it's possible to do mod alias so that I could continue to keep my manager class separate? Or should I just rely on mods?
 
 Currently, there is no error handling situation from blender side of things. If blender crash, we will resume the rest of the code in attempt to parse the data.
     This will eventually lead to a program crash because we couldn't parse the information we expect from stdout.
@@ -25,13 +20,19 @@ Trial:
 Advantage:
 - can support M-series ARM processor.
 - Original tool Doesn't composite video for you - We can make ffmpeg wrapper? - This will be a feature but not in this level of implementation.
+- LogicReinc uses JSON to load batch file - no way to adjust frame after job sent. This version we establish IPC for python to ask next frame. We have better control what to render next.
 
 Disadvantage:
 - Currently rely on python script to do custom render within blender.
     No interops/additional cli commands other than interops through bpy (blender python) package
+    Instead of using JSON to send configuration to python/blender, we're using IPC to control next frame to render.
     Currently using Command::Process to invoke commands to blender. Would like to see if there's public API or .dll to interface into.
         - Currently learning Low Level Programming to understand assembly and C interfaces.
 
+Challenges:
+    Blender support tileX/Y, but gluing the image together is a new challenge - a 64K 24bits image would consume about 3Gb, and size exponentially grow from there.
+    Have a look into NIP2 to stitch large images together - https://github.com/libvips/nip2
+        TODO: Find a way to glue image async by image to image, buffer to buffer, flush out each image before loading new image and hold nothing in memory, store it all on disk instead.
 
 WARN:
     From LogicReinc FAQ's:
@@ -56,6 +57,7 @@ private and public method are unorganized.
         less smooth. (As you may need to set up these plugins for every Blender version instead
         of just letting BlendFarm do all the work.
     */
+extern crate xml_rpc;
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
 use crate::models::mode::Mode;
@@ -67,7 +69,10 @@ use blend::Blend;
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::{
     fs,
     io::{BufRead, BufReader},
@@ -76,11 +81,14 @@ use std::{
 };
 use thiserror::Error;
 use tokio::spawn;
+use xml_rpc::{Fault, Server};
 
 // TODO: this is ugly, and I want to get rid of this. How can I improve this?
 // Backstory: Win and linux can be invoked via their direct app link. However, MacOS .app is just a bundle, which contains the executable inside.
 // To run process::Command, I must properly reference the executable path inside the blender.app on MacOS, using the hardcoded path below.
 const MACOS_PATH: &str = "Contents/MacOS/Blender";
+
+pub type Frame = i32;
 
 #[derive(Debug, Error)]
 pub enum BlenderError {
@@ -98,7 +106,7 @@ pub enum BlenderError {
 
 /// Blender structure to hold path to executable and version of blender installed.
 /// Pretend this is the wrapper to interface with the actual blender program.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialOrd, Eq, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq)]
 pub struct Blender {
     /// Path to blender executable on the system.
     executable: PathBuf, // Must validate before usage!
@@ -109,6 +117,22 @@ pub struct Blender {
 impl PartialEq for Blender {
     fn eq(&self, other: &Self) -> bool {
         self.version.eq(&other.version)
+    }
+}
+
+impl PartialOrd for Blender {
+    fn ge(&self, other: &Self) -> bool {
+        self.version.ge(&other.version)
+    }
+
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.version.partial_cmp(&other.version)
+    }
+}
+
+impl Ord for Blender {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.version.cmp(&other.version)
     }
 }
 
@@ -339,34 +363,67 @@ impl Blender {
         let (rx, tx) = mpsc::channel::<Status>();
         let executable = self.executable.clone();
 
+        // TODO: Might extract this into separate struct container to make this easy to work with?
+        let blend_info = Self::peek(&args.file)
+            .await
+            .expect("Fail to parse blend file!"); // TODO: Need to clean this error up a bit.
+
+        // with this define here, we can exclusively hold record of what frames remaining for this render
+        // if we receive a request from the host to reduce the frame count down, then we will find a way to adjust that accordingly.
+        let queue = match args.mode {
+            // if we just need to render one frame.
+            Mode::Frame(frame) => VecDeque::from_iter(frame..frame),
+            Mode::Animation { start, end } => VecDeque::from_iter(start..end),
+        };
+
+        let global_queue = Arc::new(Mutex::new(queue));
+        let queue_copy = global_queue.clone();
+
+        let settings = BlenderRenderSetting::parse_from(&args, &blend_info);
+        let global_settings = Arc::new(settings);
+
+        let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8081);
+        let mut server = Server::new();
+
+        server.register_simple("next_render_queue", move |_i: i32| {
+            if let Ok(mut data) = queue_copy.lock() {
+                if let Some(frame) = data.pop_front() {
+                    Ok(frame)
+                } else {
+                    Err(Fault::new(1, "No more frames to render!"))
+                }
+            } else {
+                Err(Fault::new(1, "Lock failed"))
+            }
+        });
+
+        server.register_simple("fetch_info", move |_i: i32| {
+            let setting = (*global_settings).clone();
+            Ok(setting)
+        });
+
+        let bind_server = server
+            .bind(&socket)
+            .expect("Unable to open socket for xml_rpc!");
+
+        // run forever!
+        let runner = spawn(async move { bind_server.run() });
+
         spawn(async move {
-            // So far this part of the code works - but I'm getting an unusual error
-            // I'm rececing an exception on stdout. [Errno 32] broken pipe?
-            // thread panic here - err - Serde { source: Error("expected value", line: 1, column: 1) } ??
-            // TODO: peek will be deprecated - See if we need to do anything different here?
-            let blend_info = Self::peek(&args.file)
-                .await
-                .expect("Fail to parse blend file!"); // TODO: Need to clean this error up a bit.
+            let script_path = Blender::get_config_path().join("render.py");
+            if !script_path.exists() {
+                let data = include_bytes!("./render.py");
+                fs::write(&script_path, data).unwrap();
+            }
 
-            let tmp_path = Self::get_config_path().join("blender_render.json");
-            let col = &args.create_arg_list(&tmp_path);
-            let mut arr = Vec::new();
-            match args.mode {
-                // if we just need to render one frame.
-                Mode::Frame(frame) => {
-                    let entry = BlenderRenderSetting::parse_from(&args, frame, &blend_info);
-                    arr.push(entry);
-                }
-                Mode::Animation { start, end } => {
-                    for frame in start..=end {
-                        let entry = BlenderRenderSetting::parse_from(&args, frame, &blend_info);
-                        arr.push(entry);
-                    }
-                }
-            };
-
-            let data = serde_json::to_string(&arr).unwrap();
-            fs::write(&tmp_path, data).unwrap();
+            let col = vec![
+                "--factory-startup".to_string(),
+                "-noaudio".to_owned(),
+                "-b".to_owned(),
+                args.file.to_str().unwrap().to_string(),
+                "-P".to_owned(),
+                script_path.to_str().unwrap().to_string(),
+            ];
 
             let stdout = Command::new(executable)
                 .args(col)
@@ -417,6 +474,13 @@ impl Blender {
                             let result = PathBuf::from(location[1]);
                             rx.send(Status::Completed { frame, result }).unwrap();
                         }
+                        // Strange how this was thrown, but doesn't report back to this program?
+                        line if line.contains("EXCEPTION:") => {
+                            rx.send(Status::Error(BlenderError::PythonError(line.to_owned())))
+                                .unwrap();
+                            // TODO: Create a new container to stop this container!
+                            runner.abort(); // something about this hang the program indefinitely?
+                        }
                         line if line.contains("Warning:") => {
                             rx.send(Status::Warning {
                                 message: line.to_owned(),
@@ -429,6 +493,8 @@ impl Blender {
                         }
                         line if line.contains("Blender quit") => {
                             rx.send(Status::Exit).unwrap();
+                            // TODO: Create a new container to stop this container!
+                            runner.abort(); // something about this hang the program indefinitely?
                         }
                         line if !line.is_empty() => {
                             let msg = Status::Running {

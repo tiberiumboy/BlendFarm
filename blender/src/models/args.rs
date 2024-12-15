@@ -1,13 +1,3 @@
-use crate::{
-    blender::Blender,
-    models::{device::Device, engine::Engine, format::Format, mode::Mode},
-};
-use serde::{Deserialize, Serialize};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
-
 /*
     Developer blog
 
@@ -25,6 +15,12 @@ use std::{
     Question is, do I want to use their code, or do I want to stick with CLI instead?
     I'll try implement both solution, CLI for version and other basic commands, python for advance features and upgrade?
 */
+
+// May Subject to change.
+
+use crate::models::{device::Device, engine::Engine, format::Format, mode::Mode};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 // ref: https://docs.blender.org/manual/en/latest/advanced/command_line/render.html
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -44,6 +40,7 @@ impl Args {
             file: file,
             output: output,
             mode,
+            // TODO: Change this so that we can properly reflect the engine used by A) Blendfile B) User request, and C) allowlist from machine config
             engine: Default::default(),
             device: Default::default(),
             format: Default::default(),
@@ -51,86 +48,68 @@ impl Args {
         }
     }
 
-    pub fn create_arg_list(&self, json_path: impl AsRef<Path>) -> Vec<String> {
-        // so - in this code - the guy created a temp json file and have python load that json file instead.
-        // string arg = $"--factory-startup -noaudio -b \"{Path.GetFullPath(file)}\" -P \"{GetRenderScriptPath()}\" -- \"{path}\" {USE_CONTINUATION}";z
-        let script_path = Blender::get_config_path().join("render.py");
-        if !script_path.exists() {
-            let data = include_bytes!("../render.py");
-            fs::write(&script_path, data).unwrap();
-        }
+    // pub fn create_arg_list(&self) -> Vec<String> {
 
-        vec![
-            "--factory-startup".to_owned(),
-            "-noaudio".to_owned(),
-            "-b".to_owned(),
-            self.file.to_str().unwrap().to_string(),
-            "-P".to_owned(),
-            script_path.to_str().unwrap().to_owned(),
-            "--".to_owned(),
-            json_path.as_ref().to_str().unwrap().to_string(),
-            format!("{}", self.use_continuation),
-        ]
-        /*
+    /*
 
-        // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#argument-order
-        // # is substitute to 0 pad, none will add to suffix four pounds (####)
-        let mut col = vec![
-            "-b".to_owned(),
-            self.file.to_str().unwrap().to_string(),
-            "-o".to_owned(),
-            self.output.to_str().unwrap().to_string(),
-        ];
+    // More context: https://docs.blender.org/manual/en/latest/advanced/command_line/arguments.html#argument-order
+    // # is substitute to 0 pad, none will add to suffix four pounds (####)
+    let mut col = vec![
+        "-b".to_owned(),
+        self.file.to_str().unwrap().to_string(),
+        "-o".to_owned(),
+        self.output.to_str().unwrap().to_string(),
+    ];
 
-        // col.push("-E".to_owned());
-        // col.push(self.engine.to_string());
-        // col.push("F".to_owned());
-        // col.push(self.format.to_string());
-        // col.push("-X".to_owned());
+    // col.push("-E".to_owned());
+    // col.push(self.engine.to_string());
+    // col.push("F".to_owned());
+    // col.push(self.format.to_string());
+    // col.push("-X".to_owned());
 
-        if let Some(engine) = &self.engine {
-            col.push("-E".to_owned());
-            col.push(engine.to_string());
-        }
-        if let Some(format) = &self.format {
-            col.push("-F".to_owned());
-            col.push(format.to_string());
-            col.push("-X".to_owned()); // explicitly use extension
-        }
-
-        // this argument must be set at the very end
-        let mut additional_args = match self.mode {
-            Mode::Frame(frame) => {
-                // could there be a better way to do this?
-                vec!["-f".to_owned(), frame.to_string()]
-            }
-            // Render the whole animation using all the settings saved in the blend-file.
-            Mode::Animation { start, end } => vec![
-                "-s".to_owned(),
-                start.to_string(),
-                "-e".to_owned(),
-                end.to_string(),
-                "-a".to_owned(),
-            ],
-            Mode::None => vec![],
-        };
-
-        col.append(&mut additional_args);
-
-        // Cycles add-on options must be specified following a double dash.
-
-        // if self.engine == Engine::Cycles {
-        //     col.push("-- --cycles-device".to_owned());
-        //     col.push(self.device.to_string());
-        // }
-        if Some(Engine::Cycles) == self.engine {
-            if let Some(device) = &self.device {
-                col.push("-- --cycles-device".to_owned());
-                col.push(device.to_string());
-            }
-        }
-
-        col
-        */
+    if let Some(engine) = &self.engine {
+        col.push("-E".to_owned());
+        col.push(engine.to_string());
     }
+    if let Some(format) = &self.format {
+        col.push("-F".to_owned());
+        col.push(format.to_string());
+        col.push("-X".to_owned()); // explicitly use extension
+    }
+
+    // this argument must be set at the very end
+    let mut additional_args = match self.mode {
+        Mode::Frame(frame) => {
+            // could there be a better way to do this?
+            vec!["-f".to_owned(), frame.to_string()]
+        }
+        // Render the whole animation using all the settings saved in the blend-file.
+        Mode::Animation { start, end } => vec![
+            "-s".to_owned(),
+            start.to_string(),
+            "-e".to_owned(),
+            end.to_string(),
+            "-a".to_owned(),
+        ],
+        Mode::None => vec![],
+    };
+
+    col.append(&mut additional_args);
+
+    // Cycles add-on options must be specified following a double dash.
+
+    // if self.engine == Engine::Cycles {
+    //     col.push("-- --cycles-device".to_owned());
+    //     col.push(self.device.to_string());
+    // }
+    if Some(Engine::Cycles) == self.engine {
+        if let Some(device) = &self.device {
+            col.push("-- --cycles-device".to_owned());
+            col.push(device.to_string());
+        }
+    }
+
+    col
+    */
+    // }
 }
