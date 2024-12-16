@@ -19,4 +19,5 @@ pub struct BlenderPeekResponse {
     pub selected_scene: String,
     // TODO: Found a way to save the current engine used in Blender. make this option available as soon as we fix peek.py to use blend lib instead.
     // pub engine: String,
+    pub output: String,
 }

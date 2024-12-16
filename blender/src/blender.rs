@@ -65,11 +65,13 @@ use crate::models::{
     blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderRenderSetting,
     status::Status,
 };
-use blend::Blend;
+use blend::runtime::FieldTemplate;
+use blend::{Blend, Instance};
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::fs::OpenOptions;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -236,26 +238,55 @@ impl Blender {
         Ok(Self::new(path.to_path_buf(), version))
     }
 
+    // this is used to read and see blend file friendly view mode
+    fn explore_value<'a>( obj: &Instance<'a>) {
+        let name = obj.get("id").get_string("name");
+        println!("=============== {name} ===============");
+        for i in &obj.fields {
+            match i.1.is_primitive {
+                true => { 
+                    match i.1.info {
+                        blend::parsers::field::FieldInfo::Value => {
+                            match i.1.type_name.as_str() {
+                                "int" => { println!("{}: {} = {} ",i.0, i.1.type_name, &obj.get_i32(i.0)); },
+                                "short" => { println!("{}: {} = {} ", i.0, i.1.type_name,&obj.get_u16(i.0)); },
+                                "char" => { println!("{}: {} = {} ", i.0, i.1.type_name,&obj.get_string(i.0)); },
+                                "float" => { println!("{}: {} = {}", i.0, i.1.type_name,&obj.get_f32(i.0)); },
+                                "uint64_t" => { println!("{}: {} = {}", i.0, i.1.type_name,&obj.get_u64(i.0)); },
+                                _ => println!("Unhandle value for {} | {}", i.1.type_name, i.0)
+                            };
+                        },
+                        blend::parsers::field::FieldInfo::ValueArray { .. } => {
+                            match i.1.type_name.as_str() {
+                                "char" => { println!("{}: String = {}", i.0, &obj.get_string(i.0)); },
+                                "float" => { println!("{}: vec<f32> = {:?}", i.0, &obj.get_f32_vec(i.0)); },
+                                _ => println!("Unhandle Value Array for {} | {}", i.1.type_name, i.0)
+                            }
+                        }
+                        // blend::parsers::field::FieldInfo::PointerArray { .. } => todo!(),
+                        // blend::parsers::field::FieldInfo::Pointer { indirection_count } => todo!(),
+                        // blend::parsers::field::FieldInfo::FnPointer => todo!(),
+                        _ => { println!("Unhandle: {} | {} ", i.0, i.1.type_name)}
+                    }
+                }
+                false => {
+                    println!("{}: TYPE = {}", i.0, i.1.type_name);
+                }
+            }
+        }
+    }
+
     /// Peek is a function design to read and fetch information about the blender file.
     pub async fn peek(blend_file: &PathBuf) -> Result<BlenderPeekResponse, BlenderError> {
         /*
         Experimental code, trying to use blend plugin to extract information rather than opening up blender for this.
 
         Problem: I can't seem to find a way to obtain the following information:
-            - True scene name (Not SCScene)
-            - True camera name (Not CACamera)
-            - frame_start/end variable.
-            - render_height/width variable.
         - denoiser/sample rate (From cycle?)
-            - fps?
-            // from peek.py
-            RenderWidth = scn.render.resolution_x,
-            RenderHeight = scn.render.resolution_y,
-            FrameStart = scn.frame_start,
-            FrameEnd = scn.frame_end,
-            FPS = scn.render.fps,
-            Denoiser = scn.cycles.denoiser,
-            Samples = scn.cycles.samples,
+            Python reference the value from this path.
+            Denoiser = bpy.context.scene.cycles.denoiser,
+            Samples = bpy.context.scene.cycles.samples,
+
             // do note here - we're capturing the OB name not the CA name!
             Cameras = scn.objects.obj.type["CAMERA"].obj.name,
             SelectedCamera = scn.camera.name,
@@ -300,24 +331,31 @@ impl Blender {
         let mut frame_end: i32 = 0;
         let mut render_width: i32 = 0;
         let mut render_height: i32 = 0;
+        let mut fps: u16 = 0;
+        let mut samples: i32 = 0;
+        let mut output: String = String::from("");
 
         // this denotes how many scene objects there are.
         for obj in blend.instances_with_code(*b"SC") {
             let scene = obj.get("id").get_string("name").replace("SC", ""); // not the correct name usage?
+            // get render data
             let render = &obj.get("r");
 
-            // Grab the engine this scene is set to! This is useful!
-            // let engine = &obj.get("r").get_string("engine"); // will show BLENDER_EEVEE_NEXT
-            // let device = &render.get_i32("compositor_device"); // not sure how I can translate this to represent CPU/GPU? but currently show 0 for cpu
+            let engine = &render.get_string("engine"); // will show BLENDER_EEVEE_NEXT
+            samples = match engine.as_str() {
+                "BLENDER_EEVEE" | "BLENDER_EEVEE_NEXT" => obj.get("eevee").get_i32("taa_render_samples"),
+                _ => 0,//&obj.get("")   // find a way to get cycles sample rates.
+            };
 
-            // dbg!(device);
-            // bpy.data.scenes["Scene2"].frame_start
-            // render/output/properties/frame_range
-            // dbg!(&render.get_i32("stamp"));
+            // Issue, Cannot find cycles info! Blender show that it should be here under SCscene, just like eevee, but I'm looking it over and over and it's not there? Where is cycle?
+            Self::explore_value(&obj);
+
             render_width = render.get_i32("xsch");
             render_height = render.get_i32("ysch");
             frame_start = render.get_i32("sfra");
             frame_end = render.get_i32("efra");
+            fps = render.get_u16("frs_sec");
+            output = render.get_string("pic");
 
             scenes.push(scene);
         }
@@ -331,19 +369,21 @@ impl Blender {
         let selected_camera = cameras.get(0).unwrap_or(&"".to_owned()).to_owned();
         let selected_scene = scenes.get(0).unwrap_or(&"".to_owned()).to_owned();
 
+        // parse i32 into u16
         let result = BlenderPeekResponse {
             last_version: blend_version,
             render_width,
             render_height,
             frame_start,
             frame_end,
-            fps: 0,
+            fps,
             denoiser: "".to_owned(),
-            samples: 0,
+            samples,
             cameras,
             selected_camera,
             scenes,
             selected_scene,
+            output,
         };
 
         Ok(result)
