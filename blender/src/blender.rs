@@ -65,13 +65,14 @@ use crate::models::{
     blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderRenderSetting,
     status::Status,
 };
-use blend::runtime::FieldTemplate;
-use blend::{Blend, Instance};
+
+#[cfg(test)]
+use blend::Instance;
+use blend::Blend;
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::fs::OpenOptions;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -239,9 +240,9 @@ impl Blender {
     }
 
     // this is used to read and see blend file friendly view mode
+    #[cfg(test)]
+    #[allow(dead_code)]
     fn explore_value<'a>( obj: &Instance<'a>) {
-        let name = obj.get("id").get_string("name");
-        println!("=============== {name} ===============");
         for i in &obj.fields {
             match i.1.is_primitive {
                 true => { 
@@ -278,22 +279,6 @@ impl Blender {
 
     /// Peek is a function design to read and fetch information about the blender file.
     pub async fn peek(blend_file: &PathBuf) -> Result<BlenderPeekResponse, BlenderError> {
-        /*
-        Experimental code, trying to use blend plugin to extract information rather than opening up blender for this.
-
-        Problem: I can't seem to find a way to obtain the following information:
-        - denoiser/sample rate (From cycle?)
-            Python reference the value from this path.
-            Denoiser = bpy.context.scene.cycles.denoiser,
-            Samples = bpy.context.scene.cycles.samples,
-
-            // do note here - we're capturing the OB name not the CA name!
-            Cameras = scn.objects.obj.type["CAMERA"].obj.name,
-            SelectedCamera = scn.camera.name,
-            Scenes = bpy.data.scenes.scene.name
-            SelectedScene = scn.name
-            */
-
         let blend = Blend::from_path(&blend_file)
             .map_err(|_| BlenderError::InvalidFile("Received BlenderParseError".to_owned()))?;
 
@@ -327,6 +312,7 @@ impl Blender {
 
         let mut scenes: Vec<String> = Vec::new();
         let mut cameras: Vec<String> = Vec::new();
+        
         let mut frame_start: i32 = 0;
         let mut frame_end: i32 = 0;
         let mut render_width: i32 = 0;
@@ -334,6 +320,7 @@ impl Blender {
         let mut fps: u16 = 0;
         let mut samples: i32 = 0;
         let mut output: String = String::from("");
+        let mut engine = String::from("");
 
         // this denotes how many scene objects there are.
         for obj in blend.instances_with_code(*b"SC") {
@@ -341,21 +328,19 @@ impl Blender {
             // get render data
             let render = &obj.get("r");
 
-            let engine = &render.get_string("engine"); // will show BLENDER_EEVEE_NEXT
-            samples = match engine.as_str() {
-                "BLENDER_EEVEE" | "BLENDER_EEVEE_NEXT" => obj.get("eevee").get_i32("taa_render_samples"),
-                _ => 0,//&obj.get("")   // find a way to get cycles sample rates.
-            };
+            engine = render.get_string("engine"); // will show BLENDER_EEVEE_NEXT properly
+            samples = obj.get("eevee").get_i32("taa_render_samples");
 
             // Issue, Cannot find cycles info! Blender show that it should be here under SCscene, just like eevee, but I'm looking it over and over and it's not there? Where is cycle?
-            Self::explore_value(&obj);
+            // Use this for development only!
+            // Self::explore_value(&obj.get("eevee"));
 
             render_width = render.get_i32("xsch");
             render_height = render.get_i32("ysch");
             frame_start = render.get_i32("sfra");
             frame_end = render.get_i32("efra");
             fps = render.get_u16("frs_sec");
-            output = render.get_string("pic");
+            output = render.get_string("pic");  // may not be necessary?
 
             scenes.push(scene);
         }
@@ -377,12 +362,12 @@ impl Blender {
             frame_start,
             frame_end,
             fps,
-            denoiser: "".to_owned(),
             samples,
             cameras,
             selected_camera,
             scenes,
             selected_scene,
+            engine,
             output,
         };
 

@@ -87,9 +87,8 @@ pub struct BlenderRenderSetting {
     pub camera: String,
     pub cores: usize,
     pub compute_unit: i32,
-    pub denoiser: String,
     #[serde(rename = "FPS")]
-    pub fps: u16, // u32 convert into string for serde. BEWARE!
+    pub fps: u16, // u32 convert into string for xml-rpc. BEWARE!
     pub border: Window,
     pub tile_width: i32,
     pub tile_height: i32,
@@ -109,7 +108,6 @@ impl BlenderRenderSetting {
         scene: String,
         camera: String,
         compute_unit: Device,
-        denoiser: String,
         fps: u16,
         border: Window,
         tile_width: i32,
@@ -128,7 +126,6 @@ impl BlenderRenderSetting {
             camera,
             cores: std::thread::available_parallelism().unwrap().get(),
             compute_unit: compute_unit as i32,
-            denoiser,
             fps,
             border,
             tile_width,
@@ -154,11 +151,10 @@ impl BlenderRenderSetting {
             info.selected_scene.to_owned(),
             info.selected_camera.to_owned(),
             compute_unit.to_owned(),
-            info.denoiser.to_owned(),
             info.fps,
             border,
-            -1,
-            -1,
+            -1, // I wonder?
+            -1, // I wonder?
             info.samples,
             info.render_width,
             info.render_height,

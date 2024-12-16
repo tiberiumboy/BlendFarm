@@ -1,3 +1,5 @@
+# TODO: Refactor this so it's less code to read through.
+
 #Start
 import bpy # type: ignore
 import xmlrpc.client
@@ -179,14 +181,14 @@ def renderWithSettings(renderSettings, frame):
             scn.cycles.device = "GPU"
             print("Use OptiX (GPU)")
     
-    #Denoiser
-    denoise = renderSettings["Denoiser"]
-    if denoise is not None:
-        if denoise == "None":
-            scn.cycles.use_denoising = False
-        elif len(denoise) > 0:
-            scn.cycles.use_denoising = True
-            scn.cycles.denoiser = denoise
+    #Denoiser - Disable this until I can figure out how to fetch this info from Blend lib
+    # denoise = renderSettings["Denoiser"]
+    # if denoise is not None:
+    #     if denoise == "None":
+    #         scn.cycles.use_denoising = False
+    #     elif len(denoise) > 0:
+    #         scn.cycles.use_denoising = True
+    #         scn.cycles.denoiser = denoise
             
     # Set Frames Per Second
     fps = renderSettings["FPS"]
