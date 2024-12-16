@@ -312,7 +312,7 @@ impl Blender {
 
         let mut scenes: Vec<String> = Vec::new();
         let mut cameras: Vec<String> = Vec::new();
-        
+
         let mut frame_start: i32 = 0;
         let mut frame_end: i32 = 0;
         let mut render_width: i32 = 0;
@@ -386,6 +386,7 @@ impl Blender {
     // so instead of just returning the string of render result or blender error, we'll simply use the single producer to produce result from this class.
     pub async fn render(&self, args: Args) -> Receiver<Status> {
         let (rx, tx) = mpsc::channel::<Status>();
+        let (signal, listener) = mpsc::channel::<Status>();
         let executable = self.executable.clone();
 
         // TODO: Might extract this into separate struct container to make this easy to work with?
@@ -431,8 +432,16 @@ impl Blender {
             .bind(&socket)
             .expect("Unable to open socket for xml_rpc!");
 
-        // There's an issue: This code will runs forever with nothing to stop?
-        let runner = spawn(async move { bind_server.run() });
+        // spin up XML-RPC server
+        spawn(async move { 
+            loop {
+                // if the program shut down or if we've completed the render, then we should stop the server
+                match listener.try_recv() {
+                    Ok(Status::Exit) => break,
+                    _ => bind_server.poll()
+                }
+            }
+        });
 
         spawn(async move {
             let script_path = Blender::get_config_path().join("render.py");
@@ -501,10 +510,9 @@ impl Blender {
                         }
                         // Strange how this was thrown, but doesn't report back to this program?
                         line if line.contains("EXCEPTION:") => {
+                            signal.send(Status::Exit).unwrap();
                             rx.send(Status::Error(BlenderError::PythonError(line.to_owned())))
                                 .unwrap();
-                            // TODO: Create a new container to stop this container!
-                            runner.abort(); // something about this hang the program indefinitely?
                         }
                         line if line.contains("Warning:") => {
                             rx.send(Status::Warning {
@@ -517,9 +525,8 @@ impl Blender {
                             rx.send(msg).unwrap();
                         }
                         line if line.contains("Blender quit") => {
+                            signal.send(Status::Exit).unwrap();
                             rx.send(Status::Exit).unwrap();
-                            // TODO: Create a new container to stop this container!
-                            runner.abort(); // something about this hang the program indefinitely?
                         }
                         line if !line.is_empty() => {
                             let msg = Status::Running {
