@@ -6,23 +6,14 @@
     - I need to fetch the handles so that I can maintain and monitor all node activity.
     - TODO: See about migrating Sender code into this module?
 */
+use crate::domains::job_store::JobError;
 use blender::blender::Blender;
 use blender::models::{args::Args, mode::Mode, status::Status};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::{hash::Hash, path::PathBuf};
-use thiserror::Error;
 use uuid::Uuid;
-
-#[derive(Debug, Serialize, Deserialize, Error)]
-pub enum JobError {
-    #[error("Job failed to run: {0}")]
-    FailedToRun(String),
-    // it would be nice to have blender errors here?
-    #[error("Invalid blend file: {0}")]
-    InvalidFile(String),
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum JobEvent {
@@ -33,6 +24,8 @@ pub enum JobEvent {
         frame: Frame,
         file_name: String,
     },
+    // TODO: Impl behaviour for other completed worker to fetch for pending frames
+    // RequestPendingFrames{ requestor: PeerId, job_id: Uuid },
     JobComplete,
     Error(JobError),
 }

@@ -6,6 +6,7 @@ use super::server_setting::ServerSetting;
 use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
 use futures::{channel::oneshot, prelude::*, StreamExt};
+use libp2p::ping;
 use libp2p::{
     gossipsub::{self, IdentTopic},
     kad, mdns,
@@ -53,6 +54,11 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .expect("Should be able to build with tcp configuration?")
         .with_quic()
         .with_behaviour(|key| {
+
+            let ping_config = ping::Config::default();
+            
+            let ping = ping::Behaviour::new(ping_config);  
+
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(Duration::from_secs(10))
                 // .validation_mode(gossipsub::ValidationMode::Strict)
@@ -83,6 +89,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
             let request_response = libp2p_request_response::Behaviour::new(protocol, rr_config);
 
             Ok(BlendFarmBehaviour {
+                ping,
                 request_response,
                 gossipsub,
                 mdns,
@@ -322,7 +329,7 @@ impl NetworkService {
                 let data = bincode::serialize(&spec).unwrap();
                 let topic = IdentTopic::new(SPEC);
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                    eprintln!("Fail to publish message to swarm! {e:?}");
+                    eprintln!("Fail to send identity to swarm! {e:?}");
                 };
             }
             NetCommand::GetProviders { file_name, sender } => {

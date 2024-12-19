@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 /*
 Have a look into TUI for CLI status display window to show user entertainment on screen
 https://docs.rs/tui/latest/tui/
@@ -7,29 +9,39 @@ Feature request:
     - receive command to properly reboot computer when possible?
 */
 use super::blend_farm::BlendFarm;
-use crate::models::{
-    job::{Job, JobEvent},
-    message::{NetEvent, NetworkError},
-    network::{NetworkController, JOB},
+use crate::{domains::job_store::JobStore, 
+    models::{
+        job::{Job, JobEvent},
+        message::{NetEvent, NetworkError},
+        network::{NetworkController, JOB},
+    }
 };
 use async_trait::async_trait;
 use blender::blender::Manager as BlenderManager;
 use blender::models::status::Status;
-use tokio::{select, sync::mpsc::Receiver};
+use machine_info::Machine;
+use tokio::{select, sync::{mpsc::Receiver, RwLock}};
 
 pub struct CliApp {
     manager: BlenderManager,
+    machine: Machine,   // we will use this to send out activity monitor to the manager.
+    job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>,
 }
 
-impl Default for CliApp {
-    fn default() -> Self {
+impl CliApp {
+    pub fn new(job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>> ) -> Self {
+        let manager = BlenderManager::load();
+        let machine = Machine::new();
         Self {
-            manager: BlenderManager::load(),
+            manager,
+            machine,
+            job_store
         }
     }
 }
 
 impl CliApp {
+    // TODO: May have to refactor this to take consideration of Job Storage
     async fn render_job(&mut self, client: &mut NetworkController, job: Job) {
         let status = format!("Receive render job [{}]", job.as_ref());
         client.send_status(status).await;
@@ -150,7 +162,15 @@ impl CliApp {
             NetEvent::NodeDiscovered(..) => {}  // Ignored
             NetEvent::NodeDisconnected(_) => {} // ignored
             NetEvent::JobUpdate(job_event) => match job_event {
-                JobEvent::Render(job) => self.render_job(client, job).await,
+                JobEvent::Render(job) => {
+                    {
+                        let mut db = self.job_store.write().await;
+                        if let Err(e) = db.add_job(job.clone()).await {
+                            eprintln!("Fail to save job to database! {e:?}");
+                        }
+                    };
+                    self.render_job(client, job).await;
+                },
                 JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
                 // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
                 JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
@@ -175,7 +195,7 @@ impl BlendFarm for CliApp {
     async fn run(
         mut self,
         mut client: NetworkController,
-        mut event_receiver: Receiver<NetEvent>,
+        mut event_receiver: Receiver<NetEvent>
     ) -> Result<(), NetworkError> {
         // Future Impl. Make this machine available to other peers that share the same operating system and arch
         // - so that we can distribute blender across network rather than download blender per each peers.
@@ -184,10 +204,20 @@ impl BlendFarm for CliApp {
         // client.subscribe_to_topic(system_info).await;
         client.subscribe_to_topic(JOB.to_string()).await;
 
+        // let current_job: Option<Job> = None;
         loop {
             select! {
+                // here we can insert job_db here to receive event invocation from Tauri_app
                 Some(event) = event_receiver.recv() => self.handle_message(&mut client, event).await,
                 // Some(msg) = from_cli.recv() => Self::handle_command(&mut controller, msg).await,
+                // here we can fetch the next job available and see about what we can do to render the scene?
+                // Some(job) = current_job.take() => {
+                //     let db = self.job_store.write().await;
+
+                //     current_job = self.
+                // }
+                // how do I poll the machine specs in certain intervals?
+                // Some(event) = self.machine.
             }
         }
         // if somehow we were able to get out of the loop, we would best send a shutdown notice here.

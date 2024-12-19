@@ -1,13 +1,12 @@
 use crate::{
-    models::{
+    domains::{job_store::JobStore, worker_store::WorkerStore}, models::{
         app_state::AppState,
         computer_spec::ComputerSpec,
         job::{Job, JobEvent},
         message::{NetEvent, NetworkError},
         network::{NetworkController, HEARTBEAT, JOB, SPEC, STATUS},
         server_setting::ServerSetting,
-    },
-    routes::{job::*, remote_render::*, settings::*},
+    }, routes::{job::*, remote_render::*, settings::*}
 };
 use blender::manager::Manager as BlenderManager;
 use libp2p::PeerId;
@@ -40,14 +39,26 @@ pub enum UiCommand {
 
 use super::blend_farm::BlendFarm;
 
-#[derive(Default)]
 pub struct TauriApp {
     peers: HashMap<PeerId, ComputerSpec>,
+    worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static )>>,
+    job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>,
 }
 
 impl TauriApp {
+    pub fn new(
+            worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static)>>, 
+            job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>
+            ) -> Self {
+        Self {
+            peers: Default::default(),
+            worker_store,
+            job_store
+        }
+    }
+
     // Create a builder to make Tauri application
-    fn config_tauri_builder(to_network: Sender<UiCommand>) -> Result<App, tauri::Error> {
+    fn config_tauri_builder(&self, to_network: Sender<UiCommand>) -> Result<App, tauri::Error> {
         let server_settings = ServerSetting::load();
 
         // I would like to find a better way to update or append data to render_nodes,
@@ -69,7 +80,8 @@ impl TauriApp {
             manager,
             to_network,
             setting,
-            jobs: Vec::new(),
+            job_db: self.job_store.clone(),
+            worker_db: self.worker_store.clone(),
         };
 
         let mut_app_state = Mutex::new(app_state);
@@ -190,10 +202,10 @@ impl BlendFarm for TauriApp {
     async fn run(
         mut self,
         mut client: NetworkController,
-        mut event_receiver: Receiver<NetEvent>,
+        mut event_receiver: Receiver<NetEvent>
     ) -> Result<(), NetworkError> {
         // for application side, we will subscribe to message event that's important to us to intercept.
-        client.subscribe_to_topic(SPEC.to_owned()).await;
+        client.subscribe_to_topic(SPEC.to_owned()).await;   // so why is this not working?
         client.subscribe_to_topic(HEARTBEAT.to_owned()).await;
         client.subscribe_to_topic(STATUS.to_owned()).await;
         client.subscribe_to_topic(JOB.to_owned()).await;
@@ -202,7 +214,7 @@ impl BlendFarm for TauriApp {
         let (to_network, mut from_ui) = mpsc::channel(32);
 
         // we send the sender to the tauri builder - which will send commands to "from_ui".
-        let app = Self::config_tauri_builder(to_network)
+        let app = self.config_tauri_builder(to_network)
             .expect("Fail to build tauri app - Is there an active display session running?");
 
         // create a safe and mutable way to pass application handler to send notification from network event.

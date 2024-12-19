@@ -32,8 +32,9 @@ pub async fn create_job(
 ) -> Result<JobQueue, Error> {
 
     let job = Job::new(path, version, mode);
-    let mut server = state.lock().await;
-    server.jobs.push(job.clone()); 
+    let server = state.lock().await;
+    let mut jobs = server.job_db.write().await;
+    let _ = jobs.add_job(job.clone());
 
     // send job to server
     if let Err(e) = server
@@ -51,8 +52,10 @@ pub async fn create_job(
 /// Abort the job if it's running and delete the entry from the collection list.
 #[command(async)]
 pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> Result<(), ()> {
-    let mut server = state.lock().await; // Should I worry about posion error?
-    server.jobs.retain(|x| x.eq(&target_job));
+    let server = state.lock().await; // Should I worry about posion error?
+    let mut jobs = server.job_db.write().await;
+    let id =  target_job.as_ref();
+    let _ = jobs.delete_job(id.clone());
     let msg = UiCommand::StopJob(target_job.as_ref().clone());
     if let Err(e) = server.to_network.send(msg).await {
         eprintln!("Fail to send stop job command! {e:?}");
@@ -64,6 +67,9 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> R
 #[command(async)]
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let server = state.lock().await;
-    let data = serde_json::to_string(&server.jobs).unwrap();
-    Ok(data)
+    let jobs = server.job_db.read().await;
+    match &jobs.list_all().await {
+        Ok(data) => Ok(serde_json::to_string(data).unwrap()),
+        Err(e) => Err(e.to_string())
+    }
 }

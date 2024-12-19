@@ -52,9 +52,14 @@ impl Default for ServerSetting {
 }
 
 impl ServerSetting {
-    fn get_config_path() -> PathBuf {
+    pub fn get_config_dir() -> PathBuf {
         let path = dirs::config_dir().unwrap().join(SETTINGS_PATH);
         fs::create_dir_all(&path).expect("Unable to create directory!");
+        path
+    }
+    
+    fn get_config_path() -> PathBuf {
+        let path = Self::get_config_dir();
         path.join(SETTINGS_FILE_NAME)
     }
 
