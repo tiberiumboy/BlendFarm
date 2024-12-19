@@ -14,3 +14,9 @@ pub struct Worker {
     id: String,
     spec: ComputerSpec,
 }
+
+impl Worker {
+    pub fn new(id: String, spec: ComputerSpec) -> Self {
+        Self { id, spec }
+    }
+}

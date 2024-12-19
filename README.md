@@ -4,6 +4,9 @@
 
 This project is inspired by the original project - [LogicReinc](https://github.com/LogicReinc/LogicReinc.BlendFarm)
 
+# A Word from Developer:
+This is still a experimental program I'm working on. If you find bugs or problem with this tool, please do not heistate to create an issue, I will review them when I get to the next milestone step. 
+
 ### Why I created this application:
 
 Learning 3D animation back in college, there exist a priorietary application used by Autodesk that allows network rendering possible on school computer called [Autodesk Backburner](https://apps.autodesk.com/en/Detail/Index?id=3481100546473279788&appLang=en&os=Linux) that came with Autodesk foundation that saved me many hours of rendering shots for my school projects. When Blender soar through popularity among the community and industry, I shifted my focus to use Blender 3D tool instead of using Autodesk 3ds Max and Maya. It wasn't until I realized that Blender, out of the box, does not have any network rendering solution similar to Autodesk backburner, I realize this was the piece that is still missing from this amazing open-source, industry leading, software tool. Digging through online, there are few tools out there that provides "good enough", but I felt like there's so much potential waiting to be tapped into that unlocks the powertrain to speed development all the way to production velocity by utilizing network resources.

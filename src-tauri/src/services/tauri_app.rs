@@ -1,12 +1,15 @@
 use crate::{
-    domains::{job_store::JobStore, worker_store::WorkerStore}, models::{
+    domains::{job_store::JobStore, worker_store::WorkerStore},
+    models::{
         app_state::AppState,
         computer_spec::ComputerSpec,
         job::{Job, JobEvent},
         message::{NetEvent, NetworkError},
         network::{NetworkController, HEARTBEAT, JOB, SPEC, STATUS},
         server_setting::ServerSetting,
-    }, routes::{job::*, remote_render::*, settings::*}
+        worker::Worker,
+    },
+    routes::{job::*, remote_render::*, settings::*},
 };
 use blender::manager::Manager as BlenderManager;
 use libp2p::PeerId;
@@ -41,19 +44,19 @@ use super::blend_farm::BlendFarm;
 
 pub struct TauriApp {
     peers: HashMap<PeerId, ComputerSpec>,
-    worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static )>>,
+    worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static)>>,
     job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>,
 }
 
 impl TauriApp {
     pub fn new(
-            worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static)>>, 
-            job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>
-            ) -> Self {
+        worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static)>>,
+        job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>,
+    ) -> Self {
         Self {
             peers: Default::default(),
             worker_store,
-            job_store
+            job_store,
         }
     }
 
@@ -112,6 +115,7 @@ impl TauriApp {
                 let file_name = job.get_file_name().unwrap().to_string();
                 let path = job.get_project_path().clone();
                 client.start_providing(file_name, path).await;
+                // TODO: Change this to rely on database instead!
                 client.send_job_message(JobEvent::Render(job)).await;
             }
             UiCommand::UploadFile(path, file_name) => {
@@ -139,17 +143,23 @@ impl TauriApp {
                     .emit("node_status", (peer_id.to_base58(), msg))
                     .unwrap();
             }
-            NetEvent::NodeDiscovered(peer_id, comp_spec) => {
-                let handle = app_handle.read().await;
-                handle
-                    .emit("node_discover", (peer_id.to_base58(), comp_spec.clone()))
-                    .unwrap();
-                self.peers.insert(peer_id, comp_spec);
+            NetEvent::NodeDiscovered(peer_id, spec) => {
+                // let handle = app_handle.read().await;
+                // handle
+                //     .emit("node_discover", (peer_id.to_base58(), comp_spec.clone()))
+                //     .unwrap();
+                let worker = Worker::new(peer_id.to_base58(), spec.clone());
+                let mut db = self.worker_store.write().await;
+                if let Err(e) = db.add_worker(worker).await {
+                    eprintln!("Error adding worker to database! {e:?}");
+                }
+                self.peers.insert(peer_id, spec);
             }
-            // don't think there's a way for me to get this working?
+
             NetEvent::NodeDisconnected(peer_id) => {
-                let handle = app_handle.read().await;
-                handle.emit("node_disconnect", peer_id.to_base58()).unwrap();
+                // TODO: If the node is disconnected, we should at least update the state?
+                // let handle = app_handle.read().await;
+                // handle.emit("node_disconnect", peer_id.to_base58()).unwrap();
             }
             NetEvent::InboundRequest { request, channel } => {
                 if let Some(path) = client.providing_files.get(&request) {
@@ -202,10 +212,10 @@ impl BlendFarm for TauriApp {
     async fn run(
         mut self,
         mut client: NetworkController,
-        mut event_receiver: Receiver<NetEvent>
+        mut event_receiver: Receiver<NetEvent>,
     ) -> Result<(), NetworkError> {
         // for application side, we will subscribe to message event that's important to us to intercept.
-        client.subscribe_to_topic(SPEC.to_owned()).await;   // so why is this not working?
+        client.subscribe_to_topic(SPEC.to_owned()).await; // so why is this not working?
         client.subscribe_to_topic(HEARTBEAT.to_owned()).await;
         client.subscribe_to_topic(STATUS.to_owned()).await;
         client.subscribe_to_topic(JOB.to_owned()).await;
@@ -214,10 +224,12 @@ impl BlendFarm for TauriApp {
         let (to_network, mut from_ui) = mpsc::channel(32);
 
         // we send the sender to the tauri builder - which will send commands to "from_ui".
-        let app = self.config_tauri_builder(to_network)
+        let app = self
+            .config_tauri_builder(to_network)
             .expect("Fail to build tauri app - Is there an active display session running?");
 
         // create a safe and mutable way to pass application handler to send notification from network event.
+        // TODO: Get rid of this.
         let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
 
         // create a background loop to send and process network event
@@ -230,16 +242,7 @@ impl BlendFarm for TauriApp {
             }
         });
 
-        // Run the app.
-        app.run(|_app_handle, event| {
-            match event {
-                // TODO: find a way to spawn the network listener thread inside here?
-                tauri::RunEvent::Ready => {
-                    println!("Application is ready!");
-                }
-                _ => {}
-            }
-        });
+        app.run(|_, _| {});
 
         Ok(())
     }

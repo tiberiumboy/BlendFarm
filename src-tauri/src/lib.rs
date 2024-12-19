@@ -28,11 +28,21 @@ Developer blog:
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use clap::{Parser, Subcommand};
-use models::{app_state::AppState, server_setting::ServerSetting};
 use models::network;
-use services::{blend_farm::BlendFarm, cli_app::CliApp, data_store::{surrealdb_job_store::SurrealDbJobStore, surrealdb_worker_store::SurrealDbWorkerStore}, tauri_app::TauriApp};
-use surrealdb::{engine::local::SurrealKv, Surreal};
+use models::{app_state::AppState, server_setting::ServerSetting};
+use services::{
+    blend_farm::BlendFarm,
+    cli_app::CliApp,
+    data_store::{
+        surrealdb_job_store::SurrealDbJobStore, surrealdb_worker_store::SurrealDbWorkerStore,
+    },
+    tauri_app::TauriApp,
+};
 use std::sync::Arc;
+use surrealdb::{
+    engine::local::{Db, SurrealKv},
+    Surreal,
+};
 use tokio::{spawn, sync::RwLock};
 use tracing_subscriber::EnvFilter;
 
@@ -52,22 +62,32 @@ enum Commands {
     Client,
 }
 
+async fn config_surreal_db() -> Surreal<Db> {
+    let db_path = ServerSetting::get_config_dir();
+    let db = Surreal::new::<SurrealKv>(db_path)
+        .await
+        .expect("Fail to create database");
+    db.use_ns("BlendFarm")
+        .use_db("local")
+        .await
+        .expect("Failed to specify namespace/database!");
+    db
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env()) 
+        .with_env_filter(EnvFilter::from_default_env())
         .try_init();
 
+    // to run custom behaviour
+    let cli = Cli::parse();
+
     // create a database instance
-    let db_path = ServerSetting::get_config_dir(); 
-    let db = Surreal::new::<SurrealKv>(db_path).await.expect("Fail to create database");
+    let db = config_surreal_db().await;
     let db = Arc::new(RwLock::new(db));
-    
     let worker_store = Arc::new(RwLock::new(SurrealDbWorkerStore::new(db.clone())));
     let job_store = Arc::new(RwLock::new(SurrealDbJobStore::new(db)));
-
-    // to run custom behaviour
-    let cli = Cli::parse(); 
 
     // must have working network services
     let (service, controller, receiver) =
@@ -78,11 +98,13 @@ pub async fn run() {
 
     if let Err(e) = match cli.command {
         // run as client mode.
-        Some(Commands::Client) => CliApp::new(job_store)
-            .run(controller, receiver).await,
+        Some(Commands::Client) => CliApp::new(job_store).run(controller, receiver).await,
         // run as GUI mode.
-        _ => TauriApp::new(worker_store, job_store)
-            .run(controller, receiver).await,
+        _ => {
+            TauriApp::new(worker_store, job_store)
+                .run(controller, receiver)
+                .await
+        }
     } {
         eprintln!("Something went terribly wrong? {e:?}");
     }

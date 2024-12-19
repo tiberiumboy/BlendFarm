@@ -9,34 +9,31 @@ Feature request:
     - receive command to properly reboot computer when possible?
 */
 use super::blend_farm::BlendFarm;
-use crate::{domains::job_store::JobStore, 
+use crate::{
+    domains::job_store::JobStore,
     models::{
         job::{Job, JobEvent},
         message::{NetEvent, NetworkError},
         network::{NetworkController, JOB},
-    }
+    },
 };
 use async_trait::async_trait;
 use blender::blender::Manager as BlenderManager;
 use blender::models::status::Status;
-use machine_info::Machine;
-use tokio::{select, sync::{mpsc::Receiver, RwLock}};
+use tokio::{
+    select,
+    sync::{mpsc::Receiver, RwLock},
+};
 
 pub struct CliApp {
     manager: BlenderManager,
-    machine: Machine,   // we will use this to send out activity monitor to the manager.
     job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>,
 }
 
 impl CliApp {
-    pub fn new(job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>> ) -> Self {
+    pub fn new(job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>) -> Self {
         let manager = BlenderManager::load();
-        let machine = Machine::new();
-        Self {
-            manager,
-            machine,
-            job_store
-        }
+        Self { manager, job_store }
     }
 }
 
@@ -170,7 +167,7 @@ impl CliApp {
                         }
                     };
                     self.render_job(client, job).await;
-                },
+                }
                 JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
                 // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
                 JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
@@ -195,7 +192,7 @@ impl BlendFarm for CliApp {
     async fn run(
         mut self,
         mut client: NetworkController,
-        mut event_receiver: Receiver<NetEvent>
+        mut event_receiver: Receiver<NetEvent>,
     ) -> Result<(), NetworkError> {
         // Future Impl. Make this machine available to other peers that share the same operating system and arch
         // - so that we can distribute blender across network rather than download blender per each peers.
