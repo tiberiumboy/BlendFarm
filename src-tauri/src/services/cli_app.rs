@@ -133,7 +133,7 @@ impl CliApp {
                                 result.file_name().unwrap().to_str().unwrap().to_string()
                             );
                             let event = JobEvent::ImageCompleted {
-                                id,
+                                job_id: id,
                                 frame,
                                 file_name: file_name.clone(),
                             };
@@ -164,6 +164,8 @@ impl CliApp {
                         let mut db = self.job_store.write().await;
                         if let Err(e) = db.add_job(job.clone()).await {
                             eprintln!("Fail to save job to database! {e:?}");
+                        } else {
+                            println!("Added job to database!");
                         }
                     };
                     self.render_job(client, job).await;
@@ -171,6 +173,14 @@ impl CliApp {
                 JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
                 // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
                 JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
+                JobEvent::Remove(id) => {
+                    let mut db = self.job_store.write().await;
+                    if let Err(e) = db.delete_job(id).await {
+                        eprintln!("Fail to remove job from database! {e:?}");
+                    } else {
+                        println!("Successfully remove job from database!");
+                    }
+                }
                 _ => println!("Unhandle Job Event: {job_event:?}"),
             },
             // maybe move this inside Network code? Seems repeative in both cli and Tauri side of application here.

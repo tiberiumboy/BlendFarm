@@ -18,14 +18,13 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize)]
 pub enum JobEvent {
     Render(Job),
+    Remove(Uuid),
     RequestJob,
     ImageCompleted {
-        id: Uuid,
+        job_id: Uuid,
         frame: Frame,
         file_name: String,
     },
-    // TODO: Impl behaviour for other completed worker to fetch for pending frames
-    // RequestPendingFrames{ requestor: PeerId, job_id: Uuid },
     JobComplete,
     Error(JobError),
 }

@@ -6,8 +6,8 @@ use super::server_setting::ServerSetting;
 use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
 use futures::{channel::oneshot, prelude::*, StreamExt};
-use libp2p::ping;
 use libp2p::{
+    ping,
     gossipsub::{self, IdentTopic},
     kad, mdns,
     swarm::{Swarm, SwarmEvent},
@@ -56,7 +56,6 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .with_behaviour(|key| {
 
             let ping_config = ping::Config::default();
-            
             let ping = ping::Behaviour::new(ping_config);  
 
             let gossipsub_config = gossipsub::ConfigBuilder::default()
@@ -178,6 +177,10 @@ impl NetworkController {
             .expect("Command should not be dropped");
     }
 
+    pub async fn send_to_target(&mut self, target: PeerId, data: String) {
+        // Hmm How can I approach this?
+    }
+    
     // may not be in use?
     pub async fn share_computer_info(&mut self) {
         self.sender
@@ -372,6 +375,12 @@ impl NetworkService {
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to send job! {e:?}");
                 }
+            }
+            NetCommand::ToRequestor => {
+                self.swarm.behaviour_mut().
+            }   
+            NetCommand::FromRequestor => {
+
             }
         };
     }

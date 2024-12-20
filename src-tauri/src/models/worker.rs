@@ -11,12 +11,12 @@ pub enum WorkerError {
 // we will use this to store data into database at some point.
 #[derive(Serialize, Deserialize)]
 pub struct Worker {
-    id: String,
+    machine_id: String,
     spec: ComputerSpec,
 }
 
 impl Worker {
-    pub fn new(id: String, spec: ComputerSpec) -> Self {
-        Self { id, spec }
+    pub fn new(machine_id: String, spec: ComputerSpec) -> Self {
+        Self { machine_id, spec }
     }
 }

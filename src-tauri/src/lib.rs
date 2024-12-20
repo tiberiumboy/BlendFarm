@@ -68,7 +68,7 @@ async fn config_surreal_db() -> Surreal<Db> {
         .await
         .expect("Fail to create database");
     db.use_ns("BlendFarm")
-        .use_db("local")
+        .use_db("BlendFarm")
         .await
         .expect("Failed to specify namespace/database!");
     db

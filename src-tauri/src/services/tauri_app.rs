@@ -38,6 +38,7 @@ pub enum UiCommand {
     StartJob(Job),
     StopJob(Uuid),
     UploadFile(PathBuf, String),
+    RemoveJob(Uuid),
 }
 
 use super::blend_farm::BlendFarm;
@@ -126,14 +127,18 @@ impl TauriApp {
                     "Impl how to send a stop signal to stop the job and remove the job from queue {id:?}"
                 );
             }
+            UiCommand::RemoveJob(id) => {
+                client.send_job_message(JobEvent::Remove(id)).await;
+            }
         }
     }
 
     // commands received from network
     async fn handle_net_event(
         &mut self,
-        client: &mut NetworkController,
+    client: &mut NetworkController,
         event: NetEvent,
+        // This is currently used to receive worker's status update. We do not want to store this information in the database, instead it should be sent only when the application is available.
         app_handle: Arc<RwLock<AppHandle>>,
     ) {
         match event {
@@ -155,12 +160,7 @@ impl TauriApp {
                 }
                 self.peers.insert(peer_id, spec);
             }
-
-            NetEvent::NodeDisconnected(peer_id) => {
-                // TODO: If the node is disconnected, we should at least update the state?
-                // let handle = app_handle.read().await;
-                // handle.emit("node_disconnect", peer_id.to_base58()).unwrap();
-            }
+            NetEvent::NodeDisconnected(_) => {}
             NetEvent::InboundRequest { request, channel } => {
                 if let Some(path) = client.providing_files.get(&request) {
                     println!("Sending client file {path:?}");
@@ -172,7 +172,7 @@ impl TauriApp {
             NetEvent::JobUpdate(job_event) => match job_event {
                 // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
                 JobEvent::ImageCompleted {
-                    id,
+                    job_id: id,
                     frame,
                     file_name,
                 } => {
@@ -197,10 +197,14 @@ impl TauriApp {
                 JobEvent::Error(job_error) => {
                     todo!("See how this can be replicated? {job_error:?}")
                 }
-                // send a render job -
+                // send a render job
                 JobEvent::Render(_) => {} // should be ignored.
                 // Received a request job?
                 JobEvent::RequestJob => {}
+                // Hmm?
+                JobEvent::Remove(ui) => {
+                    // Should I do anything on the manager side? Shouldn't matter at this point?
+                }
             },
             _ => println!("{:?}", event),
         }
@@ -215,10 +219,10 @@ impl BlendFarm for TauriApp {
         mut event_receiver: Receiver<NetEvent>,
     ) -> Result<(), NetworkError> {
         // for application side, we will subscribe to message event that's important to us to intercept.
-        client.subscribe_to_topic(SPEC.to_owned()).await; // so why is this not working?
-        client.subscribe_to_topic(HEARTBEAT.to_owned()).await;
+        client.subscribe_to_topic(SPEC.to_owned()).await;
+        client.subscribe_to_topic(HEARTBEAT.to_owned()).await; 
         client.subscribe_to_topic(STATUS.to_owned()).await;
-        client.subscribe_to_topic(JOB.to_owned()).await;
+        client.subscribe_to_topic(JOB.to_owned()).await; // This might get changed? we'll see.
 
         // this channel is used to send command to the network, and receive network notification back.
         let (to_network, mut from_ui) = mpsc::channel(32);
