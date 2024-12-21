@@ -32,12 +32,8 @@ pub enum NetCommand {
     Status(String),
     SubscribeTopic(String),
     UnsubscribeTopic(String),
-    JobStatus(JobEvent),
-    
+    JobStatus(PeerId, JobEvent),
     // use this event to send message to a specific node
-    FromRequestor,
-    ToRequestor,
-
     StartProviding {
         file_name: String,
         // path: PathBuf,

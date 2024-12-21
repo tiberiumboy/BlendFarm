@@ -116,8 +116,11 @@ impl TauriApp {
                 let file_name = job.get_file_name().unwrap().to_string();
                 let path = job.get_project_path().clone();
                 client.start_providing(file_name, path).await;
-                // TODO: Change this to rely on database instead!
-                client.send_job_message(JobEvent::Render(job)).await;
+                for (peer,  _) in self.peers.clone() {
+                    // TODO: Change this to rely on database instead!
+                    // TODO: Find a way to create batch jobs instead of sending the whole frame to all peers.
+                    client.send_job_message(peer, JobEvent::Render(job.clone())).await;
+                }
             }
             UiCommand::UploadFile(path, file_name) => {
                 client.start_providing(file_name, path).await;
@@ -128,7 +131,9 @@ impl TauriApp {
                 );
             }
             UiCommand::RemoveJob(id) => {
-                client.send_job_message(JobEvent::Remove(id)).await;
+                for (peer, _) in self.peers.clone() {
+                    client.send_job_message(peer, JobEvent::Remove(id)).await;
+                }
             }
         }
     }
@@ -201,8 +206,8 @@ impl TauriApp {
                 JobEvent::Render(_) => {} // should be ignored.
                 // Received a request job?
                 JobEvent::RequestJob => {}
-                // Hmm?
-                JobEvent::Remove(ui) => {
+                // Remove Job entry from database
+                JobEvent::Remove(_) => {
                     // Should I do anything on the manager side? Shouldn't matter at this point?
                 }
             },

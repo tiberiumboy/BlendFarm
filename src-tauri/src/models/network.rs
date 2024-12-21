@@ -170,17 +170,13 @@ impl NetworkController {
             .expect("Command should not been dropped");
     }
 
-    pub async fn send_job_message(&mut self, event: JobEvent) {
+    pub async fn send_job_message(&mut self, target: PeerId, event: JobEvent) {
         self.sender
-            .send(NetCommand::JobStatus(event))
+            .send(NetCommand::JobStatus(target, event))
             .await
             .expect("Command should not be dropped");
     }
-
-    pub async fn send_to_target(&mut self, target: PeerId, data: String) {
-        // Hmm How can I approach this?
-    }
-    
+        
     // may not be in use?
     pub async fn share_computer_info(&mut self) {
         self.sender
@@ -369,18 +365,13 @@ impl NetworkService {
                     .unsubscribe(&ident_topic)
                     .unwrap();
             }
-            NetCommand::JobStatus(status) => {
+            NetCommand::JobStatus(target, status) => {
                 let data = bincode::serialize(&status).unwrap();
+                // TODO: Find a way to send JobStatus to target peer machine?
                 let topic = IdentTopic::new(JOB);
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to send job! {e:?}");
                 }
-            }
-            NetCommand::ToRequestor => {
-                self.swarm.behaviour_mut().
-            }   
-            NetCommand::FromRequestor => {
-
             }
         };
     }
