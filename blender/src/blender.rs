@@ -66,9 +66,9 @@ use crate::models::{
     status::Status,
 };
 
+use blend::Blend;
 #[cfg(test)]
 use blend::Instance;
-use blend::Blend;
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -242,32 +242,55 @@ impl Blender {
     // this is used to read and see blend file friendly view mode
     #[cfg(test)]
     #[allow(dead_code)]
-    fn explore_value<'a>( obj: &Instance<'a>) {
+    fn explore_value<'a>(obj: &Instance<'a>) {
         for i in &obj.fields {
             match i.1.is_primitive {
-                true => { 
+                true => {
                     match i.1.info {
                         blend::parsers::field::FieldInfo::Value => {
                             match i.1.type_name.as_str() {
-                                "int" => { println!("{}: {} = {} ",i.0, i.1.type_name, &obj.get_i32(i.0)); },
-                                "short" => { println!("{}: {} = {} ", i.0, i.1.type_name,&obj.get_u16(i.0)); },
-                                "char" => { println!("{}: {} = {} ", i.0, i.1.type_name,&obj.get_string(i.0)); },
-                                "float" => { println!("{}: {} = {}", i.0, i.1.type_name,&obj.get_f32(i.0)); },
-                                "uint64_t" => { println!("{}: {} = {}", i.0, i.1.type_name,&obj.get_u64(i.0)); },
-                                _ => println!("Unhandle value for {} | {}", i.1.type_name, i.0)
+                                "int" => {
+                                    println!("{}: {} = {} ", i.0, i.1.type_name, &obj.get_i32(i.0));
+                                }
+                                "short" => {
+                                    println!("{}: {} = {} ", i.0, i.1.type_name, &obj.get_u16(i.0));
+                                }
+                                "char" => {
+                                    println!(
+                                        "{}: {} = {} ",
+                                        i.0,
+                                        i.1.type_name,
+                                        &obj.get_string(i.0)
+                                    );
+                                }
+                                "float" => {
+                                    println!("{}: {} = {}", i.0, i.1.type_name, &obj.get_f32(i.0));
+                                }
+                                "uint64_t" => {
+                                    println!("{}: {} = {}", i.0, i.1.type_name, &obj.get_u64(i.0));
+                                }
+                                _ => println!("Unhandle value for {} | {}", i.1.type_name, i.0),
                             };
-                        },
+                        }
                         blend::parsers::field::FieldInfo::ValueArray { .. } => {
                             match i.1.type_name.as_str() {
-                                "char" => { println!("{}: String = {}", i.0, &obj.get_string(i.0)); },
-                                "float" => { println!("{}: vec<f32> = {:?}", i.0, &obj.get_f32_vec(i.0)); },
-                                _ => println!("Unhandle Value Array for {} | {}", i.1.type_name, i.0)
+                                "char" => {
+                                    println!("{}: String = {}", i.0, &obj.get_string(i.0));
+                                }
+                                "float" => {
+                                    println!("{}: vec<f32> = {:?}", i.0, &obj.get_f32_vec(i.0));
+                                }
+                                _ => {
+                                    println!("Unhandle Value Array for {} | {}", i.1.type_name, i.0)
+                                }
                             }
                         }
                         // blend::parsers::field::FieldInfo::PointerArray { .. } => todo!(),
                         // blend::parsers::field::FieldInfo::Pointer { indirection_count } => todo!(),
                         // blend::parsers::field::FieldInfo::FnPointer => todo!(),
-                        _ => { println!("Unhandle: {} | {} ", i.0, i.1.type_name)}
+                        _ => {
+                            println!("Unhandle: {} | {} ", i.0, i.1.type_name)
+                        }
                     }
                 }
                 false => {
@@ -325,7 +348,7 @@ impl Blender {
         // this denotes how many scene objects there are.
         for obj in blend.instances_with_code(*b"SC") {
             let scene = obj.get("id").get_string("name").replace("SC", ""); // not the correct name usage?
-            // get render data
+                                                                            // get render data
             let render = &obj.get("r");
 
             engine = render.get_string("engine"); // will show BLENDER_EEVEE_NEXT properly
@@ -340,7 +363,7 @@ impl Blender {
             frame_start = render.get_i32("sfra");
             frame_end = render.get_i32("efra");
             fps = render.get_u16("frs_sec");
-            output = render.get_string("pic");  // may not be necessary?
+            output = render.get_string("pic"); // may not be necessary?
 
             scenes.push(scene);
         }
@@ -384,7 +407,10 @@ impl Blender {
     /// let final_output = blender.render(&args).unwrap();
     /// ```
     // so instead of just returning the string of render result or blender error, we'll simply use the single producer to produce result from this class.
-    pub async fn render(&self, args: Args) -> Receiver<Status> {
+    pub async fn render<F>(&self, args: Args, get_next_frame: F) -> Receiver<Status>
+    where
+        F: Fn() -> Option<i32> + Send + Sync + 'static,
+    {
         let (rx, tx) = mpsc::channel::<Status>();
         let (signal, listener) = mpsc::channel::<Status>();
         let executable = self.executable.clone();
@@ -394,33 +420,15 @@ impl Blender {
             .await
             .expect("Fail to parse blend file!"); // TODO: Need to clean this error up a bit.
 
-        // with this define here, we can exclusively hold record of what frames remaining for this render
-        // if we receive a request from the host to reduce the frame count down, then we will find a way to adjust that accordingly.
-        let queue = match args.mode {
-            // if we just need to render one frame.
-            Mode::Frame(frame) => VecDeque::from_iter(frame..frame),
-            Mode::Animation { start, end } => VecDeque::from_iter(start..end),
-        };
-
-        let global_queue = Arc::new(Mutex::new(queue));
-        let queue_copy = global_queue.clone();
-
         let settings = BlenderRenderSetting::parse_from(&args, &blend_info);
         let global_settings = Arc::new(settings);
 
         let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8081);
         let mut server = Server::new();
 
-        server.register_simple("next_render_queue", move |_i: i32| {
-            if let Ok(mut data) = queue_copy.lock() {
-                if let Some(frame) = data.pop_front() {
-                    Ok(frame)
-                } else {
-                    Err(Fault::new(1, "No more frames to render!"))
-                }
-            } else {
-                Err(Fault::new(1, "Lock failed"))
-            }
+        server.register_simple("next_render_queue", move |_i: i32| match get_next_frame() {
+            Some(frame) => Ok(frame),
+            None => Err(Fault::new(1, "No more frames to render!")),
         });
 
         server.register_simple("fetch_info", move |_i: i32| {
@@ -433,12 +441,12 @@ impl Blender {
             .expect("Unable to open socket for xml_rpc!");
 
         // spin up XML-RPC server
-        spawn(async move { 
+        spawn(async move {
             loop {
                 // if the program shut down or if we've completed the render, then we should stop the server
                 match listener.try_recv() {
                     Ok(Status::Exit) => break,
-                    _ => bind_server.poll()
+                    _ => bind_server.poll(),
                 }
             }
         });

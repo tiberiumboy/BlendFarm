@@ -7,8 +7,7 @@
     - TODO: See about migrating Sender code into this module?
 */
 use crate::domains::job_store::JobError;
-use blender::blender::Blender;
-use blender::models::{args::Args, mode::Mode, status::Status};
+use blender::models::mode::Mode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -31,9 +30,8 @@ pub enum JobEvent {
 
 pub type Frame = i32;
 
-// how do I make this job extend it's lifespan? I need to monitor and regulate all on-going job method?
-// if a node joins the server, we automatically assign a new active job to the node.
-/// A container to hold rendering job information. This will be used to send off jobs to all other rendering farm
+// This job is created by the manager and will be used to help determine the individual task created for the workers
+// we will derive this job into separate task for individual workers to process based on chunk size.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Job {
     /// Unique job identifier
@@ -78,21 +76,6 @@ impl Job {
 
     pub fn get_version(&self) -> &Version {
         &self.blender_version
-    }
-
-    // Invoke blender to run the job
-    pub async fn run(
-        &mut self,
-        output: PathBuf,
-        blender: &Blender,
-    ) -> Result<std::sync::mpsc::Receiver<Status>, JobError> {
-        let file = self.project_file.clone();
-        let mode = self.mode.clone();
-        let args = Args::new(file, output, mode);
-
-        // TODO: How can I adjust blender jobs?
-        let receiver = blender.render(args).await;
-        Ok(receiver)
     }
 }
 

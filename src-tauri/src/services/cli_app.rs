@@ -138,7 +138,8 @@ impl CliApp {
                                 file_name: file_name.clone(),
                             };
                             client.start_providing(file_name, result).await;
-                            client.send_job_message(event).await;
+                            // here how do I get the job's requestor?
+                            client.send_job_message(requestor, event).await;
                         }
                         Status::Exit => {
                             client.send_job_message(JobEvent::JobComplete).await;
@@ -216,7 +217,7 @@ impl BlendFarm for CliApp {
             select! {
                 // here we can insert job_db here to receive event invocation from Tauri_app
                 Some(event) = event_receiver.recv() => self.handle_message(&mut client, event).await,
-                // Some(msg) = from_cli.recv() => Self::handle_command(&mut controller, msg).await,
+
                 // here we can fetch the next job available and see about what we can do to render the scene?
                 // Some(job) = current_job.take() => {
                 //     let db = self.job_store.write().await;

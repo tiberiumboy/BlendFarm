@@ -15,6 +15,8 @@ function App() {
   const [versions, setVersions] = useState([] as string[]);
   const [jobs, setJobs] = useState(fetchJobs);
 
+  listen("tauri://file-drop", event => { console.log(event); });
+
   const unlisten_job_complete = listen("job_image_complete", (event: any) => {
     console.log(event); // should be a path which we can load into the job props?
     let id = event.payload[0];
@@ -24,12 +26,12 @@ function App() {
     // I would have expect that this should not fail.. but if it does, I need to do something about it.
     let index = tmp.findIndex(j => j.id == id);
     console.log(tmp, index);
-    if (index === -1 ) {
+    if (index === -1) {
       console.error("Unable to find matching id from local collection to backend id? What did you do?");
       return;
     }
-    
-    if( tmp[index].renders === undefined ) {
+
+    if (tmp[index].renders === undefined) {
       tmp[index].renders = [path];
     } else {
       tmp[index].renders.unshift(path);
@@ -70,7 +72,7 @@ function App() {
   function onJobCreated(job: RenderJobProps): void {
     const data = [...jobs];
     data.push(job);
-    console.log("OnJobCreated",data);
+    console.log("OnJobCreated", data);
     setJobs(data);
   }
 
