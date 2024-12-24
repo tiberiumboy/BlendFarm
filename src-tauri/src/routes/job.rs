@@ -1,6 +1,5 @@
 use blender::models::mode::Mode;
 use semver::Version;
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{command, Error, State};
 use tokio::sync::Mutex;
@@ -10,19 +9,6 @@ use crate::{
     services::tauri_app::UiCommand,
 };
 
-// TODO: may no longer be needed?
-#[derive(Debug, Serialize, Deserialize)]
-pub struct JobQueue {
-    job: Job,
-    output: PathBuf,
-}
-
-impl JobQueue {
-    fn new(job: Job, output: PathBuf) -> Self {
-        Self { job, output }
-    }
-}
-
 #[command(async)]
 pub async fn create_job(
     state: State<'_, Mutex<AppState>>,
@@ -30,32 +16,30 @@ pub async fn create_job(
     version: Version,
     path: PathBuf,
     output: PathBuf,
-) -> Result<JobQueue, Error> {
-    let job = Job::new(path, version, mode);
+) -> Result<Job, Error> {
+    // this is definitely a hack and should probably handle unwrap functions()
+    let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
+    let job = Job::new(path, output, version, mode);
     let server = state.lock().await;
     let mut jobs = server.job_db.write().await;
     // use this to send the job over to database instead of command to network directly.
     // We're splitting this apart to rely on database collection instead of forcing to send command over.
     let _ = jobs.add_job(job.clone());
-
-    let file_name = job.get_file_name().unwrap().to_string();
-    let path = job.get_project_path().clone();
-
+    
     // send job to server
     if let Err(e) = server
         .to_network
-        .send(UiCommand::UploadFile(path, file_name))
+        .send(UiCommand::UploadFile(job.get_project_path().clone(), file_name))
         // .send(UiCommand::StartJob(job.clone()))
         .await
     {
         eprintln!("Fail to send job to the server! \n{e:?}");
     };
 
-    let job_queue = JobQueue::new(job, output);
-    Ok(job_queue)
+    Ok(job)
 }
 
-/// Abort the job if it's running and delete the entry from the collection list.
+/// just delete the job from database. Notify peers to abandon task matches job_id
 #[command(async)]
 pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> Result<(), ()> {
     let server = state.lock().await; // Should I worry about posion error?

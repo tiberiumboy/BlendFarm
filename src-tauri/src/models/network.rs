@@ -170,6 +170,7 @@ impl NetworkController {
             .expect("Command should not been dropped");
     }
 
+    // How do I get the peers info I want to communicate with?
     pub async fn send_job_message(&mut self, target: PeerId, event: JobEvent) {
         self.sender
             .send(NetCommand::JobStatus(target, event))
@@ -177,10 +178,10 @@ impl NetworkController {
             .expect("Command should not be dropped");
     }
         
-    // may not be in use?
-    pub async fn share_computer_info(&mut self) {
+    // Share computer info to 
+    pub async fn share_computer_info(&mut self, peer_id: PeerId) {
         self.sender
-            .send(NetCommand::SendIdentity)
+            .send(NetCommand::IncomingWorker(peer_id))
             .await
             .expect("Command should not have been dropped");
     }
@@ -282,11 +283,16 @@ impl NetworkController {
 pub struct NetworkService {
     // swarm behaviour - interface to the network
     swarm: Swarm<BlendFarmBehaviour>,
+    
     // receive Network command
     pub command_receiver: Receiver<NetCommand>,
+    
+    // Used to collect computer information to distribute across network.
     machine: Machine,
-    // send network events
+
+    // Send Network event to subscribers.
     event_sender: Sender<NetEvent>,
+
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<()>>,
     pending_request_file:
@@ -323,10 +329,11 @@ impl NetworkService {
                     .send_response(channel, FileResponse(file))
                     .expect("Connection to peer may still be open?");
             }
-            NetCommand::SendIdentity => {
+            NetCommand::IncomingWorker(peer_id) => {
                 let spec = ComputerSpec::new(&mut self.machine);
                 let data = bincode::serialize(&spec).unwrap();
                 let topic = IdentTopic::new(SPEC);
+                self.swarm.dial(peer_id);
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to send identity to swarm! {e:?}");
                 };
@@ -390,8 +397,9 @@ impl NetworkService {
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::RequestResponse(rr)) => {
                 self.handle_response(rr).await
             }
-            SwarmEvent::ConnectionEstablished { .. } => {
-                self.event_sender.send(NetEvent::OnConnected).await.unwrap();
+            // Once the swarm establish connection, we then send the peer_id we connected to.
+            SwarmEvent::ConnectionEstablished { peer_id, ..  } => {
+                self.event_sender.send(NetEvent::OnConnected(peer_id)).await.unwrap();
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
                 self.event_sender
@@ -498,9 +506,10 @@ impl NetworkService {
                     }
                 }
                 JOB => {
+                    let peer_id = self.swarm.local_peer_id();
                     let job_event =
                         bincode::deserialize(&message.data).expect("Fail to parse Job data!");
-                    if let Err(e) = self.event_sender.send(NetEvent::JobUpdate(job_event)).await {
+                    if let Err(e) = self.event_sender.send(NetEvent::JobUpdate(peer_id.clone(), job_event)).await {
                         eprintln!("Something failed? {e:?}");
                     }
                 }
@@ -515,6 +524,7 @@ impl NetworkService {
         }
     }
 
+    // Handle kademila events (Used for file sharing)
     async fn handle_kademila(&mut self, event: kad::Event) {
         match event {
             kad::Event::OutboundQueryProgressed {

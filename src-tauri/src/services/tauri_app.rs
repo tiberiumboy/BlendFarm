@@ -1,19 +1,14 @@
 use crate::{
     domains::{job_store::JobStore, worker_store::WorkerStore},
     models::{
-        app_state::AppState,
-        computer_spec::ComputerSpec,
-        job::{Job, JobEvent},
-        message::{NetEvent, NetworkError},
-        network::{NetworkController, HEARTBEAT, JOB, SPEC, STATUS},
-        server_setting::ServerSetting,
-        worker::Worker,
+        app_state::AppState, computer_spec::ComputerSpec, job::{Job, JobEvent}, message::{NetEvent, NetworkError}, network::{NetworkController, HEARTBEAT, JOB, SPEC, STATUS}, server_setting::ServerSetting, task::Task, worker::Worker
     },
     routes::{job::*, remote_render::*, settings::*},
 };
 use blender::manager::Manager as BlenderManager;
 use libp2p::PeerId;
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use surrealdb::{engine::local::Db, Surreal};
+use std::{collections::{HashMap, VecDeque}, path::PathBuf, sync::Arc};
 use tauri::{self, App, AppHandle, Emitter, Manager};
 use tokio::{
     select, spawn,
@@ -23,6 +18,7 @@ use tokio::{
     },
 };
 use uuid::Uuid;
+use blender::models::mode::Mode;
 
 /*
     Dev blog:
@@ -41,7 +37,10 @@ pub enum UiCommand {
     RemoveJob(Uuid),
 }
 
-use super::blend_farm::BlendFarm;
+use super::{blend_farm::BlendFarm, data_store::{surrealdb_job_store::SurrealDbJobStore, surrealdb_worker_store::SurrealDbWorkerStore}};
+
+// TODO: make this user adjustable.
+const MAX_BLOCK_SIZE: i32 = 30;
 
 pub struct TauriApp {
     peers: HashMap<PeerId, ComputerSpec>,
@@ -50,10 +49,13 @@ pub struct TauriApp {
 }
 
 impl TauriApp {
-    pub fn new(
-        worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static)>>,
-        job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>,
+        pub fn new(
+            db: Arc<RwLock<Surreal<Db>>>
     ) -> Self {
+
+        let job_store = Arc::new(RwLock::new(SurrealDbJobStore::new(db.clone())));
+        let worker_store = Arc::new(RwLock::new(SurrealDbWorkerStore::new(db)));
+
         Self {
             peers: Default::default(),
             worker_store,
@@ -108,18 +110,63 @@ impl TauriApp {
             .build(tauri::generate_context!())
     }
 
+    async fn get_idle_peers(&self) -> PeerId {   
+        // this will destroy the vector anyway.
+        // TODO: Impl. Round Robin or pick first idle worker, whichever have the most common hardware first in query?
+        match self.peers.clone().into_iter().nth(0) {
+            Some((peer, ..)) => peer,
+            None => PeerId::random(),
+        }
+    }
+
+
+
     // command received from UI
     async fn handle_ui_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
         match cmd {
             UiCommand::StartJob(job) => {
                 // first make the file available on the network
-                let file_name = job.get_file_name().unwrap().to_string();
+                let file_name = job.get_file_name().to_owned();
                 let path = job.get_project_path().clone();
-                client.start_providing(file_name, path).await;
-                for (peer,  _) in self.peers.clone() {
-                    // TODO: Change this to rely on database instead!
-                    // TODO: Find a way to create batch jobs instead of sending the whole frame to all peers.
-                    client.send_job_message(peer, JobEvent::Render(job.clone())).await;
+                
+                // Make the file providable.
+                client.start_providing(file_name.clone(), path).await;
+                
+                
+                match job.mode {
+                    Mode::Frame(frame) => {
+                        // send one peer the job.
+                        let peer = self.get_idle_peers().await; 
+                        let requestor = client.get_local_peer().await; 
+                        // Create one task 
+                        let chunks = [frame].into();
+                        let task = Task::new(requestor, job.id, file_name.clone(), job.get_version().clone(), chunks);
+                        let event = JobEvent::Render(task);
+                        client.send_job_message(peer, event).await;
+                    },
+                    Mode::Animation(ref range) => {
+                        // What if it's in the negative? e.g. [-200, 2 ] ? would this result to -180 and what happen to the equation?
+                        let offset = range.end - range.start;
+                        let requestor = client.get_local_peer().await;
+
+                        // TODO: Check for negative? What will that impact    
+                        // the rule should be ( ( frame - offset ) % SIZE + 1 ) * SIZE + offset 
+                        for i in 0..= offset % MAX_BLOCK_SIZE {
+                            let block = i * MAX_BLOCK_SIZE;
+                            let start = block + offset;
+                            let end = start + MAX_BLOCK_SIZE;
+                            let end = match end.cmp(&range.end) {
+                                std::cmp::Ordering::Less => end,
+                                _ => range.end,
+                            };
+
+                            let frames: VecDeque<i32> = (start..=end).map(i32::from).collect();   // E.g. (101..=236)
+                            let task = Task::new(requestor, job.id, file_name.clone(), job.get_version().clone(), frames);
+                            let peer = self.get_idle_peers().await; // this means I must wait for a active peers?
+                            let event = JobEvent::Render(task);
+                            client.send_job_message(peer, event).await;
+                        }
+                    }
                 }
             }
             UiCommand::UploadFile(path, file_name) => {
@@ -174,7 +221,7 @@ impl TauriApp {
                         .await
                 }
             }
-            NetEvent::JobUpdate(job_event) => match job_event {
+            NetEvent::JobUpdate(.., job_event) => match job_event {
                 // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
                 JobEvent::ImageCompleted {
                     job_id: id,

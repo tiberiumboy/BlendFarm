@@ -33,9 +33,7 @@ use models::{app_state::AppState, server_setting::ServerSetting};
 use services::{
     blend_farm::BlendFarm,
     cli_app::CliApp,
-    data_store::{
-        surrealdb_job_store::SurrealDbJobStore, surrealdb_worker_store::SurrealDbWorkerStore,
-    },
+    data_store::surrealdb_worker_store::SurrealDbWorkerStore,
     tauri_app::TauriApp,
 };
 use std::sync::Arc;
@@ -71,6 +69,11 @@ async fn config_surreal_db() -> Surreal<Db> {
         .use_db("BlendFarm")
         .await
         .expect("Failed to specify namespace/database!");
+    // make sure the schema is setup properly
+    db.query(r#"
+        DEFINE TABLE IF NOT EXISTS task SCHEMALESS;
+        DEFINE FIELD IF NOT EXISTS peer_id TYPE 
+    "#).await.expect("Should have permission to check for database schema");
     db
 }
 
@@ -87,7 +90,6 @@ pub async fn run() {
     let db = config_surreal_db().await;
     let db = Arc::new(RwLock::new(db));
     let worker_store = Arc::new(RwLock::new(SurrealDbWorkerStore::new(db.clone())));
-    let job_store = Arc::new(RwLock::new(SurrealDbJobStore::new(db)));
 
     // must have working network services
     let (service, controller, receiver) =
@@ -98,10 +100,12 @@ pub async fn run() {
 
     if let Err(e) = match cli.command {
         // run as client mode.
-        Some(Commands::Client) => CliApp::new(job_store).run(controller, receiver).await,
+        Some(Commands::Client) => 
+            CliApp::new(job_store)
+                .run(controller, receiver).await,
         // run as GUI mode.
         _ => {
-            TauriApp::new(worker_store, job_store)
+            TauriApp::new(db)
                 .run(controller, receiver)
                 .await
         }

@@ -47,7 +47,8 @@ impl JobStore for SurrealDbJobStore {
     async fn list_all(&self) -> Result<Vec<Job>, JobError> {
         let db = self.conn.read().await;
         let entry: Vec<Job> = db
-            .select(JOB_TABLE_NAME)
+            .query(r#"SELECT * FROM task WHERE id = $record_id;"#)
+            .bind(("record_id", self.))
             .await
             .map_err(|e| JobError::DatabaseError(e.to_string()))?;
         Ok(entry)

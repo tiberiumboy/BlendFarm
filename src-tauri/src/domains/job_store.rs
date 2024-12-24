@@ -1,4 +1,4 @@
-use crate::models::job::Job;
+use crate::models::{job::Job, task::TaskError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid; 
@@ -12,6 +12,8 @@ pub enum JobError {
     InvalidFile(String),
     #[error("Received Database errors! {0}")]
     DatabaseError(String),
+    #[error("Task error")]
+    TaskError(#[from] TaskError),
 }
 
 #[async_trait::async_trait]

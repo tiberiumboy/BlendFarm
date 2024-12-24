@@ -27,7 +27,6 @@ use std::path::PathBuf;
 pub struct Args {
     pub file: PathBuf,          // required
     pub output: PathBuf,        // optional
-    pub mode: Mode,             // required
     pub engine: Engine,         // optional
     pub device: Device,         // optional
     pub format: Format,         // optional - default to Png
@@ -35,11 +34,10 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn new(file: PathBuf, output: PathBuf, mode: Mode) -> Self {
+    pub fn new(file: PathBuf, output: PathBuf) -> Self {
         Args {
             file: file,
             output: output,
-            mode,
             // TODO: Change this so that we can properly reflect the engine used by A) Blendfile B) User request, and C) allowlist from machine config
             engine: Default::default(),
             device: Default::default(),

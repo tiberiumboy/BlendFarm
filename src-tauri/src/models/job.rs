@@ -6,6 +6,7 @@
     - I need to fetch the handles so that I can maintain and monitor all node activity.
     - TODO: See about migrating Sender code into this module?
 */
+use super::task::Task;
 use crate::domains::job_store::JobError;
 use blender::models::mode::Mode;
 use semver::Version;
@@ -14,9 +15,10 @@ use std::collections::HashMap;
 use std::{hash::Hash, path::PathBuf};
 use uuid::Uuid;
 
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum JobEvent {
-    Render(Job),
+    Render(Task),
     Remove(Uuid),
     RequestJob,
     ImageCompleted {
@@ -35,25 +37,28 @@ pub type Frame = i32;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Job {
     /// Unique job identifier
-    id: Uuid,
-    /// What kind of mode should this job run as
-    mode: Mode,
+    pub id: Uuid,
+    /// contains the information to specify the kind of job to render (We could auto fill this from blender peek function?)
+    pub mode: Mode,
     /// Path to blender files
     project_file: PathBuf,
     // target blender version
     blender_version: Version,
+    // target output destination
+    output: PathBuf,
     // completed render data.
     // TODO: discuss this? Let's map this out and see how we can better utilize this structure?
     renders: HashMap<Frame, PathBuf>,
 }
 
 impl Job {
-    pub fn new(project_file: PathBuf, blender_version: Version, mode: Mode) -> Job {
+    pub fn new(project_file: PathBuf, output: PathBuf, blender_version: Version, mode: Mode) -> Job {
         Job {
             id: Uuid::new_v4(),
+            mode,
             project_file,
             blender_version,
-            mode,
+            output,
             renders: Default::default(),
         }
     }
@@ -62,16 +67,8 @@ impl Job {
         &self.project_file
     }
 
-    pub fn set_project_path(mut self, new_path: PathBuf) -> Self {
-        self.project_file = new_path;
-        self
-    }
-
-    pub fn get_file_name(&self) -> Option<&str> {
-        match self.project_file.file_name() {
-            Some(v) => v.to_str(),
-            None => None,
-        }
+    pub fn get_file_name(&self) -> &str { 
+        self.project_file.file_name().unwrap().to_str().unwrap()
     }
 
     pub fn get_version(&self) -> &Version {
@@ -85,7 +82,7 @@ impl AsRef<Uuid> for Job {
     }
 }
 
-impl PartialEq for Job {
+    impl PartialEq for Job {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }

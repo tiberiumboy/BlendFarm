@@ -10,62 +10,66 @@ Feature request:
 */
 use super::blend_farm::BlendFarm;
 use crate::{
-    domains::job_store::JobStore,
+    domains::{job_store::JobStore, task_store::TaskStore},
     models::{
         job::{Job, JobEvent},
         message::{NetEvent, NetworkError},
-        network::{NetworkController, JOB},
+        network::{NetworkController, JOB}, task::Task,
     },
 };
-use async_trait::async_trait;
 use blender::blender::Manager as BlenderManager;
 use blender::models::status::Status;
+use libp2p::PeerId;
 use tokio::{
     select,
-    sync::{mpsc::Receiver, RwLock},
+    sync::{mpsc::Receiver, RwLock}, task::JoinHandle,
 };
 
 pub struct CliApp {
     manager: BlenderManager,
     job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>,
+    task_store: Arc<RwLock<(dyn TaskStore + Send + Sync + 'static)>>,
+    task_handle: Option<JoinHandle<()>>, // isntead of this, we should hold task_handler. That way, we can abort it when we receive the invocation to do so.
 }
 
 impl CliApp {
-    pub fn new(job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>) -> Self {
+    pub fn new(job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>, task_store: Arc<RwLock<(dyn TaskStore + Send + Sync + 'static)>>) -> Self {
         let manager = BlenderManager::load();
-        Self { manager, job_store }
+        Self { manager, job_store, task_store, task_handle: None }
     }
 }
 
 impl CliApp {
-    // TODO: May have to refactor this to take consideration of Job Storage
-    async fn render_job(&mut self, client: &mut NetworkController, job: Job) {
-        let status = format!("Receive render job [{}]", job.as_ref());
-        client.send_status(status).await;
 
-        let file_name = job.get_file_name().unwrap().to_string();
-        let id = job.as_ref().clone();
+    // TODO: May have to refactor this to take consideration of Job Storage
+    // How do I abort the job?
+    // Invokes the render job. The task needs to be mutable for frame deque.
+    async fn render_task(&mut self, requestor: PeerId, client: &mut NetworkController, task: &mut Task) {
+        let status = format!("Receive task from peer [{:?}]", task);
+        client.send_status(status).await;
+        let id = task.job_id;
+        
         // create a path link where we think the file should be
         let blend_dir = client.settings.blend_dir.join(id.to_string());
         if let Err(e) = async_std::fs::create_dir_all(&blend_dir).await {
             eprintln!("Error creating blend directory! {e:?}");
         }
+
         // assume project file is located inside this directory.
-        let project_file = blend_dir.join(&file_name); // append the file name here instead.
+        let project_file = blend_dir.join(&task.blend_file_name); // append the file name here instead.
 
         client
             .send_status(format!("Checking for project file {:?}", &project_file))
             .await;
-        let mut job = job.set_project_path(project_file.clone());
 
         // Fetch the project from peer if we don't have it.
         if !project_file.exists() {
             println!(
                 "Project file do not exist, asking to download from host: {:?}",
-                &file_name
+                &task.blend_file_name
             );
             // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
-            match client.get_file_from_peers(&file_name, &blend_dir).await {
+            match client.get_file_from_peers(&task.blend_file_name, &blend_dir).await {
                 Ok(path) => println!("File successfully download from peers! path: {path:?}"),
                 Err(e) => match e {
                     NetworkError::UnableToListen(_) => todo!(),
@@ -89,7 +93,7 @@ impl CliApp {
         // here we'll ask if we have blender installed before usage
         let blender = self
             .manager
-            .fetch_blender(job.get_version())
+            .fetch_blender(&task.blender_version)
             .expect("Fail to download blender");
 
         // TODO: Call other network on specific topics to see if there's a version available.
@@ -109,7 +113,7 @@ impl CliApp {
         }
 
         // run the job!
-        match job.run(output, &blender).await {
+        match task.run(project_file, output, &blender).await {
             Ok(rx) => loop {
                 if let Ok(status) = rx.recv() {
                     match status {
@@ -142,35 +146,28 @@ impl CliApp {
                             client.send_job_message(requestor, event).await;
                         }
                         Status::Exit => {
-                            client.send_job_message(JobEvent::JobComplete).await;
+                            client.send_job_message(requestor, JobEvent::JobComplete).await;
                             break;
                         }
                     };
                 }
             },
             Err(e) => {
-                client.send_job_message(JobEvent::Error(e)).await;
+                client.send_job_message(requestor, JobEvent::Error(e.into())).await;
             }
         };
     }
 
     async fn handle_message(&mut self, client: &mut NetworkController, event: NetEvent) {
         match event {
-            NetEvent::OnConnected => client.share_computer_info().await,
+            NetEvent::OnConnected(peer_id) => client.share_computer_info(peer_id).await,
             NetEvent::NodeDiscovered(..) => {}  // Ignored
             NetEvent::NodeDisconnected(_) => {} // ignored
-            NetEvent::JobUpdate(job_event) => match job_event {
-                JobEvent::Render(job) => {
-                    {
-                        let mut db = self.job_store.write().await;
-                        if let Err(e) = db.add_job(job.clone()).await {
-                            eprintln!("Fail to save job to database! {e:?}");
-                        } else {
-                            println!("Added job to database!");
-                        }
-                    };
-                    self.render_job(client, job).await;
-                }
+            NetEvent::JobUpdate(peer_id, job_event) => match job_event {
+                // on render task received, we should store this in the database.
+                JobEvent::Render(mut task) => {
+                    self.render_task(peer_id, client, &mut task).await
+                },
                 JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
                 // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
                 JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
@@ -198,7 +195,7 @@ impl CliApp {
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl BlendFarm for CliApp {
     async fn run(
         mut self,
@@ -217,18 +214,11 @@ impl BlendFarm for CliApp {
             select! {
                 // here we can insert job_db here to receive event invocation from Tauri_app
                 Some(event) = event_receiver.recv() => self.handle_message(&mut client, event).await,
-
-                // here we can fetch the next job available and see about what we can do to render the scene?
-                // Some(job) = current_job.take() => {
-                //     let db = self.job_store.write().await;
-
-                //     current_job = self.
-                // }
+                // how do I poll database here?
+                // Some(task) = db.poll_task().await => self.handle_poll(&)
+                
                 // how do I poll the machine specs in certain intervals?
-                // Some(event) = self.machine.
             }
         }
-        // if somehow we were able to get out of the loop, we would best send a shutdown notice here.
-        // client.shutdown().await;
     }
 }

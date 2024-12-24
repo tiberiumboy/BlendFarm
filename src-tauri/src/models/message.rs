@@ -28,7 +28,7 @@ pub enum NetworkError {
 // Send commands to network.
 #[derive(Debug)]
 pub enum NetCommand {
-    SendIdentity,
+    IncomingWorker(PeerId),
     Status(String),
     SubscribeTopic(String),
     UnsubscribeTopic(String),
@@ -59,7 +59,7 @@ pub enum NetCommand {
 pub enum NetEvent {
     // Share basic computer configuration for sharing Blender compatible executable over the network. (To help speed up the installation over the network.)
     Status(PeerId, String), // Receive message status (To GUI?) Could I treat this like Chat messages?
-    OnConnected,
+    OnConnected(PeerId),
     NodeDiscovered(PeerId, ComputerSpec), 
     // TODO: Future impl. Use this to send computer activity
     // Heartbeat() // share hardware statistic monitor heartbeat. (CPU/GPU/RAM activity readings)
@@ -68,5 +68,5 @@ pub enum NetEvent {
         request: String,
         channel: ResponseChannel<FileResponse>,
     },
-    JobUpdate(JobEvent),
+    JobUpdate(PeerId, JobEvent),
 }
