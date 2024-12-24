@@ -4,11 +4,8 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-fn get_next_frame() -> Option<i32> {
-    Some(1)
-}
-
 // This struct will hold information necessary to render what next frame blender requested.
+// You can create your own custom class to hold how blender should render per frame.
 #[derive(Debug)]
 struct Test {
     start: i32,
@@ -23,13 +20,12 @@ impl Test {
         }
     }
 
-    // this seems to return the start frame exclusive.
-    // e.g. 2 - 10, frame 2 got skipped!
+    // denotes the function on how to render the frame
     pub fn get_next_frame(&mut self) -> Option<i32> {
-        dbg!(&self);
-        if self.start < self.end {
+        if self.start <= self.end {
+            let val = self.start;
             self.start = self.start + 1;
-            return Some(self.start);
+            return Some(val);
         }
         None
     }
@@ -60,13 +56,12 @@ async fn render_with_manager() {
     let args = Args::new(blend_path, output);
     let frames = Test::new(Range { start: 2, end: 10 });
     let frames = Arc::new(RwLock::new(frames));
+
     // render the frame. Completed render will return the path of the rendered frame, error indicates failure to render due to blender incompatible hardware settings or configurations. (CPU vs GPU / Metal vs OpenGL)
     let listener = blender
         .render(args, move || {
             let mut frame = frames.write().unwrap();
-            let val = frame.get_next_frame();
-            dbg!(&val);
-            val
+            frame.get_next_frame()
         })
         .await;
 
