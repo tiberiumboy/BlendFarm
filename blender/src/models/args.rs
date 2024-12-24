@@ -18,7 +18,7 @@
 
 // May Subject to change.
 
-use crate::models::{device::Device, engine::Engine, format::Format, mode::Mode};
+use crate::models::{device::Device, engine::Engine, format::Format};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 

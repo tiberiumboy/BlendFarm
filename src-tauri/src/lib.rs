@@ -30,11 +30,10 @@ Developer blog:
 use clap::{Parser, Subcommand};
 use models::network;
 use models::{app_state::AppState, server_setting::ServerSetting};
+use services::data_store::surrealdb_task_store::SurrealDbTaskStore;
 use services::{
-    blend_farm::BlendFarm,
-    cli_app::CliApp,
-    data_store::surrealdb_worker_store::SurrealDbWorkerStore,
-    tauri_app::TauriApp,
+    blend_farm::BlendFarm, cli_app::CliApp,
+    data_store::surrealdb_worker_store::SurrealDbWorkerStore, tauri_app::TauriApp,
 };
 use std::sync::Arc;
 use surrealdb::{
@@ -70,10 +69,14 @@ async fn config_surreal_db() -> Surreal<Db> {
         .await
         .expect("Failed to specify namespace/database!");
     // make sure the schema is setup properly
-    db.query(r#"
+    db.query(
+        r#"
         DEFINE TABLE IF NOT EXISTS task SCHEMALESS;
         DEFINE FIELD IF NOT EXISTS peer_id TYPE 
-    "#).await.expect("Should have permission to check for database schema");
+    "#,
+    )
+    .await
+    .expect("Should have permission to check for database schema");
     db
 }
 
@@ -89,8 +92,7 @@ pub async fn run() {
     // create a database instance
     let db = config_surreal_db().await;
     let db = Arc::new(RwLock::new(db));
-    let worker_store = Arc::new(RwLock::new(SurrealDbWorkerStore::new(db.clone())));
-
+    let task_store = Arc::new(RwLock::new(SurrealDbTaskStore::new(db.clone())));
     // must have working network services
     let (service, controller, receiver) =
         network::new().await.expect("Fail to start network service");
@@ -100,15 +102,9 @@ pub async fn run() {
 
     if let Err(e) = match cli.command {
         // run as client mode.
-        Some(Commands::Client) => 
-            CliApp::new(job_store)
-                .run(controller, receiver).await,
+        Some(Commands::Client) => CliApp::new(task_store).run(controller, receiver).await,
         // run as GUI mode.
-        _ => {
-            TauriApp::new(db)
-                .run(controller, receiver)
-                .await
-        }
+        _ => TauriApp::new(db).run(controller, receiver).await,
     } {
         eprintln!("Something went terribly wrong? {e:?}");
     }

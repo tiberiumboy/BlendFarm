@@ -1,40 +1,53 @@
 use futures::StreamExt;
-use libp2p::PeerId;
 use std::sync::Arc;
 use surrealdb::{engine::local::Db, opt::Resource, Action, Notification, Surreal};
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
-use crate::{domains::task_store::{TaskError, TaskStore}, models::task::Task};
+use crate::{
+    domains::task_store::{TaskError, TaskStore},
+    models::task::Task,
+};
 
 const TASK_STORE_TABLE: &str = "tasks";
 
-pub struct SurrealTaskStore {
-    pub conn: Arc<RwLock<Surreal<Db>>>,
+pub struct SurrealDbTaskStore {
+    conn: Arc<RwLock<Surreal<Db>>>,
 }
 
-impl SurrealTaskStore {
-    async fn handle(&mut self, result: Result<Notification<Task>,TaskError>) -> Result<Task, TaskError> {
-        
-        match result {
-            Ok(notify) if notify.action == Action::Create => Ok( notify.data ),
-            Err(e) => Err(e),
-            _ => todo!("Unhandle result? {result:?}")
-        }
+impl SurrealDbTaskStore {
+    pub fn new(conn: Arc<RwLock<Surreal<Db>>>) -> Self {
+        Self { conn }
     }
+
+    // huh?
+    // async fn handle(
+    //     &mut self,
+    //     result: Result<Notification<Task>, TaskError>,
+    // ) -> Result<Task, TaskError> {
+    //     match result {
+    //         Ok(notify) if notify.action == Action::Create => Ok(notify.data),
+    //         Err(e) => Err(e),
+    //         _ => todo!("Unhandle result? {result:?}"),
+    //     }
+    // }
 }
 
 #[async_trait::async_trait]
-impl TaskStore for SurrealTaskStore {
-
-    async fn add_task(&mut self, requestor: PeerId, task: Task) -> Result<(), TaskError> {
-        let db = self.conn.write().await; 
-        db
-            .create(Resource::new((TASK_STORE_TABLE, requestor.public())))
-            .content(task).await.map_err(|e| TaskError::DatabaseError(e.to_string()))?;
+impl TaskStore for SurrealDbTaskStore {
+    async fn add_task(&mut self, task: Task) -> Result<(), TaskError> {
+        let db = self.conn.write().await;
+        db.create(Resource::from((
+            TASK_STORE_TABLE,
+            task.get_peer_id().to_base58(),
+        )))
+        .content(task)
+        .await
+        .map_err(|e| TaskError::DatabaseError(e.to_string()))?;
         Ok(())
     }
 
-    async fn poll_task(&mut self) -> Result<(PeerId, Task), TaskError> {
+    async fn poll_task(&mut self) -> Result<Task, TaskError> {
         let db = self.conn.write().await;
         let mut stream = db
             .select(TASK_STORE_TABLE)
@@ -46,12 +59,23 @@ impl TaskStore for SurrealTaskStore {
             _ => Err(TaskError::Unknown),
         }
     }
-    
-    async fn delete_task(&mut self, task: Task ) -> Result<(), TaskError> {
 
+    async fn delete_task(&mut self, task: Task) -> Result<(), TaskError> {
         let db = self.conn.write().await;
-        // is it possible that this function could help identify target record or criteria?
-        db.delete(Resource::new((TASK_STORE_TABLE, task))).await;
+        let _: Option<Task> = db
+            .delete((TASK_STORE_TABLE, task.get_peer_id().to_base58()))
+            .await
+            .map_err(|e| TaskError::DatabaseError(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn delete_job_task(&mut self, job_id: Uuid) -> Result<(), TaskError> {
+        let db = self.conn.write().await;
+        let _ = db
+            .query(r#"DELETE task WHERE job_id = $job_id"#)
+            .bind(("job_id", job_id.to_string()))
+            .await
+            .map_err(|e| TaskError::DatabaseError(e.to_string()))?;
         Ok(())
     }
 }

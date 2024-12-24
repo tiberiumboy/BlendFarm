@@ -1,6 +1,9 @@
-use crate::{domains::job_store::{JobError, JobStore}, models::job::Job};
-use surrealdb::{engine::local::Db, Surreal};
+use crate::{
+    domains::job_store::{JobError, JobStore},
+    models::job::Job,
+};
 use std::sync::Arc;
+use surrealdb::{engine::local::Db, opt::Resource, Surreal};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -20,35 +23,34 @@ impl SurrealDbJobStore {
 impl JobStore for SurrealDbJobStore {
     async fn add_job(&mut self, job: Job) -> Result<(), JobError> {
         let db = self.conn.write().await;
-        let entry: Option<Job> = db
-            .create(JOB_TABLE_NAME)
+        let _ = db
+            .create(Resource::from((JOB_TABLE_NAME, job.id.to_string())))
             .content(job)
             .await
             .map_err(|e| JobError::DatabaseError(e.to_string()))?;
-        match entry {
-            Some(_) => Ok(()),
-            None => Err(JobError::DatabaseError("Unable to create new job entry!".to_owned()))
-        }
+        Ok(())
     }
 
     async fn update_job(&mut self, job: Job) -> Result<(), JobError> {
         let db = self.conn.write().await;
         let id = job.as_ref().to_string();
-        let entry: Option<Job> = db.update((JOB_TABLE_NAME, id))
+        let entry: Option<Job> = db
+            .update((JOB_TABLE_NAME, id))
             .merge(job)
             .await
             .map_err(|e| JobError::DatabaseError(e.to_string()))?;
         match entry {
             Some(_) => Ok(()),
-            None => Err(JobError::DatabaseError("Unable to update job! Maybe a mismatch id somewhere?".to_owned())) 
+            None => Err(JobError::DatabaseError(
+                "Unable to update job! Maybe a mismatch id somewhere?".to_owned(),
+            )),
         }
     }
-    
+
     async fn list_all(&self) -> Result<Vec<Job>, JobError> {
         let db = self.conn.read().await;
         let entry: Vec<Job> = db
-            .query(r#"SELECT * FROM task WHERE id = $record_id;"#)
-            .bind(("record_id", self.))
+            .select(JOB_TABLE_NAME)
             .await
             .map_err(|e| JobError::DatabaseError(e.to_string()))?;
         Ok(entry)
@@ -57,14 +59,16 @@ impl JobStore for SurrealDbJobStore {
     async fn delete_job(&mut self, id: Uuid) -> Result<(), JobError> {
         let db = self.conn.write().await;
         let entry: Option<Job> = db
-        .delete((JOB_TABLE_NAME, id.to_string()))
-        .await
-        .map_err(|e| JobError::DatabaseError(e.to_string()))?;   // TODO: find out the code to delete specific person name.
-    
+            .delete((JOB_TABLE_NAME, id.to_string()))
+            .await
+            .map_err(|e| JobError::DatabaseError(e.to_string()))?; // TODO: find out the code to delete specific person name.
+
         // TODO: Find out how I can handle this? What does None means?
         match entry {
             Some(_) => Ok(()),
-            None => Err(JobError::DatabaseError("Fail to delete job? Why?".to_owned())) 
+            None => Err(JobError::DatabaseError(
+                "Fail to delete job? Why?".to_owned(),
+            )),
         }
     }
 }

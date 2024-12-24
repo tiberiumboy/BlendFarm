@@ -60,7 +60,6 @@ private and public method are unorganized.
 extern crate xml_rpc;
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
-use crate::models::mode::Mode;
 use crate::models::{
     blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderRenderSetting,
     status::Status,
@@ -72,10 +71,9 @@ use blend::Instance;
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::{
     fs,
     io::{BufRead, BufReader},

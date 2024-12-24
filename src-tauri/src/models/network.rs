@@ -7,9 +7,8 @@ use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
 use futures::{channel::oneshot, prelude::*, StreamExt};
 use libp2p::{
-    ping,
     gossipsub::{self, IdentTopic},
-    kad, mdns,
+    kad, mdns, ping,
     swarm::{Swarm, SwarmEvent},
     tcp, Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
 };
@@ -54,9 +53,8 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .expect("Should be able to build with tcp configuration?")
         .with_quic()
         .with_behaviour(|key| {
-
             let ping_config = ping::Config::default();
-            let ping = ping::Behaviour::new(ping_config);  
+            let ping = ping::Behaviour::new(ping_config);
 
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(Duration::from_secs(10))
@@ -121,6 +119,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
     // the event sender is used to handle incoming network message. E.g. RunJob
     let (event_sender, event_receiver) = mpsc::channel::<NetEvent>(32);
 
+    let local_peer_id = swarm.local_peer_id().clone();
     Ok((
         NetworkService {
             swarm,
@@ -135,16 +134,20 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
             sender: command_sender,
             settings: ServerSetting::load(),
             providing_files: Default::default(),
+            // there could be some other factor this this may not work as intended? Let's find out soon!
+            public_id: local_peer_id,
         },
         event_receiver,
     ))
 }
 
+// strange that I don't have the local peer id?
 #[derive(Clone)]
 pub struct NetworkController {
     sender: mpsc::Sender<NetCommand>,
     pub settings: ServerSetting,
     pub providing_files: HashMap<String, PathBuf>,
+    pub public_id: PeerId,
 }
 
 impl NetworkController {
@@ -170,6 +173,10 @@ impl NetworkController {
             .expect("Command should not been dropped");
     }
 
+    pub fn get_local_peer(&self) -> &PeerId {
+        &self.public_id
+    }
+
     // How do I get the peers info I want to communicate with?
     pub async fn send_job_message(&mut self, target: PeerId, event: JobEvent) {
         self.sender
@@ -177,8 +184,8 @@ impl NetworkController {
             .await
             .expect("Command should not be dropped");
     }
-        
-    // Share computer info to 
+
+    // Share computer info to
     pub async fn share_computer_info(&mut self, peer_id: PeerId) {
         self.sender
             .send(NetCommand::IncomingWorker(peer_id))
@@ -283,10 +290,10 @@ impl NetworkController {
 pub struct NetworkService {
     // swarm behaviour - interface to the network
     swarm: Swarm<BlendFarmBehaviour>,
-    
+
     // receive Network command
     pub command_receiver: Receiver<NetCommand>,
-    
+
     // Used to collect computer information to distribute across network.
     machine: Machine,
 
@@ -333,7 +340,7 @@ impl NetworkService {
                 let spec = ComputerSpec::new(&mut self.machine);
                 let data = bincode::serialize(&spec).unwrap();
                 let topic = IdentTopic::new(SPEC);
-                self.swarm.dial(peer_id);
+                let _ = self.swarm.dial(peer_id);
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to send identity to swarm! {e:?}");
                 };
@@ -374,7 +381,11 @@ impl NetworkService {
             }
             NetCommand::JobStatus(target, status) => {
                 let data = bincode::serialize(&status).unwrap();
-                // TODO: Find a way to send JobStatus to target peer machine?
+
+                // TODO: Read more about libp2p and how I can just connect to one machine and send that machine job status information.
+                let _ = self.swarm.dial(target);
+
+                // TODO: Find a way to send JobEvent to specific target machine?
                 let topic = IdentTopic::new(JOB);
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to send job! {e:?}");
@@ -398,8 +409,11 @@ impl NetworkService {
                 self.handle_response(rr).await
             }
             // Once the swarm establish connection, we then send the peer_id we connected to.
-            SwarmEvent::ConnectionEstablished { peer_id, ..  } => {
-                self.event_sender.send(NetEvent::OnConnected(peer_id)).await.unwrap();
+            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+                self.event_sender
+                    .send(NetEvent::OnConnected(peer_id))
+                    .await
+                    .unwrap();
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
                 self.event_sender
@@ -509,7 +523,11 @@ impl NetworkService {
                     let peer_id = self.swarm.local_peer_id();
                     let job_event =
                         bincode::deserialize(&message.data).expect("Fail to parse Job data!");
-                    if let Err(e) = self.event_sender.send(NetEvent::JobUpdate(peer_id.clone(), job_event)).await {
+                    if let Err(e) = self
+                        .event_sender
+                        .send(NetEvent::JobUpdate(peer_id.clone(), job_event))
+                        .await
+                    {
                         eprintln!("Something failed? {e:?}");
                     }
                 }
