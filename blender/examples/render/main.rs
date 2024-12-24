@@ -1,6 +1,39 @@
 use blender::blender::Manager;
-use blender::models::{args::Args, mode::Mode, status::Status};
+use blender::models::{args::Args, status::Status};
+use std::ops::Range;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
+
+fn get_next_frame() -> Option<i32> {
+    Some(1)
+}
+
+// This struct will hold information necessary to render what next frame blender requested.
+#[derive(Debug)]
+struct Test {
+    start: i32,
+    end: i32,
+}
+
+impl Test {
+    pub fn new(frame_range: Range<i32>) -> Self {
+        Self {
+            start: frame_range.start,
+            end: frame_range.end,
+        }
+    }
+
+    // this seems to return the start frame exclusive.
+    // e.g. 2 - 10, frame 2 got skipped!
+    pub fn get_next_frame(&mut self) -> Option<i32> {
+        dbg!(&self);
+        if self.start < self.end {
+            self.start = self.start + 1;
+            return Some(self.start);
+        }
+        None
+    }
+}
 
 async fn render_with_manager() {
     let args = std::env::args().collect::<Vec<String>>();
@@ -23,15 +56,19 @@ async fn render_with_manager() {
     // TODO: BUG! This will save to root of C:/ on windows platform! Need to change this to current working dir
     let output = PathBuf::from("./examples/assets/");
 
-    // Tells blender what kind of rendering mode are we performing, two options available, third one still in review for future impl.
-    // let mode = Mode::Frame(1);
-    let mode = Mode::Animation { start: 2, end: 6 };
-
     // Create blender argument
-    let args = Args::new(blend_path, output, mode);
-
+    let args = Args::new(blend_path, output);
+    let frames = Test::new(Range { start: 2, end: 10 });
+    let frames = Arc::new(RwLock::new(frames));
     // render the frame. Completed render will return the path of the rendered frame, error indicates failure to render due to blender incompatible hardware settings or configurations. (CPU vs GPU / Metal vs OpenGL)
-    let listener = blender.render(args).await;
+    let listener = blender
+        .render(args, move || {
+            let mut frame = frames.write().unwrap();
+            let val = frame.get_next_frame();
+            dbg!(&val);
+            val
+        })
+        .await;
 
     // Handle blender status
     while let Ok(status) = listener.recv() {

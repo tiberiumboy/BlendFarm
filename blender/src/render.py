@@ -180,7 +180,8 @@ def renderWithSettings(renderSettings, frame):
             useDevices("OPTIX", True, False)
             scn.cycles.device = "GPU"
             print("Use OptiX (GPU)")
-    
+
+    # At the moment, we should derive to use the file settings instead of asking user to manually adjust. Remove denoiser if possible   
     #Denoiser - Disable this until I can figure out how to fetch this info from Blend lib
     # denoise = renderSettings["Denoiser"]
     # if denoise is not None:
@@ -237,6 +238,7 @@ def runBatch():
             frame = proxy.next_render_queue(1)
             renderWithSettings(renderSettings, frame)
         except Exception as e:
+            print(e)
             break
     
     print("BATCH_COMPLETE\n")
