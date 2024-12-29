@@ -28,7 +28,7 @@ pub enum TaskError {
 pub struct Task {
     // This may be moved somewhere else?
     /// Requesting peer asking us to perform this task
-    pub peer_id: Vec<u8>,
+    peer_id: Vec<u8>,
 
     /// reference to the job id
     pub job_id: Uuid,

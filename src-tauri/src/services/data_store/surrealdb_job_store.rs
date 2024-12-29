@@ -14,8 +14,31 @@ pub struct SurrealDbJobStore {
 }
 
 impl SurrealDbJobStore {
-    pub fn new(connection: Arc<RwLock<Surreal<Db>>>) -> Self {
-        Self { conn: connection }
+    pub async fn new(conn: Arc<RwLock<Surreal<Db>>>) -> Self {
+        {
+            let db = conn.write().await;
+            db.query(
+                /*
+                   pub id: Uuid,
+                   pub mode: Mode,
+                   project_file: PathBuf,
+                   blender_version: Version,
+                   output: PathBuf,
+                   renders: HashMap<Frame, PathBuf>,
+                */
+                r#"
+                DEFINE TABLE IF NOT EXISTS job SCHEMALESS;
+                DEFINE FIELD IF NOT EXISTS id ON TABLE job TYPE uuid;
+                DEFINE FIELD IF NOT EXISTS mode ON TABLE job FLEXIBLE TYPE object;
+                DEFINE FIELD IF NOT EXISTS project_file ON TABLE job TYPE string;
+                DEFINE FIELD IF NOT EXISTS blender_version ON TABLE job TYPE string;
+                DEFINE FIELD IF NOT EXISTS renders ON TABLE job FLEXIBLE TYPE object;
+                "#,
+            )
+            .await
+            .expect("Should have permission to check for database schema");
+        }
+        Self { conn }
     }
 }
 

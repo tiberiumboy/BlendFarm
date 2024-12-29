@@ -273,7 +273,6 @@ impl NetworkController {
         receiver.await.expect("Sender should not be dropped")
     }
 
-    #[allow(dead_code)]
     pub(crate) async fn respond_file(
         &mut self,
         file: Vec<u8>,
@@ -300,6 +299,7 @@ pub struct NetworkService {
     // Send Network event to subscribers.
     event_sender: Sender<NetEvent>,
 
+    // empheral key used to stored and communicate with.
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<()>>,
     pending_request_file:

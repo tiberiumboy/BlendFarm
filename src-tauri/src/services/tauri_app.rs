@@ -61,10 +61,9 @@ pub struct TauriApp {
 }
 
 impl TauriApp {
-    pub fn new(db: Arc<RwLock<Surreal<Db>>>) -> Self {
-        // Hmmm maybe maybe maybe?
-        let job_store = Arc::new(RwLock::new(SurrealDbJobStore::new(db.clone())));
-        let worker_store = Arc::new(RwLock::new(SurrealDbWorkerStore::new(db)));
+    pub async fn new(db: Arc<RwLock<Surreal<Db>>>) -> Self {
+        let job_store = Arc::new(RwLock::new(SurrealDbJobStore::new(db.clone()).await));
+        let worker_store = Arc::new(RwLock::new(SurrealDbWorkerStore::new(db).await));
 
         Self {
             peers: Default::default(),

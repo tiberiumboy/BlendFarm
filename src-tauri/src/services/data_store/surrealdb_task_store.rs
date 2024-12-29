@@ -16,7 +16,24 @@ pub struct SurrealDbTaskStore {
 }
 
 impl SurrealDbTaskStore {
-    pub fn new(conn: Arc<RwLock<Surreal<Db>>>) -> Self {
+    pub async fn new(conn: Arc<RwLock<Surreal<Db>>>) -> Self {
+        {
+            let db = conn.write().await;
+            db.query(
+                // TODO: Find a way to get the types I need to store and create database definitions
+                r#"
+                DEFINE TABLE IF NOT EXISTS task SCHEMALESS;
+                DEFINE FIELD IF NOT EXISTS peer_id ON TABLE task TYPE array<int>;
+                DEFINE FIELD IF NOT EXISTS job_id ON TABLE task TYPE uuid;
+                DEFINE FIELD IF NOT EXISTS blender_version ON TABLE task TYPE string;
+                DEFINE FIELD IF NOT EXISTS blend_file_name ON TABLE task TYPE string;
+                DEFINE FIELD IF NOT EXISTS start ON TABLE task TYPE int;
+                DEFINE FIELD IF NOT EXISTS end ON TABLE task TYPE int;
+                "#,
+            )
+            .await
+            .expect("Should have permission to check for database schema");
+        }
         Self { conn }
     }
 

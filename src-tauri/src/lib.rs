@@ -68,15 +68,6 @@ async fn config_surreal_db() -> Surreal<Db> {
         .use_db("BlendFarm")
         .await
         .expect("Failed to specify namespace/database!");
-    // make sure the schema is setup properly
-    db.query(
-        r#"
-        DEFINE TABLE IF NOT EXISTS task SCHEMALESS;
-        DEFINE FIELD IF NOT EXISTS peer_id TYPE 
-    "#,
-    )
-    .await
-    .expect("Should have permission to check for database schema");
     db
 }
 
@@ -92,7 +83,7 @@ pub async fn run() {
     // create a database instance
     let db = config_surreal_db().await;
     let db = Arc::new(RwLock::new(db));
-    let task_store = Arc::new(RwLock::new(SurrealDbTaskStore::new(db.clone())));
+    let task_store = Arc::new(RwLock::new(SurrealDbTaskStore::new(db.clone()).await));
     // must have working network services
     let (service, controller, receiver) =
         network::new().await.expect("Fail to start network service");
@@ -100,12 +91,10 @@ pub async fn run() {
     // start network service async
     spawn(service.run());
 
-    if let Err(e) = match cli.command {
+    match cli.command {
         // run as client mode.
         Some(Commands::Client) => CliApp::new(task_store).run(controller, receiver).await,
         // run as GUI mode.
-        _ => TauriApp::new(db).run(controller, receiver).await,
-    } {
-        eprintln!("Something went terribly wrong? {e:?}");
-    }
+        _ => TauriApp::new(db).await.run(controller, receiver).await,
+    };
 }

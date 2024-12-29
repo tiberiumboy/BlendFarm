@@ -1,4 +1,6 @@
 # TODO: Refactor this so it's less code to read through.
+# Sybren mention that Cycle will perform better if the render was sent out as a batch instead of individual renders.
+# TODO: See if there's a way to adjust blender render batch if possible?
 
 #Start
 import bpy # type: ignore
