@@ -10,14 +10,9 @@ use std::{
     path::PathBuf,
     sync::{Arc, RwLock},
 };
-use thiserror::Error;
 use uuid::Uuid;
-
-#[derive(Debug, Error, Serialize, Deserialize)]
-pub enum TaskError {
-    #[error("Something wring with blender: {0}")]
-    BlenderError(String),
-}
+use crate::domains::task_store::TaskError;
+use super::job::Job;
 
 /*
     Task is used to send Worker individual task to work on
@@ -26,8 +21,10 @@ pub enum TaskError {
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
-    // This may be moved somewhere else?
-    /// Requesting peer asking us to perform this task
+    /// Unique id for this task
+    pub id: Uuid,
+
+    /// peer's id that sent us this task, use this to callback
     peer_id: Vec<u8>,
 
     /// reference to the job id
@@ -37,31 +34,42 @@ pub struct Task {
     pub blender_version: Version,
 
     /// generic blender file name from job's reference.
-    pub blend_file_name: String,
+    pub blend_file_name: PathBuf,
 
-    // start frame
-    start: i32,
-
-    // end frame
-    end: i32,
+    /// Render range frame to perform the task
+    pub range: Range<i32>,
 }
 
 impl Task {
     pub fn new(
         peer_id: PeerId,
         job_id: Uuid,
-        blend_file_name: String,
+        blend_file_name: PathBuf,
         blender_version: Version,
-        start: i32,
-        end: i32,
+        range: Range<i32>,
     ) -> Self {
         Self {
+            id: Uuid::new_v4(),
             peer_id: peer_id.to_bytes(),
             job_id,
             blend_file_name,
             blender_version,
-            start,
-            end,
+            range,
+        }
+    }
+
+    pub fn from(
+        peer_id: PeerId,
+        job: Job,
+        range: Range<i32>
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            peer_id: peer_id.to_bytes(),
+            job_id: job.id,
+            blend_file_name: PathBuf::from(job.project_file.file_name().unwrap()),
+            blender_version: job.blender_version,
+            range
         }
     }
 
@@ -73,8 +81,8 @@ impl Task {
     pub fn fetch_end_frames(&mut self, percentage: i8) -> Option<Range<i32>> {
         // Here we'll determine how many franes left, and then pass out percentage of that frames back.
         let perc = percentage as f32 / i8::MAX as f32;
-        let end = self.end;
-        let delta = (end - self.start) as f32;
+        let end = self.range.end;
+        let delta = (end - self.range.start) as f32;
         let trunc = (perc * (delta.powf(2.0)).sqrt()).floor() as usize;
 
         if trunc.le(&2) {
@@ -83,7 +91,7 @@ impl Task {
 
         let start = end - trunc as i32;
         let range = Range { start, end };
-        self.end = start - 1; // Update end value accordingly.
+        self.range.end = start - 1; // Update end value accordingly.
         Some(range)
     }
 
@@ -93,9 +101,9 @@ impl Task {
 
     fn get_next_frame(&mut self) -> Option<i32> {
         // we will use this to generate a temporary frame record on database for now.
-        if self.start < self.end {
-            let value = Some(self.start);
-            self.start = self.start + 1;
+        if self.range.start < self.range.end {
+            let value = Some(self.range.start);
+            self.range.start = self.range.start + 1;
             value
         } else {
             None

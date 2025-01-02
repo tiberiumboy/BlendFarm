@@ -19,7 +19,7 @@ pub async fn create_job(
 ) -> Result<Job, Error> {
     // this is definitely a hack and should probably handle unwrap functions()
     let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
-    let job = Job::new(path, output, version, mode);
+    let job = Job::from(path, output, version, mode);
     let server = state.lock().await;
     let mut jobs = server.job_db.write().await;
     // use this to send the job over to database instead of command to network directly.

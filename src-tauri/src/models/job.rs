@@ -34,26 +34,33 @@ pub type Frame = i32;
 
 // This job is created by the manager and will be used to help determine the individual task created for the workers
 // we will derive this job into separate task for individual workers to process based on chunk size.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct Job {
     /// Unique job identifier
     pub id: Uuid,
     /// contains the information to specify the kind of job to render (We could auto fill this from blender peek function?)
     pub mode: Mode,
     /// Path to blender files
-    project_file: PathBuf,
+    pub project_file: PathBuf,
     // target blender version
-    blender_version: Version,
+    pub blender_version: Version,
     // target output destination
-    output: PathBuf,
+    pub output: PathBuf,
     // completed render data.
     // TODO: discuss this? Let's map this out and see how we can better utilize this structure?
     renders: HashMap<Frame, PathBuf>,
 }
 
 impl Job {
-    pub fn new(project_file: PathBuf, output: PathBuf, blender_version: Version, mode: Mode) -> Job {
-        Job {
+
+    /// Create a new job entry with provided all information intact. Used for holding database records
+    pub fn new(id: Uuid, mode: Mode, project_file: PathBuf, blender_version: Version, output: PathBuf, renders: HashMap<Frame, PathBuf>) -> Self {
+        Self { id, mode, project_file, blender_version, output, renders }
+    }
+
+    /// Create a new job entry from the following parameter inputs
+    pub fn from(project_file: PathBuf, output: PathBuf, blender_version: Version, mode: Mode) -> Self {
+        Self {
             id: Uuid::new_v4(),
             mode,
             project_file,
@@ -67,10 +74,6 @@ impl Job {
         &self.project_file
     }
 
-    pub fn get_file_name(&self) -> &str { 
-        self.project_file.file_name().unwrap().to_str().unwrap()
-    }
-
     pub fn get_version(&self) -> &Version {
         &self.blender_version
     }
@@ -82,7 +85,7 @@ impl AsRef<Uuid> for Job {
     }
 }
 
-    impl PartialEq for Job {
+impl PartialEq for Job {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }

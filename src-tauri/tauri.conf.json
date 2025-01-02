@@ -56,6 +56,9 @@
           "description": "Modify Blender Manager configurations"
         }
       }
+    },
+    "sql": {
+      "preload": ["sqlite:blendfarm.db"]
     }
   }
 }

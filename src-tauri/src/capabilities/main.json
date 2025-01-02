@@ -36,6 +36,8 @@
                     "sidecar": false
                 }
             ]
-        }
+        },
+        "sql:default",
+        "sql:allow-execute"
     ]
 }

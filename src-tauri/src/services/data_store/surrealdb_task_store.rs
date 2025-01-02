@@ -1,6 +1,6 @@
 use futures::StreamExt;
 use std::sync::Arc;
-use surrealdb::{engine::local::Db, opt::Resource, Action, Notification, Surreal};
+use surrealdb::{engine::local::Db, opt::Resource, Surreal};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 

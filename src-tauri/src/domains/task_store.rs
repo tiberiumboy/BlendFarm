@@ -8,6 +8,8 @@ pub enum TaskError {
     Unknown,
     #[error("Database error: {0}")]
     DatabaseError(String),
+    #[error("Something wring with blender: {0}")]
+    BlenderError(String),
 }
 
 #[async_trait::async_trait]

@@ -27,19 +27,25 @@ Developer blog:
 // Need a mapping to explain how blender manager is used and invoked for the job
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+use async_std::fs;
+use blender::manager::Manager as BlenderManager;
 use clap::{Parser, Subcommand};
 use models::network;
-use models::{app_state::AppState, server_setting::ServerSetting};
-use services::data_store::surrealdb_task_store::SurrealDbTaskStore;
+use models::{app_state::AppState, /* server_setting::ServerSetting */};
+use services::data_store::sqlite_job_store::SqliteJobStore;
+use services::data_store::sqlite_task_store::SqliteTaskStore;
+use services::data_store::sqlite_worker_store::SqliteWorkerStore;
+// use services::data_store::surrealdb_task_store::SurrealDbTaskStore;
 use services::{
-    blend_farm::BlendFarm, cli_app::CliApp,
-    data_store::surrealdb_worker_store::SurrealDbWorkerStore, tauri_app::TauriApp,
+    blend_farm::BlendFarm, cli_app::CliApp,tauri_app::TauriApp,
 };
+use sqlx::{Pool, Sqlite};
 use std::sync::Arc;
-use surrealdb::{
-    engine::local::{Db, SurrealKv},
-    Surreal,
-};
+// use surrealdb::{
+//     engine::local::{Db, SurrealKv},
+//     Surreal,
+// };
+use sqlx::sqlite::SqlitePoolOptions;
 use tokio::{spawn, sync::RwLock};
 use tracing_subscriber::EnvFilter;
 
@@ -59,17 +65,32 @@ enum Commands {
     Client,
 }
 
-async fn config_surreal_db() -> Surreal<Db> {
-    let db_path = ServerSetting::get_config_dir();
-    let db = Surreal::new::<SurrealKv>(db_path)
-        .await
-        .expect("Fail to create database");
-    db.use_ns("BlendFarm")
-        .use_db("BlendFarm")
-        .await
-        .expect("Failed to specify namespace/database!");
-    db
+async fn config_sqlite_db() -> Result<Pool<Sqlite>, sqlx::Error>// TODO: find the database type to return from creating sqlite connection!
+{
+    // todo!("Fill this in to validate db exist, create it if it doesn't then run migration tool");
+    let mut path = BlenderManager::get_config_dir();
+    path = path.join("blendfarm.db");
+    
+    // create file if it doesn't exist (.config/BlendFarm/blendfarm.db)
+    fs::File::create(&path).await;
+
+    let url = format!("sqlite://{}", path.as_os_str().to_str().unwrap());
+    dbg!(&url);
+    let pool = SqlitePoolOptions::new().connect(&url).await?;
+    Ok(pool) 
 }
+
+// async fn config_surreal_db() -> Surreal<Db> {
+//     let db_path = ServerSetting::get_config_dir();
+//     let db = Surreal::new::<SurrealKv>(db_path)
+//         .await
+//         .expect("Fail to create database");
+//     db.use_ns("BlendFarm")
+//         .use_db("BlendFarm")
+//         .await
+//         .expect("Failed to specify namespace/database!");
+//     db
+// }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
@@ -80,10 +101,14 @@ pub async fn run() {
     // to run custom behaviour
     let cli = Cli::parse();
 
+    // For now let's push Surrealdb back for a bit. Having problem trying to create localdb file and accessing it from web browser
+    // tauri out of the box support sqlx, which we will use for now.
     // create a database instance
-    let db = config_surreal_db().await;
+    // let db = config_surreal_db().await;
+
+    let db = config_sqlite_db().await.expect("Must have database connection!");
     let db = Arc::new(RwLock::new(db));
-    let task_store = Arc::new(RwLock::new(SurrealDbTaskStore::new(db.clone()).await));
+    
     // must have working network services
     let (service, controller, receiver) =
         network::new().await.expect("Fail to start network service");
@@ -91,10 +116,24 @@ pub async fn run() {
     // start network service async
     spawn(service.run());
 
-    match cli.command {
+    let _ = match cli.command {
         // run as client mode.
-        Some(Commands::Client) => CliApp::new(task_store).run(controller, receiver).await,
+        Some(Commands::Client) => {
+            // let task_store = SurrealDbTaskStore::new(db.clone()).await;
+            let task_store = SqliteTaskStore::new(db.clone()).await.unwrap();
+            let task_store = Arc::new(RwLock::new(task_store));
+            CliApp::new(task_store).run(controller, receiver).await.map_err(|e| println!("Error running Cli app: {e:?}"))
+        },
         // run as GUI mode.
-        _ => TauriApp::new(db).await.run(controller, receiver).await,
+        _ => {
+            // let job_store = SurrealDbJobStore::new(db.clone()).await;
+            // let worker_store = SurrealDbWorkerStore::new(db.clone()).await;
+            let job_store = SqliteJobStore::new(db.clone()).await.unwrap();
+            let worker_store = SqliteWorkerStore::new(db.clone()).unwrap();
+
+            let job_store = Arc::new(RwLock::new(job_store));
+            let worker_store = Arc::new(RwLock::new(worker_store));
+            TauriApp::new(worker_store, job_store).await.run(controller, receiver).await.map_err(|e| eprintln!("Fail to run Tauri app! {e:?}"))
+        },
     };
 }

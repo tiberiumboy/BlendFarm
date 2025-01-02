@@ -15,8 +15,9 @@ use crate::{
 use blender::manager::Manager as BlenderManager;
 use blender::models::mode::Mode;
 use libp2p::PeerId;
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
-use surrealdb::{engine::local::Db, Surreal};
+use std::{collections::HashMap, ops::Range, sync::Arc};
+use std::path::PathBuf;
+// use surrealdb::{engine::local::Db, Surreal};
 use tauri::{self, App, AppHandle, Emitter, Manager};
 use tokio::{
     select, spawn,
@@ -61,10 +62,7 @@ pub struct TauriApp {
 }
 
 impl TauriApp {
-    pub async fn new(db: Arc<RwLock<Surreal<Db>>>) -> Self {
-        let job_store = Arc::new(RwLock::new(SurrealDbJobStore::new(db.clone()).await));
-        let worker_store = Arc::new(RwLock::new(SurrealDbWorkerStore::new(db).await));
-
+    pub async fn new(worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static)>>, job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>) -> Self {
         Self {
             peers: Default::default(),
             worker_store,
@@ -82,6 +80,7 @@ impl TauriApp {
             .plugin(tauri_plugin_cli::init())
             .plugin(tauri_plugin_os::init())
             .plugin(tauri_plugin_fs::init())
+            .plugin(tauri_plugin_sql::Builder::default().build())
             .plugin(tauri_plugin_persisted_scope::init())
             .plugin(tauri_plugin_shell::init())
             .plugin(tauri_plugin_dialog::init())
@@ -133,26 +132,25 @@ impl TauriApp {
         match cmd {
             UiCommand::StartJob(job) => {
                 // first make the file available on the network
-                let file_name = job.get_file_name().to_owned();
-                let path = job.get_project_path().clone();
+                let file_name = PathBuf::from(job.project_file.file_name().unwrap());
+                let path = job.project_file.clone();
 
                 // Make the file providable.
-                client.start_providing(file_name.clone(), path).await;
+                client.start_providing(file_name.to_string_lossy().into(), path).await;
 
                 match job.mode {
                     Mode::Frame(frame) => {
                         // send one peer the job.
                         let peer = self.get_idle_peers().await;
                         let requestor = client.get_local_peer().clone();
-
+                        let range = Range { start: frame, end: frame };
                         // Create one task
                         let task = Task::new(
                             requestor,
                             job.id,
-                            file_name.clone(),
+                            PathBuf::from(file_name),
                             job.get_version().clone(),
-                            frame,
-                            frame,
+                            range
                         );
                         let event = JobEvent::Render(task);
                         client.send_job_message(peer, event).await;
@@ -170,14 +168,14 @@ impl TauriApp {
                                 std::cmp::Ordering::Less => end,
                                 _ => range.end,
                             };
+                            let range = Range { start, end };
 
                             let task = Task::new(
                                 requestor,
                                 job.id,
                                 file_name.clone(),
                                 job.get_version().clone(),
-                                start,
-                                end,
+                                range
                             );
                             let peer = self.get_idle_peers().await; // this means I must wait for an active peers to become available?
                             let event = JobEvent::Render(task);
@@ -252,7 +250,7 @@ impl TauriApp {
                     }
 
                     // Fetch the completed image file from the network
-                    if let Ok(file) = client.get_file_from_peers(&file_name, &destination).await {
+                    if let Ok(file) = client.get_file_from_peers(&file_name.to_str().unwrap(), &destination).await {
                         let handle = app_handle.write().await;
                         if let Err(e) = handle.emit("job_image_complete", (id, frame, file)) {
                             eprintln!("Fail to publish image completion emit to front end! {e:?}");

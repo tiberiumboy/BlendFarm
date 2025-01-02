@@ -5,6 +5,7 @@ use super::message::{NetCommand, NetEvent, NetworkError};
 use super::server_setting::ServerSetting;
 use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
+use libp2p::kad::RecordKey;
 use futures::{channel::oneshot, prelude::*, StreamExt};
 use libp2p::{
     gossipsub::{self, IdentTopic},
@@ -146,6 +147,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
 pub struct NetworkController {
     sender: mpsc::Sender<NetCommand>,
     pub settings: ServerSetting,
+    // Use string to defer OS specific path system. This will be treated as a URI instead. /job_id/frame
     pub providing_files: HashMap<String, PathBuf>,
     pub public_id: PeerId,
 }
@@ -195,25 +197,21 @@ impl NetworkController {
 
     pub async fn start_providing(&mut self, file_name: String, path: PathBuf) {
         let (sender, receiver) = oneshot::channel();
-        println!("Start providing file {file_name}");
+        println!("Start providing file {:?}", file_name);
         self.providing_files.insert(file_name.clone(), path);
         let cmd = NetCommand::StartProviding {
-            file_name: file_name.clone(),
+            file_name,
             sender,
         };
         self.sender
             .send(cmd)
             .await
             .expect("Command receiver not to be dropped");
-        println!("Awaiting providing completion");
         receiver.await.expect("Sender should not be dropped");
-        println!("File \"{file_name}\" is now available to download");
     }
 
     pub async fn get_providers(&mut self, file_name: &str) -> HashSet<PeerId> {
         let (sender, receiver) = oneshot::channel();
-
-        println!("Calling get providers");
         self.sender
             .send(NetCommand::GetProviders {
                 file_name: file_name.to_string(),
@@ -221,8 +219,6 @@ impl NetworkController {
             })
             .await
             .expect("Command receiver should not be dropped");
-
-        println!("Awaiting provider result");
         receiver.await.expect("Sender should not be dropped")
     }
 
@@ -231,14 +227,14 @@ impl NetworkController {
         file_name: &str,
         destination: &PathBuf,
     ) -> Result<PathBuf, NetworkError> {
-        let providers = self.get_providers(file_name).await;
+        let providers = self.get_providers(&file_name).await;
         if providers.is_empty() {
             return Err(NetworkError::NoPeerProviderFound);
         }
 
         let requests = providers.into_iter().map(|p| {
             let mut client = self.clone();
-            async move { client.request_file(p, file_name.to_owned()).await }.boxed()
+            async move { client.request_file(p, file_name).await }.boxed()
         });
 
         let content = match futures::future::select_ok(requests).await {
@@ -259,13 +255,13 @@ impl NetworkController {
     async fn request_file(
         &mut self,
         peer_id: PeerId,
-        file_name: String,
+        file_name: &str,
     ) -> Result<Vec<u8>, Box<dyn Error + Send>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(NetCommand::RequestFile {
                 peer_id,
-                file_name,
+                file_name: file_name.into(),
                 sender,
             })
             .await
@@ -326,7 +322,7 @@ impl NetworkService {
                     .swarm
                     .behaviour_mut()
                     .request_response
-                    .send_request(&peer_id, FileRequest(file_name));
+                    .send_request(&peer_id, FileRequest(file_name.into()));
                 self.pending_request_file.insert(request_id, sender);
             }
             NetCommand::RespondFile { file, channel } => {
@@ -346,19 +342,21 @@ impl NetworkService {
                 };
             }
             NetCommand::GetProviders { file_name, sender } => {
+                let key = RecordKey::new(&file_name.as_bytes());
                 let query_id = self
                     .swarm
                     .behaviour_mut()
                     .kad
-                    .get_providers(file_name.into_bytes().into());
+                    .get_providers(key.into());
                 self.pending_get_providers.insert(query_id, sender);
             }
             NetCommand::StartProviding { file_name, sender } => {
+                let provider_key = RecordKey::new(&file_name.as_bytes());
                 let query_id = self
                     .swarm
                     .behaviour_mut()
                     .kad
-                    .start_providing(file_name.into_bytes().into())
+                    .start_providing(provider_key)
                     .expect("No store error.");
 
                 self.pending_start_providing.insert(query_id, sender);

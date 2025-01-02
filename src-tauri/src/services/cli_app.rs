@@ -18,13 +18,14 @@ use crate::{
         task::Task,
     },
 };
+use std::path::PathBuf;
 use blender::blender::Manager as BlenderManager;
 use blender::models::status::Status;
 use libp2p::PeerId;
 use tokio::{
     select,
     sync::{mpsc::Receiver, RwLock},
-    task::JoinHandle,
+    // task::JoinHandle,
 };
 
 pub struct CliApp {
@@ -126,7 +127,6 @@ impl CliApp {
         }
 
         // run the job!
-        // yeah I think this could be a problem?
         match task.clone().run(project_file, output, &blender).await {
             Ok(rx) => loop {
                 if let Ok(status) = rx.recv() {
@@ -145,17 +145,17 @@ impl CliApp {
                             client.send_status(format!("[ERR] {blender_error:?}")).await
                         }
                         Status::Completed { frame, result, .. } => {
-                            let file_name = format!(
-                                "{}_{}",
-                                id.to_string(),
-                                result.file_name().unwrap().to_str().unwrap().to_string()
-                            );
+                            // Use PathBuf as this helps enforce type intention of using OsString
+                            
+                            // Why don't I create it like a directory instead? = 
+                            let file_name = PathBuf::new().join(id.to_string()).join(result);
                             let event = JobEvent::ImageCompleted {
                                 job_id: id,
                                 frame,
-                                file_name: file_name.clone(),
+                                file_name: file_name.to_string_lossy().into(),
                             };
-                            client.start_providing(file_name, result).await;
+                            let file_name = PathBuf::from(file_name);
+                            client.start_providing(file_name.to_string_lossy().into(), result).await;
                             // here how do I get the job's requestor?
                             client.send_job_message(requestor, event).await;
                         }
@@ -170,7 +170,7 @@ impl CliApp {
             },
             Err(e) => {
                 client
-                    .send_job_message(requestor, JobEvent::Error(e.into()))
+                    .send_job_message(requestor, JobEvent::Error(JobError::TaskError(e.to_string())))
                     .await;
             }
         };

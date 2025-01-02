@@ -36,7 +36,6 @@ pub enum NetCommand {
     // use this event to send message to a specific node
     StartProviding {
         file_name: String,
-        // path: PathBuf,
         sender: oneshot::Sender<()>,
     },
     GetProviders {
