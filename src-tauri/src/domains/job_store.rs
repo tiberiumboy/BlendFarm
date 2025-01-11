@@ -1,4 +1,4 @@
-use crate::models::{job::Job, task::TaskError};
+use crate::{models::job::Job, domains::task_store::TaskError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid; 

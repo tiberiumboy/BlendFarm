@@ -10,7 +10,7 @@ Feature request:
 */
 use super::blend_farm::BlendFarm;
 use crate::{
-    domains::task_store::TaskStore,
+    domains::{job_store::JobError, task_store::TaskStore},
     models::{
         job::JobEvent,
         message::{NetEvent, NetworkError},
@@ -18,7 +18,6 @@ use crate::{
         task::Task,
     },
 };
-use std::path::PathBuf;
 use blender::blender::Manager as BlenderManager;
 use blender::models::status::Status;
 use libp2p::PeerId;
@@ -79,9 +78,11 @@ impl CliApp {
                 "Project file do not exist, asking to download from host: {:?}",
                 &task.blend_file_name
             );
+
+            let file_name = task.blend_file_name.to_str().unwrap();
             // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
             match client
-                .get_file_from_peers(&task.blend_file_name, &blend_dir)
+                .get_file_from_peers(&file_name, &blend_dir)
                 .await
             {
                 Ok(path) => println!("File successfully download from peers! path: {path:?}"),
@@ -148,15 +149,14 @@ impl CliApp {
                             // Use PathBuf as this helps enforce type intention of using OsString
                             
                             // Why don't I create it like a directory instead? = 
-                            let file_name = PathBuf::new().join(id.to_string()).join(result);
+                            let file_name = result.file_name().unwrap().to_string_lossy();
+                            let file_name = format!("/{}/{}", id, file_name );
                             let event = JobEvent::ImageCompleted {
                                 job_id: id,
                                 frame,
-                                file_name: file_name.to_string_lossy().into(),
+                                file_name: file_name.clone(),
                             };
-                            let file_name = PathBuf::from(file_name);
-                            client.start_providing(file_name.to_string_lossy().into(), result).await;
-                            // here how do I get the job's requestor?
+                            client.start_providing(file_name, result).await;
                             client.send_job_message(requestor, event).await;
                         }
                         Status::Exit => {
@@ -169,8 +169,9 @@ impl CliApp {
                 }
             },
             Err(e) => {
+                let err = JobError::TaskError(e);
                 client
-                    .send_job_message(requestor, JobEvent::Error(JobError::TaskError(e.to_string())))
+                    .send_job_message(requestor, JobEvent::Error(err))
                     .await;
             }
         };

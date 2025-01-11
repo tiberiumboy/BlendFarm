@@ -39,7 +39,7 @@ use services::data_store::sqlite_worker_store::SqliteWorkerStore;
 use services::{
     blend_farm::BlendFarm, cli_app::CliApp,tauri_app::TauriApp,
 };
-use sqlx::{Pool, Sqlite};
+use sqlx::{Pool, Sqlite, SqlitePool};
 use std::sync::Arc;
 // use surrealdb::{
 //     engine::local::{Db, SurrealKv},
@@ -65,7 +65,7 @@ enum Commands {
     Client,
 }
 
-async fn config_sqlite_db() -> Result<Pool<Sqlite>, sqlx::Error>// TODO: find the database type to return from creating sqlite connection!
+async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error>// TODO: find the database type to return from creating sqlite connection!
 {
     // todo!("Fill this in to validate db exist, create it if it doesn't then run migration tool");
     let mut path = BlenderManager::get_config_dir();
@@ -77,6 +77,7 @@ async fn config_sqlite_db() -> Result<Pool<Sqlite>, sqlx::Error>// TODO: find th
     let url = format!("sqlite://{}", path.as_os_str().to_str().unwrap());
     dbg!(&url);
     let pool = SqlitePoolOptions::new().connect(&url).await?;
+    sqlx::migrate!().run(&pool).await?;
     Ok(pool) 
 }
 
@@ -107,7 +108,6 @@ pub async fn run() {
     // let db = config_surreal_db().await;
 
     let db = config_sqlite_db().await.expect("Must have database connection!");
-    let db = Arc::new(RwLock::new(db));
     
     // must have working network services
     let (service, controller, receiver) =
@@ -120,7 +120,7 @@ pub async fn run() {
         // run as client mode.
         Some(Commands::Client) => {
             // let task_store = SurrealDbTaskStore::new(db.clone()).await;
-            let task_store = SqliteTaskStore::new(db.clone()).await.unwrap();
+            let task_store = SqliteTaskStore::new(db.clone());
             let task_store = Arc::new(RwLock::new(task_store));
             CliApp::new(task_store).run(controller, receiver).await.map_err(|e| println!("Error running Cli app: {e:?}"))
         },
@@ -128,8 +128,8 @@ pub async fn run() {
         _ => {
             // let job_store = SurrealDbJobStore::new(db.clone()).await;
             // let worker_store = SurrealDbWorkerStore::new(db.clone()).await;
-            let job_store = SqliteJobStore::new(db.clone()).await.unwrap();
-            let worker_store = SqliteWorkerStore::new(db.clone()).unwrap();
+            let job_store = SqliteJobStore::new(db.clone());
+            let worker_store = SqliteWorkerStore::new(db.clone());
 
             let job_store = Arc::new(RwLock::new(job_store));
             let worker_store = Arc::new(RwLock::new(worker_store));

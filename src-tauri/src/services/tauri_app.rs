@@ -1,3 +1,4 @@
+use super::blend_farm::BlendFarm;
 use crate::{
     domains::{job_store::JobStore, worker_store::WorkerStore},
     models::{
@@ -44,13 +45,6 @@ pub enum UiCommand {
     UploadFile(PathBuf, String),
     RemoveJob(Uuid),
 }
-
-use super::{
-    blend_farm::BlendFarm,
-    data_store::{
-        surrealdb_job_store::SurrealDbJobStore, surrealdb_worker_store::SurrealDbWorkerStore,
-    },
-};
 
 // TODO: make this user adjustable.
 const MAX_BLOCK_SIZE: i32 = 30;
@@ -250,7 +244,7 @@ impl TauriApp {
                     }
 
                     // Fetch the completed image file from the network
-                    if let Ok(file) = client.get_file_from_peers(&file_name.to_str().unwrap(), &destination).await {
+                    if let Ok(file) = client.get_file_from_peers(&file_name, &destination).await {
                         let handle = app_handle.write().await;
                         if let Err(e) = handle.emit("job_image_complete", (id, frame, file)) {
                             eprintln!("Fail to publish image completion emit to front end! {e:?}");
