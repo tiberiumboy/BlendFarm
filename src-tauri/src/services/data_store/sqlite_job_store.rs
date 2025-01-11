@@ -1,6 +1,5 @@
 use crate::{domains::job_store::{JobError, JobStore}, models::job::Job};
 use sqlx::SqlitePool;
-use tauri_plugin_sql::{Migration, MigrationKind};
 use uuid::Uuid;
 
 pub struct SqliteJobStore {
@@ -49,7 +48,7 @@ impl JobStore for SqliteJobStore {
     }
 
     async fn delete_job(&mut self, id: Uuid) -> Result<(), JobError> {
-        sqlx::query("DELETE * FROM job WHERE id = $1").bind(id.to_string()).execute(&self.conn).await;
+        let _ = sqlx::query("DELETE * FROM job WHERE id = $1").bind(id.to_string()).execute(&self.conn).await;
         Ok(())
     }
 }

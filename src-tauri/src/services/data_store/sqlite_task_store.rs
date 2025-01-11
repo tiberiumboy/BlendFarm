@@ -1,5 +1,4 @@
 use sqlx::SqlitePool;
-use tauri_plugin_sql::{Migration, MigrationKind};
 use uuid::Uuid;
 
 use crate::{domains::task_store::{TaskError, TaskStore}, models::task::Task};
@@ -24,7 +23,7 @@ impl TaskStore for SqliteTaskStore {
         let blend_file_name = task.blend_file_name.to_str().unwrap().to_string();
         let blender_version = task.blender_version.to_string();
         let range = serde_json::to_string(&task.range).unwrap();
-        sqlx::query(r"INSERT INTO tasks(id, peer_id, job_id, blend_file_name, blender_version, range) 
+        let _ = sqlx::query(r"INSERT INTO tasks(id, peer_id, job_id, blend_file_name, blender_version, range) 
             VALUES($1, $2, $3, $4, $5, $6)")
         .bind(id)
         .bind(peer_id)
@@ -42,14 +41,14 @@ impl TaskStore for SqliteTaskStore {
     
     async fn delete_task(&mut self, task: Task) -> Result<(), TaskError> {
         let id = task.id.to_string();
-        sqlx::query(r"DELETE * FROM tasks WHERE id = $1")
+        let _ = sqlx::query(r"DELETE * FROM tasks WHERE id = $1")
             .bind(id)
             .execute(&self.conn).await;
         Ok(())
     }
     
     async fn delete_job_task(&mut self, job_id: Uuid) -> Result<(), TaskError> {
-        sqlx::query(r"DELETE * FROM tasks WHERE job_id = $1")
+        let _ = sqlx::query(r"DELETE * FROM tasks WHERE job_id = $1")
             .bind(job_id.to_string())
             .execute(&self.conn).await;
         Ok(())

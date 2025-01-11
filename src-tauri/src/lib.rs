@@ -39,7 +39,7 @@ use services::data_store::sqlite_worker_store::SqliteWorkerStore;
 use services::{
     blend_farm::BlendFarm, cli_app::CliApp,tauri_app::TauriApp,
 };
-use sqlx::{Pool, Sqlite, SqlitePool};
+use sqlx::SqlitePool;
 use std::sync::Arc;
 // use surrealdb::{
 //     engine::local::{Db, SurrealKv},
@@ -72,7 +72,7 @@ async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error>// TODO: find the 
     path = path.join("blendfarm.db");
     
     // create file if it doesn't exist (.config/BlendFarm/blendfarm.db)
-    fs::File::create(&path).await;
+    let _ = fs::File::create(&path).await;
 
     let url = format!("sqlite://{}", path.as_os_str().to_str().unwrap());
     dbg!(&url);

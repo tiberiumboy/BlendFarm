@@ -23,7 +23,10 @@ impl WorkerStore for SqliteWorkerStore {
         todo!("get the list of worker here");
     }
     
-    async fn delete_worker(&mut self, _id: Uuid) -> Result<(), WorkerError> {
+    async fn delete_worker(&mut self, id: Uuid) -> Result<(), WorkerError> {
+        let _ = sqlx::query(r"DELETE * FROM workers WHERE machine_id = $1")
+            .bind(id.to_string())
+            .execute(&self.conn).await;
         Ok(())
     }
 }
