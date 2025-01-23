@@ -16,8 +16,8 @@ use crate::{
 use blender::manager::Manager as BlenderManager;
 use blender::models::mode::Mode;
 use libp2p::PeerId;
-use std::{collections::HashMap, ops::Range, sync::Arc};
 use std::path::PathBuf;
+use std::{collections::HashMap, ops::Range, sync::Arc};
 // use surrealdb::{engine::local::Db, Surreal};
 use tauri::{self, App, AppHandle, Emitter, Manager};
 use tokio::{
@@ -56,7 +56,10 @@ pub struct TauriApp {
 }
 
 impl TauriApp {
-    pub async fn new(worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static)>>, job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>) -> Self {
+    pub async fn new(
+        worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static)>>,
+        job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>,
+    ) -> Self {
         Self {
             peers: Default::default(),
             worker_store,
@@ -122,7 +125,7 @@ impl TauriApp {
     }
 
     // command received from UI
-    async fn handle_ui_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
+    async fn handle_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
         match cmd {
             UiCommand::StartJob(job) => {
                 // first make the file available on the network
@@ -130,21 +133,26 @@ impl TauriApp {
                 let path = job.project_file.clone();
 
                 // Make the file providable.
-                client.start_providing(file_name.to_string_lossy().into(), path).await;
+                client
+                    .start_providing(file_name.to_string_lossy().into(), path)
+                    .await;
 
                 match job.mode {
                     Mode::Frame(frame) => {
                         // send one peer the job.
                         let peer = self.get_idle_peers().await;
                         let requestor = client.get_local_peer().clone();
-                        let range = Range { start: frame, end: frame };
+                        let range = Range {
+                            start: frame,
+                            end: frame,
+                        };
                         // Create one task
                         let task = Task::new(
                             requestor,
                             job.id,
                             PathBuf::from(file_name),
                             job.get_version().clone(),
-                            range
+                            range,
                         );
                         let event = JobEvent::Render(task);
                         client.send_job_message(peer, event).await;
@@ -169,7 +177,7 @@ impl TauriApp {
                                 job.id,
                                 file_name.clone(),
                                 job.get_version().clone(),
-                                range
+                                range,
                             );
                             let peer = self.get_idle_peers().await; // this means I must wait for an active peers to become available?
                             let event = JobEvent::Render(task);
@@ -286,11 +294,11 @@ impl BlendFarm for TauriApp {
         client.subscribe_to_topic(JOB.to_owned()).await; // This might get changed? we'll see.
 
         // this channel is used to send command to the network, and receive network notification back.
-        let (to_network, mut from_ui) = mpsc::channel(32);
+        let (event, mut command) = mpsc::channel(32);
 
         // we send the sender to the tauri builder - which will send commands to "from_ui".
         let app = self
-            .config_tauri_builder(to_network)
+            .config_tauri_builder(event)
             .expect("Fail to build tauri app - Is there an active display session running?");
 
         // create a safe and mutable way to pass application handler to send notification from network event.
@@ -301,7 +309,7 @@ impl BlendFarm for TauriApp {
         spawn(async move {
             loop {
                 select! {
-                    Some(msg) = from_ui.recv() => self.handle_ui_command(&mut client, msg).await,
+                    Some(msg) = command.recv() => self.handle_command(&mut client, msg).await,
                     Some(event) = event_receiver.recv() => self.handle_net_event(&mut client, event, app_handle.clone()).await,
                 }
             }

@@ -1,8 +1,9 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core"; 
-import { ChangeEvent, useState } from "react";
+import { ChangeEvent, useEffect, useState } from "react";
 import RenderJob, { GetFileName, RenderJobProps } from "../components/render_job";
 import { listen } from "@tauri-apps/api/event";
+import Database from '@tauri-apps/plugin-sql';
 
 // TODO: Have a look into channels: https://v2.tauri.app/develop/calling-frontend/#channels
 // const unlisten = await once<RenderComposedPayload>("image_update", (event) => {
@@ -76,13 +77,45 @@ export interface RemoteRenderProps {
 //   console.log(event);
 // })
 
+// when using "withGlobalTauri": true - I can use this line below:
+// const Database = window.__TAURI__.sql;
+
+// const db = await Database.load("sqlite:blendfarm.db");
+
+
+// export const getJobs = async ( db: Database): Promise<[]> => {
+//   try {
+//     // const jobs: Job[] = [];
+//     const results = await db.execute("SELECT * FROM Jobs")
+//     console.log(results);
+//     // results?.forEach((result : any) => {
+//     //   for( let index = 0; index < result.rows.length; index++ ) {
+//     //     console.log(result)
+//     //     // jobs.push(result.rows.item(index));
+//     //   }
+//     // })
+//     // return jobs;
+//     return [];
+//   } catch( err ) {
+//     console.log(err);
+//     throw Error("Failed to get Jobs from Database");
+//   }
+// }
+
 export default function RemoteRender(props: RemoteRenderProps) {
   const [selectedJob, setSelectedJob] = useState<RenderJobProps>();
   const [path, setPath] = useState<string>("");
   const [version, setVersion] = useState<string>("");
   const [mode, setMode] = useState(components["frame"]());
+  // const [db, setDb] = useState(null);
+
+  // useEffect(() => {
+  //   let loadDB = await Database.load("sqlite:blendfarm.db");
+  //   setDb( loadDB );
+  // })
 
   //#region Dialogs
+  
   async function showDialog() {
     // TOOD: Invoke rust backend service to open dialog and then parse the blend file
     // Otherwise, display the info needed to re-populate the information.
@@ -129,10 +162,10 @@ export default function RemoteRender(props: RemoteRenderProps) {
     const info = e.target as HTMLFormElement;
     const selectedMode = info.modes.value;
     const output = info.output.value;
+    const mode = generateMode(selectedMode, e.target);
 
-    let selected_mode = generateMode(selectedMode, e.target);
     let data = {
-      mode: selected_mode,
+      mode,
       version,
       path,
       output,
@@ -160,6 +193,10 @@ export default function RemoteRender(props: RemoteRenderProps) {
     closeDialog();
   }
 
+  //#endregion
+
+  //#region dialog for new job
+
   function openDialog() {
     let dialog = document.getElementById("create_process") as HTMLDialogElement;
     dialog?.showModal();
@@ -170,11 +207,17 @@ export default function RemoteRender(props: RemoteRenderProps) {
     dialog?.close();
   }
 
+  //#endregion
+
+  // could this be made better?
   function generateMode(mode: any, target: any) {
     switch (mode) {
       case "frame":
         return {
-          Frame: Number(target.frame.value),
+          Section: {
+            start: Number(target.frame.value),
+            end: Number(target.frame.value),
+          } 
         };
       case "section":
         return {
@@ -184,7 +227,12 @@ export default function RemoteRender(props: RemoteRenderProps) {
           },
         };
       default:
-        return {};
+        return {
+          Section: {
+            start: Number(0),
+            end: Number(0),
+          }
+        };
     }
   }
 
@@ -214,7 +262,9 @@ export default function RemoteRender(props: RemoteRenderProps) {
       <button onClick={showDialog}>
         Import
       </button>
-      {/* Collection of active job list */}
+      {/* Collection of active job list 
+        // change this to point to sql table instead?
+      */}
       <div className="group">
         {props.jobs.map((job) => RenderJob(job, onJobSelected))}
       </div>
