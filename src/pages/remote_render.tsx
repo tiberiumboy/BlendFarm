@@ -10,29 +10,7 @@ import Database from '@tauri-apps/plugin-sql';
 //   console.log(event);
 // });
 
-// must deserialize into this format: "Frame": "i32",
-const Frame = () => (
-  <div>
-    <label htmlFor="frame">Frame</label>
-    <input name="frame" type="number" />
-  </div>
-);
-
 // must deserialize into this format: "Section": { "start": i32, "end": i32 }
-const Section = () => (
-  <div key="frameRangeEntry">
-    Section
-    <label key="frameStartLabel" htmlFor="start">Start</label>
-    <input key="frameStartField" name="start" type="number" value={1} />
-    <label key="frameEndLabel" htmlFor="end">End</label>
-    <input key="frameEndField" name="end" type="number" value={2} />
-  </div>
-);
-
-const components: any = {
-  frame: Frame,
-  section: Section,
-};
 
 function showImage(path: string) {
   if (path !== undefined) {
@@ -106,7 +84,6 @@ export default function RemoteRender(props: RemoteRenderProps) {
   const [selectedJob, setSelectedJob] = useState<RenderJobProps>();
   const [path, setPath] = useState<string>("");
   const [version, setVersion] = useState<string>("");
-  const [mode, setMode] = useState(components["frame"]());
   // const [db, setDb] = useState(null);
 
   // useEffect(() => {
@@ -160,9 +137,14 @@ export default function RemoteRender(props: RemoteRenderProps) {
 
     // How do I structure this?
     const info = e.target as HTMLFormElement;
-    const selectedMode = info.modes.value;
+    // const selectedMode = info.modes.value;
     const output = info.output.value;
-    const mode = generateMode(selectedMode, e.target);
+    const mode = {
+      Animation: {
+        start: Number(info.start.value),
+        end: Number(info.end.value),
+      },
+    };
 
     let data = {
       mode,
@@ -170,8 +152,6 @@ export default function RemoteRender(props: RemoteRenderProps) {
       path,
       output,
     };
-
-    console.log(data);
 
     invoke("create_job", data).then((ctx: any) => {
       if (ctx == null) {
@@ -181,12 +161,12 @@ export default function RemoteRender(props: RemoteRenderProps) {
 
       let data: RenderJobProps = {
         current_frame: 0,
-        id: ctx.job.id,
-        mode: ctx.job.mode,
+        id: ctx.id,
+        mode: ctx.mode,
         output: ctx.output,
-        project_file: ctx.job.project_file,
+        project_file: ctx.project_file,
         renders: [],
-        version: ctx.job.blender_version,
+        version: ctx.blender_version,
       };
       props.onJobCreated(data);
     });
@@ -208,39 +188,6 @@ export default function RemoteRender(props: RemoteRenderProps) {
   }
 
   //#endregion
-
-  // could this be made better?
-  function generateMode(mode: any, target: any) {
-    switch (mode) {
-      case "frame":
-        return {
-          Section: {
-            start: Number(target.frame.value),
-            end: Number(target.frame.value),
-          } 
-        };
-      case "section":
-        return {
-          Section: {
-            start: Number(target.start.value),
-            end: Number(target.end.value),
-          },
-        };
-      default:
-        return {
-          Section: {
-            start: Number(0),
-            end: Number(0),
-          }
-        };
-    }
-  }
-
-  function handleRenderModeChange(e: ChangeEvent<HTMLSelectElement>) {
-    const index = parseInt(e.target.value);
-    const mode = components[index]() as JSX.Element;
-    setMode(mode);
-  }
 
   // TODO: find a way to make this more sense and pure function as possible.
   // see if I can just invoke a rust backend to handle file directory or file open instead?
@@ -276,13 +223,7 @@ export default function RemoteRender(props: RemoteRenderProps) {
           <h1>Create new Render Job</h1>
           <label>Project File Path:</label>
           <input type="text" value={path} placeholder="Project path" id="file_path" name="file_path" readOnly={true} />
-          <br />
-          <label>Choose rendering mode</label>
-          <select name="modes" onChange={handleRenderModeChange}>
-            {Object.entries(components).map((item) => (
-              <option value={item[0]}>{item[0]}</option>
-            ))}
-          </select>
+        
           <br />
           <label>Blender Version:</label>
           <select value={version} onChange={(e) => setVersion(e.target.value)}>
@@ -290,13 +231,21 @@ export default function RemoteRender(props: RemoteRenderProps) {
               <option value={item}>{item}</option>
             ))}
           </select>
-          {mode}
+
+          <div key="frameRangeEntry">
+            <label key="frameStartLabel" htmlFor="start">Start</label>
+            <input key="frameStartField" name="start" type="number" value={1} />
+            <label key="frameEndLabel" htmlFor="end">End</label>
+            <input key="frameEndField" name="end" type="number" value={2} />
+          </div>
+
           <label>Output destination:</label>
           <input
             type="text"
             placeholder="Output Path"
             id="output"
             name="output"
+            // how do I load last output destination?
             value={"/Users/Shared/"}  // change this?
             readOnly={true}
             onClick={onDirectorySelect}

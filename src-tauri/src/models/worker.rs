@@ -11,8 +11,8 @@ pub enum WorkerError {
 // we will use this to store data into database at some point.
 #[derive(Serialize, Deserialize)]
 pub struct Worker {
-    machine_id: String,
-    spec: ComputerSpec,
+    pub machine_id: String,
+    pub spec: ComputerSpec,
 }
 
 impl Worker {

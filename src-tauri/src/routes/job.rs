@@ -24,12 +24,17 @@ pub async fn create_job(
     let mut jobs = server.job_db.write().await;
     // use this to send the job over to database instead of command to network directly.
     // We're splitting this apart to rely on database collection instead of forcing to send command over.
-    let _ = jobs.add_job(job.clone());
-    
+    if let Err(e) = jobs.add_job(job.clone()).await {
+        eprintln!("{:?}", e);
+    }
+
     // send job to server
     if let Err(e) = server
         .to_network
-        .send(UiCommand::UploadFile(job.get_project_path().clone(), file_name))
+        .send(UiCommand::UploadFile(
+            job.get_project_path().clone(),
+            file_name,
+        ))
         // .send(UiCommand::StartJob(job.clone()))
         .await
     {

@@ -11,7 +11,7 @@ use crate::{
         task::Task,
         worker::Worker,
     },
-    routes::{job::*, remote_render::*, settings::*},
+    routes::{job::*, remote_render::*, settings::*, worker::*},
 };
 use blender::manager::Manager as BlenderManager;
 use blender::models::mode::Mode;
@@ -69,8 +69,6 @@ impl TauriApp {
 
     // Create a builder to make Tauri application
     fn config_tauri_builder(&self, to_network: Sender<UiCommand>) -> Result<App, tauri::Error> {
-        let server_settings = ServerSetting::load();
-
         // I would like to find a better way to update or append data to render_nodes,
         // "Do not communicate with shared memory"
         let builder = tauri::Builder::default()
@@ -84,7 +82,7 @@ impl TauriApp {
             .setup(|_| Ok(()));
 
         let manager = Arc::new(RwLock::new(BlenderManager::load()));
-        let setting = Arc::new(RwLock::new(server_settings));
+        let setting = Arc::new(RwLock::new(ServerSetting::load()));
 
         // here we're setting the sender command to app state before the builder.
         let app_state = AppState {
@@ -104,6 +102,7 @@ impl TauriApp {
                 delete_job,
                 list_jobs,
                 list_versions,
+                list_workers,
                 import_blend,
                 get_server_settings,
                 set_server_settings,
@@ -218,10 +217,6 @@ impl TauriApp {
                     .unwrap();
             }
             NetEvent::NodeDiscovered(peer_id, spec) => {
-                // let handle = app_handle.read().await;
-                // handle
-                //     .emit("node_discover", (peer_id.to_base58(), comp_spec.clone()))
-                //     .unwrap();
                 let worker = Worker::new(peer_id.to_base58(), spec.clone());
                 let mut db = self.worker_store.write().await;
                 if let Err(e) = db.add_worker(worker).await {
@@ -229,7 +224,12 @@ impl TauriApp {
                 }
                 self.peers.insert(peer_id, spec);
             }
-            NetEvent::NodeDisconnected(_) => {}
+            NetEvent::NodeDisconnected(peer_id) => {
+                let mut db = self.worker_store.write().await;
+                if let Err(e) = db.delete_worker(&peer_id.to_base58()).await {
+                    eprintln!("Error deleting worker from database! {e:?}");
+                }
+            }
             NetEvent::InboundRequest { request, channel } => {
                 if let Some(path) = client.providing_files.get(&request) {
                     println!("Sending client file {path:?}");

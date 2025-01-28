@@ -1,10 +1,8 @@
-// import { invoke } from "@tauri-apps/api/tauri";
 import "./App.css";
 import "./styles.css";
 import Sidebar from "./components/side_bar";
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Setting from "./pages/setting";
-// import LiveView from "./pages/live_view";
 import RemoteRender from "./pages/remote_render";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -84,9 +82,6 @@ function App() {
           <Route path='/' Component={() => RemoteRender({ versions: versions, jobs: jobs, onJobCreated: onJobCreated })} />
           <Route path='/remote_render' Component={() => RemoteRender({ versions, jobs, onJobCreated })} />
           <Route path='/setting' Component={() => Setting(versions)} />
-          {/* TODO: This is a experimental feature - ignore for this right now as this requires remote_render working first!
-          < Route path='/liveview' Component={LiveView} /> 
-           */}
         </Routes>
       </Router>
     </div>

@@ -28,11 +28,10 @@ Developer blog:
 
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use std::sync::Arc;
-
 use async_std::fs;
 use blender::manager::Manager as BlenderManager;
 use clap::{Parser, Subcommand};
+use dotenv::dotenv;
 use models::network;
 use models::{app_state::AppState /* server_setting::ServerSetting */};
 use services::data_store::sqlite_job_store::SqliteJobStore;
@@ -41,6 +40,7 @@ use services::data_store::sqlite_worker_store::SqliteWorkerStore;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
+use std::sync::Arc;
 use tokio::{spawn, sync::RwLock};
 use tracing_subscriber::EnvFilter;
 
@@ -60,16 +60,16 @@ enum Commands {
     Client,
 }
 
-async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> // TODO: find the database type to return from creating sqlite connection!
-{
-    // how do I get this info for web to use and call from?
+async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> {
     let mut path = BlenderManager::get_config_dir();
     path = path.join("blendfarm.db");
 
     // create file if it doesn't exist (.config/BlendFarm/blendfarm.db)
     let _ = fs::File::create(&path).await;
 
+    // TODO: Consider thinking about the design behind this. Should we store database connection here or somewhere else?
     let url = format!("sqlite://{}", path.as_os_str().to_str().unwrap());
+    // macos: "sqlite:///Users/megamind/Library/Application Support/BlendFarm/blendfarm.db"
     // dbg!(&url);
     let pool = SqlitePoolOptions::new().connect(&url).await?;
     sqlx::migrate!().run(&pool).await?;
@@ -78,6 +78,7 @@ async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> // TODO: find the
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
+    dotenv().ok();
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();

@@ -60,7 +60,7 @@ pub async fn import_blend(path: PathBuf) -> Result<String, String> {
     // TODO: Is there any differences using file dialog from Javascript side or rust side?
     let file_name = match path.file_name() {
         Some(str) => str.to_str().unwrap().to_owned(),
-        None => return Err("Should be a valid file!".to_owned())
+        None => return Err("Should be a valid file!".to_owned()),
     };
 
     let data = match Blender::peek(&path).await {
