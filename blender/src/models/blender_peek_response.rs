@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -17,5 +19,5 @@ pub struct BlenderPeekResponse {
     pub scenes: Vec<String>,
     pub selected_scene: String,
     pub engine: String,
-    pub output: String,
+    pub output: PathBuf,
 }

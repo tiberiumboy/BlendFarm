@@ -16,8 +16,9 @@ use crate::{
 use blender::manager::Manager as BlenderManager;
 use blender::models::mode::Mode;
 use libp2p::PeerId;
-use std::path::PathBuf;
+use serde::Serialize;
 use std::{collections::HashMap, ops::Range, sync::Arc};
+use std::{path::PathBuf, thread::sleep, time::Duration};
 // use surrealdb::{engine::local::Db, Surreal};
 use tauri::{self, App, AppHandle, Emitter, Manager};
 use tokio::{
@@ -50,9 +51,17 @@ pub enum UiCommand {
 const MAX_BLOCK_SIZE: i32 = 30;
 
 pub struct TauriApp {
+    // I need the peer's address?
     peers: HashMap<PeerId, ComputerSpec>,
     worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static)>>,
     job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>,
+}
+
+#[derive(Clone, Serialize)]
+struct FrameUpdatePayload {
+    id: Uuid,
+    frame: i32,
+    file_name: String,
 }
 
 impl TauriApp {
@@ -114,13 +123,58 @@ impl TauriApp {
             .build(tauri::generate_context!())
     }
 
+    // because this is async, we can make our function wait for a new peers available.
     async fn get_idle_peers(&self) -> PeerId {
         // this will destroy the vector anyway.
         // TODO: Impl. Round Robin or pick first idle worker, whichever have the most common hardware first in query?
-        match self.peers.clone().into_iter().nth(0) {
-            Some((peer, ..)) => peer,
-            None => PeerId::random(),
+        // This code doesn't quite make sense, at least not yet?
+        loop {
+            if let Some((peer, ..)) = self.peers.clone().into_iter().nth(0) {
+                return peer;
+            }
+            sleep(Duration::from_secs(1));
         }
+    }
+
+    fn generate_tasks(job: &Job, file_name: PathBuf, chunks: i32, requestor: PeerId) -> Vec<Task> {
+        let (time_start, time_end) = match &job.mode {
+            Mode::Animation(anim) => (anim.start, anim.end),
+            Mode::Frame(frame) => (frame.clone(), frame.clone()),
+        };
+
+        // What if it's in the negative? e.g. [-200, 2 ] ? would this result to -180 and what happen to the equation?
+        let step = time_end - time_start;
+        let max_step = step / chunks;
+        let mut tasks = Vec::with_capacity(max_step as usize);
+
+        for i in 0..=max_step {
+            // current start block location.
+            let block = time_start + i * chunks;
+
+            let mut start = block;
+            if i > 0 {
+                // inclusive start
+                start += 1;
+            }
+
+            let end = block + chunks;
+            let end = match end.cmp(&time_end) {
+                std::cmp::Ordering::Less => end,
+                _ => time_end,
+            };
+            let range = Range { start, end };
+
+            let task = Task::new(
+                requestor,
+                job.id,
+                file_name.clone(),
+                job.get_version().clone(),
+                range,
+            );
+            tasks.push(task);
+        }
+
+        tasks
     }
 
     // command received from UI
@@ -128,61 +182,25 @@ impl TauriApp {
         match cmd {
             UiCommand::StartJob(job) => {
                 // first make the file available on the network
-                let file_name = PathBuf::from(job.project_file.file_name().unwrap());
+                let file_name = job.project_file.file_name().unwrap();
                 let path = job.project_file.clone();
 
-                // Make the file providable.
                 client
-                    .start_providing(file_name.to_string_lossy().into(), path)
+                    .start_providing(file_name.to_str().unwrap().to_string(), path)
                     .await;
 
-                match job.mode {
-                    Mode::Frame(frame) => {
-                        // send one peer the job.
-                        let peer = self.get_idle_peers().await;
-                        let requestor = client.get_local_peer().clone();
-                        let range = Range {
-                            start: frame,
-                            end: frame,
-                        };
-                        // Create one task
-                        let task = Task::new(
-                            requestor,
-                            job.id,
-                            PathBuf::from(file_name),
-                            job.get_version().clone(),
-                            range,
-                        );
-                        let event = JobEvent::Render(task);
-                        client.send_job_message(peer, event).await;
-                    }
-                    Mode::Animation(ref range) => {
-                        // What if it's in the negative? e.g. [-200, 2 ] ? would this result to -180 and what happen to the equation?
-                        let step = range.end - range.start;
-                        let requestor = client.get_local_peer().clone();
+                let tasks = Self::generate_tasks(
+                    &job,
+                    PathBuf::from(file_name),
+                    MAX_BLOCK_SIZE,
+                    client.public_id.clone(),
+                );
 
-                        for i in 0..=(step % MAX_BLOCK_SIZE) {
-                            let block = i * MAX_BLOCK_SIZE;
-                            let start = block + step;
-                            let end = start + MAX_BLOCK_SIZE;
-                            let end = match end.cmp(&range.end) {
-                                std::cmp::Ordering::Less => end,
-                                _ => range.end,
-                            };
-                            let range = Range { start, end };
-
-                            let task = Task::new(
-                                requestor,
-                                job.id,
-                                file_name.clone(),
-                                job.get_version().clone(),
-                                range,
-                            );
-                            let peer = self.get_idle_peers().await; // this means I must wait for an active peers to become available?
-                            let event = JobEvent::Render(task);
-                            client.send_job_message(peer, event).await;
-                        }
-                    }
+                // so here's the culprit. We're waiting for a peer to become idle and inactive waiting for the next job
+                for task in tasks {
+                    let peer = self.get_idle_peers().await; // this means I must wait for an active peers to become available?
+                    let event = JobEvent::Render(task);
+                    client.send_job_message(peer, event).await;
                 }
             }
             UiCommand::UploadFile(path, file_name) => {
@@ -217,11 +235,16 @@ impl TauriApp {
                     .unwrap();
             }
             NetEvent::NodeDiscovered(peer_id, spec) => {
+                // Why did linux show up twice? Where did my mac info went?
                 let worker = Worker::new(peer_id.to_base58(), spec.clone());
                 let mut db = self.worker_store.write().await;
                 if let Err(e) = db.add_worker(worker).await {
                     eprintln!("Error adding worker to database! {e:?}");
                 }
+
+                let handle = app_handle.write().await;
+                // emit a signal to query the data.
+                let _ = handle.emit("node", ());
                 self.peers.insert(peer_id, spec);
             }
             NetEvent::NodeDisconnected(peer_id) => {
@@ -229,10 +252,13 @@ impl TauriApp {
                 if let Err(e) = db.delete_worker(&peer_id.to_base58()).await {
                     eprintln!("Error deleting worker from database! {e:?}");
                 }
+
+                let handle = app_handle.write().await;
+                let _ = handle.emit("node", ());
+                self.peers.remove(&peer_id);
             }
             NetEvent::InboundRequest { request, channel } => {
                 if let Some(path) = client.providing_files.get(&request) {
-                    println!("Sending client file {path:?}");
                     client
                         .respond_file(std::fs::read(path).unwrap(), channel)
                         .await
@@ -251,6 +277,18 @@ impl TauriApp {
                         println!("Issue creating temp job directory! {e:?}");
                     }
 
+                    let handle = app_handle.write().await;
+                    if let Err(e) = handle.emit(
+                        "frame_update",
+                        FrameUpdatePayload {
+                            id,
+                            frame,
+                            file_name: file_name.clone(),
+                        },
+                    ) {
+                        eprintln!("Unable to send emit to app handler\n{e:?}");
+                    }
+
                     // Fetch the completed image file from the network
                     if let Ok(file) = client.get_file_from_peers(&file_name, &destination).await {
                         let handle = app_handle.write().await;
@@ -262,15 +300,18 @@ impl TauriApp {
 
                 // when a job is complete, check the poll for next available job queue?
                 JobEvent::JobComplete => {} // Hmm how do I go about handling this one?
+
                 // TODO: how do we handle error from node? What kind of errors are we expecting here and what can the host do about it?
                 JobEvent::Error(job_error) => {
                     todo!("See how this can be replicated? {job_error:?}")
                 }
+
                 // send a render job
-                JobEvent::Render(_) => {} // should be ignored.
-                // Received a request job?
+                // this will soon go away - host should not be receiving render jobs.
+                JobEvent::Render(..) => {}
+                // this will soon go away - host should not receive request job.
                 JobEvent::RequestJob => {}
-                // Remove Job entry from database
+                // this will soon go away
                 JobEvent::Remove(_) => {
                     // Should I do anything on the manager side? Shouldn't matter at this point?
                 }

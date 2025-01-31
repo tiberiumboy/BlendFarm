@@ -15,7 +15,6 @@ use std::collections::HashMap;
 use std::{hash::Hash, path::PathBuf};
 use uuid::Uuid;
 
-
 #[derive(Debug, Serialize, Deserialize)]
 pub enum JobEvent {
     Render(Task),
@@ -52,14 +51,32 @@ pub struct Job {
 }
 
 impl Job {
-
     /// Create a new job entry with provided all information intact. Used for holding database records
-    pub fn new(id: Uuid, mode: Mode, project_file: PathBuf, blender_version: Version, output: PathBuf, renders: HashMap<Frame, PathBuf>) -> Self {
-        Self { id, mode, project_file, blender_version, output, renders }
+    pub fn new(
+        id: Uuid,
+        mode: Mode,
+        project_file: PathBuf,
+        blender_version: Version,
+        output: PathBuf,
+        renders: HashMap<Frame, PathBuf>,
+    ) -> Self {
+        Self {
+            id,
+            mode,
+            project_file,
+            blender_version,
+            output,
+            renders,
+        }
     }
 
     /// Create a new job entry from the following parameter inputs
-    pub fn from(project_file: PathBuf, output: PathBuf, blender_version: Version, mode: Mode) -> Self {
+    pub fn from(
+        project_file: PathBuf,
+        output: PathBuf,
+        blender_version: Version,
+        mode: Mode,
+    ) -> Self {
         Self {
             id: Uuid::new_v4(),
             mode,
@@ -68,6 +85,10 @@ impl Job {
             output,
             renders: Default::default(),
         }
+    }
+
+    pub fn get_file_name(&self) -> &str {
+        self.project_file.file_name().unwrap().to_str().unwrap()
     }
 
     pub fn get_project_path(&self) -> &PathBuf {

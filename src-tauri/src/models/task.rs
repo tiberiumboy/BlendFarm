@@ -1,3 +1,5 @@
+use super::job::Job;
+use crate::domains::task_store::TaskError;
 use blender::{
     blender::{Args, Blender},
     models::status::Status,
@@ -11,8 +13,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 use uuid::Uuid;
-use crate::domains::task_store::TaskError;
-use super::job::Job;
 
 /*
     Task is used to send Worker individual task to work on
@@ -40,6 +40,8 @@ pub struct Task {
     pub range: Range<i32>,
 }
 
+// To better understand Task, this is something that will be save to the database and maintain a record copy for data recovery
+// This act as a pending work order to fulfil when resources are available.
 impl Task {
     pub fn new(
         peer_id: PeerId,
@@ -58,18 +60,14 @@ impl Task {
         }
     }
 
-    pub fn from(
-        peer_id: PeerId,
-        job: Job,
-        range: Range<i32>
-    ) -> Self {
+    pub fn from(peer_id: PeerId, job: Job, range: Range<i32>) -> Self {
         Self {
             id: Uuid::new_v4(),
             peer_id: peer_id.to_bytes(),
             job_id: job.id,
             blend_file_name: PathBuf::from(job.project_file.file_name().unwrap()),
             blender_version: job.blender_version,
-            range
+            range,
         }
     }
 

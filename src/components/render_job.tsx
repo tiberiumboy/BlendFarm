@@ -4,7 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 export interface RenderJobProps {
   current_frame: number;
   id: string;
-  mode: any;
+  start_frame: number,
+  end_frame: number,
   output: string;
   project_file: string;
   renders: string[];
@@ -21,8 +22,8 @@ export default function RenderJob(job: RenderJobProps, callback: (job: RenderJob
     invoke("delete_job", { targetJob: job }).then(job.onDataChanged);
 
   const moreAction = () => {
-    // should probably provide some context menu?
-    console.log("more action was pressed | TODO: add impl.");
+    // Display context menu here - Currently there are none, so we'll leave this alone for now.
+    // console.log("more action was pressed | TODO: add impl.");
   };
 
   return (

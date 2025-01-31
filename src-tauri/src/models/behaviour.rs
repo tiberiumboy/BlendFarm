@@ -9,7 +9,7 @@ pub struct FileResponse(pub Vec<u8>);
 
 #[derive(NetworkBehaviour)]
 pub struct BlendFarmBehaviour {
-    pub ping : ping::Behaviour,
+    pub ping: ping::Behaviour,
     // file transfer response protocol
     pub request_response: cbor::Behaviour<FileRequest, FileResponse>,
     // Communication between peers to pepers

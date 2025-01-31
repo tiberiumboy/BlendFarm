@@ -1,8 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { RenderNodeProp, ComputerSpec } from "./render_node";
 import { useEffect, useState } from "react";
 import RenderNode from "./render_node";
 
+// not sure what this is?
 export interface node {
 
 }
@@ -13,12 +15,12 @@ export default function NodeWindow() {
 
   useEffect(() => {
     getWorkers();
+    listen('node', () => getWorkers());
   }, []);
 
   // Ok so we're fetching the list of workers here?
   function getWorkers() {
     invoke("list_workers").then((ctx: any) => {
-      console.log(ctx);
       const workers = JSON.parse(ctx);
       setNodes(workers);
     })

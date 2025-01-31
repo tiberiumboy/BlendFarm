@@ -10,10 +10,8 @@ import { RenderJobProps } from "./components/render_job";
 import { listen } from "@tauri-apps/api/event";
 
 function App() {
-  const [versions, setVersions] = useState([] as string[]);
+  const [versions, setVersions] = useState<string[]>([]);
   const [jobs, setJobs] = useState(fetchJobs);
-
-  listen("tauri://file-drop", event => { console.log(event); });
 
   const unlisten_job_complete = listen("job_image_complete", (event: any) => {
     console.log(event); // should be a path which we can load into the job props?
@@ -70,7 +68,6 @@ function App() {
   function onJobCreated(job: RenderJobProps): void {
     const data = [...jobs];
     data.push(job);
-    console.log("OnJobCreated", data);
     setJobs(data);
   }
 
@@ -79,7 +76,7 @@ function App() {
       <Router>
         <Sidebar />
         <Routes>
-          <Route path='/' Component={() => RemoteRender({ versions: versions, jobs: jobs, onJobCreated: onJobCreated })} />
+          <Route path='/' Component={() => RemoteRender({ versions, jobs, onJobCreated })} />
           <Route path='/remote_render' Component={() => RemoteRender({ versions, jobs, onJobCreated })} />
           <Route path='/setting' Component={() => Setting(versions)} />
         </Routes>

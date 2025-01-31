@@ -17,8 +17,6 @@ pub async fn create_job(
     path: PathBuf,
     output: PathBuf,
 ) -> Result<Job, Error> {
-    // this is definitely a hack and should probably handle unwrap functions()
-    let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
     let job = Job::from(path, output, version, mode);
     let server = state.lock().await;
     let mut jobs = server.job_db.write().await;
@@ -31,15 +29,11 @@ pub async fn create_job(
     // send job to server
     if let Err(e) = server
         .to_network
-        .send(UiCommand::UploadFile(
-            job.get_project_path().clone(),
-            file_name,
-        ))
-        // .send(UiCommand::StartJob(job.clone()))
+        .send(UiCommand::StartJob(job.clone()))
         .await
     {
-        eprintln!("Fail to send job to the server! \n{e:?}");
-    };
+        eprintln!("Fail to send command to the server! \n{e:?}");
+    }
 
     Ok(job)
 }

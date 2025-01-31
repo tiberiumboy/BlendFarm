@@ -50,7 +50,9 @@ pub struct BlenderInfo {
     file_name: String,
     path: PathBuf,
     blend_version: Version,
-    frame: i32,
+    start: i32,
+    end: i32,
+    output: PathBuf,
     // could also provide other info like Eevee or Cycle?
 }
 
@@ -72,7 +74,9 @@ pub async fn import_blend(path: PathBuf) -> Result<String, String> {
         file_name,
         path,
         blend_version: data.last_version,
-        frame: data.frame_start,
+        start: data.frame_start,
+        end: data.frame_end,
+        output: data.output,
     };
 
     let data = serde_json::to_string(&info).unwrap();

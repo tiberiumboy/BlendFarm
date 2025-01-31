@@ -38,7 +38,6 @@ impl WorkerStore for SqliteWorkerStore {
         .bind(spec)
         .execute(&self.conn)
         .await
-        .map_err(|e| WorkerError::Database(e.to_string()))
         {
             eprintln!("{e}");
         }
@@ -66,6 +65,7 @@ impl WorkerStore for SqliteWorkerStore {
 
     async fn delete_worker(&mut self, machine_id: &str) -> Result<(), WorkerError> {
         let _ = sqlx::query(r"DELETE * FROM workers WHERE machine_id = $1")
+            // See if there's a way to prevent allocating new string struct?
             .bind(machine_id.to_string())
             .execute(&self.conn)
             .await;

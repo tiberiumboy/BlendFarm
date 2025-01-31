@@ -340,7 +340,7 @@ impl Blender {
         let mut render_height: i32 = 0;
         let mut fps: u16 = 0;
         let mut samples: i32 = 0;
-        let mut output: String = String::from("");
+        let mut output: PathBuf = PathBuf::new();
         let mut engine = String::from("");
 
         // this denotes how many scene objects there are.
@@ -361,7 +361,10 @@ impl Blender {
             frame_start = render.get_i32("sfra");
             frame_end = render.get_i32("efra");
             fps = render.get_u16("frs_sec");
-            output = render.get_string("pic"); // may not be necessary?
+            output = render
+                .get_string("pic")
+                .parse::<PathBuf>()
+                .map_err(|e| BlenderError::PythonError(e.to_string()))?;
 
             scenes.push(scene);
         }

@@ -26,7 +26,6 @@ function BlenderInstallerDialog(props: BlenderModalProps) {
   // I can see that the showModal state has changed, but then won't change it again?
   // I think somewhere the state have detected a change, but then later realize I'm passing in the same value so no update was called?
   useEffect(() => {
-    console.log("DialogRef:", dialogRef.current?.open);
     if (dialogRef.current?.open && !props.showModal) {
       dialogRef.current?.close()
     } else if (!dialogRef.current?.open && props.showModal) {
@@ -56,7 +55,6 @@ export default function Setting(versions: string[]) {
   }, []);
 
   async function fetchServerSettings() {
-    console.log("fetchserversettings");
     // is this possible? Does the JSON.parse handle this internally?
     let ctx: ServerSettingsProps | undefined = await invoke("get_server_settings");
     if (ctx === undefined) {

@@ -51,7 +51,7 @@ impl CliApp {
     // Invokes the render job. The task needs to be mutable for frame deque.
     async fn render_task(
         &mut self,
-        requestor: PeerId,
+        request_id: PeerId,
         client: &mut NetworkController,
         task: &mut Task,
     ) {
@@ -81,24 +81,27 @@ impl CliApp {
 
             let file_name = task.blend_file_name.to_str().unwrap();
             // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
-            match client
-                .get_file_from_peers(&file_name, &blend_dir)
-                .await
-            {
+            match client.get_file_from_peers(&file_name, &blend_dir).await {
                 Ok(path) => println!("File successfully download from peers! path: {path:?}"),
                 Err(e) => match e {
                     NetworkError::UnableToListen(_) => todo!(),
                     NetworkError::NotConnected => todo!(),
                     NetworkError::SendError(_) => {}
                     NetworkError::NoPeerProviderFound => {
+                        // I was timed out here?
                         client
-                            .send_status("No peer provider founkd on the network?".to_owned())
+                            .send_status("No peer provider found on the network?".to_owned())
                             .await
                     }
                     NetworkError::UnableToSave(e) => {
                         client
                             .send_status(format!("Fail to save file to disk: {e}"))
                             .await
+                    }
+                    NetworkError::Timeout => {
+                        // somehow we lost connection, try to establish connection again?
+                        // client.dial(request_id, client.public_addr).await;
+                        dbg!("Timed out?");
                     }
                     _ => println!("Unhandle error received {e:?}"), // shouldn't be covered?
                 },
@@ -117,7 +120,6 @@ impl CliApp {
         //     None => {
         //         // try to fetch from other peers with matching os / arch.
         //         // question is, how do I make them publicly available with the right blender version? or do I just find it by the executable name instead?
-
         //     }
         // }
 
@@ -147,21 +149,20 @@ impl CliApp {
                         }
                         Status::Completed { frame, result, .. } => {
                             // Use PathBuf as this helps enforce type intention of using OsString
-                            
-                            // Why don't I create it like a directory instead? = 
+                            // Why don't I create it like a directory instead? =
                             let file_name = result.file_name().unwrap().to_string_lossy();
-                            let file_name = format!("/{}/{}", id, file_name );
+                            let file_name = format!("/{}/{}", id, file_name);
                             let event = JobEvent::ImageCompleted {
                                 job_id: id,
                                 frame,
                                 file_name: file_name.clone(),
                             };
                             client.start_providing(file_name, result).await;
-                            client.send_job_message(requestor, event).await;
+                            client.send_job_message(request_id, event).await;
                         }
                         Status::Exit => {
                             client
-                                .send_job_message(requestor, JobEvent::JobComplete)
+                                .send_job_message(request_id, JobEvent::JobComplete)
                                 .await;
                             break;
                         }
@@ -171,7 +172,7 @@ impl CliApp {
             Err(e) => {
                 let err = JobError::TaskError(e);
                 client
-                    .send_job_message(requestor, JobEvent::Error(err))
+                    .send_job_message(request_id, JobEvent::Error(err))
                     .await;
             }
         };

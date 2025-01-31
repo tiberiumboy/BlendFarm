@@ -1,36 +1,31 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core"; 
-import { ChangeEvent, useEffect, useState } from "react";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core"; 
+import { useEffect, useRef, useState } from "react";
 import RenderJob, { GetFileName, RenderJobProps } from "../components/render_job";
-import { listen } from "@tauri-apps/api/event";
-import Database from '@tauri-apps/plugin-sql';
+import { listen, TauriEvent } from "@tauri-apps/api/event";
+import JobDialog from "../components/job_dialog";
 
 // TODO: Have a look into channels: https://v2.tauri.app/develop/calling-frontend/#channels
-// const unlisten = await once<RenderComposedPayload>("image_update", (event) => {
-//   console.log(event);
-// });
-
-// must deserialize into this format: "Section": { "start": i32, "end": i32 }
-
 function showImage(path: string) {
-  if (path !== undefined) {
+  if (path !== null) {
     return <img className="center-fit" src={convertFileSrc(path)}  />
   } else {
     return <div></div>
   }
 }
 
-function JobDetail(prop: { job: RenderJobProps | undefined }) {
-  if (prop.job != null) {
+function JobDetail(prop: { job: RenderJobProps | null }) {
+  if (prop != null && prop.job != null) {
+    const job = prop.job;
     return (
-      < div >
-        <h2>Job Details: {prop.job.id}</h2>
-        <p>File name: {GetFileName(prop.job.project_file)}</p>
+      <div>
+        <h2>Job Details: {job.id}</h2>
+        <p>File name: {GetFileName(job.project_file)}</p>
         <p>Status: Finish</p>
         <div className="imgbox">
-          { showImage( prop.job.renders[0]) }
+          { showImage( job.renders[0]) }
         </div>
-      </div >
+      </div>
     )
   } else {
     return (
@@ -51,9 +46,13 @@ export interface RemoteRenderProps {
   onJobCreated(job: RenderJobProps): void;
 }
 
-// const unlisten = await listen("version-update", (event) => {
-//   console.log(event);
-// })
+export interface BlendInfo {
+  path: string;
+  blend_version: string;
+  start: number;
+  end: number;
+  output: string;
+}
 
 // when using "withGlobalTauri": true - I can use this line below:
 // const Database = window.__TAURI__.sql;
@@ -80,21 +79,34 @@ export interface RemoteRenderProps {
 //   }
 // }
 
-export default function RemoteRender(props: RemoteRenderProps) {
-  const [selectedJob, setSelectedJob] = useState<RenderJobProps>();
-  const [path, setPath] = useState<string>("");
-  const [version, setVersion] = useState<string>("");
-  // const [db, setDb] = useState(null);
+const droppedPath: string[] = [];
 
-  // useEffect(() => {
-  //   let loadDB = await Database.load("sqlite:blendfarm.db");
-  //   setDb( loadDB );
-  // })
+export default function RemoteRender(props: RemoteRenderProps) {
+
+  const [selectedJob, setSelectedJob] = useState<RenderJobProps | null>(null);
+  const [blendInfo, setBlendInfo] = useState<BlendInfo | null>(null);
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+
+  useEffect(() => {
+    if (!blendInfo) return;
+    dialogRef.current?.showModal();
+  }, [blendInfo])
 
   //#region Dialogs
-  
-  async function showDialog() {
-    // TOOD: Invoke rust backend service to open dialog and then parse the blend file
+
+  listen(TauriEvent.DRAG_DROP, event => { 
+    const path: string = event.payload.paths[0];
+    // this solution below was to prevent spamming commands to backend from front end. Currently, it's calling this function 8-9 times from a single file drop.
+    if ( !droppedPath.includes(path)) {
+      droppedPath.push(path);
+      showDialog(path);
+      // allow user to reupload another file after 100ms
+      setTimeout(() => droppedPath.length = 0, 100);
+    }
+  });
+
+  async function onImportClick() {
+     // TOOD: Invoke rust backend service to open dialog and then parse the blend file
     // Otherwise, display the info needed to re-populate the information.
     const file_path = await open({
       directory: false,
@@ -111,104 +123,57 @@ export default function RemoteRender(props: RemoteRenderProps) {
       return;
     }
 
-    invoke("import_blend", { path: file_path }).then((ctx) => {
-      // I can't imagine how this would be null?
+    showDialog(file_path);
+  }
+  
+  /*  
+    Reading the code below may seem confusing so it's best to explain here -
+    We want to fetch data out of blender file before displaying information to the user.
+    This process automates prepopulating field many artist don't recall or unfamiliar with.
+    In the dialog, we will update the following field:
+      File Path - Where .blend is located
+      Blender Version - last version .blend was saved in
+      Output destination - output camera destination extracted. This can be changed.
+      Timeline (Start/End) - active scene begin and end animation timeline.
+  */
+  function showDialog(file_path: string): void {
+    invoke("import_blend", { path: file_path }).then(ctx => {
       if (ctx == null) {
+        // I can't imagine how this would be null?
+        console.log("import_blend received null?", ctx, file_path);
         return;
       }
 
-      // TODO: For future impl. : We will try and read the file from the backend to extract information to show the user information about the blender
-      // then we will populate those data into the dialog form, allowing user what BlendFarm sees, making any last adjustment before creating a new job.
-      let data = JSON.parse(ctx as string);
-      
-      // why is this not properly refreshing the UI elements?
-      setPath(file_path);
-      setVersion(data.blend_version);
-      openDialog();
-    })
+      const data: BlendInfo = JSON.parse(ctx as string);      
+      setBlendInfo(data);
+      dialogRef.current?.showModal();
+    });
   }
 
   function onJobSelected(job: RenderJobProps): void {
     setSelectedJob(job);
   }
 
-  const handleSubmitJobForm = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // How do I structure this?
-    const info = e.target as HTMLFormElement;
-    // const selectedMode = info.modes.value;
-    const output = info.output.value;
-    const mode = {
-      Animation: {
-        start: Number(info.start.value),
-        end: Number(info.end.value),
-      },
-    };
-
-    let data = {
-      mode,
-      version,
-      path,
-      output,
-    };
-
-    invoke("create_job", data).then((ctx: any) => {
-      if (ctx == null) {
-        return;
-      }
-      console.log("After create_job post", ctx);
-
-      let data: RenderJobProps = {
-        current_frame: 0,
-        id: ctx.id,
-        mode: ctx.mode,
-        output: ctx.output,
-        project_file: ctx.project_file,
-        renders: [],
-        version: ctx.blender_version,
-      };
-      props.onJobCreated(data);
-    });
-    closeDialog();
-  }
-
   //#endregion
-
-  //#region dialog for new job
-
-  function openDialog() {
-    let dialog = document.getElementById("create_process") as HTMLDialogElement;
-    dialog?.showModal();
-  }
-
-  function closeDialog() {
-    let dialog = document.getElementById("create_process") as HTMLDialogElement;
-    dialog?.close();
-  }
-
-  //#endregion
-
-  // TODO: find a way to make this more sense and pure function as possible.
-  // see if I can just invoke a rust backend to handle file directory or file open instead?
-  async function onDirectorySelect(e: any) {
-    const filePath = await open({
-      directory: true,
-      multiple: false,
-    });
-    if (filePath != null) {
-      // TODO: find a way to include the dash elsewhere
-      e.target.value = filePath + "/";
-    }
-  }
 
   return (
     <div className="content">
+
+      <dialog ref={dialogRef}>
+        <JobDialog info={blendInfo} 
+                  versions={props.versions} 
+                  onJobCreated={props.onJobCreated} 
+                  onClose={() => dialogRef.current?.close()} 
+        />
+      </dialog>
+            
       <h2>Remote Jobs</h2>
+      
       {/* How can I enable hotkey function for html code? */}
-      <button onClick={showDialog}>
+      <button onClick={onImportClick}>
         Import
       </button>
+      
       {/* Collection of active job list 
         // change this to point to sql table instead?
       */}
@@ -216,46 +181,8 @@ export default function RemoteRender(props: RemoteRenderProps) {
         {props.jobs.map((job) => RenderJob(job, onJobSelected))}
       </div>
 
-      <JobDetail job={selectedJob} />
+      <JobDetail job={selectedJob}/>
 
-      <dialog id="create_process">
-        <form method="dialog" onSubmit={handleSubmitJobForm}>
-          <h1>Create new Render Job</h1>
-          <label>Project File Path:</label>
-          <input type="text" value={path} placeholder="Project path" id="file_path" name="file_path" readOnly={true} />
-        
-          <br />
-          <label>Blender Version:</label>
-          <select value={version} onChange={(e) => setVersion(e.target.value)}>
-            {props.versions.map((item) => (
-              <option value={item}>{item}</option>
-            ))}
-          </select>
-
-          <div key="frameRangeEntry">
-            <label key="frameStartLabel" htmlFor="start">Start</label>
-            <input key="frameStartField" name="start" type="number" value={1} />
-            <label key="frameEndLabel" htmlFor="end">End</label>
-            <input key="frameEndField" name="end" type="number" value={2} />
-          </div>
-
-          <label>Output destination:</label>
-          <input
-            type="text"
-            placeholder="Output Path"
-            id="output"
-            name="output"
-            // how do I load last output destination?
-            value={"/Users/Shared/"}  // change this?
-            readOnly={true}
-            onClick={onDirectorySelect}
-          />
-          <menu>
-            <button type="button" value="cancel" onClick={closeDialog}>Cancel</button>
-            <button type="submit">Ok</button>
-          </menu>
-        </form>
-      </dialog>
     </div>
   );
 }

@@ -3,10 +3,12 @@ use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
 use super::message::{NetCommand, NetEvent, NetworkError};
 use super::server_setting::ServerSetting;
+use super::task::Task;
 use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
-use libp2p::kad::RecordKey;
 use futures::{channel::oneshot, prelude::*, StreamExt};
+use libp2p::kad::RecordKey;
+use libp2p::multiaddr::Protocol;
 use libp2p::{
     gossipsub::{self, IdentTopic},
     kad, mdns, ping,
@@ -15,7 +17,7 @@ use libp2p::{
 };
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
 use machine_info::Machine;
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map, HashMap, HashSet};
 use std::error::Error;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -106,30 +108,38 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
         .parse()
         .map_err(|_| NetworkError::BadInput)?;
 
+    // Begin listening on tcp and udp as server
     swarm
         .listen_on(tcp)
         .map_err(|e| NetworkError::UnableToListen(e.to_string()))?;
+
     swarm
         .listen_on(udp)
         .map_err(|e| NetworkError::UnableToListen(e.to_string()))?;
 
+    // set the kad as server mode
     swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Server));
 
     // the command sender is used for outside method to send message commands to network queue
     let (command_sender, command_receiver) = mpsc::channel::<NetCommand>(32);
+
     // the event sender is used to handle incoming network message. E.g. RunJob
     let (event_sender, event_receiver) = mpsc::channel::<NetEvent>(32);
 
     let local_peer_id = swarm.local_peer_id().clone();
+
     Ok((
         NetworkService {
             swarm,
             command_receiver,
             event_sender,
+            public_addr: None,
             machine: Machine::new(),
+            pending_dial: Default::default(),
             pending_get_providers: Default::default(),
             pending_start_providing: Default::default(),
             pending_request_file: Default::default(),
+            pending_task: Default::default(),
         },
         NetworkController {
             sender: command_sender,
@@ -149,6 +159,7 @@ pub struct NetworkController {
     pub settings: ServerSetting,
     // Use string to defer OS specific path system. This will be treated as a URI instead. /job_id/frame
     pub providing_files: HashMap<String, PathBuf>,
+    // making it public until we can figure out how to mitigate the usage of variable.
     pub public_id: PeerId,
 }
 
@@ -175,10 +186,6 @@ impl NetworkController {
             .expect("Command should not been dropped");
     }
 
-    pub fn get_local_peer(&self) -> &PeerId {
-        &self.public_id
-    }
-
     // How do I get the peers info I want to communicate with?
     pub async fn send_job_message(&mut self, target: PeerId, event: JobEvent) {
         self.sender
@@ -199,10 +206,7 @@ impl NetworkController {
         let (sender, receiver) = oneshot::channel();
         println!("Start providing file {:?}", file_name);
         self.providing_files.insert(file_name.clone(), path);
-        let cmd = NetCommand::StartProviding {
-            file_name,
-            sender,
-        };
+        let cmd = NetCommand::StartProviding { file_name, sender };
         self.sender
             .send(cmd)
             .await
@@ -234,14 +238,16 @@ impl NetworkController {
 
         let requests = providers.into_iter().map(|p| {
             let mut client = self.clone();
+            // should I just request a file from one peer instead?
             async move { client.request_file(p, file_name).await }.boxed()
         });
 
         let content = match futures::future::select_ok(requests).await {
             Ok(data) => data.0,
             Err(e) => {
+                // Received a "Timeout" error? What does that mean? Should I try to reconnect?
                 eprintln!("No peer found? {e:?}");
-                return Err(NetworkError::NoPeerProviderFound);
+                return Err(NetworkError::Timeout);
             }
         };
 
@@ -250,6 +256,25 @@ impl NetworkController {
             Ok(_) => Ok(file_path),
             Err(e) => Err(NetworkError::UnableToSave(e.to_string())),
         }
+    }
+
+    pub async fn dial(
+        &mut self,
+        peer_id: PeerId,
+        peer_addr: Multiaddr,
+    ) -> Result<(), Box<dyn Error + Send>> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender
+            .send(NetCommand::Dial {
+                peer_id,
+                peer_addr,
+                sender,
+            })
+            .await
+            .expect("Command receiver should not be dropped");
+        receiver
+            .await
+            .expect("Command receiver should not be dropped")
     }
 
     async fn request_file(
@@ -295,11 +320,15 @@ pub struct NetworkService {
     // Send Network event to subscribers.
     event_sender: Sender<NetEvent>,
 
+    public_addr: Option<Multiaddr>,
+
     // empheral key used to stored and communicate with.
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<()>>,
     pending_request_file:
         HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
+    pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
+    pending_task: HashMap<PeerId, oneshot::Sender<Result<Task, Box<dyn Error + Send>>>>,
 }
 
 impl NetworkService {
@@ -343,11 +372,7 @@ impl NetworkService {
             }
             NetCommand::GetProviders { file_name, sender } => {
                 let key = RecordKey::new(&file_name.as_bytes());
-                let query_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .kad
-                    .get_providers(key.into());
+                let query_id = self.swarm.behaviour_mut().kad.get_providers(key.into());
                 self.pending_get_providers.insert(query_id, sender);
             }
             NetCommand::StartProviding { file_name, sender } => {
@@ -377,16 +402,48 @@ impl NetworkService {
                     .unsubscribe(&ident_topic)
                     .unwrap();
             }
-            NetCommand::JobStatus(target, status) => {
-                let data = bincode::serialize(&status).unwrap();
+            // what was I'm suppose to do here?
+            NetCommand::JobStatus(peer_id, event) => {
+                /*
+                // convert data into json format.
+                // let data = bincode::serialize(&status).unwrap();
 
                 // TODO: Read more about libp2p and how I can just connect to one machine and send that machine job status information.
-                let _ = self.swarm.dial(target);
+                // let _ = self.swarm.dial(target);
+                // once we have a tcp/udp/quik connection, we should only send one task over and end the pipe.
 
                 // TODO: Find a way to send JobEvent to specific target machine?
-                let topic = IdentTopic::new(JOB);
-                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                    eprintln!("Fail to send job! {e:?}");
+                // let topic = IdentTopic::new(JOB);
+                // if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+                //     eprintln!("Fail to send job! {e:?}");
+                // }
+                */
+
+                /*
+                   Let's break this down, we receive a worker with peer_id and peer_addr, both of which will be used to establish communication
+                   Once we establish a communication, that target peer will need to receive the pending task we have assigned for them.
+                   For now, we will try to dial the target peer, and append the task to our network service pool of pending task.
+                */
+                // self.pending_task.insert(peer_id, );
+            }
+            NetCommand::Dial {
+                peer_id,
+                peer_addr,
+                sender,
+            } => {
+                if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
+                    self.swarm
+                        .behaviour_mut()
+                        .kad
+                        .add_address(&peer_id, peer_addr.clone());
+                    match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
+                        Ok(()) => {
+                            e.insert(sender);
+                        }
+                        Err(e) => {
+                            let _ = sender.send(Err(Box::new(e)));
+                        }
+                    }
                 }
             }
         };
@@ -419,8 +476,16 @@ impl NetworkService {
                     .await
                     .unwrap();
             }
+            SwarmEvent::NewListenAddr { address, .. } => {
+                // hmm.. I need to capture the address here?
+                // how do I save the address?
+                if address.protocol_stack().any(|f| f.contains("tcp")) {
+                    dbg!(&address);
+                    self.public_addr = Some(address);
+                }
+            }
             _ => {
-                println!("{event:?}")
+                println!("{event:?}");
             }
         }
     }
@@ -446,21 +511,27 @@ impl NetworkService {
                     request_id,
                     response,
                 } => {
-                    let _ = self
+                    if let Err(e) = self
                         .pending_request_file
                         .remove(&request_id)
                         .expect("Request is still pending?")
-                        .send(Ok(response.0));
+                        .send(Ok(response.0))
+                    {
+                        eprintln!("libp2p Response Error: {e:?}");
+                    }
                 }
             },
             libp2p_request_response::Event::OutboundFailure {
                 request_id, error, ..
             } => {
-                let _ = self
+                if let Err(e) = self
                     .pending_request_file
                     .remove(&request_id)
                     .expect("Request is still pending")
-                    .send(Err(Box::new(error)));
+                    .send(Err(Box::new(error)))
+                {
+                    eprintln!("libp2p outbound fail: {e:?}");
+                }
             }
             libp2p_request_response::Event::ResponseSent { .. } => {}
             _ => {}
