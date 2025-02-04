@@ -110,6 +110,7 @@ impl TauriApp {
                 create_job,
                 delete_job,
                 list_jobs,
+                job_detail,
                 list_versions,
                 list_workers,
                 import_blend,

@@ -1,4 +1,5 @@
 use blender::models::mode::Mode;
+use build_html::{Html, HtmlElement, HtmlTag};
 use semver::Version;
 use std::path::PathBuf;
 use tauri::{command, Error, State};
@@ -52,6 +53,19 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> R
     Ok(())
 }
 
+#[command]
+pub fn job_detail() -> String {
+    // TODO: ask for the key to fetch the job details.
+
+    HtmlElement::new(HtmlTag::Div)
+        .with_child(
+            HtmlElement::new(HtmlTag::ParagraphText)
+                .with_child("Job Detail".into())
+                .into(),
+        )
+        .to_html_string()
+}
+
 /// List all available jobs stored in the collection.
 #[command(async)]
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
@@ -61,4 +75,15 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, Stri
         Ok(data) => Ok(serde_json::to_string(data).unwrap()),
         Err(e) => Err(e.to_string()),
     }
+    // here we will try and create this html list definition
+    /*
+       <div>
+       <h2>Job Details: {job.id}</h2>
+       <p>File name: {GetFileName(job.project_file)}</p>
+       <p>Status: Finish</p>
+       <div className="imgbox">
+           { showImage( job.renders[0]) }
+       </div>
+       </div>
+    */
 }

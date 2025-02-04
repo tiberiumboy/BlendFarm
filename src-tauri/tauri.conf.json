@@ -19,7 +19,7 @@
         "height": 480
       }
     ],
-    "withGlobalTauri": false,
+    "withGlobalTauri": true,
     "security": {
       "assetProtocol": {
         "scope": [
@@ -58,7 +58,9 @@
       }
     },
     "sql": {
-      "preload": ["sqlite:blendfarm.db"]
+      "preload": [
+        "sqlite:blendfarm.db"
+      ]
     }
   }
 }

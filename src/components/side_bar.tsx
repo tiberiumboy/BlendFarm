@@ -19,7 +19,6 @@ class SidebarStruct {
 const SidebarData = [
   new SidebarStruct("Remote Render", "./remote_render", <GoIcons.GoProject />),
   new SidebarStruct("Setting", "./setting", < Hi2Icon.HiOutlineCog8Tooth />),
-  // new SidebarStruct("LiveView", "./liveview", < MdIcon.MdOutlinePreview />),
 ];
 
 export default function Sidebar() {

@@ -19,7 +19,8 @@ uuid = { version = "^1", features = ["serde", "v4"] }
 ureq = { version = "^2.12" }
 blend = "0.8.0"
 tokio = { version = "1.42.0", features = ["full"] }
-xml-rpc = "^0.0"
+# hack to get updated patches - og inactive for 6 years
+xml-rpc = { git = "https://github.com/locusrobotics/xml-rpc-rs.git" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 zip = "^2.2.1"

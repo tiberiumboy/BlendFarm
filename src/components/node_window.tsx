@@ -25,14 +25,13 @@ export default function NodeWindow() {
       setNodes(workers);
     })
   }
-  
 
   // TODO: Find a way to make this node selectable, and refresh the screen to display node property and information (E.g. Blender preview window, Activity monitor, specs, files completed, etc.)
   function nodeWindow() {
     return (
       <div>
         {/* Show the activity of the computer progress */}
-        <h2 onClick={getWorkers}>Computer Nodes</h2>
+        <h2 hx-on={getWorkers}>Computer Nodes</h2>
         <div className="group" id="RenderNodes">
           {nodes.map((node) =>
             <div>{RenderNode(node)}</div>

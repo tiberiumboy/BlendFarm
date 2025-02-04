@@ -139,7 +139,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
             pending_get_providers: Default::default(),
             pending_start_providing: Default::default(),
             pending_request_file: Default::default(),
-            pending_task: Default::default(),
+            // pending_task: Default::default(),
         },
         NetworkController {
             sender: command_sender,
@@ -328,7 +328,7 @@ pub struct NetworkService {
     pending_request_file:
         HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
-    pending_task: HashMap<PeerId, oneshot::Sender<Result<Task, Box<dyn Error + Send>>>>,
+    // pending_task: HashMap<PeerId, oneshot::Sender<Result<Task, Box<dyn Error + Send>>>>,
 }
 
 impl NetworkService {
@@ -403,7 +403,7 @@ impl NetworkService {
                     .unwrap();
             }
             // what was I'm suppose to do here?
-            NetCommand::JobStatus(peer_id, event) => {
+            NetCommand::JobStatus(_peer_id, _event) => {
                 /*
                 // convert data into json format.
                 // let data = bincode::serialize(&status).unwrap();
