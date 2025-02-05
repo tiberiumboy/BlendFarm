@@ -8,8 +8,9 @@
     <link rel="stylesheet" href="./src/styles.css"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Blender Farm</title>
-    <script type="module" src="./src/htmx.min.js"></script>
-    <script type="module" src="./src/tauri-ext.js" defer></script> 
+    <script src="/node_modules/htmx.org/dist/htmx.js"></script>
+    <!-- Having problem with this code - cannot find variable htmx? -->
+    <script type="module" src="./src/tauri-ext.js"></script> 
 </head>
 
 <!-- TODO See about getting drag and drop working in htmx? 
@@ -33,20 +34,17 @@
             <ul className="nav-menu-items">
             <li key="manager" 
                 class="nav-bar" 
-                hx-get="/remote_render" 
+                tauri-invoke="remote_render_page" 
                 hx-target="#workplace"
             >
-                <GoIcons.GoProject></GoIcons.GoProject>
                 <span>Remote Render</span>
-                <div hx-indicator ></div>
             </li>
 
             <li key="setting" 
                 class="nav-bar" 
-                hx-get="/setting" 
+                tauri-invoke="setting_page" 
                 hx-target="#workplace"
             >
-                <span><Hi2Icon.HiOutlineCog8Tooth></Hi2Icon.HiOutlineCog8Tooth></span>
                 <span>Setting</span>
             </li>
             </ul>

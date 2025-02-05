@@ -1,6 +1,7 @@
 use blender::models::mode::Mode;
 use build_html::{Html, HtmlElement, HtmlTag};
 use semver::Version;
+use std::ops::Range;
 use std::path::PathBuf;
 use tauri::{command, Error, State};
 use tokio::sync::Mutex;
@@ -13,11 +14,13 @@ use crate::{
 #[command(async)]
 pub async fn create_job(
     state: State<'_, Mutex<AppState>>,
-    mode: Mode,
+    start: i32,
+    end: i32,
     version: Version,
     path: PathBuf,
     output: PathBuf,
 ) -> Result<Job, Error> {
+    let mode = Mode::Animation(Range { start, end });
     let job = Job::from(path, output, version, mode);
     let server = state.lock().await;
     let mut jobs = server.job_db.write().await;

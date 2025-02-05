@@ -3,7 +3,6 @@ use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
 use super::message::{NetCommand, NetEvent, NetworkError};
 use super::server_setting::ServerSetting;
-use super::task::Task;
 use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
 use futures::{channel::oneshot, prelude::*, StreamExt};

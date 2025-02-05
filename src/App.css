@@ -55,6 +55,72 @@ body {
   text-align: center;
 }
 
+#modal {
+  position: fixed;
+  top:0px;
+  bottom:0px;
+  left:0px;
+  right:0px;
+  background-color:rgba(0,0,0,0.3);
+  z-index:1000;
+
+  animation-name: fadeIn;
+  animation-duration:150ms;
+  animation-timing-function: ease;
+}
+
+#modal > .modal-underlay {
+  position:absolute;
+  z-index:-1;
+  top:0px;
+  bottom: 0px;
+  left: 0px;
+  right: 0px;
+}
+
+#modal > .modal-content {
+  margin-top:10vh;
+  width:80%;
+  max-width: 600px;
+
+  border:solid 1px #999;
+  border-radius:8px;
+  box-shadow: 0px 0px 20px 0px rgba(0,0,0,0.3);
+  padding: 20px;
+
+  animation-name:fadeIn;
+  animation-duration:150ms;
+  animation-timing-function: ease;
+}
+
+#modal.closing {
+  animation-name: fadeOut;
+  animation-duration:150ms;
+  animation-timing-function:ease;
+}
+
+#modal.closing > .modal-content {
+  animation-name: zoomOut;
+  animation-duration:150ms;
+  animation-timing-function:ease;
+}
+
+@keyframes fadeIn {
+  0% {opacity: 0;}
+  100% {opacity: 1;}
+}
+
+@keyframes fadeOut {
+  0% {opacity: 1;}
+  100% { opacity: 0;}
+}
+
+@keyframes zoomOut {
+  0% {transform:scale(1);}
+  100% {transform:scale(0);}
+}
+
+
 .row {
   display: flex;
   justify-content: center;
@@ -107,13 +173,13 @@ button {
 }
 
 .backdrop {
-  position: 'fixed',
-  left: 0,
-  right: 0,
-  top: 0,
-  bottom: 0,
-  backgroundColor: 'rgba(0,0,0,0.7)',
-  zIndex: 1000
+  position: 'fixed';
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background-color: 'rgba(0,0,0,0.7)';
+  z-index: 1000;
 }
 
 .modal.open,

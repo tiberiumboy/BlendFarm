@@ -1,6 +1,8 @@
 // this is the settings controller section that will handle input from the setting page.
 use crate::models::{app_state::AppState, server_setting::ServerSetting};
 use blender::blender::Blender;
+use build_html::{Html, HtmlContainer, HtmlElement, HtmlTag};
+use maud::html;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -35,22 +37,6 @@ pub struct SettingResponse {
     Because blender installation path is not store in server setting, it is infact store under blender manager,
     we will need to create a new custom response message to provide all of the information needed to display on screen properly
 */
-#[command(async)]
-pub async fn get_server_settings(
-    state: State<'_, Mutex<AppState>>,
-) -> Result<SettingResponse, Error> {
-    let app_state = state.lock().await;
-    let server_settings = app_state.setting.read().await;
-    let blender_manager = app_state.manager.read().await;
-
-    let data = SettingResponse {
-        install_path: blender_manager.as_ref().to_owned(),
-        cache_path: server_settings.blend_dir.clone(),
-        render_path: server_settings.render_dir.clone(),
-    };
-
-    Ok(data)
-}
 
 #[command(async)]
 pub async fn set_server_settings(
@@ -126,4 +112,32 @@ pub async fn remove_blender_installation(
     let mut manager = app_state.manager.write().await;
     manager.remove_blender(&blender);
     Ok(())
+}
+
+#[command(async)]
+pub async fn setting_page(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
+    let app_state = state.lock().await;
+    let server_settings = app_state.setting.read().await;
+    let blender_manager = app_state.manager.read().await;
+
+    let install_path = blender_manager.as_ref().to_owned();
+    let cache_path = server_settings.blend_dir.clone();
+    let render_path = server_settings.render_dir.clone();
+
+    // draw and display the setting page here
+    let content = html! {
+        div class="content" {
+            h1 { "Settings" };
+            p { r"Here we list out all possible configuration this tool can offer to user.
+                    Exposing rich and deep components to customize your workflow" };
+            h3 { "Blender Installation Path:" };
+            input value=(install_path.to_str().unwrap());
+            h3 { "Blender File Cache Path:" };
+            input value=(cache_path.to_str().unwrap());
+            h3 { "Render cache directory:" };
+            input value=(render_path.to_str().unwrap());
+        };
+    };
+
+    Ok(content.into_string())
 }

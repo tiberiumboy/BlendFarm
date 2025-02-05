@@ -10,42 +10,7 @@ export interface ServerSettingsProps {
   cache_path: string,
 }
 
-interface BlenderModalProps {
-  showModal: boolean;
-  versions: string[];
-  onItemSelected(item: string): void;
-  onDialogClose(): void;
-}
-
-function BlenderInstallerDialog(props: BlenderModalProps) {
-
-  // not sure what this one is?
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  // TODO: Find a better way to handle this. I cannot re-open the dialog again?
-  // I can see that the showModal state has changed, but then won't change it again?
-  // I think somewhere the state have detected a change, but then later realize I'm passing in the same value so no update was called?
-  useEffect(() => {
-    if (dialogRef.current?.open && !props.showModal) {
-      dialogRef.current?.close()
-    } else if (!dialogRef.current?.open && props.showModal) {
-      dialogRef.current?.showModal()
-    }
-  }, [props]);
-
-  return (
-    <dialog ref={dialogRef} title="Install Blender Version from Web">
-      {props.versions.map((v) => (
-        <div className="item" onClick={() => props.onItemSelected(v)}>{v}</div>
-      ))}
-      <button onClick={props.onDialogClose}>Cancel</button>
-    </dialog>
-  )
-}
-
 export default function Setting(versions: string[]) {
-  const [blenders, setBlenders] = useState(fetchBlenders);
-  const [showModal, setShowModal] = useState(false);
 
   // TODO: Feels like I need to move these two states (setting+blendInstall) to App.tsx instead?
   const [setting, setSetting] = useState<ServerSettingsProps>({ install_path: '', render_path: '', cache_path: '' });
@@ -61,11 +26,6 @@ export default function Setting(versions: string[]) {
       return;
     }
     setSetting(ctx);
-  }
-
-  function fetchBlenders() {
-    listBlenders(); // shouldn't need to wait.
-    return [] as BlenderProps[];
   }
 
   async function listBlenders() {
@@ -109,6 +69,7 @@ export default function Setting(versions: string[]) {
     })
   }
 
+  // TODO: Replicate this function behaviour on Tauri backend.
   function installBlenderFromLocal(blenderCreated: (blender: BlenderProps) => void) {
     open({
       multiple: false,
@@ -127,22 +88,12 @@ export default function Setting(versions: string[]) {
   }
 
   function handleItemSelected(item: string): void {
-    handleDialogClosed();
     installBlenderFromVersion(item, onBlenderCreated);
-  }
-
-  function handleDialogClosed(): void {
-    setShowModal(false);
   }
 
   return (
     <div className="content">
-      <h1>Settings</h1>
-      <p>
-        Here we list out all possible configuration this tool can offer to user.
-        Exposing rich and deep component to fit your production flow
-      </p>
-      <h3>Local Settings</h3>
+
       <div className="group">
         <form>
           <label style={{ float: "left" }}>
@@ -190,15 +141,19 @@ export default function Setting(versions: string[]) {
 
         </form>
       </div>
+
       <h3>
         Blender Installation
       </h3>
+
       <button onClick={() => installBlenderFromLocal(onBlenderCreated)}>
         Add from Local Storage
       </button>
+
       <button onClick={() => setShowModal(true)}>
         Install version
       </button>
+
       <div className="group">
         {blenders.map((blender: BlenderProps) => (
           (blender.onDelete = listBlenders),
@@ -207,11 +162,8 @@ export default function Setting(versions: string[]) {
       </div>
 
       <BlenderInstallerDialog
-        showModal={showModal}
         versions={versions}
-        onItemSelected={handleItemSelected}
-        onDialogClose={handleDialogClosed} />
-      {/* Todo Display the list of blender installation stored in serversettings config */}
+        onItemSelected={handleItemSelected}/>
     </div >
   );
 }
