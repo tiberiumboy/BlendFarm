@@ -11,15 +11,20 @@ use crate::{
     services::tauri_app::UiCommand,
 };
 
+// input values are always string type. I need to validate input on backend instead of front end.
+// return invalidation if the value are not accepted.
 #[command(async)]
 pub async fn create_job(
     state: State<'_, Mutex<AppState>>,
-    start: i32,
-    end: i32,
+    start: String,
+    end: String,
     version: Version,
     path: PathBuf,
     output: PathBuf,
 ) -> Result<Job, Error> {
+    let start: i32 = start.parse()?;
+    let end: i32 = end.parse()?;
+
     let mode = Mode::Animation(Range { start, end });
     let job = Job::from(path, output, version, mode);
     let server = state.lock().await;

@@ -1,7 +1,6 @@
 // this is the settings controller section that will handle input from the setting page.
 use crate::models::{app_state::AppState, server_setting::ServerSetting};
 use blender::blender::Blender;
-use build_html::{Html, HtmlContainer, HtmlElement, HtmlTag};
 use maud::html;
 use semver::Version;
 use serde::{Deserialize, Serialize};

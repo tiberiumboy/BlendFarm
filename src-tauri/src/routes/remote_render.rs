@@ -25,7 +25,7 @@ async fn list_versions(app_state: &AppState) -> Vec<Version> {
     let manager = app_state.manager.read().await;
     let mut versions = Vec::new();
 
-    let _ = manager.home.as_ref().iter().map(|b| {
+    let _ = manager.home.as_ref().iter().for_each(|b| {
         let version = match b.fetch_latest() {
             Ok(download_link) => download_link.get_version().clone(),
             Err(_) => Version::new(b.major, b.minor, 0),
@@ -37,7 +37,7 @@ async fn list_versions(app_state: &AppState) -> Vec<Version> {
     let _ = manager
         .get_blenders()
         .iter()
-        .map(|b| versions.push(b.get_version().clone()));
+        .for_each(|b| versions.push(b.get_version().clone()));
 
     versions
 }
@@ -122,7 +122,7 @@ pub async fn import_blend(
                     };
 
                     label { "Output destination:" };
-                    input type="text" placeholder="Output Path" name="output" value=(data.output.to_str().unwrap()) readOnly="true";
+                    input type="text" placeholder="Output Path" name="output" value=(data.output.to_str().unwrap()) readonly="true";
                     menu {
                         button type="button" value="cancel" _="on click trigger closeModal" { "Cancel" };
                         button type="submit" { "Ok" };

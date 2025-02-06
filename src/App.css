@@ -120,7 +120,6 @@ body {
   100% {transform:scale(0);}
 }
 
-
 .row {
   display: flex;
   justify-content: center;
