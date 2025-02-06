@@ -3,34 +3,9 @@ use crate::models::{app_state::AppState, server_setting::ServerSetting};
 use blender::blender::Blender;
 use maud::html;
 use semver::Version;
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{command, Error, State};
 use tokio::sync::Mutex;
-
-/*
-Developer Blog
-- Ran into an issue trying to unpack blender on MacOS - turns out that .ends_with needs to match the child as a whole instead of substring.
-- Changed the code down below to rely on using AppState, which contains managers needed to access to or modify to.
-TODO: Newly added blender doesn't get saved automatically.
-*/
-
-/// List out currently saved blender installation on the machine
-#[command(async)]
-pub async fn list_blender_installation(state: State<'_, Mutex<AppState>>) -> Result<String, Error> {
-    let app_state = state.lock().await;
-    let manager = app_state.manager.read().await;
-    let blenders = manager.get_blenders();
-    let data = serde_json::to_string(&blenders).unwrap();
-    Ok(data)
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SettingResponse {
-    pub install_path: PathBuf,
-    pub render_path: PathBuf,
-    pub cache_path: PathBuf,
-}
 
 /*
     Because blender installation path is not store in server setting, it is infact store under blender manager,
@@ -38,7 +13,7 @@ pub struct SettingResponse {
 */
 
 #[command(async)]
-pub async fn set_server_settings(
+pub async fn set_serzxxver_settings(
     state: State<'_, Mutex<AppState>>,
     new_settings: ServerSetting,
 ) -> Result<(), String> {
@@ -122,43 +97,48 @@ pub async fn setting_page(state: State<'_, Mutex<AppState>>) -> Result<String, S
     let install_path = blender_manager.as_ref().to_owned();
     let cache_path = server_settings.blend_dir.clone();
     let render_path = server_settings.render_dir.clone();
+    let localblenders = blender_manager.get_blenders();
 
     // draw and display the setting page here
-    let content = html! {
+    Ok(html! {
         div class="content" {
             h1 { "Settings" };
             p { r"Here we list out all possible configuration this tool can offer to user.
                     Exposing rich and deep components to customize your workflow" };
-            h3 { "Blender Installation Path:" };
-            input value=(install_path.to_str().unwrap());
-            h3 { "Blender File Cache Path:" };
-            input value=(cache_path.to_str().unwrap());
-            h3 { "Render cache directory:" };
-            input value=(render_path.to_str().unwrap());
+            div class="group" {
+                h3 { "Blender Installation Path:" };
+                input readonly="true" tauri-invoke="select_directory" value=(install_path.to_str().unwrap());
+                h3 { "Blender File Cache Path:" };
+                input readonly="true" value=(cache_path.to_str().unwrap());
+                h3 { "Render cache directory:" };
+                input readonly="true" value=(render_path.to_str().unwrap());
+            }
 
-            
-            /*
-             // Todo Find a way to make the full path visible when the mouse hover over this?
-            <div className="item" key={props.version + "_" + props.executable}>
-                <table>
-                    <tbody>
-                        <tr>
-                            <td style={{ width: "100%" }}>
-                                Blender {props.version}
-                            </td>
-                            <td>
-                                <CiCircleMore />
-                            </td>
-                            <td>
-                                <CiTrash onClick={handleDelete} />
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-         */
+            h3 {
+                "Blender Installation"
+            }
+            button tauri-invoke="installBlenderFromLocal" { "Add from Local Storage" }
+            // button tauri-invoke="{() => setShowModal(true)}>
+                // {"Install version"}
+            div class="group" {
+                @for blend in localblenders {
+                    div class="item" key=(format!("{}_{}", blend.get_version(), blend.get_executable().to_str().unwrap())) {
+                        table {
+                            tbody {
+                                tr {
+                                    td style="width: '100%'" {
+                                        (format!("Blender {}", blend.get_version()))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // {blenders.map((blender: BlenderProps) => (
+                //     (blender.onDelete = listBlenders),
+                //     BlenderEntry(blender)
+                // ))}
+            }
         };
-    };
-
-    Ok(content.into_string())
+    }.into_string())
 }

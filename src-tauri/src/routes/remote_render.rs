@@ -139,23 +139,24 @@ pub async fn import_blend(
 pub async fn remote_render_page(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let server = state.lock().await;
     let jobs = server.job_db.read().await;
-    let task = jobs.list_all().await.unwrap();
+    let job_list = jobs.list_all().await.unwrap();
 
     let content = html! {
         div class="content" {
             h1 { "Remote Jobs" };
+
             button tauri-invoke="open_file_dialog" hx-target="body" hx-swap="beforeend" {
                 "Import"
             };
 
             div class="group" {
-                @for j in task {
+                @for job in job_list {
                     div {
                         table {
                             tbody {
                                 tr tauri-invoke="job_detail" hx-target="#detail" {
                                     td style="width:100%" {
-                                        (j.get_file_name())
+                                        (job.get_file_name())
                                     };
                                 };
                             };

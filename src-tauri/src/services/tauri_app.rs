@@ -116,9 +116,7 @@ impl TauriApp {
                 available_versions,
                 list_workers,
                 import_blend,
-                set_server_settings,
                 add_blender_installation,
-                list_blender_installation,
                 remove_blender_installation,
                 fetch_blender_installation,
             ])
