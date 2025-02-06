@@ -163,22 +163,6 @@ pub async fn remote_render_page(state: State<'_, Mutex<AppState>>) -> Result<Str
                     };
                 };
             };
-            // import { CiCircleMore, CiTrash } from "react-icons/ci";
-            // <div>
-            //   <table>
-            //     <tbody>
-            //       <tr onClick={() => callback(job)}>
-            //         <td style={{ width: "100%" }}>{GetFileName(job.project_file)}</td>
-            //         <td>
-            //           <CiTrash onClick={deleteJob} />
-            //         </td>
-            //         <td>
-            //           <CiCircleMore onClick={moreAction} />
-            //         </td>
-            //       </tr>
-            //     </tbody>
-            //   </table>
-            // </div>
 
             div id="detail";
         };

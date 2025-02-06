@@ -109,7 +109,6 @@ impl TauriApp {
             .invoke_handler(tauri::generate_handler![
                 create_job,
                 delete_job,
-                list_jobs,
                 job_detail,
                 setting_page,
                 open_file_dialog,

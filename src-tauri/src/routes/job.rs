@@ -3,7 +3,7 @@ use build_html::{Html, HtmlElement, HtmlTag};
 use semver::Version;
 use std::ops::Range;
 use std::path::PathBuf;
-use tauri::{command, Error, State};
+use tauri::{command, State};
 use tokio::sync::Mutex;
 
 use crate::{
@@ -21,14 +21,17 @@ pub async fn create_job(
     version: Version,
     path: PathBuf,
     output: PathBuf,
-) -> Result<Job, Error> {
-    let start: i32 = start.parse()?;
-    let end: i32 = end.parse()?;
+) -> Result<String, String> {
+    // first thing first, parse the string into number
+    let start= start.parse::<i32>().map_err(|e| e.to_string())?;
+    let end = end.parse::<i32>().map_err(|e| e.to_string())?;
+    // stop if the parse fail to parse.
 
     let mode = Mode::Animation(Range { start, end });
     let job = Job::from(path, output, version, mode);
     let server = state.lock().await;
     let mut jobs = server.job_db.write().await;
+    
     // use this to send the job over to database instead of command to network directly.
     // We're splitting this apart to rely on database collection instead of forcing to send command over.
     if let Err(e) = jobs.add_job(job.clone()).await {
@@ -44,7 +47,7 @@ pub async fn create_job(
         eprintln!("Fail to send command to the server! \n{e:?}");
     }
 
-    Ok(job)
+    Ok("".to_owned())
 }
 
 /// just delete the job from database. Notify peers to abandon task matches job_id
@@ -72,26 +75,4 @@ pub fn job_detail() -> String {
                 .into(),
         )
         .to_html_string()
-}
-
-/// List all available jobs stored in the collection.
-#[command(async)]
-pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let server = state.lock().await;
-    let jobs = server.job_db.read().await;
-    match &jobs.list_all().await {
-        Ok(data) => Ok(serde_json::to_string(data).unwrap()),
-        Err(e) => Err(e.to_string()),
-    }
-    // here we will try and create this html list definition
-    /*
-       <div>
-       <h2>Job Details: {job.id}</h2>
-       <p>File name: {GetFileName(job.project_file)}</p>
-       <p>Status: Finish</p>
-       <div className="imgbox">
-           { showImage( job.renders[0]) }
-       </div>
-       </div>
-    */
 }

@@ -135,6 +135,28 @@ pub async fn setting_page(state: State<'_, Mutex<AppState>>) -> Result<String, S
             input value=(cache_path.to_str().unwrap());
             h3 { "Render cache directory:" };
             input value=(render_path.to_str().unwrap());
+
+            
+            /*
+             // Todo Find a way to make the full path visible when the mouse hover over this?
+            <div className="item" key={props.version + "_" + props.executable}>
+                <table>
+                    <tbody>
+                        <tr>
+                            <td style={{ width: "100%" }}>
+                                Blender {props.version}
+                            </td>
+                            <td>
+                                <CiCircleMore />
+                            </td>
+                            <td>
+                                <CiTrash onClick={handleDelete} />
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+         */
         };
     };
 
