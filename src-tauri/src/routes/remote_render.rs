@@ -42,7 +42,7 @@ async fn list_versions(app_state: &AppState) -> Vec<Version> {
     versions
 }
 
-/// List all of the available blender version.
+/// List all of the available blender version. 
 #[command(async)]
 pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let mut root = HtmlElement::new(HtmlTag::Div);

@@ -45,6 +45,12 @@ impl WorkerStore for SqliteWorkerStore {
         Ok(())
     }
 
+    async fn get_worker(&mut self, id: String) -> Option<Worker> {
+        
+        
+        None
+    }
+
     async fn list_worker(&self) -> Result<Vec<Worker>, WorkerError> {
         // we'll add a limit here for now.
         let sql = r"SELECT machine_id, spec FROM workers LIMIT 255";

@@ -107,15 +107,21 @@ impl TauriApp {
         builder
             .manage(mut_app_state)
             .invoke_handler(tauri::generate_handler![
+                select_directory,
+                
                 create_job,
                 delete_job,
                 job_detail,
+                
                 setting_page,
-                select_directory,
+                
                 create_new_job,
-                remote_render_page,
                 available_versions,
+                remote_render_page,
+                
                 list_workers,
+                get_worker,
+
                 import_blend,
                 add_blender_installation,
                 remove_blender_installation,

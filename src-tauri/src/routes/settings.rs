@@ -103,33 +103,15 @@ pub async fn setting_page(state: State<'_, Mutex<AppState>>) -> Result<String, S
             // Probably can do a edit form instead?
             div class="group" {
                 h3 { "Blender Installation Path:" };
-
-                button tauri-invoke="select_directory" hx-target="#install_path_id" { "Edit" };
                 input id="install_path_id" name="install_path" class="form-input" readonly="true" value=(install_path.to_str().unwrap());
                 
                 h3 { "Blender File Cache Path:" };
-                button tauri-invoke="select_directory" hx-target="#cache_path_id" { "Edit" };
                 input id="cache_path_id" name="cache_path" class="form-input" readonly="true" value=(cache_path.to_str().unwrap());
                 
                 h3 { "Render cache directory:" };
-                button tauri-invoke="select_directory" hx-target="#render_path_id" { "Edit" };
                 input id="render_path_id" name="render_path" class="form-input" readonly="true" value=(render_path.to_str().unwrap());
-            
-                button hx-trigger="edit" onclick=r"let editing = document.querySelector('.editing')
-                                                    if(editing) {
-                                                        Swal.fire({title: 'Already Editing',
-                                                            showCancelButton: true,
-                                                            confirmButtonText: 'Yep, Proceed to Edit!'
-                                                            text: 'Hey! You are already in edit mode! Do you want to cancel your changes?' })
-                                                            .then((result) => {
-                                                                if(result.isConfirmed) {
-                                                                    htmx.trigger(editing,'cancel')
-                                                                    htmx.trigger(this, 'edit')
-                                                                }
-                                                            })                                                        
-                                                    } else {
-                                                        htmx.trigger(this, 'edit')
-                                                    }";
+
+                button hx-trigger="edit" onclick="edit";
             };
 
             h3 { "Blender Installation" };
