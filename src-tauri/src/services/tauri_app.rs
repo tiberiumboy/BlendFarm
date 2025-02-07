@@ -11,7 +11,7 @@ use crate::{
         task::Task,
         worker::Worker,
     },
-    routes::{job::*, remote_render::*, settings::*, worker::*},
+    routes::{job::*, remote_render::*, settings::*, worker::*, util::*},
 };
 use blender::manager::Manager as BlenderManager;
 use blender::models::mode::Mode;
@@ -111,7 +111,8 @@ impl TauriApp {
                 delete_job,
                 job_detail,
                 setting_page,
-                open_file_dialog,
+                select_directory,
+                create_new_job,
                 remote_render_page,
                 available_versions,
                 list_workers,

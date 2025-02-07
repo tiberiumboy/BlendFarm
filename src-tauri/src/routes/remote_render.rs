@@ -61,14 +61,14 @@ pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<Str
 }
 
 #[command(async)]
-pub async fn open_file_dialog(
+pub async fn create_new_job(
     state: State<'_, Mutex<AppState>>,
     app: AppHandle,
 ) -> Result<String, String> {
     // tell tauri to open file dialog
     // with that file path we will run import_blend function.
     // else return nothing.
-    let result = match app.dialog().file().blocking_pick_file() {
+    let result = match app.dialog().file().add_filter("Blender", &["blend"]).blocking_pick_file() {
         Some(file_path) => match file_path {
             FilePath::Path(path) => import_blend(state, path).await.unwrap(),
             FilePath::Url(uri) => import_blend(state, uri.as_str().into()).await.unwrap(),
@@ -105,7 +105,7 @@ pub async fn import_blend(
                 form method="dialog" tauri-invoke="create_job" {
                     h1 { "Create new Render Job" };
                     label { "Project File Path:" };
-                    input type="text" name="path" value=(path.to_str().unwrap()) placeholder="Project path" readOnly={true};
+                    input type="text" class="form-input" name="path" value=(path.to_str().unwrap()) placeholder="Project path" readonly={true};
                     br;
                     label "Blender Version:";
                     select name="version" value=(data.last_version) {
@@ -116,13 +116,13 @@ pub async fn import_blend(
 
                     div name="mode" {
                         label id="frameStartLabel" htmlFor="start" { "Start" };
-                        input name="start" type="number" value=(data.frame_start);
+                        input class="form-input" name="start" type="number" value=(data.frame_start);
                         label id="frameEndLabel" htmlFor="end" { "End" };
-                        input name="end" type="number" value=(data.frame_end);
+                        input class="form-input" name="end" type="number" value=(data.frame_end);
                     };
 
                     label { "Output destination:" };
-                    input type="text" placeholder="Output Path" name="output" value=(data.output.to_str().unwrap()) readonly="true";
+                    input type="text" class="form-input" placeholder="Output Path" name="output" value=(data.output.to_str().unwrap()) readonly="true";
                     menu {
                         button type="button" value="cancel" _="on click trigger closeModal" { "Cancel" };
                         button type="submit" { "Ok" };
@@ -145,7 +145,7 @@ pub async fn remote_render_page(state: State<'_, Mutex<AppState>>) -> Result<Str
         div class="content" {
             h1 { "Remote Jobs" };
 
-            button tauri-invoke="open_file_dialog" hx-target="body" hx-swap="beforeend" {
+            button tauri-invoke="create_new_job" hx-target="body" hx-swap="beforeend" {
                 "Import"
             };
 

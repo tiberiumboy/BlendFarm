@@ -1,5 +1,5 @@
 // this is the settings controller section that will handle input from the setting page.
-use crate::models::{app_state::AppState, server_setting::ServerSetting};
+use crate::models::app_state::AppState;
 use blender::blender::Blender;
 use maud::html;
 use semver::Version;
@@ -12,18 +12,8 @@ use tokio::sync::Mutex;
     we will need to create a new custom response message to provide all of the information needed to display on screen properly
 */
 
-#[command(async)]
-pub async fn set_serzxxver_settings(
-    state: State<'_, Mutex<AppState>>,
-    new_settings: ServerSetting,
-) -> Result<(), String> {
-    // maybe I'm a bit confused here?
-    let app_state = state.lock().await;
-    let mut old_setting = app_state.setting.write().await;
-    new_settings.save();
-    *old_setting = new_settings;
-    Ok(())
-}
+// could this be a utility tool?
+
 
 /// Add a new blender entry to the system, but validate it first!
 #[command(async)]
@@ -91,35 +81,61 @@ pub async fn remove_blender_installation(
 #[command(async)]
 pub async fn setting_page(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let app_state = state.lock().await;
-    let server_settings = app_state.setting.read().await;
-    let blender_manager = app_state.manager.read().await;
+
+    // we can combine these two together.
+    let ( server_settings, blender_manager ) = ( app_state.setting.read().await, app_state.manager.read().await);
 
     let install_path = blender_manager.as_ref().to_owned();
     let cache_path = server_settings.blend_dir.clone();
     let render_path = server_settings.render_dir.clone();
-    let localblenders = blender_manager.get_blenders();
+    let mut localblenders = blender_manager.get_blenders().clone();
+    localblenders.sort();
+    localblenders.reverse();
 
     // draw and display the setting page here
     Ok(html! {
         div class="content" {
             h1 { "Settings" };
+            
             p { r"Here we list out all possible configuration this tool can offer to user.
                     Exposing rich and deep components to customize your workflow" };
+            
+            // Probably can do a edit form instead?
             div class="group" {
                 h3 { "Blender Installation Path:" };
-                input readonly="true" tauri-invoke="select_directory" value=(install_path.to_str().unwrap());
-                h3 { "Blender File Cache Path:" };
-                input readonly="true" value=(cache_path.to_str().unwrap());
-                h3 { "Render cache directory:" };
-                input readonly="true" value=(render_path.to_str().unwrap());
-            }
 
-            h3 {
-                "Blender Installation"
-            }
-            button tauri-invoke="installBlenderFromLocal" { "Add from Local Storage" }
-            // button tauri-invoke="{() => setShowModal(true)}>
-                // {"Install version"}
+                button tauri-invoke="select_directory" hx-target="#install_path_id" { "Edit" };
+                input id="install_path_id" name="install_path" class="form-input" readonly="true" value=(install_path.to_str().unwrap());
+                
+                h3 { "Blender File Cache Path:" };
+                button tauri-invoke="select_directory" hx-target="#cache_path_id" { "Edit" };
+                input id="cache_path_id" name="cache_path" class="form-input" readonly="true" value=(cache_path.to_str().unwrap());
+                
+                h3 { "Render cache directory:" };
+                button tauri-invoke="select_directory" hx-target="#render_path_id" { "Edit" };
+                input id="render_path_id" name="render_path" class="form-input" readonly="true" value=(render_path.to_str().unwrap());
+            
+                button hx-trigger="edit" onclick=r"let editing = document.querySelector('.editing')
+                                                    if(editing) {
+                                                        Swal.fire({title: 'Already Editing',
+                                                            showCancelButton: true,
+                                                            confirmButtonText: 'Yep, Proceed to Edit!'
+                                                            text: 'Hey! You are already in edit mode! Do you want to cancel your changes?' })
+                                                            .then((result) => {
+                                                                if(result.isConfirmed) {
+                                                                    htmx.trigger(editing,'cancel')
+                                                                    htmx.trigger(this, 'edit')
+                                                                }
+                                                            })                                                        
+                                                    } else {
+                                                        htmx.trigger(this, 'edit')
+                                                    }";
+            };
+
+            h3 { "Blender Installation" };
+
+            button tauri-invoke="installBlenderFromLocal" { "Add from Local Storage" };
+            button tauri-invoke="{() => setShowModal(true)}>" { "Install version" };
             div class="group" {
                 @for blend in localblenders {
                     div class="item" key=(format!("{}_{}", blend.get_version(), blend.get_executable().to_str().unwrap())) {
@@ -128,17 +144,13 @@ pub async fn setting_page(state: State<'_, Mutex<AppState>>) -> Result<String, S
                                 tr {
                                     td style="width: '100%'" {
                                         (format!("Blender {}", blend.get_version()))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                // {blenders.map((blender: BlenderProps) => (
-                //     (blender.onDelete = listBlenders),
-                //     BlenderEntry(blender)
-                // ))}
-            }
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            };
         };
     }.into_string())
 }
