@@ -20,6 +20,7 @@ use tokio::sync::Mutex;
 pub async fn add_blender_installation(
     state: State<'_, Mutex<AppState>>,
     path: PathBuf,
+    // TODO: Need to change this to string, string?
 ) -> Result<Blender, Error> {
     let app_state = state.lock().await;
     let mut manager = app_state.manager.write().await;
@@ -79,12 +80,24 @@ pub async fn remove_blender_installation(
 }
 
 #[command(async)]
+pub async fn edit_setting_dialog(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
+    let app_state = state.lock().await;
+    let _manager = app_state.manager.read().await;
+    let _setting = app_state.setting.read().await;
+    Ok(html! (
+        div id="modal" _="on closeModal add .closing then wait for animationend then remove me" {
+            div class="modal-underlay" _="on click trigger closeModal";
+            div class="modal-content" { "content" };
+        };
+    ).into_string())
+}
+
+#[command(async)]
 pub async fn setting_page(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let app_state = state.lock().await;
 
     // we can combine these two together.
     let ( server_settings, blender_manager ) = ( app_state.setting.read().await, app_state.manager.read().await);
-
     let install_path = blender_manager.as_ref().to_owned();
     let cache_path = server_settings.blend_dir.clone();
     let render_path = server_settings.render_dir.clone();
@@ -111,7 +124,7 @@ pub async fn setting_page(state: State<'_, Mutex<AppState>>) -> Result<String, S
                 h3 { "Render cache directory:" };
                 input id="render_path_id" name="render_path" class="form-input" readonly="true" value=(render_path.to_str().unwrap());
 
-                button hx-trigger="edit" onclick="edit";
+                button tauri-invoke="edit_setting_dialog" hx-target="body" hx-swap="beforeend" { "Edit" };
             };
 
             h3 { "Blender Installation" };

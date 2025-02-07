@@ -42,7 +42,7 @@ async fn list_versions(app_state: &AppState) -> Vec<Version> {
     versions
 }
 
-/// List all of the available blender version. 
+/// List all of the available blender version.
 #[command(async)]
 pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let mut root = HtmlElement::new(HtmlTag::Div);
@@ -68,7 +68,12 @@ pub async fn create_new_job(
     // tell tauri to open file dialog
     // with that file path we will run import_blend function.
     // else return nothing.
-    let result = match app.dialog().file().add_filter("Blender", &["blend"]).blocking_pick_file() {
+    let result = match app
+        .dialog()
+        .file()
+        .add_filter("Blender", &["blend"])
+        .blocking_pick_file()
+    {
         Some(file_path) => match file_path {
             FilePath::Path(path) => import_blend(state, path).await.unwrap(),
             FilePath::Url(uri) => import_blend(state, uri.as_str().into()).await.unwrap(),
@@ -106,6 +111,7 @@ pub async fn import_blend(
                     h1 { "Create new Render Job" };
                     label { "Project File Path:" };
                     input type="text" class="form-input" name="path" value=(path.to_str().unwrap()) placeholder="Project path" readonly={true};
+                    // add a button here to let the user search by directory path. Let them edit the form.
                     br;
                     label "Blender Version:";
                     select name="version" value=(data.last_version) {

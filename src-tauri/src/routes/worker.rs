@@ -23,7 +23,7 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
             <p>OS: {node.spec?.os} | {node.spec?.arch}</p>
             {/* how can I make a if condition to display GPU if it's available? */}
             <p>GPU: {node.spec?.gpu}</p>
-            
+
             <h3>Current Task:</h3>
             <p>Task: None</p>
             <p>Frame: 0/0</p>
@@ -35,18 +35,27 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
 */
 #[command(async)]
 pub async fn get_worker(state: State<'_, Mutex<AppState>>, id: String) -> Result<String, String> {
-    let worker = "".to_owned();
-    let content = html!{
-        div {
-            h1 { (format!("Computer: {}", 1)) };
-            h3 { "Hardware Info:" };
-            p { (format!("System: {} | {}", 1, 1))}
-            p { (format!("CPU:{}", 1)) };
-            p { (format!("Ram:{}", 1))}
-            p { (format!("GPU:{}", 1))}
+    let app_state = state.lock().await;
+    let workers = app_state.worker_db.read().await;
+    let content = match workers.get_worker(id).await {
+        Some(worker) => html! {
+            div {
+                h1 { (format!("Computer: {}", worker.machine_id)) };
+                h3 { "Hardware Info:" };
+                p { (format!("System: {} | {}", worker.spec.os, worker.spec.arch))}
+                p { (format!("CPU: {} | ({} threads)", worker.spec.cpu, worker.spec.cores)) };
+                p { (format!("Ram: {} GB", worker.spec.memory / ( 1024 * 1024 )))}
+                @if let Some(gpu) = worker.spec.gpu {
+                    p { (format!("GPU: {}", gpu)) };
+                } @else {
+                    p { "GPU: N/A" };
+                };
 
-            // display current task below.
-        };
-    }.into_string();
+                // display current task below.
+            };
+        }
+        .into_string(),
+        None => return Ok("".to_owned()),
+    };
     Ok(content)
 }

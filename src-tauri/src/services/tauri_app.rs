@@ -11,7 +11,7 @@ use crate::{
         task::Task,
         worker::Worker,
     },
-    routes::{job::*, remote_render::*, settings::*, worker::*, util::*},
+    routes::{job::*, remote_render::*, settings::*, util::*, worker::*},
 };
 use blender::manager::Manager as BlenderManager;
 use blender::models::mode::Mode;
@@ -108,20 +108,16 @@ impl TauriApp {
             .manage(mut_app_state)
             .invoke_handler(tauri::generate_handler![
                 select_directory,
-                
                 create_job,
                 delete_job,
                 job_detail,
-                
                 setting_page,
-                
+                edit_setting_dialog,
                 create_new_job,
                 available_versions,
                 remote_render_page,
-                
                 list_workers,
                 get_worker,
-
                 import_blend,
                 add_blender_installation,
                 remove_blender_installation,
