@@ -1,4 +1,4 @@
-use libp2p::{gossipsub, kad, mdns, swarm::NetworkBehaviour};
+use libp2p::{gossipsub, kad, mdns, ping, swarm::NetworkBehaviour};
 use libp2p_request_response::cbor;
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +9,7 @@ pub struct FileResponse(pub Vec<u8>);
 
 #[derive(NetworkBehaviour)]
 pub struct BlendFarmBehaviour {
+    pub ping: ping::Behaviour,
     // file transfer response protocol
     pub request_response: cbor::Behaviour<FileRequest, FileResponse>,
     // Communication between peers to pepers

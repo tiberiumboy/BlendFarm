@@ -1,7 +1,7 @@
 use crate::models::{
-    message::{NetEvent, NetworkError},
-    network::NetworkController,
-};
+        message::{NetEvent, NetworkError},
+        network::NetworkController,
+    };
 use async_trait::async_trait;
 use tokio::sync::mpsc::Receiver;
 

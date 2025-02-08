@@ -108,7 +108,9 @@ impl DownloadLink {
         use zip::ZipArchive;
 
         let source = download_path.as_ref();
-        let output = source.parent().unwrap().join(folder_name);
+        //  On windows, unzipped content includes a new folder underneath. Instead of doing this, we will just unzip from the parent instead... weird
+        let zip_loc = source.parent().unwrap();
+        let output = zip_loc.join(folder_name);
 
         // check if the directory exist
         match &output.exists() {
@@ -119,15 +121,12 @@ impl DownloadLink {
                     return Ok(output.join("Blender.exe"));
                 }
             }
-            // create a new directory if it doesn't exist and resume extract process.
-            false => {
-                let _ = std::fs::create_dir_all(&output)?;
-            }
+            _ => {}
         }
 
         let file = File::open(source).unwrap();
         let mut archive = ZipArchive::new(file).unwrap();
-        if let Err(e) = archive.extract(&output) {
+        if let Err(e) = archive.extract(zip_loc) {
             println!("Unable to extract content to target: {e:?}");
         }
 

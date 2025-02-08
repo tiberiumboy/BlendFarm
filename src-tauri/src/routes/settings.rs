@@ -1,75 +1,26 @@
 // this is the settings controller section that will handle input from the setting page.
-use crate::models::{app_state::AppState, server_setting::ServerSetting};
+use crate::models::app_state::AppState;
 use blender::blender::Blender;
+use maud::html;
 use semver::Version;
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{command, Error, State};
 use tokio::sync::Mutex;
 
 /*
-Developer Blog
-- Ran into an issue trying to unpack blender on MacOS - turns out that .ends_with needs to match the child as a whole instead of substring.
-- Changed the code down below to rely on using AppState, which contains managers needed to access to or modify to.
-TODO: Newly added blender doesn't get saved automatically.
-*/
-
-/// List out currently saved blender installation on the machine
-#[command(async)]
-pub async fn list_blender_installation(state: State<'_, Mutex<AppState>>) -> Result<String, Error> {
-    let app_state = state.lock().await;
-    let manager = app_state.manager.read().await;
-    let blenders = manager.get_blenders();
-    let data = serde_json::to_string(&blenders).unwrap();
-    Ok(data)
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SettingResponse {
-    pub install_path: PathBuf,
-    pub render_path: PathBuf,
-    pub cache_path: PathBuf,
-}
-
-/*
     Because blender installation path is not store in server setting, it is infact store under blender manager,
     we will need to create a new custom response message to provide all of the information needed to display on screen properly
 */
-#[command(async)]
-pub async fn get_server_settings(
-    state: State<'_, Mutex<AppState>>,
-) -> Result<SettingResponse, Error> {
-    let app_state = state.lock().await;
-    let server_settings = app_state.setting.read().await;
-    let blender_manager = app_state.manager.read().await;
 
-    let data = SettingResponse {
-        install_path: blender_manager.as_ref().to_owned(),
-        cache_path: server_settings.blend_dir.clone(),
-        render_path: server_settings.render_dir.clone(),
-    };
+// could this be a utility tool?
 
-    Ok(data)
-}
-
-#[command(async)]
-pub async fn set_server_settings(
-    state: State<'_, Mutex<AppState>>,
-    new_settings: ServerSetting,
-) -> Result<(), String> {
-    // maybe I'm a bit confused here?
-    let app_state = state.lock().await;
-    let mut old_setting = app_state.setting.write().await;
-    new_settings.save();
-    *old_setting = new_settings;
-    Ok(())
-}
 
 /// Add a new blender entry to the system, but validate it first!
 #[command(async)]
 pub async fn add_blender_installation(
     state: State<'_, Mutex<AppState>>,
     path: PathBuf,
+    // TODO: Need to change this to string, string?
 ) -> Result<Blender, Error> {
     let app_state = state.lock().await;
     let mut manager = app_state.manager.write().await;
@@ -126,4 +77,75 @@ pub async fn remove_blender_installation(
     let mut manager = app_state.manager.write().await;
     manager.remove_blender(&blender);
     Ok(())
+}
+
+#[command(async)]
+pub async fn edit_setting_dialog(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
+    let app_state = state.lock().await;
+    let _manager = app_state.manager.read().await;
+    let _setting = app_state.setting.read().await;
+    Ok(html! (
+        div id="modal" _="on closeModal add .closing then wait for animationend then remove me" {
+            div class="modal-underlay" _="on click trigger closeModal";
+            div class="modal-content" { "content" };
+        };
+    ).into_string())
+}
+
+#[command(async)]
+pub async fn setting_page(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
+    let app_state = state.lock().await;
+
+    // we can combine these two together.
+    let ( server_settings, blender_manager ) = ( app_state.setting.read().await, app_state.manager.read().await);
+    let install_path = blender_manager.as_ref().to_owned();
+    let cache_path = server_settings.blend_dir.clone();
+    let render_path = server_settings.render_dir.clone();
+    let mut localblenders = blender_manager.get_blenders().clone();
+    localblenders.sort();
+    localblenders.reverse();
+
+    // draw and display the setting page here
+    Ok(html! {
+        div class="content" {
+            h1 { "Settings" };
+            
+            p { r"Here we list out all possible configuration this tool can offer to user.
+                    Exposing rich and deep components to customize your workflow" };
+            
+            // Probably can do a edit form instead?
+            div class="group" {
+                h3 { "Blender Installation Path:" };
+                input id="install_path_id" name="install_path" class="form-input" readonly="true" value=(install_path.to_str().unwrap());
+                
+                h3 { "Blender File Cache Path:" };
+                input id="cache_path_id" name="cache_path" class="form-input" readonly="true" value=(cache_path.to_str().unwrap());
+                
+                h3 { "Render cache directory:" };
+                input id="render_path_id" name="render_path" class="form-input" readonly="true" value=(render_path.to_str().unwrap());
+
+                button tauri-invoke="edit_setting_dialog" hx-target="body" hx-swap="beforeend" { "Edit" };
+            };
+
+            h3 { "Blender Installation" };
+
+            button tauri-invoke="installBlenderFromLocal" { "Add from Local Storage" };
+            button tauri-invoke="{() => setShowModal(true)}>" { "Install version" };
+            div class="group" {
+                @for blend in localblenders {
+                    div class="item" key=(format!("{}_{}", blend.get_version(), blend.get_executable().to_str().unwrap())) {
+                        table {
+                            tbody {
+                                tr {
+                                    td style="width: '100%'" {
+                                        (format!("Blender {}", blend.get_version()))
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    }.into_string())
 }

@@ -19,7 +19,7 @@
         "height": 480
       }
     ],
-    "withGlobalTauri": false,
+    "withGlobalTauri": true,
     "security": {
       "assetProtocol": {
         "scope": [
@@ -56,6 +56,11 @@
           "description": "Modify Blender Manager configurations"
         }
       }
+    },
+    "sql": {
+      "preload": [
+        "sqlite:blendfarm.db"
+      ]
     }
   }
 }

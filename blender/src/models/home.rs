@@ -7,9 +7,6 @@ use url::Url;
 #[derive(Debug)]
 pub struct BlenderHome {
     // might use this as a ref?
-    // TODO: Find out how I can sort this via original list collection.
-    // sort by descending order
-    // list.sort_by(|a, b| b.cmp(a));
     list: Vec<BlenderCategory>,
     // I'd like to reuse this component throughout blender program. If I need to access a web page, this should be used.
     cache: PageCache,
@@ -51,7 +48,8 @@ impl BlenderHome {
         let mut cache = PageCache::load()?;
         let list = match Self::get_content(&mut cache) {
             Ok(col) => col,
-            // maybe the user is offline, we don't know! This shouldn't stop the program from running
+            // maybe the user is offline, we don't know, and that's ok! This shouldn't stop the program from running
+            // TODO: It would be nice to indicate that we're running in offline mode. Disable some feature such as download blender from web.
             Err(e) => {
                 eprintln!("Unable to get content! {e:?}");
                 Vec::new()
