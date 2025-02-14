@@ -27,7 +27,6 @@ Disadvantage:
     No interops/additional cli commands other than interops through bpy (blender python) package
     Instead of using JSON to send configuration to python/blender, we're using IPC to control next frame to render.
     Currently using Command::Process to invoke commands to blender. Would like to see if there's public API or .dll to interface into.
-        - Currently learning Low Level Programming to understand assembly and C interfaces.
 
 Challenges:
     Blender support tileX/Y, but gluing the image together is a new challenge - a 64K 24bits image would consume about 3Gb, and size exponentially grow from there.
@@ -45,9 +44,6 @@ WARN:
             (It does not have to be an up2date blender package, its just for dependencies)
 
 TODO:
-private and public method are unorganized.
-    - Consider reviewing them and see which method can be exposed publicly?
-
     Q: My Blendfile requires special addons to be active while rendering, can I add these?
     A: Blendfarm has its own versions of Blender in the BlenderData directory, and it runs
         these versions always in factory startup, thus without any added addons. This is done
@@ -110,9 +106,9 @@ pub enum BlenderError {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq)]
 pub struct Blender {
     /// Path to blender executable on the system.
-    executable: PathBuf, // Must validate before usage!
+    executable: PathBuf,
     /// Version of blender installed on the system.
-    version: Version, // Private immutable variable - Must validate before using!
+    version: Version,
 }
 
 impl PartialEq for Blender {
@@ -416,11 +412,11 @@ impl Blender {
         let (signal, listener) = mpsc::channel::<Status>();
         let executable = self.executable.clone();
 
-        // TODO: Might extract this into separate struct container to make this easy to work with?
         let blend_info = Self::peek(&args.file)
             .await
             .expect("Fail to parse blend file!"); // TODO: Need to clean this error up a bit.
 
+        // this is the only place used for BlenderRenderSetting... thoughts?
         let settings = BlenderRenderSetting::parse_from(&args, &blend_info);
         let global_settings = Arc::new(settings);
 

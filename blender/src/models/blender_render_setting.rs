@@ -153,8 +153,8 @@ impl BlenderRenderSetting {
             compute_unit.to_owned(),
             info.fps,
             border,
-            -1, // I wonder?
-            -1, // I wonder?
+            -1,
+            -1,
             info.samples,
             info.render_width,
             info.render_height,

@@ -30,17 +30,6 @@ impl Serialize for Format {
     }
 }
 
-// not sure how this'll work but we'll see? :D
-// impl<'de> Deserialize<'de> for Format {
-//     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-//     where
-//         D: serde::Deserializer<'de>,
-//     {
-//         let format = String::deserialize(deserializer)?;
-//         Ok(Format::from_str(&format).map_err(|_| serde::de::Error::invalid_value)?)
-//     }
-// }
-
 impl FromStr for Format {
     type Err = FormatError;
 
