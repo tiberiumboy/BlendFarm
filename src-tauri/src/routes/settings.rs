@@ -195,7 +195,7 @@ pub async fn setting_page(state: State<'_, Mutex<AppState>>) -> Result<String, S
         render_path = server_settings.render_dir.clone();
     }
 
-    let blender_list = list_blender_installed(state).await.unwrap();
+    // let blender_list = list_blender_installed(state).await.unwrap();
 
     // draw and display the setting page here
     Ok(html! {
@@ -219,18 +219,18 @@ pub async fn setting_page(state: State<'_, Mutex<AppState>>) -> Result<String, S
                 button tauri-invoke="edit_setting_dialog" hx-target="body" hx-swap="beforeend" { "Edit" };
             };
 
-            h3 { "Blender Installation" };
+            h3 tauri-invoke="list_blender_installed" hx-target="#blender-table" { "Blender Installation" };
 
             button tauri-invoke="add_blender_installation" { "Add from Local Storage" };
             button tauri-invoke="install_from_internet" { "Install version" };
             div class="group" {
                 table {
                     thead {
-                        th { "Blender Version" };
-                        th { "Install Path" };
+                        th { "Version" };
+                        th { "Executable Path" };
                     };
                     tbody id="blender-table" invoke-tauri="list_blender_installed" hx-trigger="newBlender from:body" {
-                        (&blender_list)
+                        // (&blender_list)
                     };
                 };
             };

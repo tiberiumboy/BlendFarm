@@ -11,12 +11,19 @@ version = "0.1.0"
 name = "blenderfarm_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[profile.dev]
+debug = 1
+incremental = true
+lto = "thin"
+
 [profile.release]
 lto = true
 strip = true
 opt-level = "z"
 panic = "abort"
 codegen-units = 1
+incremental = true
+debug = 0
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [build-dependencies]

@@ -64,9 +64,9 @@ struct FrameUpdatePayload {
     file_name: String,
 }
 
-#[command(async)]
-pub async fn index(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    Ok(html! (
+#[command]
+pub fn index() -> String {
+    html! (
         div class="sidebar" {
             nav {
                 ul class="nav-menu-items" {
@@ -88,7 +88,7 @@ pub async fn index(state: State<'_, Mutex<AppState>>) -> Result<String, String> 
 
         main id="workplace" tauri-invoke="remote_render_page" hx-trigger="load once";
 
-    ).0)
+    ).0
 }
 
 impl TauriApp {
