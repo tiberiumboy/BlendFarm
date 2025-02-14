@@ -2,24 +2,20 @@
   "$schema": "https://schema.tauri.app/config/2.0.0",
   "productName": "BlendFarm",
   "version": "0.1.0",
-  "identifier": "com.blendfarm.dev",
+  "identifier": "com.blendfarm.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "frontendDist": "../dist",
-    "beforeBuildCommand": "npm run build",
-    "devUrl": "http://localhost:1420/"
+    "frontendDist": "../src"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
-        "fullscreen": false,
         "resizable": true,
         "title": "BlendFarm Network Manager",
         "width": 640,
         "height": 480
       }
     ],
-    "withGlobalTauri": true,
     "security": {
       "assetProtocol": {
         "scope": [

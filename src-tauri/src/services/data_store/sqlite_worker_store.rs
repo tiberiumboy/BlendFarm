@@ -5,7 +5,7 @@ use crate::{
         worker::{Worker, WorkerError},
     },
 };
-use sqlx::{prelude::FromRow, query, query_as, SqlitePool};
+use sqlx::{prelude::FromRow, query, SqlitePool};
 
 pub struct SqliteWorkerStore {
     conn: SqlitePool,

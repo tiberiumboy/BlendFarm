@@ -180,6 +180,10 @@ impl Manager {
         data
     }
 
+    pub fn get_install_path(&self) -> &Path {
+        &self.config.install_path
+    }
+
     /// Set path for blender download and installation
     pub fn set_install_path(&mut self, new_path: &Path) {
         // Consider the design behind this. Should we move blender installations to new path?

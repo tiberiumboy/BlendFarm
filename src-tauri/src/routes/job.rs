@@ -21,9 +21,9 @@ pub async fn create_job(
     version: Version,
     path: PathBuf,
     output: PathBuf,
-) -> Result<String, String> {
+) -> Result<(), String> {
     // first thing first, parse the string into number
-    let start= start.parse::<i32>().map_err(|e| e.to_string())?;
+    let start = start.parse::<i32>().map_err(|e| e.to_string())?;
     let end = end.parse::<i32>().map_err(|e| e.to_string())?;
     // stop if the parse fail to parse.
 
@@ -31,7 +31,7 @@ pub async fn create_job(
     let job = Job::from(path, output, version, mode);
     let server = state.lock().await;
     let mut jobs = server.job_db.write().await;
-    
+
     // use this to send the job over to database instead of command to network directly.
     // We're splitting this apart to rely on database collection instead of forcing to send command over.
     if let Err(e) = jobs.add_job(job.clone()).await {
@@ -47,7 +47,7 @@ pub async fn create_job(
         eprintln!("Fail to send command to the server! \n{e:?}");
     }
 
-    Ok("".to_owned())
+    Ok(())
 }
 
 /// just delete the job from database. Notify peers to abandon task matches job_id

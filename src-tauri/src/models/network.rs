@@ -398,8 +398,7 @@ impl NetworkService {
                 self.swarm
                     .behaviour_mut()
                     .gossipsub
-                    .unsubscribe(&ident_topic)
-                    .unwrap();
+                    .unsubscribe(&ident_topic);
             }
             // what was I'm suppose to do here?
             NetCommand::JobStatus(_peer_id, _event) => {

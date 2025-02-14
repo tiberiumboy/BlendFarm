@@ -16,11 +16,11 @@ use crate::{
 use blender::manager::Manager as BlenderManager;
 use blender::models::mode::Mode;
 use libp2p::PeerId;
+use maud::html;
 use serde::Serialize;
 use std::{collections::HashMap, ops::Range, sync::Arc};
 use std::{path::PathBuf, thread::sleep, time::Duration};
-// use surrealdb::{engine::local::Db, Surreal};
-use tauri::{self, App, AppHandle, Emitter, Manager};
+use tauri::{self, command, App, AppHandle, Emitter, Manager, State};
 use tokio::{
     select, spawn,
     sync::{
@@ -62,6 +62,33 @@ struct FrameUpdatePayload {
     id: Uuid,
     frame: i32,
     file_name: String,
+}
+
+#[command(async)]
+pub async fn index(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
+    Ok(html! (
+        div class="sidebar" {
+            nav {
+                ul class="nav-menu-items" {
+                    li key="manager" class="nav-bar" tauri-invoke="remote_render_page" hx-target="#workplace" {
+                        span { "Remote Render" }
+                    };
+                    li key="setting" class="nav-bar" tauri-invoke="setting_page" hx-target="#workplace" {
+                        span { "Setting" }
+                    };
+                };
+            };
+            div {
+                h2 { "Computer Nodes" };
+                div class="group" id ="RenderNodes" hx-trigger="" {
+                    "something should be here?"
+                };
+            };
+        };
+
+        main id="workplace" tauri-invoke="remote_render_page" hx-trigger="load once";
+
+    ).0)
 }
 
 impl TauriApp {
@@ -107,11 +134,15 @@ impl TauriApp {
         builder
             .manage(mut_app_state)
             .invoke_handler(tauri::generate_handler![
+                index,
                 select_directory,
+                select_file,
                 create_job,
                 delete_job,
                 job_detail,
                 setting_page,
+                edit_settings,
+                get_settings,
                 edit_setting_dialog,
                 create_new_job,
                 available_versions,
@@ -120,6 +151,7 @@ impl TauriApp {
                 get_worker,
                 import_blend,
                 add_blender_installation,
+                list_blender_installed,
                 remove_blender_installation,
                 fetch_blender_installation,
             ])
@@ -140,6 +172,7 @@ impl TauriApp {
     }
 
     fn generate_tasks(job: &Job, file_name: PathBuf, chunks: i32, requestor: PeerId) -> Vec<Task> {
+        // mode may be removed soon, we'll see?
         let (time_start, time_end) = match &job.mode {
             Mode::Animation(anim) => (anim.start, anim.end),
             Mode::Frame(frame) => (frame.clone(), frame.clone()),
@@ -359,7 +392,31 @@ impl BlendFarm for TauriApp {
             }
         });
 
-        app.run(|_, _| {});
+        // let addr = SocketAddr::from((IpAddr::V4(Ipv4Addr::LOCALHOST), 1420));
+
+        // let listener = TcpListener::bind(addr).await.map_err(|e| => NetworkError::UnableToListen(e.into_string()) )?;
+
+        app.run(|_app, event| match event {
+            tauri::RunEvent::Exit => {
+                println!("Gracefully shut down any background task here");
+            }
+            tauri::RunEvent::Ready => {
+                println!("Would like to call index() from here?");
+            }
+            // unsure about this one? Is this when application regain focus?
+            tauri::RunEvent::Resumed => println!("Application resumed!"),
+
+            // what's the difference between ready and opened?
+            tauri::RunEvent::Opened { urls } => println!("Opened with args: {urls:?}"),
+            tauri::RunEvent::MenuEvent(menu_event) => {
+                println!("Menu event was trigger: {menu_event:?}")
+            }
+            // ignore
+            tauri::RunEvent::MainEventsCleared => {}
+            tauri::RunEvent::WindowEvent { .. } => {}
+            tauri::RunEvent::Reopen { .. } => {}
+            _ => eprintln!("No condition found for this event: {event:?}"),
+        });
 
         Ok(())
     }

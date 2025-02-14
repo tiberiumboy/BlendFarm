@@ -31,7 +31,7 @@ Developer blog:
 use async_std::fs;
 use blender::manager::Manager as BlenderManager;
 use clap::{Parser, Subcommand};
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use models::network;
 use models::{app_state::AppState /* server_setting::ServerSetting */};
 use services::data_store::sqlite_job_store::SqliteJobStore;

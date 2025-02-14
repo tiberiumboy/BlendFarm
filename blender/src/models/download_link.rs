@@ -3,7 +3,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
-    io::Error,
+    io::{Error, Read},
     path::{Path, PathBuf},
 };
 use url::Url;
@@ -139,23 +139,20 @@ impl DownloadLink {
         // precheck qualification
         let ext = BlenderCategory::get_extension()
             .map_err(|e| Error::other(format!("Cannot run blender under this OS: {}!", e)))?;
+
         let target = &destination.as_ref().join(&self.name);
+
         // Check and see if we haven't already download the file
         if !target.exists() {
             // Download the file from the internet and save it to blender data folder
-            let response = ureq::get(self.url.as_str())
+            let mut response = ureq::get(self.url.as_str())
                 .call()
                 .map_err(|e: ureq::Error| Error::other(e))?;
 
-            let len: usize = response
-                .header("Content-Length")
-                .unwrap()
-                .parse()
-                .unwrap_or(0);
-
-            let mut body: Vec<u8> = Vec::with_capacity(len);
-            let mut heap = response.into_reader();
-            heap.read_to_end(&mut body)?;
+            let mut body: Vec<u8> = Vec::new();
+            if let Err(e) = response.body_mut().as_reader().read_to_end(&mut body) {
+                eprintln!("Fail to read data from response! {e:?}");
+            }
             fs::write(target, &body)?;
         }
 

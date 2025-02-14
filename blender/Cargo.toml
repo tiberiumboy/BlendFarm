@@ -8,22 +8,22 @@ edition = "2021"
 # crate-type = ["cdylib"]
 
 [dependencies]
-dirs = "5.0.1"
+dirs = "6.0.0"
 regex = "^1.11.1"
-semver = { version = "^1.0.24", features = ["serde"] }
+semver = { version = "^1.0.25", features = ["serde"] }
 serde = { version = "^1.0.216", features = ["derive"] }
-serde_json = "^1.0.133"
+serde_json = "^1.0.138"
 url = { version = "^2.5.4", features = ["serde"] }
-thiserror = "^2"
-uuid = { version = "^1", features = ["serde", "v4"] }
-ureq = { version = "^2.12" }
+thiserror = "^2.0.11"
+uuid = { version = "^1.13.1", features = ["serde", "v4"] }
+ureq = { version = "^3.0.5" }
 blend = "0.8.0"
 tokio = { version = "1.42.0", features = ["full"] }
 # hack to get updated patches - og inactive for 6 years
-xml-rpc = { git = "https://github.com/locusrobotics/xml-rpc-rs.git" }
+xml-rpc = { git = "https://github.com/tiberiumboy/xml-rpc-rs.git" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-zip = "^2.2.1"
+zip = "^2.2.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 dmg = { version = "^0.1" }

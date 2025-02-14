@@ -102,33 +102,52 @@ pub async fn import_blend(
         Err(e) => return Err(e.to_string()),
     };
 
-    // _ = "on closeModal add .closing then wait for animationend then remove me" // Hyperscript
     let content = html! {
         div id="modal" _="on closeModal add .closing then wait for animationend then remove me" {
-            div class="modal-underlay" _="on click trigger closeModal";
+            div class="modal-underlay" _="on click trigger closeModal" {};
             div class="modal-content" {
-                form method="dialog" tauri-invoke="create_job" {
+                form method="dialog" tauri-invoke="create_job" _="on submit trigger closeModal" {
                     h1 { "Create new Render Job" };
                     label { "Project File Path:" };
                     input type="text" class="form-input" name="path" value=(path.to_str().unwrap()) placeholder="Project path" readonly={true};
                     // add a button here to let the user search by directory path. Let them edit the form.
                     br;
-                    label "Blender Version:";
-                    select name="version" value=(data.last_version) {
-                        @for i in versions {
-                            option value=(i) { (i) }
-                        }
-                    };
-
-                    div name="mode" {
-                        label id="frameStartLabel" htmlFor="start" { "Start" };
-                        input class="form-input" name="start" type="number" value=(data.frame_start);
-                        label id="frameEndLabel" htmlFor="end" { "End" };
-                        input class="form-input" name="end" type="number" value=(data.frame_end);
-                    };
 
                     label { "Output destination:" };
                     input type="text" class="form-input" placeholder="Output Path" name="output" value=(data.output.to_str().unwrap()) readonly="true";
+                    br;
+
+                    div name="mode" {
+                        table {
+                            tr {
+                                th {
+                                    label id="versionLabel" htmlfor="version" { "Version" };
+                                }
+                                th {
+                                    label id="frameStartLabel" htmlFor="start" { "Start" };
+                                };
+                                th {
+                                    label id="frameEndLabel" htmlFor="end" { "End" };
+                                };
+                            };
+                            tr {
+                                td {
+                                    select name="version" value=(data.last_version) style={"width:100%; height:100%;"} {
+                                        @for i in versions {
+                                            option value=(i) { (i) }
+                                        }
+                                    };
+                                }
+                                td style="width:33%" {
+                                    input class="form-input" name="start" type="number" value=(data.frame_start);
+                                };
+                                td style="width:33%" {
+                                    input class="form-input" name="end" type="number" value=(data.frame_end);
+                                };
+                            };
+                        };
+                    };
+
                     menu {
                         button type="button" value="cancel" _="on click trigger closeModal" { "Cancel" };
                         button type="submit" { "Ok" };
@@ -151,9 +170,11 @@ pub async fn remote_render_page(state: State<'_, Mutex<AppState>>) -> Result<Str
         div class="content" {
             h1 { "Remote Jobs" };
 
-            button tauri-invoke="create_new_job" hx-target="body" hx-swap="beforeend" {
+            button tauri-invoke="create_new_job" hx-target="body" hx-indicator="#spinner" hx-swap="beforeend" {
                 "Import"
             };
+            // Does not work. Find out why?
+            img id="spinner" class="htmx-indicator" src="./src/assets/svg-loaders/rings.svg";
 
             div class="group" {
                 @for job in job_list {
@@ -175,5 +196,5 @@ pub async fn remote_render_page(state: State<'_, Mutex<AppState>>) -> Result<Str
         };
     };
 
-    Ok(content.into_string())
+    Ok(content.0)
 }
