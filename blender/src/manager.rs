@@ -89,12 +89,16 @@ impl Manager {
         self
     }
 
+    pub fn get_config_dir() -> PathBuf {
+        let path = dirs::config_dir().unwrap().join("BlendFarm");
+        fs::create_dir_all(&path).expect("Unable to create directory!");
+        path
+    }
+
     // this path should always be fixed and stored under machine specific.
     // this path should not be shared across machines.
     fn get_config_path() -> PathBuf {
-        let path = dirs::config_dir().unwrap().join("BlendFarm");
-        fs::create_dir_all(&path).expect("Unable to create directory!");
-        path.join("BlenderManager.json")
+        Self::get_config_dir().join("BlenderManager.json")
     }
 
     // Download the specific version from download.blender.org
@@ -174,6 +178,10 @@ impl Manager {
             Err(e) => println!("Unable to save new manager data! {:?}", e),
         }
         data
+    }
+
+    pub fn get_install_path(&self) -> &Path {
+        &self.config.install_path
     }
 
     /// Set path for blender download and installation

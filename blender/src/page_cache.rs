@@ -1,6 +1,6 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::io::{Error, Result};
+use std::io::{Error, Read, Result};
 use std::{collections::HashMap, fs, path::PathBuf, time::SystemTime};
 use url::Url;
 
@@ -98,11 +98,14 @@ impl PageCache {
 
         // fetch the content from the url
         // expensive implict type cast?
-        let response = ureq::get(url.as_ref()).call().map_err(Error::other)?;
-        let content = response.into_string()?;
+        let mut response = ureq::get(url.as_ref()).call().map_err(Error::other)?;
+        let mut body = Vec::new();
+        if let Err(e) = response.body_mut().as_reader().read_to_end(&mut body) {
+            eprintln!("Fail to read data for cache: {e:?}");
+        }
 
         // write the content to the file
-        fs::write(&tmp, content)?;
+        fs::write(&tmp, body)?;
         Ok(tmp)
     }
 

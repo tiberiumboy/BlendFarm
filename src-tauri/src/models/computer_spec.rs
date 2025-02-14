@@ -4,13 +4,13 @@ use std::env::consts;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ComputerSpec {
-    host: String,
-    os: String,
-    arch: String,
-    memory: u64,
-    gpu: Option<String>,
-    cpu: String,
-    cores: usize,
+    pub host: String,
+    pub os: String,
+    pub arch: String,
+    pub memory: u64,
+    pub gpu: Option<String>,
+    pub cpu: String,
+    pub cores: usize,
 }
 
 impl ComputerSpec {

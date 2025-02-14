@@ -8,5 +8,7 @@ pub mod message;
 pub mod network;
 pub(crate) mod project_file;
 pub(crate) mod render_info;
+pub(crate) mod task;
 // pub mod render_queue;
 pub(crate) mod server_setting;
+pub mod worker;

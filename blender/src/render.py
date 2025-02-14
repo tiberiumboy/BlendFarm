@@ -1,38 +1,20 @@
-﻿# Script used by LogicReinc.BlendFarm.Server for rendering in Blender
-# Assumes usage of structures from said assembly
-
-
-#Workaround refers to:
-# A sad requirement that works around a problem in Blender.
-# Blender doesn't properly update before rendering in subsequent tasks in a batch
-# It changes both rendering at the node as well as handling of incoming tiles
-# It may cause artifacts and inaccuracies. And a newer (or perhaps even older) version of blender may have this fixed.
-# Currently enabled by default because 2.91.0 has this issue.
+# TODO: Refactor this so it's less code to read through.
+# Sybren mention that Cycle will perform better if the render was sent out as a batch instead of individual renders.
+# TODO: See if there's a way to adjust blender render batch if possible?
 
 #Start
 import bpy # type: ignore
-import sys
-import json
-import time
+import xmlrpc.client
 from multiprocessing import cpu_count
 
 isPre3 = bpy.app.version < (3,0,0)
+# Eventually this might get removed due to getting actual value from blend file instead
 isPreEeveeNext = bpy.app.version < (4, 2, 0)
 
 if(isPre3):
     print('Detected Blender >= 3.0.0\n')
-
-argv = sys.argv
-argv = argv[argv.index("--") + 1:]
-
-scn = bpy.context.scene
-
-jsonPathInitial = argv[0]
-useContinue = len(argv) > 1 and argv[1] == 'true'
-
-if(useContinue):
-    print('Continuation enabled\n')
     
+scn = bpy.context.scene
 
 def useDevices(type, allowGPU, allowCPU):
     cyclesPref = bpy.context.preferences.addons["cycles"].preferences
@@ -81,225 +63,192 @@ def useDevices(type, allowGPU, allowCPU):
             print(type + " Device:", d["name"], d["use"])
 
 #Renders provided settings with id to path
-def renderWithSettings(renderSettings, id, path):
-        global scn
+def renderWithSettings(renderSettings, frame):
+    global scn
 
-        scen = renderSettings["Scene"]
-        if(scen is None):
-            scen = ""
-        if(scen != "" + scn.name != scen):
-            print("Rendering specified scene " + scen + "\n")
-            scn = bpy.data.scenes[scen]
-            if(scn is None):
-                raise Exception("Unknown Scene :" + scen)
+    # Scene parse
+    scen = renderSettings["Scene"]
+    if(scen is None):
+        scen = ""
+    if(scen != "" + scn.name != scen):
+        print("Rendering specified scene " + scen + "\n")
+        scn = bpy.data.scenes[scen]
+        if(scn is None):
+            raise Exception("Unknown Scene :" + scen)
 
-        # Parse Parameters
-        frame = int(renderSettings["Frame"])
-
-        # Set threading
-        scn.render.threads_mode = 'FIXED'
-        scn.render.threads = max(cpu_count(), int(renderSettings["Cores"]))
+    # set render format 
+    renderFormat = renderSettings["RenderFormat"]
+    if (not renderFormat):
+        scn.render.image_settings.file_format = "PNG"
+    else:
+        scn.render.image_settings.file_format = renderFormat
         
-        if (isPre3):
-            scn.render.tile_x = int(renderSettings["TileWidth"])
-            scn.render.tile_y = int(renderSettings["TileHeight"])
+    # Set threading
+    scn.render.threads_mode = 'FIXED'
+    scn.render.threads = max(cpu_count(), int(renderSettings["Cores"]))
+    
+    if (isPre3):
+        scn.render.tile_x = int(renderSettings["TileWidth"])
+        scn.render.tile_y = int(renderSettings["TileHeight"])
+    else:
+        print("Blender > 3.0 doesn't support tile size, thus ignored")
+    
+    # Set constraints
+    scn.render.use_border = True
+    scn.render.use_crop_to_border = renderSettings["Crop"]
+    if not renderSettings["Crop"]:
+        scn.render.film_transparent = True
+        
+    scn.render.border_min_x = float(renderSettings["Border"]["X"])
+    scn.render.border_max_x = float(renderSettings["Border"]["X2"])
+    scn.render.border_min_y = float(renderSettings["Border"]["Y"])
+    scn.render.border_max_y = float(renderSettings["Border"]["Y2"])
+
+    #Set Camera
+    camera = renderSettings["Camera"]
+    if(camera != None and camera != "" and bpy.data.objects[camera]):
+        scn.camera = bpy.data.objects[camera]
+
+    #Set Resolution
+    scn.render.resolution_x = int(renderSettings["Width"])
+    scn.render.resolution_y = int(renderSettings["Height"])
+    scn.render.resolution_percentage = 100
+
+    #Set Samples
+    scn.cycles.samples = int(renderSettings["Samples"])
+    scn.render.use_persistent_data = True
+
+    #Render Device
+    renderType = int(renderSettings["ComputeUnit"])
+    engine = int(renderSettings["Engine"])
+
+    if(engine == 2): #Optix
+        optixGPU = renderType == 1 or renderType == 3 or renderType == 11 or renderType == 12; #CUDA or CUDA_GPU_ONLY
+        optixCPU = renderType != 3 and renderType != 12; #!CUDA_GPU_ONLY && !OPTIX_GPU_ONLY
+        if(optixCPU and not optixGPU):
+            scn.cycles.device = "CPU"
         else:
-            print("Blender > 3.0 doesn't support tile size, thus ignored")
-        
-        # Set constraints
-        scn.render.use_border = True
-        scn.render.use_crop_to_border = renderSettings["Crop"]
-        if not renderSettings["Crop"]:
-            scn.render.film_transparent = True
+            scn.cycles.device = "GPU"
+        useDevices("OPTIX", optixGPU, optixCPU)
+    else: #Cycles/Eevee
+        if renderType == 0: #CPU
+            scn.cycles.device = "CPU"
+            print("Use CPU")
+        elif renderType == 1: #Cuda
+            useDevices("CUDA", True, True)
+            scn.cycles.device = "GPU"
+            print("Use Cuda")
+        elif renderType == 2: #OpenCL
+            useDevices("OPENCL", True, True)
+            scn.cycles.device = "GPU"
+            print("Use OpenCL")
+        elif renderType == 3: #Cuda (GPU Only)
+            useDevices("CUDA", True, False)
+            scn.cycles.device = 'GPU'
+            print("Use Cuda (GPU)")
+        elif renderType == 4: #OpenCL (GPU Only)
+            useDevices("OPENCL", True, False)
+            scn.cycles.device = 'GPU'
+            print("Use OpenCL (GPU)")
+        elif renderType == 5: #HIP
+            useDevices("HIP", True, False)
+            scn.cycles.device = 'GPU'
+            print("Use HIP")
+        elif renderType == 6: #HIP (GPU Only)
+            useDevices("HIP", True, True)
+            scn.cycles.device = 'GPU'
+            print("Use HIP (GPU)")
+        elif renderType == 7: #METAL
+            useDevices("METAL", True, True)
+            scn.cycles.device = 'GPU'
+            print("Use METAL")
+        elif renderType == 8: #METAL (GPU Only)
+            useDevices("METAL", True, False)
+            scn.cycles.device = 'GPU'
+            print("Use METAL (GPU)")
+        elif renderType == 9: #ONEAPI
+            useDevices("ONEAPI", True, True)
+            scn.cycles.device = 'GPU'
+            print("Use ONEAPI")
+        elif renderType == 10: #ONEAPI (GPU Only)
+            useDevices("ONEAPI", True, False)
+            scn.cycles.device = 'GPU'
+            print("Use ONEAPI (GPU)")
+        elif renderType == 11: #OptiX
+            useDevices("OPTIX", True, True)
+            scn.cycles.device = "GPU"
+            print("Use OptiX")
+        elif renderType == 12: #OptiX (GPU Only)
+            useDevices("OPTIX", True, False)
+            scn.cycles.device = "GPU"
+            print("Use OptiX (GPU)")
 
-        scn.render.border_min_x = float(renderSettings["Border"]["X"])
-        scn.render.border_max_x = float(renderSettings["Border"]["X2"])
-        scn.render.border_min_y = float(renderSettings["Border"]["Y"])
-        scn.render.border_max_y = float(renderSettings["Border"]["Y2"])
-
-        #Set Camera
-        camera = renderSettings["Camera"]
-        if(camera != None and camera != "" and bpy.data.objects[camera]):
-            scn.camera = bpy.data.objects[camera]
-
-        #Set Resolution
-        scn.render.resolution_x = int(renderSettings["Width"])
-        scn.render.resolution_y = int(renderSettings["Height"])
-        scn.render.resolution_percentage = 100
-
-        #Set Samples
-        scn.cycles.samples = int(renderSettings["Samples"])
-        scn.render.use_persistent_data = True
-
-        #Render Device
-        renderType = int(renderSettings["ComputeUnit"])
-        engine = int(renderSettings["Engine"])
-
-        if(engine == 2): #Optix
-            optixGPU = renderType == 1 or renderType == 3 or renderType == 11 or renderType == 12; #CUDA or CUDA_GPU_ONLY
-            optixCPU = renderType != 3 and renderType != 12; #!CUDA_GPU_ONLY && !OPTIX_GPU_ONLY
-            if(optixCPU and not optixGPU):
-                scn.cycles.device = "CPU"
-            else:
-                scn.cycles.device = "GPU"
-            useDevices("OPTIX", optixGPU, optixCPU)
-        else: #Cycles/Eevee
-            if renderType == 0: #CPU
-                scn.cycles.device = "CPU"
-                print("Use CPU")
-            elif renderType == 1: #Cuda
-                useDevices("CUDA", True, True)
-                scn.cycles.device = "GPU"
-                print("Use Cuda")
-            elif renderType == 2: #OpenCL
-                useDevices("OPENCL", True, True)
-                scn.cycles.device = "GPU"
-                print("Use OpenCL")
-            elif renderType == 3: #Cuda (GPU Only)
-                useDevices("CUDA", True, False)
-                scn.cycles.device = 'GPU'
-                print("Use Cuda (GPU)")
-            elif renderType == 4: #OpenCL (GPU Only)
-                useDevices("OPENCL", True, False)
-                scn.cycles.device = 'GPU'
-                print("Use OpenCL (GPU)")
-            elif renderType == 5: #HIP
-                useDevices("HIP", True, False)
-                scn.cycles.device = 'GPU'
-                print("Use HIP")
-            elif renderType == 6: #HIP (GPU Only)
-                useDevices("HIP", True, True)
-                scn.cycles.device = 'GPU'
-                print("Use HIP (GPU)")
-            elif renderType == 7: #METAL
-                useDevices("METAL", True, True)
-                scn.cycles.device = 'GPU'
-                print("Use METAL")
-            elif renderType == 8: #METAL (GPU Only)
-                useDevices("METAL", True, False)
-                scn.cycles.device = 'GPU'
-                print("Use METAL (GPU)")
-            elif renderType == 9: #ONEAPI
-                useDevices("ONEAPI", True, True)
-                scn.cycles.device = 'GPU'
-                print("Use ONEAPI")
-            elif renderType == 10: #ONEAPI (GPU Only)
-                useDevices("ONEAPI", True, False)
-                scn.cycles.device = 'GPU'
-                print("Use ONEAPI (GPU)")
-            elif renderType == 11: #OptiX
-                useDevices("OPTIX", True, True)
-                scn.cycles.device = "GPU"
-                print("Use OptiX")
-            elif renderType == 12: #OptiX (GPU Only)
-                useDevices("OPTIX", True, False)
-                scn.cycles.device = "GPU"
-                print("Use OptiX (GPU)")
-        
-
-        #Denoiser
-        denoise = renderSettings["Denoiser"]
-        if denoise is not None:
-            if denoise == "None":
-                scn.cycles.use_denoising = False
-            elif len(denoise) > 0:
-                scn.cycles.use_denoising = True
-                scn.cycles.denoiser = denoise
-
-        fps = renderSettings["FPS"]
-        if fps is not None and fps > 0:
-            scn.render.fps = fps
-
-        # blender uses the new BLENDER_EEVEE_NEXT enum for blender4.2 and above.
-        if(engine == 1): #Eevee
-            if(isPreEeveeNext):
-                print("Using EEVEE")
-                scn.render.engine = "BLENDER_EEVEE"
-            else:
-                print("Using EEVEE_NEXT")
-                scn.render.engine = "BLENDER_EEVEE_NEXT"
-        else:
-            scn.render.engine = "CYCLES"
-
-        # Set frame
-        scn.frame_set(frame)
-        
-        # Set Output
-        scn.render.filepath = path
-
-        # Render
-        print("RENDER_START: " + str(id) + "\n", flush=True)
-        bpy.ops.render.render(animation=False, write_still=True, use_viewport=False, layer="", scene = scen)
-        print("SUCCESS: " + str(id) + "\n", flush=True)
-
-def runBatch(jsonPath):
-    print("Json Path:" + jsonPath + "\n")
-
-    # Load Json
-    print("Reading Json Config\n")
-    jsonFile = open(jsonPath)
-    jsonData = jsonFile.read()
-    jsonFile.close()
-
-    # Parse Json
-    print("Parsing Json Config\n")
-    renderSettingsBatch = json.loads(jsonData)
-
-    isFirst = True
-    scn.render.engine = "CYCLES"
-
-    # Loop over batches
-    for i in range(len(renderSettingsBatch)):
-        current = renderSettingsBatch[i]
-        renderSettings = current
-        
-        renderFormat = renderSettings["RenderFormat"]
-        if (not renderFormat):
-            scn.render.image_settings.file_format = "PNG"
-        else:
-            scn.render.image_settings.file_format = renderFormat
-
-        output = renderSettings["Output"]
-        id = renderSettings["TaskID"]
-
-        #Workaround for scene not updating...
-        if not isFirst and renderSettings["Workaround"] and (len(renderSettingsBatch) > 1 and i < len(renderSettingsBatch)):
-            previous = renderSettingsBatch[i - 1]
-            output = previous["Output"]
-            id = previous["TaskID"]
+    # At the moment, we should derive to use the file settings instead of asking user to manually adjust. Remove denoiser if possible   
+    #Denoiser - Disable this until I can figure out how to fetch this info from Blend lib
+    # denoise = renderSettings["Denoiser"]
+    # if denoise is not None:
+    #     if denoise == "None":
+    #         scn.cycles.use_denoising = False
+    #     elif len(denoise) > 0:
+    #         scn.cycles.use_denoising = True
+    #         scn.cycles.denoiser = denoise
             
-        renderWithSettings(renderSettings, id, output)
-        
-        #Workaround for scene not updating...
-        if (renderSettings["Workaround"] and len(renderSettingsBatch) > 1 and i == len(renderSettingsBatch) - 1):
-            renderWithSettings(current, current["TaskID"], current["Output"])
+    # Set Frames Per Second
+    fps = renderSettings["FPS"]
+    if fps is not None and fps > 0:
+        scn.render.fps = fps
 
-        isFirst = False
+    # blender uses the new BLENDER_EEVEE_NEXT enum for blender4.2 and above.
+    if(engine == 1): #Eevee
+        if(isPreEeveeNext):
+            print("Using EEVEE")
+            scn.render.engine = "BLENDER_EEVEE"
+        else:
+            print("Using EEVEE_NEXT")
+            scn.render.engine = "BLENDER_EEVEE_NEXT"
+    else:
+        scn.render.engine = "CYCLES"
+    
+    # Set frame
+    scn.frame_set(frame)
+    
+    # Set Output
+    scn.render.filepath = renderSettings["Output"] + '/' + str(frame).zfill(5)
+    id = str(renderSettings["TaskID"])
 
+    # Render
+    print("RENDER_START: " + id + "\n", flush=True)
+    # TODO: Research what use_viewport does?
+    bpy.ops.render.render(animation=False, write_still=True, use_viewport=False, layer="", scene = scen)
+    print("SUCCESS: " + id + "\n", flush=True)
+
+def runBatch():
+    # Fatal exception was thrown [Errno 61] Connection refused - see if it's the firewall?
+    proxy = xmlrpc.client.ServerProxy("http://localhost:8081")
+    
+    # Do i need to send in RPC like this or can it just be a value instead?
+    renderSettings = None
+    try:
+        renderSettings = proxy.fetch_info(1)
+    except Exception as e:
+        print("Fail to call fetch_info over xml_rpc: " + str(e))
+        return
+                
+    # Loop over batches
+    while True:
+        try:
+            frame = proxy.next_render_queue(1)
+            renderWithSettings(renderSettings, frame)
+        except Exception as e:
+            print(e)
+            break
+    
     print("BATCH_COMPLETE\n")
 
 #Main
 
 try:
-    newJsonPath = jsonPathInitial
-    count = 0
-    while newJsonPath.strip():
-        if(count > 0):
-            print("Continue count: " + str(count))
+    runBatch()
 
-        runBatch(newJsonPath)
-        newJsonPath = ""
-        
-        if(useContinue):
-            print("AWAITING CONTINUE:\n")
-            newInput = input("")
-            newInput = newInput.strip()
-            print("Received:" + newInput + "\n")
-            if(newInput):
-                newJsonPath = newInput
-                count = count + 1
-            else:
-                break
-        
 except Exception as e:
     print("EXCEPTION:" + str(e))
