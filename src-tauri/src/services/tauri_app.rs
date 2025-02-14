@@ -80,8 +80,8 @@ pub fn index() -> String {
             };
             div {
                 h2 { "Computer Nodes" };
-                div class="group" id ="RenderNodes" hx-trigger="" {
-                    "something should be here?"
+                div class="group" id ="RenderNodes" tauri-invoke="" hx-trigger="load once" {
+                    
                 };
             };
         };
