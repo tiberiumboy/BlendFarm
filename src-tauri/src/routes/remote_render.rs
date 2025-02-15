@@ -173,8 +173,8 @@ pub async fn remote_render_page(state: State<'_, Mutex<AppState>>) -> Result<Str
             button tauri-invoke="create_new_job" hx-target="body" hx-indicator="#spinner" hx-swap="beforeend" {
                 "Import"
             };
-            // Does not work. Find out why?
-            img id="spinner" class="htmx-indicator" src="./src/assets/svg-loaders/rings.svg";
+
+            img id="spinner" class="htmx-indicator" src="/assets/svg-loaders/rings.svg";
 
             div class="group" {
                 @for job in job_list {

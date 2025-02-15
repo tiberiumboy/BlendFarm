@@ -20,7 +20,7 @@ use maud::html;
 use serde::Serialize;
 use std::{collections::HashMap, ops::Range, sync::Arc};
 use std::{path::PathBuf, thread::sleep, time::Duration};
-use tauri::{self, command, App, AppHandle, Emitter, Manager, State};
+use tauri::{self, command, App, AppHandle, Emitter, Manager};
 use tokio::{
     select, spawn,
     sync::{
@@ -30,13 +30,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
-/*
-    Dev blog:
-        Consider looking into real_time_sqlx to create a realtime database update to frontend for any message queue/updates from sqlx.
-        Once I get sqlx implemented.
-        https://docs.rs/real-time-sqlx/latest/real_time_sqlx/
-        https://www.reddit.com/r/rust/comments/1gvslni/realtimesqlx_a_sqlxsqlitebased_realtime_query/
-*/
+const WORKPLACE: &str = "workplace";
 
 // This UI Command represent the top level UI that user clicks and interface with.
 #[derive(Debug)]
@@ -67,27 +61,27 @@ struct FrameUpdatePayload {
 #[command]
 pub fn index() -> String {
     html! (
-        div class="sidebar" {
-            nav {
-                ul class="nav-menu-items" {
-                    li key="manager" class="nav-bar" tauri-invoke="remote_render_page" hx-target="#workplace" {
-                        span { "Remote Render" }
-                    };
-                    li key="setting" class="nav-bar" tauri-invoke="setting_page" hx-target="#workplace" {
-                        span { "Setting" }
+        div {
+
+            div class="sidebar" {
+                nav {
+                    ul class="nav-menu-items" {
+                        li key="manager" class="nav-bar" tauri-invoke="remote_render_page" hx-target=(format!("#{WORKPLACE}")) {
+                            span { "Remote Render" }
+                        };
+                        li key="setting" class="nav-bar" tauri-invoke="setting_page" hx-target=(format!("#{WORKPLACE}")) {
+                            span { "Setting" }
+                        };
                     };
                 };
-            };
-            div {
-                h2 { "Computer Nodes" };
-                div class="group" id ="RenderNodes" tauri-invoke="" hx-trigger="load once" {
-                    
+                div {
+                    h2 { "Computer Nodes" };
+                    div class="group" id="workers" tauri-invoke="list_workers" hx-trigger="load every 2s" hx-target="this" {};
                 };
             };
-        };
-
-        main id="workplace" tauri-invoke="remote_render_page" hx-trigger="load once";
-
+            
+            main tauri-invoke="remote_render_page" hx-trigger="load" hx-target="this" id=(WORKPLACE) {};
+        }
     ).0
 }
 
@@ -135,6 +129,7 @@ impl TauriApp {
             .manage(mut_app_state)
             .invoke_handler(tauri::generate_handler![
                 index,
+                open_path,
                 select_directory,
                 select_file,
                 create_job,
@@ -143,7 +138,7 @@ impl TauriApp {
                 setting_page,
                 edit_settings,
                 get_settings,
-                edit_setting_dialog,
+                update_settings,
                 create_new_job,
                 available_versions,
                 remote_render_page,
@@ -392,16 +387,9 @@ impl BlendFarm for TauriApp {
             }
         });
 
-        // let addr = SocketAddr::from((IpAddr::V4(Ipv4Addr::LOCALHOST), 1420));
-
-        // let listener = TcpListener::bind(addr).await.map_err(|e| => NetworkError::UnableToListen(e.into_string()) )?;
-
         app.run(|_app, event| match event {
             tauri::RunEvent::Exit => {
                 println!("Gracefully shut down any background task here");
-            }
-            tauri::RunEvent::Ready => {
-                println!("Would like to call index() from here?");
             }
             // unsure about this one? Is this when application regain focus?
             tauri::RunEvent::Resumed => println!("Application resumed!"),
@@ -411,7 +399,9 @@ impl BlendFarm for TauriApp {
             tauri::RunEvent::MenuEvent(menu_event) => {
                 println!("Menu event was trigger: {menu_event:?}")
             }
+
             // ignore
+            tauri::RunEvent::Ready => {}
             tauri::RunEvent::MainEventsCleared => {}
             tauri::RunEvent::WindowEvent { .. } => {}
             tauri::RunEvent::Reopen { .. } => {}

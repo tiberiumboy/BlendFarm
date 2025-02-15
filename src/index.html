@@ -2,17 +2,17 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="./assets/react.svg" />
-    <link rel="stylesheet" href="styles.css"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Blender Farm</title>
-    <script src="htmx.min.js"></script>
-    <script type="module" src="tauri-ext.js"></script> 
-    <script type="module" src="_hyperscript.min.js"></script>
+  <meta charset="UTF-8" />
+  <!-- <link rel="icon" type="image/svg+xml" href="./assets/react.svg" /> -->
+  <link rel="stylesheet" href="styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blender Farm</title>
+  <script src="htmx.min.js"></script>
+  <script type="module" src="tauri-ext.js"></script>
+  <script type="module" src="_hyperscript.min.js"></script>
 </head>
 
-<body hx-ext="tauri" >
+<body hx-ext="tauri">
   <div tauri-invoke="index" hx-trigger="load once"></div>
 </body>
 

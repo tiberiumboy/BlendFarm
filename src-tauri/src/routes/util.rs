@@ -23,3 +23,8 @@ pub async fn select_file(app: AppHandle) -> Result<String, ()> {
         None => Err(()),
     }
 }
+
+#[command]
+pub fn open_path(path: &str) {
+    println!("Trying to open {path}");
+}

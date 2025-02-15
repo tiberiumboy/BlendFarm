@@ -9,23 +9,22 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
     let server = state.lock().await;
     let workers = server.worker_db.read().await;
     match &workers.list_worker().await {
-        Ok(data) => Ok(html! (
+        Ok(data) => Ok(html! {
             @for worker in data {
-                div key=(data.name) {
+                div key=(worker.spec.host) tauri-invoke="" hx-info="" hx-target="#workplace" {
                     table {
                         tbody {
                             tr {
                                 td style="width:100%" {
-                                    div { (node.spec?.host) }
-                                    div { (node.spec?.os + " | " + node.spec?.arch) }
-                                    div { (node.status) }
+                                    div { (worker.spec.host) }
+                                    div { (worker.spec.os) " | " (worker.spec.arch) }
                                 }
                             }
                         }
                     }
                 }
             }
-        )
+        }
         .0),
         Err(e) => Err(e.to_string()),
     }

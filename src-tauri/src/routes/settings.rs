@@ -1,14 +1,20 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 // this is the settings controller section that will handle input from the setting page.
-use crate::models::app_state::AppState;
+use crate::models::{app_state::AppState, server_setting::ServerSetting};
 use blender::blender::Blender;
 use maud::html;
 use semver::Version;
+use serde_json::json;
 use tauri::{command, AppHandle, Error, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FilePath;
-use tokio::{join, sync::Mutex};
+use tokio::{
+    join,
+    sync::{Mutex, RwLock},
+};
+
+const SETTING: &str= "settings";
 
 /*
     Because blender installation path is not store in server setting, it is infact store under blender manager,
@@ -114,26 +120,54 @@ pub async fn remove_blender_installation(
     Ok(())
 }
 
+#[command(async)]
+pub async fn update_settings(
+    state: State<'_, Mutex<AppState>>,
+    install_path: String,
+    cache_path: String,
+    render_path: String,
+) -> Result<String, String> {
+    let install_path = PathBuf::from(install_path);
+    let blend_dir = PathBuf::from(cache_path);
+    let render_dir = PathBuf::from(render_path);
+
+    {
+        let mut server = state.lock().await;
+        server.setting = Arc::new(RwLock::new(ServerSetting {
+            blend_dir,
+            render_dir,
+        }));
+        let mut manager = server.manager.write().await;
+        manager.set_install_path(&install_path);
+    }
+    Ok(get_settings(state).await.unwrap())
+}
+
 // change this so that this is returning the html layout to let the client edit the settings.
 #[command(async)]
 pub async fn edit_settings(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let app_state = state.lock().await;
-    let (setting, manager) = join!(app_state.setting.read(), app_state.manager.read());
+    let (settings, manager) = join!(app_state.setting.read(), app_state.manager.read());
 
     let install_path = manager.get_install_path();
-    let cache_path = &setting.blend_dir;
-    let render_path = &setting.render_dir;
+    let cache_path = &settings.blend_dir;
+    let render_path = &settings.render_dir;
 
     Ok(html!(
-        form hx-put="" {
+        form tauri-invoke="update_settings" hx-target="this" hx-swap="outerHTML" {
             h3 { "Blender Installation Path:" };
-            input id="install_path_id" name="install_path" class="form-input" readonly="true" value=(install_path.to_str().unwrap());
+            input name="installPath" class="form-input" readonly="true" tauri-invoke="select_directory" hx-trigger="click" hx-target="this" value=(install_path.to_str().unwrap() );
 
             h3 { "Blender File Cache Path:" };
-            input id="cache_path_id" name="cache_path" class="form-input" readonly="true" value=(cache_path.to_str().unwrap());
+            input name="cachePath" class="form-input" readonly="true" tauri-invoke="select_directory" hx-trigger="click" hx-target="this" value=(cache_path.to_str().unwrap());
 
             h3 { "Render cache directory:" };
-            input id="render_path_id" name="render_path" class="form-input" readonly="true" value=(render_path.to_str().unwrap());
+            input name="renderPath" class="form-input" readonly="true" tauri-invoke="select_directory" hx-trigger="click" hx-target="this" value=(render_path.to_str().unwrap());
+            
+            br;
+            
+            button tauri-invoke="update_settings" { "Save" };
+            button tauri-invoke="get_settings" { "Cancel" };
         };
     ).0)
 }
@@ -141,99 +175,55 @@ pub async fn edit_settings(state: State<'_, Mutex<AppState>>) -> Result<String, 
 #[command(async)]
 pub async fn get_settings(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let app_state = state.lock().await;
-    let (setting, manager) = join!(app_state.setting.read(), app_state.manager.read());
+    let (settings, manager) = join!(app_state.setting.read(), app_state.manager.read());
 
-    let install_path = manager.get_install_path();
-    let cache_path = &setting.blend_dir;
-    let render_path = &setting.render_dir;
+    let install_path = manager.get_install_path().to_str().unwrap();
+    let cache_path = &settings.blend_dir.to_str().unwrap();
+    let render_path = &settings.render_dir.to_str().unwrap();
 
     Ok(html!(
-        div hx-target="settings" hx-swap="outerHTML" class="group" {
+        div tauri-invoke="open_path" hx-target="this" hx-swap="outerHTML" {
             h3 { "Blender Installation Path:" };
-            label { (install_path.to_str().unwrap()) };
-
+            label hx-info=(json!( { "path": install_path } )) { (install_path) };
+            
             h3 { "Blender File Cache Path:" };
-            label { (cache_path.to_str().unwrap()) };
-
+            label hx-info=(json!( { "path": cache_path } )) { (cache_path) };
+            
             h3 { "Render cache directory:" };
-            label { (render_path.to_str().unwrap()) };
+            label hx-info=(json!( { "path": render_path } )) { (render_path) };
+            br;
+            
+            button tauri-invoke="edit_settings" { "Edit" };
         }
     )
     .0)
 }
 
-#[command(async)]
-pub async fn edit_setting_dialog(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let app_state = state.lock().await;
-    let _manager = app_state.manager.read().await;
-    let _setting = app_state.setting.read().await;
-    Ok(html! (
-        div id="modal" _="on closeModal add .closing then wait for animationend then remove me" {
-            div class="modal-underlay" _="on click trigger closeModal";
-            div class="modal-content" { "content" };
-        };
-    )
-    .0)
-}
-
-#[command(async)]
-pub async fn setting_page(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let install_path: PathBuf;
-    let cache_path: PathBuf;
-    let render_path: PathBuf;
-
-    {
-        let app_state = state.lock().await;
-
-        // we can combine these two together.
-        let (server_settings, blender_manager) = (
-            app_state.setting.read().await,
-            app_state.manager.read().await,
-        );
-        install_path = blender_manager.as_ref().to_owned();
-        cache_path = server_settings.blend_dir.clone();
-        render_path = server_settings.render_dir.clone();
-    }
-
-    // let blender_list = list_blender_installed(state).await.unwrap();
-
-    // draw and display the setting page here
-    Ok(html! {
-        div class="content" {
+#[command]
+pub fn setting_page() -> String {
+    html! {
+        div class="content"  {
             h1 { "Settings" };
 
             p { r"Here we list out all possible configuration this tool can offer to user.
                     Exposing rich and deep components to customize your workflow" };
 
-            // Probably can do a edit form instead?
-            div class="group" {
-                h3 { "Blender Installation Path:" };
-                input id="install_path_id" name="install_path" class="form-input" readonly="true" value=(install_path.to_str().unwrap());
-
-                h3 { "Blender File Cache Path:" };
-                input id="cache_path_id" name="cache_path" class="form-input" readonly="true" value=(cache_path.to_str().unwrap());
-
-                h3 { "Render cache directory:" };
-                input id="render_path_id" name="render_path" class="form-input" readonly="true" value=(render_path.to_str().unwrap());
-
-                button tauri-invoke="edit_setting_dialog" hx-target="body" hx-swap="beforeend" { "Edit" };
-            };
-
-            h3 tauri-invoke="list_blender_installed" hx-target="#blender-table" { "Blender Installation" };
-
+            div class="group" id=(SETTING) tauri-invoke="get_settings" hx-trigger="load" hx-target="this" { };
+            
+            h3 { "Blender Installation" };
+            
             button tauri-invoke="add_blender_installation" { "Add from Local Storage" };
             button tauri-invoke="install_from_internet" { "Install version" };
+            
             div class="group" {
                 table {
                     thead {
                         th { "Version" };
                         th { "Executable Path" };
                     };
-                    tbody id="blender-table" invoke-tauri="list_blender_installed" hx-trigger="newBlender from:body" {
-                        // (&blender_list)
-                    };
+                    tbody id="blender-table" tauri-invoke="list_blender_installed" hx-trigger="load blenderUpdate" hx-target="this" { };
                 };
             };
-        };
-    }.0)
+        }
+    }.0
 }
