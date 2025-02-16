@@ -3,6 +3,7 @@ use tauri::{command, State};
 use tokio::sync::Mutex;
 
 use crate::models::app_state::AppState;
+use crate::services::tauri_app::WORKPLACE;
 
 #[command(async)]
 pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
@@ -11,7 +12,8 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
     match &workers.list_worker().await {
         Ok(data) => Ok(html! {
             @for worker in data {
-                div key=(worker.spec.host) tauri-invoke="" hx-info="" hx-target="#workplace" {
+                div tauri-invoke="get_worker" hx-include="[name='machineId']" hx-target=(format!("#{WORKPLACE}")) {
+                    input type="hidden" name="machineId" value=(worker.machine_id);
                     table {
                         tbody {
                             tr {
@@ -50,11 +52,11 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
 
 */
 #[command(async)]
-pub async fn get_worker(state: State<'_, Mutex<AppState>>, id: String) -> Result<String, String> {
+pub async fn get_worker(state: State<'_, Mutex<AppState>>, machine_id: &str) -> Result<String, ()> {
     let app_state = state.lock().await;
     let workers = app_state.worker_db.read().await;
-    let content = match workers.get_worker(id).await {
-        Some(worker) => html! {
+    match workers.get_worker(machine_id).await {
+        Some(worker) => Ok(html! {
             div {
                 h1 { (format!("Computer: {}", worker.machine_id)) };
                 h3 { "Hardware Info:" };
@@ -62,16 +64,13 @@ pub async fn get_worker(state: State<'_, Mutex<AppState>>, id: String) -> Result
                 p { (format!("CPU: {} | ({} threads)", worker.spec.cpu, worker.spec.cores)) };
                 p { (format!("Ram: {} GB", worker.spec.memory / ( 1024 * 1024 )))}
                 @if let Some(gpu) = worker.spec.gpu {
-                    p { (format!("GPU: {}", gpu)) };
+                    p { (format!("GPU: {gpu}")) };
                 } @else {
                     p { "GPU: N/A" };
                 };
-
-                // display current task below.
             };
         }
-        .into_string(),
-        None => return Ok("".to_owned()),
-    };
-    Ok(content)
+        .0),
+        None => Err(()),
+    }
 }

@@ -192,14 +192,24 @@ Do I need to make another .group class in @media (prefers-color-scheme: dark) ?
   padding: 12px;
 }
 
+.htmx-indicator {
+  display: none;
+}
+
+.htmx-request .htmx-indicator {
+  display: inline;
+}
+
+.htmx-request.htmx-indicator {
+  display: inline;
+}
+
 .form-input {
   width: 100%;
   box-sizing: border-box;
-  margin-top:-16px;
-  margin-bottom:-4px;
 }
 
-.group > .item:not(:last-child) {
+.group>.item:not(:last-child) {
   border-bottom: 1px solid rgb(63, 65, 68, 0.067);
 }
 
@@ -216,62 +226,62 @@ Do I need to make another .group class in @media (prefers-color-scheme: dark) ?
 
 #modal {
   position: fixed;
-  top:0px;
-  bottom:0px;
-  left:0px;
-  right:0px;
-  background-color: light-dark(rgba(127, 127, 127, 0.3), rgba(0, 0, 0, 0.402));
-  z-index:1000;
-
-  animation-name: fadeIn;
-  animation-duration:200ms;
-  animation-timing-function: ease;
-}
-
-#modal > .modal-underlay {
-  position:absolute;
-  z-index:-1;
-  top:0px;
+  top: 0px;
   bottom: 0px;
   left: 0px;
   right: 0px;
+  background-color: light-dark(rgba(127, 127, 127, 0.3), rgba(0, 0, 0, 0.402));
+  z-index: 1000;
 
-  animation-name:fadeIn;
+  animation-name: fadeIn;
   animation-duration: 200ms;
   animation-timing-function: ease;
 }
 
-#modal > .modal-content {
-  margin-top:10vh;
+#modal>.modal-underlay {
+  position: absolute;
+  z-index: -1;
+  top: 0px;
+  bottom: 0px;
+  left: 0px;
+  right: 0px;
+
+  animation-name: fadeIn;
+  animation-duration: 200ms;
+  animation-timing-function: ease;
+}
+
+#modal>.modal-content {
+  margin-top: 10vh;
   margin-left: auto;
   margin-right: auto;
 
   /*sizing for visible dialog */
-  width:80%;
+  width: 80%;
   max-width: 600px;
 
-  border:solid 1px #999;
-  border-radius:8px;
-  box-shadow: 0px 0px 20px 0px rgba(0,0,0,0.3);
+  border: solid 1px #999;
+  border-radius: 8px;
+  box-shadow: 0px 0px 20px 0px rgba(0, 0, 0, 0.3);
   padding: 20px;
 
-  background-color: light-dark(rgb(200, 200, 200), rgb(55,55,55));
+  background-color: light-dark(rgb(200, 200, 200), rgb(55, 55, 55));
 
-  animation-name:zoomIn;
-  animation-duration:200ms;
+  animation-name: zoomIn;
+  animation-duration: 200ms;
   animation-timing-function: ease;
 }
 
 #modal.closing {
   animation-name: fadeOut;
-  animation-duration:200ms;
-  animation-timing-function:ease;
+  animation-duration: 200ms;
+  animation-timing-function: ease;
 }
 
-#modal.closing > .modal-content {
+#modal.closing>.modal-content {
   animation-name: zoomOut;
-  animation-duration:200ms;
-  animation-timing-function:ease;
+  animation-duration: 200ms;
+  animation-timing-function: ease;
 }
 
 div.content {
@@ -303,21 +313,41 @@ div.content {
 }
 
 @keyframes fadeIn {
-  0% {opacity: 0;}
-  100% {opacity: 1;}
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
 }
 
 @keyframes fadeOut {
-  0% {opacity: 1;}
-  100% { opacity: 0;}
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
 }
 
 @keyframes zoomIn {
-  0% {transform:scale(0.25);}
-  100% { transform:scale(1);}
+  0% {
+    transform: scale(0.25);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }
 
 @keyframes zoomOut {
-  0% {transform:scale(1);}
-  100% {transform:scale(0.25);}
+  0% {
+    transform: scale(1);
+  }
+
+  100% {
+    transform: scale(0.25);
+  }
 }

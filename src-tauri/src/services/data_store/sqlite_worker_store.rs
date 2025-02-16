@@ -65,7 +65,7 @@ impl WorkerStore for SqliteWorkerStore {
     }
 
     // Read
-    async fn get_worker(&self, id: String) -> Option<Worker> {
+    async fn get_worker(&self, id: &str) -> Option<Worker> {
         match query!(
             r#"SELECT machine_id, spec FROM workers WHERE machine_id=$1"#,
             id,

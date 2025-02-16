@@ -30,7 +30,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
-const WORKPLACE: &str = "workplace";
+pub const WORKPLACE: &str = "workplace";
 
 // This UI Command represent the top level UI that user clicks and interface with.
 #[derive(Debug)]
@@ -62,7 +62,6 @@ struct FrameUpdatePayload {
 pub fn index() -> String {
     html! (
         div {
-
             div class="sidebar" {
                 nav {
                     ul class="nav-menu-items" {
@@ -76,7 +75,7 @@ pub fn index() -> String {
                 };
                 div {
                     h2 { "Computer Nodes" };
-                    div class="group" id="workers" tauri-invoke="list_workers" hx-trigger="load every 2s" hx-target="this" {};
+                    div class="group" id="workers" tauri-invoke="list_workers" hx-trigger="every 2s" hx-target="this" {};
                 };
             };
             
@@ -134,7 +133,7 @@ impl TauriApp {
                 select_file,
                 create_job,
                 delete_job,
-                job_detail,
+                get_job,
                 setting_page,
                 edit_settings,
                 get_settings,
@@ -143,6 +142,7 @@ impl TauriApp {
                 available_versions,
                 remote_render_page,
                 list_workers,
+                list_jobs,
                 get_worker,
                 import_blend,
                 add_blender_installation,

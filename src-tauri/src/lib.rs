@@ -42,7 +42,6 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::{spawn, sync::RwLock};
-use tracing_subscriber::EnvFilter;
 
 pub mod domains;
 pub mod models;
@@ -65,7 +64,9 @@ async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> {
     path = path.join("blendfarm.db");
 
     // create file if it doesn't exist (.config/BlendFarm/blendfarm.db)
-    let _ = fs::File::create(&path).await;
+    if !path.exists() {
+        let _ = fs::File::create(&path).await;
+    }
 
     // TODO: Consider thinking about the design behind this. Should we store database connection here or somewhere else?
     let url = format!("sqlite://{}", path.as_os_str().to_str().unwrap());
@@ -79,9 +80,6 @@ async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     dotenv().ok();
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .try_init();
 
     // to run custom behaviour
     let cli = Cli::parse();

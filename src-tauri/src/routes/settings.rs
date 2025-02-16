@@ -221,7 +221,7 @@ pub fn setting_page() -> String {
                         th { "Version" };
                         th { "Executable Path" };
                     };
-                    tbody id="blender-table" tauri-invoke="list_blender_installed" hx-trigger="load blenderUpdate" hx-target="this" { };
+                    tbody id="blender-table" tauri-invoke="list_blender_installed" hx-trigger="load" hx-target="this" { };
                 };
             };
         }

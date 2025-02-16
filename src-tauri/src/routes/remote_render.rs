@@ -11,7 +11,6 @@ Get a preview window that show the user current job progress - this includes las
 */
 use crate::AppState;
 use blender::blender::Blender;
-use build_html::{Html, HtmlElement, HtmlTag};
 use maud::html;
 use semver::Version;
 use std::path::PathBuf;
@@ -45,19 +44,19 @@ async fn list_versions(app_state: &AppState) -> Vec<Version> {
 /// List all of the available blender version.
 #[command(async)]
 pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let mut root = HtmlElement::new(HtmlTag::Div);
     let server = state.lock().await;
     let versions = list_versions(&server).await;
 
-    versions.iter().for_each(|b| {
-        root.add_child(
-            HtmlElement::new(HtmlTag::ListElement)
-                .with_child(b.to_string().into())
-                .into(),
-        );
-    });
-
-    Ok(root.to_html_string())
+    Ok(html!(
+        div {
+            @for version in versions {
+                li {
+                    (version)
+                }
+            }
+        }
+    )
+    .0)
 }
 
 #[command(async)]
@@ -161,11 +160,7 @@ pub async fn import_blend(
 }
 
 #[command(async)]
-pub async fn remote_render_page(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let server = state.lock().await;
-    let jobs = server.job_db.read().await;
-    let job_list = jobs.list_all().await.unwrap();
-
+pub async fn remote_render_page() -> Result<String, String> {
     let content = html! {
         div class="content" {
             h1 { "Remote Jobs" };
@@ -174,22 +169,9 @@ pub async fn remote_render_page(state: State<'_, Mutex<AppState>>) -> Result<Str
                 "Import"
             };
 
-            img id="spinner" class="htmx-indicator" src="/assets/svg-loaders/rings.svg";
+            img id="spinner" class="htmx-indicator" src="/assets/svg-loaders/tail-spin.svg";
 
-            div class="group" {
-                @for job in job_list {
-                    div {
-                        table {
-                            tbody {
-                                tr tauri-invoke="job_detail" hx-target="#detail" {
-                                    td style="width:100%" {
-                                        (job.get_file_name())
-                                    };
-                                };
-                            };
-                        };
-                    };
-                };
+            div class="group" id="joblist" tauri-invoke="list_jobs" hx-trigger="load" hx-target="this" {
             };
 
             div id="detail";
