@@ -31,6 +31,7 @@ Developer blog:
 use async_std::fs;
 use blender::manager::Manager as BlenderManager;
 use clap::{Parser, Subcommand};
+use domains::worker_store::WorkerStore;
 use dotenvy::dotenv;
 use models::network;
 use models::{app_state::AppState /* server_setting::ServerSetting */};
@@ -110,7 +111,15 @@ pub async fn run() {
         // run as GUI mode.
         _ => {
             let job_store = SqliteJobStore::new(db.clone());
-            let worker_store = SqliteWorkerStore::new(db.clone());
+            let mut worker_store = SqliteWorkerStore::new(db.clone());
+
+            // Clear worker database before usage!
+            // TODO: Find a better way to optimize this
+            if let Ok(old_workers) = worker_store.list_worker().await {
+                for worker in old_workers {
+                    let _ = &worker_store.delete_worker(&worker.machine_id).await;
+                }
+            }
 
             let job_store = Arc::new(RwLock::new(job_store));
             let worker_store = Arc::new(RwLock::new(worker_store));

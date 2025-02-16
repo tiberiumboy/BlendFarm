@@ -260,6 +260,7 @@ impl TauriApp {
     ) {
         match event {
             NetEvent::Status(peer_id, msg) => {
+                // this may soon change.
                 let handle = app_handle.read().await;
                 handle
                     .emit("node_status", (peer_id.to_base58(), msg))
@@ -387,27 +388,7 @@ impl BlendFarm for TauriApp {
             }
         });
 
-        app.run(|_app, event| match event {
-            tauri::RunEvent::Exit => {
-                println!("Gracefully shut down any background task here");
-            }
-            // unsure about this one? Is this when application regain focus?
-            tauri::RunEvent::Resumed => println!("Application resumed!"),
-
-            // what's the difference between ready and opened?
-            tauri::RunEvent::Opened { urls } => println!("Opened with args: {urls:?}"),
-            tauri::RunEvent::MenuEvent(menu_event) => {
-                println!("Menu event was trigger: {menu_event:?}")
-            }
-
-            // ignore
-            tauri::RunEvent::Ready => {}
-            tauri::RunEvent::MainEventsCleared => {}
-            tauri::RunEvent::WindowEvent { .. } => {}
-            tauri::RunEvent::Reopen { .. } => {}
-            _ => eprintln!("No condition found for this event: {event:?}"),
-        });
-
+        app.run(|_, _| {});
         Ok(())
     }
 }
