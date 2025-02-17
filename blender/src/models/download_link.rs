@@ -3,7 +3,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
-    io::Error,
+    io::{Error, Read},
     path::{Path, PathBuf},
 };
 use url::Url;
@@ -108,7 +108,9 @@ impl DownloadLink {
         use zip::ZipArchive;
 
         let source = download_path.as_ref();
-        let output = source.parent().unwrap().join(folder_name);
+        //  On windows, unzipped content includes a new folder underneath. Instead of doing this, we will just unzip from the parent instead... weird
+        let zip_loc = source.parent().unwrap();
+        let output = zip_loc.join(folder_name);
 
         // check if the directory exist
         match &output.exists() {
@@ -119,15 +121,12 @@ impl DownloadLink {
                     return Ok(output.join("Blender.exe"));
                 }
             }
-            // create a new directory if it doesn't exist and resume extract process.
-            false => {
-                let _ = std::fs::create_dir_all(&output)?;
-            }
+            _ => {}
         }
 
         let file = File::open(source).unwrap();
         let mut archive = ZipArchive::new(file).unwrap();
-        if let Err(e) = archive.extract(&output) {
+        if let Err(e) = archive.extract(zip_loc) {
             println!("Unable to extract content to target: {e:?}");
         }
 
@@ -140,23 +139,20 @@ impl DownloadLink {
         // precheck qualification
         let ext = BlenderCategory::get_extension()
             .map_err(|e| Error::other(format!("Cannot run blender under this OS: {}!", e)))?;
+
         let target = &destination.as_ref().join(&self.name);
+
         // Check and see if we haven't already download the file
         if !target.exists() {
             // Download the file from the internet and save it to blender data folder
-            let response = ureq::get(self.url.as_str())
+            let mut response = ureq::get(self.url.as_str())
                 .call()
                 .map_err(|e: ureq::Error| Error::other(e))?;
 
-            let len: usize = response
-                .header("Content-Length")
-                .unwrap()
-                .parse()
-                .unwrap_or(0);
-
-            let mut body: Vec<u8> = Vec::with_capacity(len);
-            let mut heap = response.into_reader();
-            heap.read_to_end(&mut body)?;
+            let mut body: Vec<u8> = Vec::new();
+            if let Err(e) = response.body_mut().as_reader().read_to_end(&mut body) {
+                eprintln!("Fail to read data from response! {e:?}");
+            }
             fs::write(target, &body)?;
         }
 

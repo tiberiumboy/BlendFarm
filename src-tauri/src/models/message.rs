@@ -2,7 +2,7 @@ use super::behaviour::FileResponse;
 use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
 use futures::channel::oneshot;
-use libp2p::PeerId;
+use libp2p::{Multiaddr, PeerId};
 use libp2p_request_response::ResponseChannel;
 use std::{collections::HashSet, error::Error};
 use thiserror::Error;
@@ -23,19 +23,21 @@ pub enum NetworkError {
     NoPeerProviderFound,
     #[error("Unable to save download file: {0}")]
     UnableToSave(String),
+    #[error("Timeout, unable to connect peer")]
+    Timeout,
 }
 
 // Send commands to network.
 #[derive(Debug)]
 pub enum NetCommand {
-    SendIdentity,
+    IncomingWorker(PeerId),
     Status(String),
     SubscribeTopic(String),
     UnsubscribeTopic(String),
-    JobStatus(JobEvent),
+    JobStatus(PeerId, JobEvent),
+    // use this event to send message to a specific node
     StartProviding {
         file_name: String,
-        // path: PathBuf,
         sender: oneshot::Sender<()>,
     },
     GetProviders {
@@ -51,6 +53,11 @@ pub enum NetCommand {
         file: Vec<u8>,
         channel: ResponseChannel<FileResponse>,
     },
+    Dial {
+        peer_id: PeerId,
+        peer_addr: Multiaddr,
+        sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
+    },
 }
 
 // TODO: Received network events.
@@ -58,8 +65,8 @@ pub enum NetCommand {
 pub enum NetEvent {
     // Share basic computer configuration for sharing Blender compatible executable over the network. (To help speed up the installation over the network.)
     Status(PeerId, String), // Receive message status (To GUI?) Could I treat this like Chat messages?
-    OnConnected,
-    NodeDiscovered(PeerId, ComputerSpec), 
+    OnConnected(PeerId),
+    NodeDiscovered(PeerId, ComputerSpec),
     // TODO: Future impl. Use this to send computer activity
     // Heartbeat() // share hardware statistic monitor heartbeat. (CPU/GPU/RAM activity readings)
     NodeDisconnected(PeerId), // On Node disconnected
@@ -67,5 +74,5 @@ pub enum NetEvent {
         request: String,
         channel: ResponseChannel<FileResponse>,
     },
-    JobUpdate(JobEvent),
+    JobUpdate(PeerId, JobEvent),
 }

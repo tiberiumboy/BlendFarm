@@ -25,15 +25,26 @@ Developer blog:
 // TODO: Create a miro diagram structure of how this application suppose to work
 // Need a mapping to explain how network should perform over intranet
 // Need a mapping to explain how blender manager is used and invoked for the job
+
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+use async_std::fs;
+use blender::manager::Manager as BlenderManager;
 use clap::{Parser, Subcommand};
-use models::app_state::AppState;
+use domains::worker_store::WorkerStore;
+use dotenvy::dotenv;
 use models::network;
+use models::{app_state::AppState /* server_setting::ServerSetting */};
+use services::data_store::sqlite_job_store::SqliteJobStore;
+use services::data_store::sqlite_task_store::SqliteTaskStore;
+use services::data_store::sqlite_worker_store::SqliteWorkerStore;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
-use tokio::spawn;
-use tracing_subscriber::EnvFilter;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
+use std::sync::Arc;
+use tokio::{spawn, sync::RwLock};
 
+pub mod domains;
 pub mod models;
 pub mod routes;
 pub mod services;
@@ -49,12 +60,34 @@ enum Commands {
     Client,
 }
 
+async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> {
+    let mut path = BlenderManager::get_config_dir();
+    path = path.join("blendfarm.db");
+
+    // create file if it doesn't exist (.config/BlendFarm/blendfarm.db)
+    if !path.exists() {
+        let _ = fs::File::create(&path).await;
+    }
+
+    // TODO: Consider thinking about the design behind this. Should we store database connection here or somewhere else?
+    let url = format!("sqlite://{}", path.as_os_str().to_str().unwrap());
+    // macos: "sqlite:///Users/megamind/Library/Application Support/BlendFarm/blendfarm.db"
+    // dbg!(&url);
+    let pool = SqlitePoolOptions::new().connect(&url).await?;
+    sqlx::migrate!().run(&pool).await?;
+    Ok(pool)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
-    let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
+    dotenv().ok();
 
     // to run custom behaviour
     let cli = Cli::parse();
+
+    let db = config_sqlite_db()
+        .await
+        .expect("Must have database connection!");
 
     // must have working network services
     let (service, controller, receiver) =
@@ -63,12 +96,38 @@ pub async fn run() {
     // start network service async
     spawn(service.run());
 
-    if let Err(e) = match cli.command {
+    let _ = match cli.command {
         // run as client mode.
-        Some(Commands::Client) => CliApp::default().run(controller, receiver).await,
+        Some(Commands::Client) => {
+            // could this be reconsidered?
+            let task_store = SqliteTaskStore::new(db.clone());
+            let task_store = Arc::new(RwLock::new(task_store));
+            CliApp::new(task_store)
+                .run(controller, receiver)
+                .await
+                .map_err(|e| println!("Error running Cli app: {e:?}"))
+        }
+
         // run as GUI mode.
-        _ => TauriApp::default().run(controller, receiver).await,
-    } {
-        eprintln!("Something went terribly wrong? {e:?}");
-    }
+        _ => {
+            let job_store = SqliteJobStore::new(db.clone());
+            let mut worker_store = SqliteWorkerStore::new(db.clone());
+
+            // Clear worker database before usage!
+            // TODO: Find a better way to optimize this
+            if let Ok(old_workers) = worker_store.list_worker().await {
+                for worker in old_workers {
+                    let _ = &worker_store.delete_worker(&worker.machine_id).await;
+                }
+            }
+
+            let job_store = Arc::new(RwLock::new(job_store));
+            let worker_store = Arc::new(RwLock::new(worker_store));
+            TauriApp::new(worker_store, job_store)
+                .await
+                .run(controller, receiver)
+                .await
+                .map_err(|e| eprintln!("Fail to run Tauri app! {e:?}"))
+        }
+    };
 }

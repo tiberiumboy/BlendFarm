@@ -1,10 +1,5 @@
 /*
 Developer blog:
-- Re-reading through this code several times, it seems like I got the bare surface working to get started with the rest of the components.
-- Invoking blender should be called asyncronously on OS thread level. You have the ability to set priority for blender.
-
-Decided to merge Manager codebase here as accessing from crate would make more sense, e.g. blender::Manager, instead of manager::Manager
-- Although, I would like to know if it's possible to do mod alias so that I could continue to keep my manager class separate? Or should I just rely on mods?
 
 Currently, there is no error handling situation from blender side of things. If blender crash, we will resume the rest of the code in attempt to parse the data.
     This will eventually lead to a program crash because we couldn't parse the information we expect from stdout.
@@ -25,13 +20,18 @@ Trial:
 Advantage:
 - can support M-series ARM processor.
 - Original tool Doesn't composite video for you - We can make ffmpeg wrapper? - This will be a feature but not in this level of implementation.
+- LogicReinc uses JSON to load batch file - no way to adjust frame after job sent. This version we establish IPC for python to ask next frame. We have better control what to render next.
 
 Disadvantage:
 - Currently rely on python script to do custom render within blender.
     No interops/additional cli commands other than interops through bpy (blender python) package
+    Instead of using JSON to send configuration to python/blender, we're using IPC to control next frame to render.
     Currently using Command::Process to invoke commands to blender. Would like to see if there's public API or .dll to interface into.
-        - Currently learning Low Level Programming to understand assembly and C interfaces.
 
+Challenges:
+    Blender support tileX/Y, but gluing the image together is a new challenge - a 64K 24bits image would consume about 3Gb, and size exponentially grow from there.
+    Have a look into NIP2 to stitch large images together - https://github.com/libvips/nip2
+        TODO: Find a way to glue image async by image to image, buffer to buffer, flush out each image before loading new image and hold nothing in memory, store it all on disk instead.
 
 WARN:
     From LogicReinc FAQ's:
@@ -44,9 +44,6 @@ WARN:
             (It does not have to be an up2date blender package, its just for dependencies)
 
 TODO:
-private and public method are unorganized.
-    - Consider reviewing them and see which method can be exposed publicly?
-
     Q: My Blendfile requires special addons to be active while rendering, can I add these?
     A: Blendfarm has its own versions of Blender in the BlenderData directory, and it runs
         these versions always in factory startup, thus without any added addons. This is done
@@ -56,18 +53,23 @@ private and public method are unorganized.
         less smooth. (As you may need to set up these plugins for every Blender version instead
         of just letting BlendFarm do all the work.
     */
+extern crate xml_rpc;
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
-use crate::models::mode::Mode;
 use crate::models::{
     blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderRenderSetting,
     status::Status,
 };
+
 use blend::Blend;
+#[cfg(test)]
+use blend::Instance;
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::{
     fs,
     io::{BufRead, BufReader},
@@ -76,11 +78,14 @@ use std::{
 };
 use thiserror::Error;
 use tokio::spawn;
+use xml_rpc::{Fault, Server};
 
 // TODO: this is ugly, and I want to get rid of this. How can I improve this?
 // Backstory: Win and linux can be invoked via their direct app link. However, MacOS .app is just a bundle, which contains the executable inside.
 // To run process::Command, I must properly reference the executable path inside the blender.app on MacOS, using the hardcoded path below.
 const MACOS_PATH: &str = "Contents/MacOS/Blender";
+
+pub type Frame = i32;
 
 #[derive(Debug, Error)]
 pub enum BlenderError {
@@ -98,17 +103,33 @@ pub enum BlenderError {
 
 /// Blender structure to hold path to executable and version of blender installed.
 /// Pretend this is the wrapper to interface with the actual blender program.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialOrd, Eq, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq)]
 pub struct Blender {
     /// Path to blender executable on the system.
-    executable: PathBuf, // Must validate before usage!
+    executable: PathBuf,
     /// Version of blender installed on the system.
-    version: Version, // Private immutable variable - Must validate before using!
+    version: Version,
 }
 
 impl PartialEq for Blender {
     fn eq(&self, other: &Self) -> bool {
         self.version.eq(&other.version)
+    }
+}
+
+impl PartialOrd for Blender {
+    fn ge(&self, other: &Self) -> bool {
+        self.version.ge(&other.version)
+    }
+
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.version.partial_cmp(&other.version)
+    }
+}
+
+impl Ord for Blender {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.version.cmp(&other.version)
     }
 }
 
@@ -212,33 +233,69 @@ impl Blender {
         Ok(Self::new(path.to_path_buf(), version))
     }
 
+    // this is used to read and see blend file friendly view mode
+    #[cfg(test)]
+    #[allow(dead_code)]
+    fn explore_value<'a>(obj: &Instance<'a>) {
+        for i in &obj.fields {
+            match i.1.is_primitive {
+                true => {
+                    match i.1.info {
+                        blend::parsers::field::FieldInfo::Value => {
+                            match i.1.type_name.as_str() {
+                                "int" => {
+                                    println!("{}: {} = {} ", i.0, i.1.type_name, &obj.get_i32(i.0));
+                                }
+                                "short" => {
+                                    println!("{}: {} = {} ", i.0, i.1.type_name, &obj.get_u16(i.0));
+                                }
+                                "char" => {
+                                    println!(
+                                        "{}: {} = {} ",
+                                        i.0,
+                                        i.1.type_name,
+                                        &obj.get_string(i.0)
+                                    );
+                                }
+                                "float" => {
+                                    println!("{}: {} = {}", i.0, i.1.type_name, &obj.get_f32(i.0));
+                                }
+                                "uint64_t" => {
+                                    println!("{}: {} = {}", i.0, i.1.type_name, &obj.get_u64(i.0));
+                                }
+                                _ => println!("Unhandle value for {} | {}", i.1.type_name, i.0),
+                            };
+                        }
+                        blend::parsers::field::FieldInfo::ValueArray { .. } => {
+                            match i.1.type_name.as_str() {
+                                "char" => {
+                                    println!("{}: String = {}", i.0, &obj.get_string(i.0));
+                                }
+                                "float" => {
+                                    println!("{}: vec<f32> = {:?}", i.0, &obj.get_f32_vec(i.0));
+                                }
+                                _ => {
+                                    println!("Unhandle Value Array for {} | {}", i.1.type_name, i.0)
+                                }
+                            }
+                        }
+                        // blend::parsers::field::FieldInfo::PointerArray { .. } => todo!(),
+                        // blend::parsers::field::FieldInfo::Pointer { indirection_count } => todo!(),
+                        // blend::parsers::field::FieldInfo::FnPointer => todo!(),
+                        _ => {
+                            println!("Unhandle: {} | {} ", i.0, i.1.type_name)
+                        }
+                    }
+                }
+                false => {
+                    println!("{}: TYPE = {}", i.0, i.1.type_name);
+                }
+            }
+        }
+    }
+
     /// Peek is a function design to read and fetch information about the blender file.
     pub async fn peek(blend_file: &PathBuf) -> Result<BlenderPeekResponse, BlenderError> {
-        /*
-        Experimental code, trying to use blend plugin to extract information rather than opening up blender for this.
-
-        Problem: I can't seem to find a way to obtain the following information:
-            - True scene name (Not SCScene)
-            - True camera name (Not CACamera)
-            - frame_start/end variable.
-            - render_height/width variable.
-        - denoiser/sample rate (From cycle?)
-            - fps?
-            // from peek.py
-            RenderWidth = scn.render.resolution_x,
-            RenderHeight = scn.render.resolution_y,
-            FrameStart = scn.frame_start,
-            FrameEnd = scn.frame_end,
-            FPS = scn.render.fps,
-            Denoiser = scn.cycles.denoiser,
-            Samples = scn.cycles.samples,
-            // do note here - we're capturing the OB name not the CA name!
-            Cameras = scn.objects.obj.type["CAMERA"].obj.name,
-            SelectedCamera = scn.camera.name,
-            Scenes = bpy.data.scenes.scene.name
-            SelectedScene = scn.name
-            */
-
         let blend = Blend::from_path(&blend_file)
             .map_err(|_| BlenderError::InvalidFile("Received BlenderParseError".to_owned()))?;
 
@@ -272,28 +329,38 @@ impl Blender {
 
         let mut scenes: Vec<String> = Vec::new();
         let mut cameras: Vec<String> = Vec::new();
+
         let mut frame_start: i32 = 0;
         let mut frame_end: i32 = 0;
         let mut render_width: i32 = 0;
         let mut render_height: i32 = 0;
+        let mut fps: u16 = 0;
+        let mut samples: i32 = 0;
+        let mut output: PathBuf = PathBuf::new();
+        let mut engine = String::from("");
 
         // this denotes how many scene objects there are.
         for obj in blend.instances_with_code(*b"SC") {
             let scene = obj.get("id").get_string("name").replace("SC", ""); // not the correct name usage?
+                                                                            // get render data
             let render = &obj.get("r");
 
-            // Grab the engine this scene is set to! This is useful!
-            // let engine = &obj.get("r").get_string("engine"); // will show BLENDER_EEVEE_NEXT
-            // let device = &render.get_i32("compositor_device"); // not sure how I can translate this to represent CPU/GPU? but currently show 0 for cpu
+            engine = render.get_string("engine"); // will show BLENDER_EEVEE_NEXT properly
+            samples = obj.get("eevee").get_i32("taa_render_samples");
 
-            // dbg!(device);
-            // bpy.data.scenes["Scene2"].frame_start
-            // render/output/properties/frame_range
-            // dbg!(&render.get_i32("stamp"));
+            // Issue, Cannot find cycles info! Blender show that it should be here under SCscene, just like eevee, but I'm looking it over and over and it's not there? Where is cycle?
+            // Use this for development only!
+            // Self::explore_value(&obj.get("eevee"));
+
             render_width = render.get_i32("xsch");
             render_height = render.get_i32("ysch");
             frame_start = render.get_i32("sfra");
             frame_end = render.get_i32("efra");
+            fps = render.get_u16("frs_sec");
+            output = render
+                .get_string("pic")
+                .parse::<PathBuf>()
+                .map_err(|e| BlenderError::PythonError(e.to_string()))?;
 
             scenes.push(scene);
         }
@@ -307,19 +374,21 @@ impl Blender {
         let selected_camera = cameras.get(0).unwrap_or(&"".to_owned()).to_owned();
         let selected_scene = scenes.get(0).unwrap_or(&"".to_owned()).to_owned();
 
+        // parse i32 into u16
         let result = BlenderPeekResponse {
             last_version: blend_version,
             render_width,
             render_height,
             frame_start,
             frame_end,
-            fps: 0,
-            denoiser: "".to_owned(),
-            samples: 0,
+            fps,
+            samples,
             cameras,
             selected_camera,
             scenes,
             selected_scene,
+            engine,
+            output,
         };
 
         Ok(result)
@@ -335,38 +404,65 @@ impl Blender {
     /// let final_output = blender.render(&args).unwrap();
     /// ```
     // so instead of just returning the string of render result or blender error, we'll simply use the single producer to produce result from this class.
-    pub async fn render(&self, args: Args) -> Receiver<Status> {
+    pub async fn render<F>(&self, args: Args, get_next_frame: F) -> Receiver<Status>
+    where
+        F: Fn() -> Option<i32> + Send + Sync + 'static,
+    {
         let (rx, tx) = mpsc::channel::<Status>();
+        let (signal, listener) = mpsc::channel::<Status>();
         let executable = self.executable.clone();
 
+        let blend_info = Self::peek(&args.file)
+            .await
+            .expect("Fail to parse blend file!"); // TODO: Need to clean this error up a bit.
+
+        // this is the only place used for BlenderRenderSetting... thoughts?
+        let settings = BlenderRenderSetting::parse_from(&args, &blend_info);
+        let global_settings = Arc::new(settings);
+
+        let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8081);
+        let mut server = Server::new();
+
+        server.register_simple("next_render_queue", move |_i: i32| match get_next_frame() {
+            Some(frame) => Ok(frame),
+            None => Err(Fault::new(1, "No more frames to render!")),
+        });
+
+        server.register_simple("fetch_info", move |_i: i32| {
+            let setting = (*global_settings).clone();
+            Ok(setting)
+        });
+
+        let bind_server = server
+            .bind(&socket)
+            .expect("Unable to open socket for xml_rpc!");
+
+        // spin up XML-RPC server
         spawn(async move {
-            // So far this part of the code works - but I'm getting an unusual error
-            // I'm rececing an exception on stdout. [Errno 32] broken pipe?
-            // thread panic here - err - Serde { source: Error("expected value", line: 1, column: 1) } ??
-            // TODO: peek will be deprecated - See if we need to do anything different here?
-            let blend_info = Self::peek(&args.file)
-                .await
-                .expect("Fail to parse blend file!"); // TODO: Need to clean this error up a bit.
-
-            let tmp_path = Self::get_config_path().join("blender_render.json");
-            let col = &args.create_arg_list(&tmp_path);
-            let mut arr = Vec::new();
-            match args.mode {
-                // if we just need to render one frame.
-                Mode::Frame(frame) => {
-                    let entry = BlenderRenderSetting::parse_from(&args, frame, &blend_info);
-                    arr.push(entry);
+            loop {
+                // if the program shut down or if we've completed the render, then we should stop the server
+                match listener.try_recv() {
+                    Ok(Status::Exit) => break,
+                    _ => bind_server.poll(),
                 }
-                Mode::Animation { start, end } => {
-                    for frame in start..=end {
-                        let entry = BlenderRenderSetting::parse_from(&args, frame, &blend_info);
-                        arr.push(entry);
-                    }
-                }
-            };
+            }
+        });
 
-            let data = serde_json::to_string(&arr).unwrap();
-            fs::write(&tmp_path, data).unwrap();
+        spawn(async move {
+            let script_path = Blender::get_config_path().join("render.py");
+            if !script_path.exists() {
+                let data = include_bytes!("./render.py");
+                fs::write(&script_path, data).unwrap();
+            }
+
+            let col = vec![
+                "--factory-startup".to_string(),
+                "-noaudio".to_owned(),
+                "-b".to_owned(),
+                args.file.to_str().unwrap().to_string(),
+                "-P".to_owned(),
+                script_path.to_str().unwrap().to_string(),
+            ];
 
             let stdout = Command::new(executable)
                 .args(col)
@@ -417,6 +513,12 @@ impl Blender {
                             let result = PathBuf::from(location[1]);
                             rx.send(Status::Completed { frame, result }).unwrap();
                         }
+                        // Strange how this was thrown, but doesn't report back to this program?
+                        line if line.contains("EXCEPTION:") => {
+                            signal.send(Status::Exit).unwrap();
+                            rx.send(Status::Error(BlenderError::PythonError(line.to_owned())))
+                                .unwrap();
+                        }
                         line if line.contains("Warning:") => {
                             rx.send(Status::Warning {
                                 message: line.to_owned(),
@@ -428,6 +530,7 @@ impl Blender {
                             rx.send(msg).unwrap();
                         }
                         line if line.contains("Blender quit") => {
+                            signal.send(Status::Exit).unwrap();
                             rx.send(Status::Exit).unwrap();
                         }
                         line if !line.is_empty() => {

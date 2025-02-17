@@ -6,99 +6,97 @@
     - I need to fetch the handles so that I can maintain and monitor all node activity.
     - TODO: See about migrating Sender code into this module?
 */
-use blender::blender::Blender;
-use blender::models::{args::Args, mode::Mode, status::Status};
+use super::task::Task;
+use crate::domains::job_store::JobError;
+use blender::models::mode::Mode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::{
-    hash::Hash,
-    path::PathBuf,
-};
-use thiserror::Error;
+use std::{hash::Hash, path::PathBuf};
 use uuid::Uuid;
-
-#[derive(Debug, Serialize, Deserialize, Error)]
-pub enum JobError {
-    #[error("Job failed to run: {0}")]
-    FailedToRun(String),
-    // it would be nice to have blender errors here?
-    #[error("Invalid blend file: {0}")]
-    InvalidFile(String),
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum JobEvent {
-    Render(Job),
+    Render(Task),
+    Remove(Uuid),
     RequestJob,
-    ImageCompleted { id: Uuid, frame: Frame, file_name: String },
+    ImageCompleted {
+        job_id: Uuid,
+        frame: Frame,
+        file_name: String,
+    },
     JobComplete,
     Error(JobError),
 }
 
 pub type Frame = i32;
 
-// how do I make this job extend it's lifespan? I need to monitor and regulate all on-going job method?
-// if a node joins the server, we automatically assign a new active job to the node.
-/// A container to hold rendering job information. This will be used to send off jobs to all other rendering farm
-#[derive(Debug, Serialize, Deserialize, Clone)]
+// This job is created by the manager and will be used to help determine the individual task created for the workers
+// we will derive this job into separate task for individual workers to process based on chunk size.
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct Job {
     /// Unique job identifier
-    id: Uuid,
-    /// What kind of mode should this job run as
-    mode: Mode,
+    pub id: Uuid,
+    /// contains the information to specify the kind of job to render (We could auto fill this from blender peek function?)
+    pub mode: Mode,
     /// Path to blender files
-    project_file: PathBuf,
+    pub project_file: PathBuf,
     // target blender version
-    blender_version: Version,
+    pub blender_version: Version,
+    // target output destination
+    pub output: PathBuf,
     // completed render data.
     // TODO: discuss this? Let's map this out and see how we can better utilize this structure?
     renders: HashMap<Frame, PathBuf>,
 }
 
 impl Job {
-    pub fn new(project_file: PathBuf, blender_version: Version, mode: Mode) -> Job {
-        Job {
-            id: Uuid::new_v4(),
+    /// Create a new job entry with provided all information intact. Used for holding database records
+    pub fn new(
+        id: Uuid,
+        mode: Mode,
+        project_file: PathBuf,
+        blender_version: Version,
+        output: PathBuf,
+        renders: HashMap<Frame, PathBuf>,
+    ) -> Self {
+        Self {
+            id,
+            mode,
             project_file,
             blender_version,
+            output,
+            renders,
+        }
+    }
+
+    /// Create a new job entry from the following parameter inputs
+    pub fn from(
+        project_file: PathBuf,
+        output: PathBuf,
+        blender_version: Version,
+        mode: Mode,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4(),
             mode,
+            project_file,
+            blender_version,
+            output,
             renders: Default::default(),
         }
+    }
+
+    pub fn get_file_name(&self) -> &str {
+        self.project_file.file_name().unwrap().to_str().unwrap()
     }
 
     pub fn get_project_path(&self) -> &PathBuf {
         &self.project_file
     }
 
-    pub fn set_project_path(mut self, new_path: PathBuf) -> Self {
-        self.project_file = new_path;
-        self
-    }
-
-    pub fn get_file_name(&self) -> Option<&str> {
-        match self.project_file.file_name() {
-            Some(v) => v.to_str(),
-            None => None
-        }
-    }
-
     pub fn get_version(&self) -> &Version {
         &self.blender_version
-    }
-
-    // TODO: consider about how I can invoke this command from network protocol?
-    // Invoke blender to run the job
-    // Find out if I need to run this locally, or just rely on the server to perform the operation?
-    pub async fn run(&mut self, output: PathBuf, blender: &Blender) -> Result<std::sync::mpsc::Receiver<Status>, JobError> {    
-        
-        let file = self.project_file.clone();
-        let mode = self.mode.clone();
-        let args = Args::new(file, output, mode);
-
-        // here's the question - how do I send the host the image of the completed rendered job? topic? provider?
-        let receiver = blender.render(args).await;
-        Ok(receiver)
     }
 }
 

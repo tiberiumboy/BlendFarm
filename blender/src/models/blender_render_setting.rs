@@ -8,10 +8,25 @@ use uuid::Uuid;
 
 // In the python script, this Window values gets assigned to border of scn.render.border_*
 // Here - I'm calling it as window instead.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Window {
     pub x: Range<f32>,
     pub y: Range<f32>,
+}
+
+impl Default for Window {
+    fn default() -> Self {
+        Self {
+            x: Range {
+                start: 0.0,
+                end: 1.0,
+            },
+            y: Range {
+                start: 0.0,
+                end: 1.0,
+            },
+        }
+    }
 }
 
 impl Serialize for Window {
@@ -62,20 +77,18 @@ impl<'de> Deserialize<'de> for Window {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct BlenderRenderSetting {
     #[serde(rename = "TaskID")]
     pub id: Uuid,
     pub output: PathBuf,
-    pub frame: i32,
     pub scene: String,
     pub camera: String,
     pub cores: usize,
     pub compute_unit: i32,
-    pub denoiser: String,
     #[serde(rename = "FPS")]
-    pub fps: u32,
+    pub fps: u16, // u32 convert into string for xml-rpc. BEWARE!
     pub border: Window,
     pub tile_width: i32,
     pub tile_height: i32,
@@ -87,19 +100,15 @@ pub struct BlenderRenderSetting {
     pub format: Format,
     // discourage?
     pub crop: bool,
-    // TODO: find a better name for this workaround
-    pub workaround: bool,
 }
 
 impl BlenderRenderSetting {
-    pub fn new(
+    fn new(
         output: PathBuf,
-        frame: i32,
         scene: String,
         camera: String,
         compute_unit: Device,
-        denoiser: String,
-        fps: u32,
+        fps: u16,
         border: Window,
         tile_width: i32,
         tile_height: i32,
@@ -113,12 +122,10 @@ impl BlenderRenderSetting {
         Self {
             id,
             output,
-            frame,
             scene,
             camera,
             cores: std::thread::available_parallelism().unwrap().get(),
             compute_unit: compute_unit as i32,
-            denoiser,
             fps,
             border,
             tile_width,
@@ -129,34 +136,21 @@ impl BlenderRenderSetting {
             engine: engine as i32,
             format,
             crop: false,
-            workaround: false,
         }
     }
 
-    pub fn parse_from(args: &Args, frame: i32, info: &BlenderPeekResponse) -> Self {
-        // this args.output is the only place being used right now. I don't see any reason why I should have this?
-        let output = args.output.join(format!("{:0>5}", frame)).to_owned();
+    pub fn parse_from(args: &Args, info: &BlenderPeekResponse) -> Self {
+        let output = args.output.clone();
         let compute_unit = args.device.clone();
-        let border = Window {
-            x: Range {
-                start: 0.0,
-                end: 1.0,
-            },
-            y: Range {
-                start: 0.0,
-                end: 1.0,
-            },
-        };
+        let border = Default::default();
         let engine = args.engine.clone();
         let format = args.format.clone();
 
         BlenderRenderSetting::new(
             output.to_owned(),
-            frame,
             info.selected_scene.to_owned(),
             info.selected_camera.to_owned(),
             compute_unit.to_owned(),
-            info.denoiser.to_owned(),
             info.fps,
             border,
             -1,

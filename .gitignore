@@ -37,3 +37,4 @@ target/
 target/
 *ServerSettings.json
 Cargo.lock
+*.env
