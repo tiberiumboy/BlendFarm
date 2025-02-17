@@ -30,7 +30,7 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
         .0),
         Err(e) => {
             eprintln!("Received error on list workers: \n{e:?}");
-            Ok(html!( div; ).0)
+            Ok(html!( div { }; ).0)
         },
     }
 }

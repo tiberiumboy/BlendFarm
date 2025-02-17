@@ -75,7 +75,6 @@ pub fn index() -> String {
                 };
                 div {
                     h2 { "Computer Nodes" };
-                    // It would be nice to have a listen emitter?
                     div class="group" id="workers" tauri-invoke="list_workers" hx-trigger="every 2s" hx-target="this" {};
                 };
             };
