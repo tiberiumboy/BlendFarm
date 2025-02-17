@@ -75,6 +75,7 @@ pub fn index() -> String {
                 };
                 div {
                     h2 { "Computer Nodes" };
+                    // It would be nice to have a listen emitter?
                     div class="group" id="workers" tauri-invoke="list_workers" hx-trigger="every 2s" hx-target="this" {};
                 };
             };
@@ -211,6 +212,8 @@ impl TauriApp {
     // command received from UI
     async fn handle_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
         match cmd {
+            // TODO: This may subject to change. 
+            // Issue: What if the app restarts? We no longer provide the file after reboot.
             UiCommand::StartJob(job) => {
                 // first make the file available on the network
                 let file_name = job.project_file.file_name().unwrap();
@@ -238,7 +241,7 @@ impl TauriApp {
                 client.start_providing(file_name, path).await;
             }
             UiCommand::StopJob(id) => {
-                todo!(
+                println!(
                     "Impl how to send a stop signal to stop the job and remove the job from queue {id:?}"
                 );
             }
@@ -267,17 +270,17 @@ impl TauriApp {
                     .unwrap();
             }
             NetEvent::NodeDiscovered(peer_id, spec) => {
-                // Why did linux show up twice? Where did my mac info went?
                 let worker = Worker::new(peer_id.to_base58(), spec.clone());
                 let mut db = self.worker_store.write().await;
                 if let Err(e) = db.add_worker(worker).await {
                     eprintln!("Error adding worker to database! {e:?}");
                 }
 
-                let handle = app_handle.write().await;
-                // emit a signal to query the data.
-                let _ = handle.emit("node", ());
                 self.peers.insert(peer_id, spec);
+                // let handle = app_handle.write().await;
+                // emit a signal to query the data. 
+                // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
+                // let _ = handle.emit("worker_update");
             }
             NetEvent::NodeDisconnected(peer_id) => {
                 let mut db = self.worker_store.write().await;
@@ -285,9 +288,9 @@ impl TauriApp {
                     eprintln!("Error deleting worker from database! {e:?}");
                 }
 
-                let handle = app_handle.write().await;
-                let _ = handle.emit("node", ());
                 self.peers.remove(&peer_id);
+                // let handle = app_handle.write().await;
+                // let _ = handle.emit("worker_update", ());
             }
             NetEvent::InboundRequest { request, channel } => {
                 if let Some(path) = client.providing_files.get(&request) {

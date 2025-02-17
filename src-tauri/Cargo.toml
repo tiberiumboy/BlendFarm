@@ -25,6 +25,9 @@ codegen-units = 1
 incremental = true
 debug = 0
 
+[profile.dev.package.sqlx-macros]
+opt-level = 3
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [build-dependencies]
 tauri-build = { version = "^2.0", features = [] }

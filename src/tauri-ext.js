@@ -46,9 +46,14 @@ function callInvoke(el) {
   let settleInfo = api.makeSettleInfo(el);
   let swapSpec = api.getSwapSpecification(el);
   let target = api.getTarget(el);
-  let input = api.getInputValues(el);
+  // let input = api.getInputValues(el);
 
-  invoke(handle, input.values).then((response) => {
+  let input = api.getExpressionVars(el);
+  if ( Object.keys(input).length == 0 ) {
+    input = api.getInputValues(el).values;
+  }
+
+  invoke(handle, input).then((response) => {
     if (response) {
       api.swap(target, response, swapSpec);
     }

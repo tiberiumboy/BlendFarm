@@ -80,31 +80,34 @@ impl JobStore for SqliteJobStore {
     }
 
     async fn list_all(&self) -> Result<Vec<Job>, JobError> {
-        // TODO: Find a better way to use this? I need pool from Pool<Sqlite> connection...?
         let sql = r"SELECT id, mode, project_file, blender_version, output_path FROM jobs";
-        sqlx::query_as(sql)
-            .fetch_all(&self.conn)
-            .await
-            .map_err(|e| JobError::DatabaseError(e.to_string()))
-            .and_then(|r: Vec<JobDb>| {
-                Ok(r.into_iter()
-                    .map(|r: JobDb| {
-                        let id = Uuid::parse_str(&r.id).unwrap();
-                        let mode: Mode = serde_json::from_str(&r.mode).unwrap();
-                        let project = PathBuf::from(r.project_file);
-                        let version = Version::from_str(&r.blender_version).unwrap();
-                        let output = PathBuf::from(r.output_path);
-                        Job::new(id, mode, project, version, output, Default::default())
-                    })
-                    .collect::<Vec<Job>>())
-            })
+        let mut data: Vec<Job> = Vec::new();
+        let results = sqlx::query_as::<_, JobDb>(sql).fetch_all(&self.conn).await;
+        match results {
+            Ok(records) => {
+                for r in records {
+                    let id = Uuid::parse_str(&r.id).unwrap();
+                    let mode: Mode = serde_json::from_str(&r.mode).unwrap();
+                    let project = PathBuf::from(r.project_file);
+                    let version = Version::from_str(&r.blender_version).unwrap();
+                    let output = PathBuf::from(r.output_path);
+                    let job = Job::new(id, mode, project, version, output, Default::default());
+                    data.push(job);
+                }
+            }
+            Err(e) => return Err(JobError::DatabaseError(e.to_string())),
+        }
+        Ok(data)
     }
 
-    async fn delete_job(&mut self, id: Uuid) -> Result<(), JobError> {
-        let _ = sqlx::query("DELETE * FROM job WHERE id = $1")
+    async fn delete_job(&mut self, id: &Uuid) -> Result<(), JobError> {
+        if let Err(e) = sqlx::query("DELETE FROM jobs WHERE id = $1")
             .bind(id.to_string())
             .execute(&self.conn)
-            .await;
+            .await
+        {
+            eprintln!("Fail to delete job! {e:?}");
+        }
         Ok(())
     }
 }

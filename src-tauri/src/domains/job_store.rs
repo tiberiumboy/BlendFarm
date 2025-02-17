@@ -22,5 +22,5 @@ pub trait JobStore {
     async fn list_all(&self) -> Result<Vec<Job>, JobError>;
     async fn get_job(&self, job_id: &Uuid) -> Result<Job, JobError>;
     async fn update_job(&mut self, job: Job) -> Result<(), JobError>;
-    async fn delete_job(&mut self, id: Uuid) -> Result<(), JobError>;
+    async fn delete_job(&mut self, id: &Uuid) -> Result<(), JobError>;
 }

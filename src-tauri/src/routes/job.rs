@@ -1,6 +1,7 @@
 use blender::models::mode::Mode;
 use maud::html;
 use semver::Version;
+use serde_json::json;
 use std::path::PathBuf;
 use std::{ops::Range, str::FromStr};
 use tauri::{command, State};
@@ -12,6 +13,8 @@ use crate::{
     services::tauri_app::UiCommand,
 };
 
+use super::remote_render::remote_render_page;
+
 // input values are always string type. I need to validate input on backend instead of front end.
 // return invalidation if the value are not accepted.
 #[command(async)]
@@ -22,7 +25,7 @@ pub async fn create_job(
     version: Version,
     path: PathBuf,
     output: PathBuf,
-) -> Result<(), String> {
+) -> Result<String, String> {
     // first thing first, parse the string into number
     let start = start.parse::<i32>().map_err(|e| e.to_string())?;
     let end = end.parse::<i32>().map_err(|e| e.to_string())?;
@@ -30,8 +33,8 @@ pub async fn create_job(
 
     let mode = Mode::Animation(Range { start, end });
     let job = Job::from(path, output, version, mode);
-    let server = state.lock().await;
-    let mut jobs = server.job_db.write().await;
+    let app_state = state.lock().await;
+    let mut jobs = app_state.job_db.write().await;
 
     // use this to send the job over to database instead of command to network directly.
     // We're splitting this apart to rely on database collection instead of forcing to send command over.
@@ -40,7 +43,7 @@ pub async fn create_job(
     }
 
     // send job to server
-    if let Err(e) = server
+    if let Err(e) = app_state
         .to_network
         .send(UiCommand::StartJob(job.clone()))
         .await
@@ -48,7 +51,7 @@ pub async fn create_job(
         eprintln!("Fail to send command to the server! \n{e:?}");
     }
 
-    Ok(())
+    remote_render_page().await
 }
 
 #[command(async)]
@@ -62,8 +65,7 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, ()> 
             div {
                 table {
                     tbody {
-                        tr tauri-invoke="get_job" hx-include="[name='jobId']" hx-target="#detail" {
-                            input type="hidden" name="jobId" value=(job.id.to_string());
+                        tr tauri-invoke="get_job" hx-vals=(json!({"jobId":job.id.to_string()})) hx-target="#detail" {
                             td style="width:100%" {
                                 (job.get_file_name())
                             };
@@ -92,8 +94,8 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
                 p { "Job Detail" };
                 div { ( job.project_file.to_str().unwrap() ) };
                 div { ( job.output.to_str().unwrap() ) };
-                // div { ( job.mode ) };
                 div { ( job.blender_version.to_string() ) };
+                button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job_id})) hx-target="#workplace" { "Delete Job" };
             };
         )
         .0),
@@ -113,14 +115,18 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
 
 /// just delete the job from database. Notify peers to abandon task matches job_id
 #[command(async)]
-pub async fn delete_job(state: State<'_, Mutex<AppState>>, target_job: Job) -> Result<(), ()> {
-    let server = state.lock().await; // Should I worry about posion error?
-    let mut jobs = server.job_db.write().await;
-    let id = target_job.as_ref();
-    let _ = jobs.delete_job(id.clone());
-    let msg = UiCommand::StopJob(target_job.as_ref().clone());
-    if let Err(e) = server.to_network.send(msg).await {
-        eprintln!("Fail to send stop job command! {e:?}");
+pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, String> {
+    {
+        let id = Uuid::from_str(job_id).unwrap();
+        let server = state.lock().await;
+        let mut jobs = server.job_db.write().await;
+        let _ = jobs.delete_job(&id).await;
+        // TODO: Figure out what suppose to be done and handle here?
+        // let msg = UiCommand::StopJob(id);
+        // if let Err(e) = server.to_network.send(msg).await {
+        //     eprintln!("Fail to send stop job command! {e:?}");
+        // }
     }
-    Ok(())
+
+    remote_render_page().await
 }

@@ -105,7 +105,7 @@ pub async fn import_blend(
         div id="modal" _="on closeModal add .closing then wait for animationend then remove me" {
             div class="modal-underlay" _="on click trigger closeModal" {};
             div class="modal-content" {
-                form method="dialog" tauri-invoke="create_job" _="on submit trigger closeModal" {
+                form method="dialog" tauri-invoke="create_job" hx-target="#workplace" _="on submit trigger closeModal" {
                     h1 { "Create new Render Job" };
                     label { "Project File Path:" };
                     input type="text" class="form-input" name="path" value=(path.to_str().unwrap()) placeholder="Project path" readonly={true};
@@ -113,7 +113,7 @@ pub async fn import_blend(
                     br;
 
                     label { "Output destination:" };
-                    input type="text" class="form-input" placeholder="Output Path" name="output" value=(data.output.to_str().unwrap()) readonly="true";
+                    input type="text" tauri-invoke="select_directory" hx-target="this" class="form-input" placeholder="Output Path" name="output" value=(data.output.to_str().unwrap()) readonly={true};
                     br;
 
                     div name="mode" {
@@ -123,10 +123,10 @@ pub async fn import_blend(
                                     label id="versionLabel" htmlfor="version" { "Version" };
                                 }
                                 th {
-                                    label id="frameStartLabel" htmlFor="start" { "Start" };
+                                    label id="frameStartLabel" htmlfor="start" { "Start" };
                                 };
                                 th {
-                                    label id="frameEndLabel" htmlFor="end" { "End" };
+                                    label id="frameEndLabel" htmlfor="end" { "End" };
                                 };
                             };
                             tr {

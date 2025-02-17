@@ -1,4 +1,5 @@
 use maud::html;
+use serde_json::json;
 use tauri::{command, State};
 use tokio::sync::Mutex;
 
@@ -12,8 +13,7 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
     match &workers.list_worker().await {
         Ok(data) => Ok(html! {
             @for worker in data {
-                div tauri-invoke="get_worker" hx-include="[name='machineId']" hx-target=(format!("#{WORKPLACE}")) {
-                    input type="hidden" name="machineId" value=(worker.machine_id);
+                div tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.machine_id })) hx-target=(format!("#{WORKPLACE}")) {
                     table {
                         tbody {
                             tr {
@@ -28,7 +28,10 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
             }
         }
         .0),
-        Err(e) => Err(e.to_string()),
+        Err(e) => {
+            eprintln!("Received error on list workers: \n{e:?}");
+            Ok(html!( div; ).0)
+        },
     }
 }
 
