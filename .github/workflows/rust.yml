@@ -36,13 +36,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libewbkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       
-      - uses: tauri-app/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: app-v__VERSION__
-          releaseName: 'App v__VERSION__'
-          releaseBody: ''
+          tagName: blendfarm-v__VERSION__
+          releaseName: 'BlendFarm v__VERSION__'
+          releaseBody: 'See the assets to download this version and install.'
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

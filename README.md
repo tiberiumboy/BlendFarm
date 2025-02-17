@@ -17,7 +17,7 @@ I humbly present you BlendFarm 2.0, a open-source software completely re-written
 
 [libp2p](https://docs.libp2p.io/) - Peer 2 Peer decenteralize network service that enables network discovery service (mDNS), communication (gossipsub), and file share (kad/DHT).
 
-Blender - Custom library I wrote that acts as a blender CLI wrapper to install, invoke, and launch blender 3d.
+[Blender](https://github.com/tiberiumboy/BlendFarm/tree/main/blender) - Custom library I wrote that acts as a blender CLI wrapper to install, invoke, and launch Blender application.
 
 [Blend](https://docs.rs/blend/latest/blend/) - Used to read blender file without blender application to enable extracting information to the user with pre-configured setup (Eevee/Cycle, frame range, Cameras, resolution, last blender version used, etc).
 
@@ -67,7 +67,7 @@ To run the client app - run the following command under `/BlendFarm/src-tauri/` 
 
 ### Network:
 
-Under the hood, this program uses libp2p with [QUIC transport](https://docs.libp2p.io/concepts/transports/quic/). This act this computer as both a server and a client. Wrapped in a containerized struct, I am using [mdns](https://docs.libp2p.io/concepts/discovery-routing/mdns/) for network discovery service (to find other network farm node on the network so that you don't have to connect manually), [gossipsub]() for private message procedure call ( Basically how node interacts with other nodes), and kad for file transfer protocol (how node distribute blend, image, and blender binary files across the network). With the power of trio combined, it is the perfect solution for making network farm accessible, easy to start up, and robost. Have a read into [libp2p](https://libp2p.io/) if this interest your project needs! 
+Under the hood, this program uses libp2p with [QUIC transport](https://docs.libp2p.io/concepts/transports/quic/). This treat this computer as both a server and a client. Wrapped in a containerized struct, I am using [mdns](https://docs.libp2p.io/concepts/discovery-routing/mdns/) for network discovery service (to find other network farm node on the network so that you don't have to connect manually), [gossipsub]() for private message procedure call ( how node interacts with other nodes), and kad for file transfer protocol (how node distribute blend, image, and blender binary files across the network). With the power of trio combined, it is the perfect solution for making network farm accessible, easy to start up, and robost. Have a read into [libp2p](https://libp2p.io/) if this interest your project needs! 
 
 <!-- Hidden from view for developer remarks
     Testing out peer 2 peer over two linux box. One of the machine hasn't been update/upgrade in awhile, but reported an issue about missing PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1 pkg_config --libs --cflags glib-2.0 glib-2.0 - the pkg-config command could not be found. Install via apt install pkg-config resolve this one problem, but more likely you need to preconfigure PKG_CONFIG_PATH in environment variable.
