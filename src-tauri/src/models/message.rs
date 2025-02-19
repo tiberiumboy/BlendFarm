@@ -34,7 +34,7 @@ pub enum NetCommand {
     Status(String),
     SubscribeTopic(String),
     UnsubscribeTopic(String),
-    JobStatus(PeerId, JobEvent),
+    JobStatus(String, JobEvent),
     // use this event to send message to a specific node
     StartProviding {
         file_name: String,
@@ -74,5 +74,5 @@ pub enum NetEvent {
         request: String,
         channel: ResponseChannel<FileResponse>,
     },
-    JobUpdate(PeerId, JobEvent),
+    JobUpdate(String, JobEvent),
 }

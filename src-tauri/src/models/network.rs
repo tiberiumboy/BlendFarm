@@ -146,6 +146,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
             providing_files: Default::default(),
             // there could be some other factor this this may not work as intended? Let's find out soon!
             public_id: local_peer_id,
+            hostname: Machine::new().system_info().hostname,
         },
         event_receiver,
     ))
@@ -160,6 +161,8 @@ pub struct NetworkController {
     pub providing_files: HashMap<String, PathBuf>,
     // making it public until we can figure out how to mitigate the usage of variable.
     pub public_id: PeerId,
+    // must have this available somewhere.
+    pub hostname: String,
 }
 
 impl NetworkController {
@@ -186,9 +189,9 @@ impl NetworkController {
     }
 
     // How do I get the peers info I want to communicate with?
-    pub async fn send_job_message(&mut self, target: PeerId, event: JobEvent) {
+    pub async fn send_job_message(&mut self, target: &str, event: JobEvent) {
         self.sender
-            .send(NetCommand::JobStatus(target, event))
+            .send(NetCommand::JobStatus(target.to_string(), event))
             .await
             .expect("Command should not be dropped");
     }
@@ -203,8 +206,8 @@ impl NetworkController {
 
     pub async fn start_providing(&mut self, file_name: String, path: PathBuf) {
         let (sender, receiver) = oneshot::channel();
-        println!("Start providing file {:?}", file_name);
         self.providing_files.insert(file_name.clone(), path);
+        println!("Start providing file {:?}", &file_name);
         let cmd = NetCommand::StartProviding { file_name, sender };
         self.sender
             .send(cmd)
@@ -318,7 +321,6 @@ pub struct NetworkService {
 
     // Send Network event to subscribers.
     event_sender: Sender<NetEvent>,
-
     public_addr: Option<Multiaddr>,
 
     // empheral key used to stored and communicate with.
@@ -327,6 +329,7 @@ pub struct NetworkService {
     pending_request_file:
         HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
+    // feels like we got a coupling nightmare here?
     // pending_task: HashMap<PeerId, oneshot::Sender<Result<Task, Box<dyn Error + Send>>>>,
 }
 
@@ -400,29 +403,24 @@ impl NetworkService {
                     .gossipsub
                     .unsubscribe(&ident_topic);
             }
-            // what was I'm suppose to do here?
-            NetCommand::JobStatus(_peer_id, _event) => {
-                /*
+            // for the time being we'll use gossip.
+            // TODO: For future impl. I would like to target peer by peer_id instead of host name.
+            NetCommand::JobStatus(host_name, event) => {
                 // convert data into json format.
-                // let data = bincode::serialize(&status).unwrap();
+                let data = bincode::serialize(&event).unwrap();
 
+                // currently using a hack by making the target machine subscribe to their hostname.
+                // the manager will send message to that specific hostname as target instead.
                 // TODO: Read more about libp2p and how I can just connect to one machine and send that machine job status information.
-                // let _ = self.swarm.dial(target);
-                // once we have a tcp/udp/quik connection, we should only send one task over and end the pipe.
-
-                // TODO: Find a way to send JobEvent to specific target machine?
-                // let topic = IdentTopic::new(JOB);
-                // if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                //     eprintln!("Fail to send job! {e:?}");
-                // }
-                */
+                let topic = IdentTopic::new(host_name);
+                let _ = self.swarm.behaviour_mut().gossipsub.publish(topic, data);
 
                 /*
                    Let's break this down, we receive a worker with peer_id and peer_addr, both of which will be used to establish communication
                    Once we establish a communication, that target peer will need to receive the pending task we have assigned for them.
                    For now, we will try to dial the target peer, and append the task to our network service pool of pending task.
                 */
-                // self.pending_task.insert(peer_id, );
+                // self.pending_task.insert(peer_id);
             }
             NetCommand::Dial {
                 peer_id,
@@ -482,9 +480,7 @@ impl NetworkService {
                     self.public_addr = Some(address);
                 }
             }
-            _ => {
-                println!("{event:?}");
-            }
+            _ => {} //println!("[Network]: {event:?}");
         }
     }
 
@@ -587,21 +583,38 @@ impl NetworkService {
                     }
                 }
                 JOB => {
-                    let peer_id = self.swarm.local_peer_id();
-                    let job_event =
-                        bincode::deserialize(&message.data).expect("Fail to parse Job data!");
+                    // let peer_id = self.swarm.local_peer_id();
+                    let host = String::new(); // TODO Find a way to fetch this machine's host name.
+                    let job_event = bincode::deserialize::<JobEvent>(&message.data)
+                        .expect("Fail to parse Job data!");
+
+                    // I don't think this function is called?
+                    println!("Is this function used?");
                     if let Err(e) = self
                         .event_sender
-                        .send(NetEvent::JobUpdate(peer_id.clone(), job_event))
+                        .send(NetEvent::JobUpdate(host, job_event))
                         .await
                     {
                         eprintln!("Something failed? {e:?}");
                     }
                 }
+                // I may publish to a host name instead to target machine that matches the
                 _ => {
                     let topic = message.topic.as_str();
-                    let data = String::from_utf8(message.data).unwrap();
-                    println!("Intercepted signal here? How to approach this? topic:{topic} | data:{data}");
+                    if topic.eq(&self.machine.system_info().hostname) {
+                        let job_event = bincode::deserialize::<JobEvent>(&message.data)
+                            .expect("Fail to parse job data!");
+                        if let Err(e) = self
+                            .event_sender
+                            .send(NetEvent::JobUpdate(topic.to_string(), job_event))
+                            .await
+                        {
+                            eprintln!("Fail to send job update!\n{e:?}");
+                        }
+                    }
+                    // CLI Crashed here. TODO: See why it crashed? error: Utf8Error { valid_up_to: 12, error_len: Some(1) } }
+                    // let data = String::from_utf8(message.data).unwrap();
+                    // println!("Intercepted signal here? How to approach this? topic:{topic} | data:{data}");
                     // TODO: We may intercept signal for other purpose here, how can I do that?
                 }
             },
@@ -651,6 +664,10 @@ impl NetworkService {
             } => {}
             _ => {}
         }
+    }
+
+    pub fn get_host_name(&mut self) -> String {
+        self.machine.system_info().hostname
     }
 
     pub async fn run(mut self) {

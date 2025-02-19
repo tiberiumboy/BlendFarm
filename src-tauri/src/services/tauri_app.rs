@@ -154,19 +154,19 @@ impl TauriApp {
     }
 
     // because this is async, we can make our function wait for a new peers available.
-    async fn get_idle_peers(&self) -> PeerId {
+    async fn get_idle_peers(&self) -> String {
         // this will destroy the vector anyway.
         // TODO: Impl. Round Robin or pick first idle worker, whichever have the most common hardware first in query?
         // This code doesn't quite make sense, at least not yet?
         loop {
-            if let Some((peer, ..)) = self.peers.clone().into_iter().nth(0) {
-                return peer;
+            if let Some((.., spec)) = self.peers.clone().into_iter().nth(0) {
+                return spec.host;
             }
             sleep(Duration::from_secs(1));
         }
     }
 
-    fn generate_tasks(job: &Job, file_name: PathBuf, chunks: i32, requestor: PeerId) -> Vec<Task> {
+    fn generate_tasks(job: &Job, file_name: PathBuf, chunks: i32, requestor: PeerId, hostname: &str) -> Vec<Task> {
         // mode may be removed soon, we'll see?
         let (time_start, time_end) = match &job.mode {
             Mode::Animation(anim) => (anim.start, anim.end),
@@ -197,6 +197,7 @@ impl TauriApp {
 
             let task = Task::new(
                 requestor,
+                hostname.to_string(),
                 job.id,
                 file_name.clone(),
                 job.get_version().clone(),
@@ -227,13 +228,16 @@ impl TauriApp {
                     PathBuf::from(file_name),
                     MAX_BLOCK_SIZE,
                     client.public_id.clone(),
+                    &client.hostname
                 );
 
+                dbg!(&tasks);
                 // so here's the culprit. We're waiting for a peer to become idle and inactive waiting for the next job
                 for task in tasks {
-                    let peer = self.get_idle_peers().await; // this means I must wait for an active peers to become available?
+                    let host = self.get_idle_peers().await; // this means I must wait for an active peers to become available?
+                    println!("Sending task {:?} to {:?}", &task, &host);
                     let event = JobEvent::Render(task);
-                    client.send_job_message(peer, event).await;
+                    client.send_job_message(&host, event).await;
                 }
             }
             UiCommand::UploadFile(path, file_name) => {
@@ -245,8 +249,8 @@ impl TauriApp {
                 );
             }
             UiCommand::RemoveJob(id) => {
-                for (peer, _) in self.peers.clone() {
-                    client.send_job_message(peer, JobEvent::Remove(id)).await;
+                for (_, spec) in self.peers.clone() {
+                    client.send_job_message(&spec.host, JobEvent::Remove(id)).await;
                 }
             }
         }
@@ -350,7 +354,7 @@ impl TauriApp {
                     // Should I do anything on the manager side? Shouldn't matter at this point?
                 }
             },
-            _ => println!("{:?}", event),
+            _ => {}, // println!("[TauriApp]: {:?}", event),
         }
     }
 }

@@ -20,11 +20,9 @@ use crate::{
 };
 use blender::blender::Manager as BlenderManager;
 use blender::models::status::Status;
-use libp2p::PeerId;
 use tokio::{
     select,
     sync::{mpsc::Receiver, RwLock},
-    // task::JoinHandle,
 };
 
 pub struct CliApp {
@@ -51,8 +49,8 @@ impl CliApp {
     // Invokes the render job. The task needs to be mutable for frame deque.
     async fn render_task(
         &mut self,
-        request_id: PeerId,
         client: &mut NetworkController,
+        hostname: &str,
         task: &mut Task,
     ) {
         let status = format!("Receive task from peer [{:?}]", task);
@@ -147,7 +145,7 @@ impl CliApp {
                         Status::Error(blender_error) => {
                             client.send_status(format!("[ERR] {blender_error:?}")).await
                         }
-                        Status::Completed { frame, result, .. } => {
+                        Status::Completed { frame, result } => {
                             // Use PathBuf as this helps enforce type intention of using OsString
                             // Why don't I create it like a directory instead? =
                             let file_name = result.file_name().unwrap().to_string_lossy();
@@ -158,11 +156,11 @@ impl CliApp {
                                 file_name: file_name.clone(),
                             };
                             client.start_providing(file_name, result).await;
-                            client.send_job_message(request_id, event).await;
+                            client.send_job_message(hostname, event).await;
                         }
                         Status::Exit => {
                             client
-                                .send_job_message(request_id, JobEvent::JobComplete)
+                                .send_job_message(hostname, JobEvent::JobComplete)
                                 .await;
                             break;
                         }
@@ -172,7 +170,7 @@ impl CliApp {
             Err(e) => {
                 let err = JobError::TaskError(e);
                 client
-                    .send_job_message(request_id, JobEvent::Error(err))
+                    .send_job_message(&task.requestor, JobEvent::Error(err))
                     .await;
             }
         };
@@ -183,9 +181,15 @@ impl CliApp {
             NetEvent::OnConnected(peer_id) => client.share_computer_info(peer_id).await,
             NetEvent::NodeDiscovered(..) => {}  // Ignored
             NetEvent::NodeDisconnected(_) => {} // ignored
-            NetEvent::JobUpdate(peer_id, job_event) => match job_event {
+            NetEvent::JobUpdate(hostname, job_event) => match job_event {
                 // on render task received, we should store this in the database.
-                JobEvent::Render(mut task) => self.render_task(peer_id, client, &mut task).await,
+                JobEvent::Render(mut task) => {
+                    // TODO: consider adding a poll/queue for all of the pending task to work on.
+                    // This poll can be queued by other nodes to check if this node have any pending task to work on.
+                    // This will help us balance our workstation priority flow.
+                    // for now we'll try to get one job focused on.
+                    self.render_task(client, &hostname, &mut task).await
+                }
                 JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
                 // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
                 JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
@@ -226,8 +230,8 @@ impl BlendFarm for CliApp {
         // - so that we can distribute blender across network rather than download blender per each peers.
         // let system = self.machine.system_info();
         // let system_info = format!("blendfarm/{}{}", consts::OS, &system.processor.brand);
-        // client.subscribe_to_topic(system_info).await;
         client.subscribe_to_topic(JOB.to_string()).await;
+        client.subscribe_to_topic(client.hostname.clone()).await;
 
         // let current_job: Option<Job> = None;
         loop {
