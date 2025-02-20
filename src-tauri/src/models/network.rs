@@ -476,7 +476,6 @@ impl NetworkService {
                 // hmm.. I need to capture the address here?
                 // how do I save the address?
                 if address.protocol_stack().any(|f| f.contains("tcp")) {
-                    dbg!(&address);
                     self.public_addr = Some(address);
                 }
             }
@@ -612,9 +611,8 @@ impl NetworkService {
                             eprintln!("Fail to send job update!\n{e:?}");
                         }
                     }
-                    // CLI Crashed here. TODO: See why it crashed? error: Utf8Error { valid_up_to: 12, error_len: Some(1) } }
                     // let data = String::from_utf8(message.data).unwrap();
-                    // println!("Intercepted signal here? How to approach this? topic:{topic} | data:{data}");
+                    println!("Intercepted unhandled signal here: {topic}");
                     // TODO: We may intercept signal for other purpose here, how can I do that?
                 }
             },

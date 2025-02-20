@@ -13,8 +13,8 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
     match &workers.list_worker().await {
         Ok(data) => Ok(html! {
             @for worker in data {
-                div tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.machine_id })) hx-target=(format!("#{WORKPLACE}")) {
-                    table {
+                div {
+                    table tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.machine_id })) hx-target=(format!("#{WORKPLACE}")) {
                         tbody {
                             tr {
                                 td style="width:100%" {
@@ -60,17 +60,58 @@ pub async fn get_worker(state: State<'_, Mutex<AppState>>, machine_id: &str) -> 
     let workers = app_state.worker_db.read().await;
     match workers.get_worker(machine_id).await {
         Some(worker) => Ok(html! {
-            div {
-                h1 { (format!("Computer: {}", worker.machine_id)) };
+            div class="content" {
+                h1 { (format!("Computer: {}", worker.spec.host)) };
                 h3 { "Hardware Info:" };
-                p { (format!("System: {} | {}", worker.spec.os, worker.spec.arch))}
-                p { (format!("CPU: {} | ({} threads)", worker.spec.cpu, worker.spec.cores)) };
-                p { (format!("Ram: {} GB", worker.spec.memory / ( 1024 * 1024 )))}
-                @if let Some(gpu) = worker.spec.gpu {
-                    p { (format!("GPU: {gpu}")) };
-                } @else {
-                    p { "GPU: N/A" };
-                };
+                table {
+                    tr {
+                        th {
+                            "System"
+                        }
+                        th {
+                           "CPU"
+                        }
+                        th {
+                            "Memory"
+                        }
+                        th {
+                            "GPU"
+                        }
+                    }
+                    tr {
+                        td {
+                            p { (worker.spec.os) }
+                            span { (worker.spec.arch) }
+                        }
+                        td {
+                            p { (worker.spec.cpu) }
+                            span { (format!("({} cores)",worker.spec.cores)) }
+                        }
+                        td {
+                            (format!("{}GB", worker.spec.memory / ( 1024 * 1024 * 1024 )))
+                        }
+                        td {
+                            @if let Some(gpu) = worker.spec.gpu {
+                                label { (gpu) };
+                            } @else {
+                                label { "N/A" };
+                            };
+                        }
+                    }
+                }
+
+                h3 { "Task List" }
+                table {
+                    tr {
+                        th {
+                            "Project Name"
+                        }
+                        th {
+                            "Progresss"
+                        }
+                    }
+                    // TODO: Fill in the info from the worker machine here.
+                }
             };
         }
         .0),

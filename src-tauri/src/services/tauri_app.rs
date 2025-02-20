@@ -219,10 +219,11 @@ impl TauriApp {
                 let file_name = job.project_file.file_name().unwrap();
                 let path = job.project_file.clone();
 
+                // Once job is initiated, we need to be able to provide the files for network distribution.
                 client
                     .start_providing(file_name.to_str().unwrap().to_string(), path)
                     .await;
-
+   
                 let tasks = Self::generate_tasks(
                     &job,
                     PathBuf::from(file_name),
@@ -348,7 +349,7 @@ impl TauriApp {
                 // this will soon go away - host should not be receiving render jobs.
                 JobEvent::Render(..) => {}
                 // this will soon go away - host should not receive request job.
-                JobEvent::RequestJob => {}
+                JobEvent::RequestTask => {}
                 // this will soon go away
                 JobEvent::Remove(_) => {
                     // Should I do anything on the manager side? Shouldn't matter at this point?
@@ -371,6 +372,7 @@ impl BlendFarm for TauriApp {
         client.subscribe_to_topic(HEARTBEAT.to_owned()).await;
         client.subscribe_to_topic(STATUS.to_owned()).await;
         client.subscribe_to_topic(JOB.to_owned()).await; // This might get changed? we'll see.
+        client.subscribe_to_topic(client.hostname.clone()).await;
 
         // this channel is used to send command to the network, and receive network notification back.
         let (event, mut command) = mpsc::channel(32);

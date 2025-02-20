@@ -1,10 +1,5 @@
 /* Dev blog:
 - I really need to draw things out and make sense of the workflow for using this application.
-I wonder why initially I thought of importing the files over and then selecting the files again to begin the render job?
-
-For now - Let's go ahead and save the changes we have so far.
-Next update - Remove Project list, and instead just allow user to create a new job.
-when you create a new job, it immediately sends a new job to the server farm
 
 for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
@@ -109,11 +104,12 @@ pub async fn import_blend(
                     h1 { "Create new Render Job" };
                     label { "Project File Path:" };
                     input type="text" class="form-input" name="path" value=(path.to_str().unwrap()) placeholder="Project path" readonly={true};
-                    // add a button here to let the user search by directory path. Let them edit the form.
                     br;
 
                     label { "Output destination:" };
-                    input type="text" tauri-invoke="select_directory" hx-target="this" class="form-input" placeholder="Output Path" name="output" value=(data.output.to_str().unwrap()) readonly={true};
+                    div tauri-invoke="select_directory" hx-target="#output" {
+                        input type="text" class="form-input" placeholder="Output Path" name="output" defaultvalue=(data.output.to_str().unwrap()) readonly={true};
+                    }
                     br;
 
                     div name="mode" {

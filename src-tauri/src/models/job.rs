@@ -19,7 +19,7 @@ use uuid::Uuid;
 pub enum JobEvent {
     Render(Task),
     Remove(Uuid),
-    RequestJob,
+    RequestTask,
     ImageCompleted {
         job_id: Uuid,
         frame: Frame,

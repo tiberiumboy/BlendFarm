@@ -36,6 +36,11 @@ pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result
                 td {
                     (blend.get_executable().to_str().unwrap())
                 };
+                td {
+                    button {
+                        r"🗑︎"
+                    }
+                }
             };
         };
     }
