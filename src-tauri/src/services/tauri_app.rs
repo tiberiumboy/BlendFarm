@@ -4,7 +4,7 @@ use crate::{
     models::{
         app_state::AppState,
         computer_spec::ComputerSpec,
-        job::{Job, JobEvent},
+        job::{CreatedJobDto, JobEvent},
         message::{NetEvent, NetworkError},
         network::{NetworkController, HEARTBEAT, JOB, SPEC, STATUS},
         server_setting::ServerSetting,
@@ -13,13 +13,11 @@ use crate::{
     },
     routes::{job::*, remote_render::*, settings::*, util::*, worker::*},
 };
-use blender::manager::Manager as BlenderManager;
-use blender::models::mode::Mode;
+use blender::{manager::Manager as BlenderManager,models::mode::Mode};
 use libp2p::PeerId;
 use maud::html;
 use serde::Serialize;
-use std::{collections::HashMap, ops::Range, sync::Arc};
-use std::{path::PathBuf, thread::sleep, time::Duration};
+use std::{collections::HashMap, ops::Range, sync::Arc, path::PathBuf, thread::sleep, time::Duration};
 use tauri::{self, command, App, AppHandle, Emitter, Manager};
 use tokio::{
     select, spawn,
@@ -35,7 +33,7 @@ pub const WORKPLACE: &str = "workplace";
 // This UI Command represent the top level UI that user clicks and interface with.
 #[derive(Debug)]
 pub enum UiCommand {
-    StartJob(Job),
+    StartJob(CreatedJobDto),
     StopJob(Uuid),
     UploadFile(PathBuf, String),
     RemoveJob(Uuid),
@@ -49,13 +47,6 @@ pub struct TauriApp {
     peers: HashMap<PeerId, ComputerSpec>,
     worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static)>>,
     job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>,
-}
-
-#[derive(Clone, Serialize)]
-struct FrameUpdatePayload {
-    id: Uuid,
-    frame: i32,
-    file_name: String,
 }
 
 #[command]
@@ -145,6 +136,7 @@ impl TauriApp {
                 list_jobs,
                 get_worker,
                 import_blend,
+                update_output_field,
                 add_blender_installation,
                 list_blender_installed,
                 remove_blender_installation,
@@ -166,9 +158,9 @@ impl TauriApp {
         }
     }
 
-    fn generate_tasks(job: &Job, file_name: PathBuf, chunks: i32, requestor: PeerId, hostname: &str) -> Vec<Task> {
+    fn generate_tasks(job: &CreatedJobDto, file_name: PathBuf, chunks: i32, hostname: &str) -> Vec<Task> {
         // mode may be removed soon, we'll see?
-        let (time_start, time_end) = match &job.mode {
+        let (time_start, time_end) = match &job.item.mode {
             Mode::Animation(anim) => (anim.start, anim.end),
             Mode::Frame(frame) => (frame.clone(), frame.clone()),
         };
@@ -178,6 +170,7 @@ impl TauriApp {
         let max_step = step / chunks;
         let mut tasks = Vec::with_capacity(max_step as usize);
 
+        // Problem: If i ask to render from 1 to 40, the end range is exclusive. Please make the range inclusive.
         for i in 0..=max_step {
             // current start block location.
             let block = time_start + i * chunks;
@@ -196,11 +189,10 @@ impl TauriApp {
             let range = Range { start, end };
 
             let task = Task::new(
-                requestor,
                 hostname.to_string(),
                 job.id,
                 file_name.clone(),
-                job.get_version().clone(),
+                job.item.get_version().clone(),
                 range,
             );
             tasks.push(task);
@@ -216,8 +208,8 @@ impl TauriApp {
             // Issue: What if the app restarts? We no longer provide the file after reboot.
             UiCommand::StartJob(job) => {
                 // first make the file available on the network
-                let file_name = job.project_file.file_name().unwrap();
-                let path = job.project_file.clone();
+                let file_name = job.item.project_file.file_name().unwrap();
+                let path = job.item.project_file.clone();
 
                 // Once job is initiated, we need to be able to provide the files for network distribution.
                 client
@@ -228,13 +220,14 @@ impl TauriApp {
                     &job,
                     PathBuf::from(file_name),
                     MAX_BLOCK_SIZE,
-                    client.public_id.clone(),
                     &client.hostname
                 );
 
                 dbg!(&tasks);
                 // so here's the culprit. We're waiting for a peer to become idle and inactive waiting for the next job
                 for task in tasks {
+                    // problem here - I'm getting one client to do all of the rendering jobs, not the inactive one.
+                    // Perform a round-robin selection instead.
                     let host = self.get_idle_peers().await; // this means I must wait for an active peers to become available?
                     println!("Sending task {:?} to {:?}", &task, &host);
                     let event = JobEvent::Render(task);
@@ -303,37 +296,39 @@ impl TauriApp {
                         .await
                 }
             }
-            NetEvent::JobUpdate(.., job_event) => match job_event {
+            NetEvent::JobUpdate(_host, job_event) => match job_event {
                 // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
                 JobEvent::ImageCompleted {
-                    job_id: id,
-                    frame,
+                    job_id,
+                    frame: _,
                     file_name,
                 } => {
                     // create a destination with respective job id path.
-                    let destination = client.settings.render_dir.join(id.to_string());
+                    let destination = client.settings.render_dir.join(job_id.to_string());
                     if let Err(e) = async_std::fs::create_dir_all(destination.clone()).await {
                         println!("Issue creating temp job directory! {e:?}");
                     }
-
-                    let handle = app_handle.write().await;
-                    if let Err(e) = handle.emit(
-                        "frame_update",
-                        FrameUpdatePayload {
-                            id,
-                            frame,
-                            file_name: file_name.clone(),
-                        },
-                    ) {
-                        eprintln!("Unable to send emit to app handler\n{e:?}");
-                    }
+                    
+                    // this is used to send update to the web app.
+                    // let handle = app_handle.write().await;
+                    // if let Err(e) = handle.emit(
+                    //     "frame_update",
+                    //     FrameUpdatePayload {
+                    //         id,
+                    //         frame,
+                    //         file_name: file_name.clone(),
+                    //     },
+                    // ) {
+                    //     eprintln!("Unable to send emit to app handler\n{e:?}");
+                    // }
 
                     // Fetch the completed image file from the network
                     if let Ok(file) = client.get_file_from_peers(&file_name, &destination).await {
-                        let handle = app_handle.write().await;
-                        if let Err(e) = handle.emit("job_image_complete", (id, frame, file)) {
-                            eprintln!("Fail to publish image completion emit to front end! {e:?}");
-                        }
+                        println!("File stored at {file:?}");
+                        // let handle = app_handle.write().await;
+                        // if let Err(e) = handle.emit("job_image_complete", (job_id, frame, file)) {
+                        //     eprintln!("Fail to publish image completion emit to front end! {e:?}");
+                        // }
                     }
                 }
 

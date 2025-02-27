@@ -357,11 +357,14 @@ impl NetworkService {
                 self.pending_request_file.insert(request_id, sender);
             }
             NetCommand::RespondFile { file, channel } => {
-                self.swarm
+                if let Err(e) = self
+                    .swarm
                     .behaviour_mut()
                     .request_response
                     .send_response(channel, FileResponse(file))
-                    .expect("Connection to peer may still be open?");
+                {
+                    eprintln!("{e:?}");
+                }
             }
             NetCommand::IncomingWorker(peer_id) => {
                 let spec = ComputerSpec::new(&mut self.machine);
@@ -610,10 +613,11 @@ impl NetworkService {
                         {
                             eprintln!("Fail to send job update!\n{e:?}");
                         }
+                    } else {
+                        // let data = String::from_utf8(message.data).unwrap();
+                        println!("Intercepted unhandled signal here: {topic}");
+                        // TODO: We may intercept signal for other purpose here, how can I do that?
                     }
-                    // let data = String::from_utf8(message.data).unwrap();
-                    println!("Intercepted unhandled signal here: {topic}");
-                    // TODO: We may intercept signal for other purpose here, how can I do that?
                 }
             },
             _ => {}

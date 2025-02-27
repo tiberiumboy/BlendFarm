@@ -2,7 +2,7 @@ use std::{path::PathBuf, str::FromStr};
 
 use crate::{
     domains::job_store::{JobError, JobStore},
-    models::job::Job,
+    models::job::{CreatedJobDto, Job, NewJobDto},
 };
 use blender::models::mode::Mode;
 use semver::Version;
@@ -30,8 +30,8 @@ struct JobDb {
 
 #[async_trait::async_trait]
 impl JobStore for SqliteJobStore {
-    async fn add_job(&mut self, job: Job) -> Result<(), JobError> {
-        let id = job.id.to_string();
+    async fn add_job(&mut self, job: NewJobDto) -> Result<CreatedJobDto, JobError> {
+        let id = Uuid::new_v4();
         let mode = serde_json::to_string(&job.mode).unwrap();
         let project_file = job.project_file.to_str().unwrap().to_owned();
         let blender_version = job.blender_version.to_string();
@@ -51,10 +51,10 @@ impl JobStore for SqliteJobStore {
         .execute(&self.conn)
         .await
         .map_err(|e| JobError::DatabaseError(e.to_string()))?;
-        Ok(())
+        Ok(CreatedJobDto { id, item: job })
     }
 
-    async fn get_job(&self, job_id: &Uuid) -> Result<Job, JobError> {
+    async fn get_job(&self, job_id: &Uuid) -> Result<CreatedJobDto, JobError> {
         let sql =
             "SELECT id, mode, project_file, blender_version, output_path FROM Jobs WHERE id=$1";
         match sqlx::query_as::<_, JobDb>(sql)
@@ -68,20 +68,22 @@ impl JobStore for SqliteJobStore {
                 let project = PathBuf::from(r.project_file);
                 let version = Version::from_str(&r.blender_version).unwrap();
                 let output = PathBuf::from(r.output_path);
-                let job = Job::new(id, mode, project, version, output, Default::default());
-                Ok(job)
+                let item = Job::new(mode, project, version, output);
+
+                Ok(CreatedJobDto { id, item })
             }
             Err(e) => Err(JobError::DatabaseError(e.to_string())),
         }
     }
 
-    async fn update_job(&mut self, _job: Job) -> Result<(), JobError> {
+    async fn update_job(&mut self, job: Job) -> Result<(), JobError> {
+        dbg!(job);
         todo!("Update job to database");
     }
 
-    async fn list_all(&self) -> Result<Vec<Job>, JobError> {
+    async fn list_all(&self) -> Result<Vec<CreatedJobDto>, JobError> {
         let sql = r"SELECT id, mode, project_file, blender_version, output_path FROM jobs";
-        let mut data: Vec<Job> = Vec::new();
+        let mut data: Vec<CreatedJobDto> = Vec::new();
         let results = sqlx::query_as::<_, JobDb>(sql).fetch_all(&self.conn).await;
         match results {
             Ok(records) => {
@@ -91,8 +93,9 @@ impl JobStore for SqliteJobStore {
                     let project = PathBuf::from(r.project_file);
                     let version = Version::from_str(&r.blender_version).unwrap();
                     let output = PathBuf::from(r.output_path);
-                    let job = Job::new(id, mode, project, version, output, Default::default());
-                    data.push(job);
+                    let item = Job::new(mode, project, version, output);
+                    let entry = CreatedJobDto { id, item };
+                    data.push(entry);
                 }
             }
             Err(e) => return Err(JobError::DatabaseError(e.to_string())),

@@ -7,12 +7,12 @@
     - TODO: See about migrating Sender code into this module?
 */
 use super::task::Task;
+use super::with_id::WithId;
 use crate::domains::job_store::JobError;
 use blender::models::mode::Mode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::{hash::Hash, path::PathBuf};
+use std::path::PathBuf;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -30,13 +30,13 @@ pub enum JobEvent {
 }
 
 pub type Frame = i32;
+pub type NewJobDto = Job;
+pub type CreatedJobDto = WithId<Job, Uuid>;
 
 // This job is created by the manager and will be used to help determine the individual task created for the workers
 // we will derive this job into separate task for individual workers to process based on chunk size.
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct Job {
-    /// Unique job identifier
-    pub id: Uuid,
     /// contains the information to specify the kind of job to render (We could auto fill this from blender peek function?)
     pub mode: Mode,
     /// Path to blender files
@@ -45,28 +45,21 @@ pub struct Job {
     pub blender_version: Version,
     // target output destination
     pub output: PathBuf,
-    // completed render data.
-    // TODO: discuss this? Let's map this out and see how we can better utilize this structure?
-    renders: HashMap<Frame, PathBuf>,
 }
 
 impl Job {
     /// Create a new job entry with provided all information intact. Used for holding database records
     pub fn new(
-        id: Uuid,
         mode: Mode,
         project_file: PathBuf,
         blender_version: Version,
         output: PathBuf,
-        renders: HashMap<Frame, PathBuf>,
     ) -> Self {
         Self {
-            id,
             mode,
             project_file,
             blender_version,
             output,
-            renders,
         }
     }
 
@@ -78,12 +71,10 @@ impl Job {
         mode: Mode,
     ) -> Self {
         Self {
-            id: Uuid::new_v4(),
             mode,
             project_file,
             blender_version,
             output,
-            renders: Default::default(),
         }
     }
 
@@ -97,23 +88,5 @@ impl Job {
 
     pub fn get_version(&self) -> &Version {
         &self.blender_version
-    }
-}
-
-impl AsRef<Uuid> for Job {
-    fn as_ref(&self) -> &Uuid {
-        &self.id
-    }
-}
-
-impl PartialEq for Job {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl Hash for Job {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
     }
 }

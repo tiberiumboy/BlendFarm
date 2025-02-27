@@ -1,10 +1,9 @@
-use super::job::Job;
+use super::{job::CreatedJobDto, with_id::WithId};
 use crate::domains::task_store::TaskError;
 use blender::{
     blender::{Args, Blender},
     models::status::Status,
 };
-use libp2p::PeerId;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -14,6 +13,9 @@ use std::{
 };
 use uuid::Uuid;
 
+pub type CreatedTaskDto = WithId<Task, Uuid>;
+pub type NewTaskDto = Task;
+
 /*
     Task is used to send Worker individual task to work on
     this can be customize to determine what and how many frames to render.
@@ -21,13 +23,6 @@ use uuid::Uuid;
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
-    /// Unique id for this task
-    pub id: Uuid,
-
-    /// peer's id that sent us this task, use this to callback
-    /// for now we'll use the host name until we can get peer_id working again.
-    peer_id: Vec<u8>,
-
     /// maybe maybe maybe?
     pub requestor: String,
 
@@ -48,7 +43,6 @@ pub struct Task {
 // This act as a pending work order to fulfil when resources are available.
 impl Task {
     pub fn new(
-        peer_id: PeerId,
         requestor: String,
         job_id: Uuid,
         blend_file_name: PathBuf,
@@ -56,8 +50,6 @@ impl Task {
         range: Range<i32>,
     ) -> Self {
         Self {
-            id: Uuid::new_v4(),
-            peer_id: peer_id.to_bytes(),
             job_id,
             requestor,
             blend_file_name,
@@ -66,14 +58,12 @@ impl Task {
         }
     }
 
-    pub fn from(peer_id: PeerId, requestor: String, job: Job, range: Range<i32>) -> Self {
+    pub fn from(requestor: String, job: CreatedJobDto, range: Range<i32>) -> Self {
         Self {
-            id: Uuid::new_v4(),
-            peer_id: peer_id.to_bytes(),
             job_id: job.id,
             requestor,
-            blend_file_name: PathBuf::from(job.project_file.file_name().unwrap()),
-            blender_version: job.blender_version,
+            blend_file_name: PathBuf::from(job.item.project_file.file_name().unwrap()),
+            blender_version: job.item.blender_version,
             range,
         }
     }
@@ -83,6 +73,7 @@ impl Task {
     /// The behaviour of this function returns the percentage of the remaining jobs in poll.
     /// E.g. 102 (80%) of 120 remaining would return 96 end frames.
     /// TODO: Allow other node or host to fetch end frames from this task and distribute to other requesting workers.
+    /// TODO: Test this
     pub fn fetch_end_frames(&mut self, percentage: i8) -> Option<Range<i32>> {
         // Here we'll determine how many franes left, and then pass out percentage of that frames back.
         let perc = percentage as f32 / i8::MAX as f32;
@@ -100,13 +91,9 @@ impl Task {
         Some(range)
     }
 
-    pub fn get_peer_id(&self) -> PeerId {
-        PeerId::from_bytes(&self.peer_id).expect("Peer Id was posioned!")
-    }
-
     fn get_next_frame(&mut self) -> Option<i32> {
         // we will use this to generate a temporary frame record on database for now.
-        if self.range.start < self.range.end {
+        if self.range.start < (self.range.end + 1) {
             let value = Some(self.range.start);
             self.range.start = self.range.start + 1;
             value

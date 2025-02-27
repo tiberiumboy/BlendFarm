@@ -38,17 +38,14 @@ pub async fn create_job(
 
     // use this to send the job over to database instead of command to network directly.
     // We're splitting this apart to rely on database collection instead of forcing to send command over.
-    if let Err(e) = jobs.add_job(job.clone()).await {
-        eprintln!("{:?}", e);
-    }
-
-    // send job to server
-    if let Err(e) = app_state
-        .to_network
-        .send(UiCommand::StartJob(job.clone()))
-        .await
-    {
-        eprintln!("Fail to send command to the server! \n{e:?}");
+    match jobs.add_job(job).await {
+        Ok(job) => {
+            // send job to server
+            if let Err(e) = app_state.to_network.send(UiCommand::StartJob(job)).await {
+                eprintln!("Fail to send command to the server! \n{e:?}");
+            }
+        }
+        Err(e) => eprintln!("{:?}", e),
     }
 
     remote_render_page().await
@@ -67,7 +64,7 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, ()> 
                     tbody {
                         tr tauri-invoke="get_job" hx-vals=(json!({"jobId":job.id.to_string()})) hx-target="#detail" {
                             td style="width:100%" {
-                                (job.get_file_name())
+                                (job.item.get_file_name())
                             };
                         };
                     };
@@ -92,9 +89,9 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
         Ok(job) => Ok(html!(
         div {
                 p { "Job Detail" };
-                div { ( job.project_file.to_str().unwrap() ) };
-                div { ( job.output.to_str().unwrap() ) };
-                div { ( job.blender_version.to_string() ) };
+                div { ( job.item.project_file.to_str().unwrap() ) };
+                div { ( job.item.output.to_str().unwrap() ) };
+                div { ( job.item.blender_version.to_string() ) };
                 button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job_id})) hx-target="#workplace" { "Delete Job" };
             };
         )

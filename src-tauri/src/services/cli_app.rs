@@ -146,8 +146,6 @@ impl CliApp {
                             client.send_status(format!("[ERR] {blender_error:?}")).await
                         }
                         Status::Completed { frame, result } => {
-                            // Use PathBuf as this helps enforce type intention of using OsString
-                            // Why don't I create it like a directory instead? =
                             let file_name = result.file_name().unwrap().to_string_lossy();
                             let file_name = format!("/{}/{}", id, file_name);
                             let event = JobEvent::ImageCompleted {
@@ -155,6 +153,7 @@ impl CliApp {
                                 frame,
                                 file_name: file_name.clone(),
                             };
+                            // send message back
                             client.start_providing(file_name, result).await;
                             client.send_job_message(hostname, event).await;
                         }
@@ -193,9 +192,10 @@ impl CliApp {
                 JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
                 // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
                 JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
+                // Remove what exactly? Task? Job?
                 JobEvent::Remove(id) => {
-                    let mut db = self.task_store.write().await;
-                    let _ = db.delete_job_task(id).await;
+                    let db = self.task_store.write().await;
+                    let _ = db.delete_job_task(&id).await;
                     // let mut db = self.job_store.write().await;
                     // if let Err(e) = db.delete_job(id).await {
                     //     eprintln!("Fail to remove job from database! {e:?}");

@@ -4,6 +4,7 @@
 for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
+use super::util::select_directory;
 use crate::AppState;
 use blender::blender::Blender;
 use maud::html;
@@ -78,6 +79,16 @@ pub async fn create_new_job(
     Ok(result)
 }
 
+#[command(async)]
+pub async fn update_output_field(app: AppHandle) -> Result<String, ()> {
+    match select_directory(app).await {
+        Ok(path) => Ok(html!(
+            input type="text" class="form-input" placeholder="Output Path" name="output" value=(path) readonly={true};
+        ).0),
+        Err(_) => Err(()),
+    }
+}
+
 // change this to return HTML content of the info back.
 #[command(async)]
 pub async fn import_blend(
@@ -107,8 +118,8 @@ pub async fn import_blend(
                     br;
 
                     label { "Output destination:" };
-                    div tauri-invoke="select_directory" hx-target="#output" {
-                        input type="text" class="form-input" placeholder="Output Path" name="output" defaultvalue=(data.output.to_str().unwrap()) readonly={true};
+                    div tauri-invoke="update_output_field" hx-target="this" {
+                        input type="text" class="form-input" placeholder="Output Path" name="output" value=(data.output.to_str().unwrap()) readonly={true};
                     }
                     br;
 
