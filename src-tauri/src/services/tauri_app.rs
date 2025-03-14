@@ -19,11 +19,10 @@ use maud::html;
 use std::{collections::HashMap, ops::Range, sync::Arc, path::PathBuf, thread::sleep, time::Duration};
 use tauri::{self, command, App, AppHandle, Emitter, Manager};
 use tokio::{
-    select, spawn,
-    sync::{
+    select, spawn, sync::{
         mpsc::{self, Receiver, Sender},
         Mutex, RwLock,
-    },
+    }
 };
 use uuid::Uuid;
 
@@ -75,6 +74,19 @@ pub fn index() -> String {
 }
 
 impl TauriApp {
+
+    // Clear worker database before usage!
+    pub async fn clear_workers_collection(self) -> Self {
+        // A little closure hack
+        {
+            let mut db = self.worker_store.write().await;
+            if let Err(e) = db.clear_worker().await{ 
+                eprintln!("Error clearing worker database! {e:?}");
+            } 
+        }
+        self
+    }
+
     pub async fn new(
         worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static)>>,
         job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>,
@@ -268,11 +280,10 @@ impl TauriApp {
             NetEvent::NodeDiscovered(peer_id, spec) => {
                 let worker = Worker::new(peer_id, spec.clone());
                 let mut db = self.worker_store.write().await;
-                // this part works wonderfully.
                 if let Err(e) = db.add_worker(worker).await {
                     eprintln!("Error adding worker to database! {e:?}");
                 }
-
+                
                 self.peers.insert(peer_id, spec);
                 // let handle = app_handle.write().await;
                 // emit a signal to query the data. 
@@ -282,13 +293,11 @@ impl TauriApp {
             NetEvent::NodeDisconnected(peer_id) => {
                 let mut db = self.worker_store.write().await;
                 // So the main issue is that there's no way to identify by the machine id?
-                if let Err(e) = db.delete_worker(&peer_id.to_base58()).await {
+                if let Err(e) = db.delete_worker(&peer_id).await {
                     eprintln!("Error deleting worker from database! {e:?}");
                 }
 
                 self.peers.remove(&peer_id);
-                // let handle = app_handle.write().await;
-                // let _ = handle.emit("worker_update", ());
             }
             NetEvent::InboundRequest { request, channel } => {
                 if let Some(path) = client.providing_files.get(&request) {

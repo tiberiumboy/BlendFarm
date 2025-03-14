@@ -32,7 +32,6 @@ use async_std::fs::{self, File};
 use async_std::path::Path;
 use blender::manager::Manager as BlenderManager;
 use clap::{Parser, Subcommand};
-use domains::worker_store::WorkerStore;
 use dotenvy::dotenv;
 use models::network;
 use models::{app_state::AppState /* server_setting::ServerSetting */};
@@ -75,7 +74,7 @@ async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> {
     if !path.exists() {
         if let Err(e) = create_database(&path).await {
             eprintln!("Permission issue? {e:?}");
-        }    
+        }
     }
 
     // TODO: Consider thinking about the design behind this. Should we store database connection here or somewhere else?
@@ -86,6 +85,9 @@ async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> {
     sqlx::migrate!().run(&pool).await?;
     Ok(pool)
 }
+
+// Figure out how I can initiate a app spawn pool here?
+// fn run_client() -> JoinHandle<CliApp> {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
@@ -108,7 +110,7 @@ pub async fn run() {
     let _ = match cli.command {
         // run as client mode.
         Some(Commands::Client) => {
-            // could this be reconsidered?
+            // eventually I'll move this code into it's own separate codeblock
             let task_store = SqliteTaskStore::new(db.clone());
             let task_store = Arc::new(RwLock::new(task_store));
             CliApp::new(task_store)
@@ -119,20 +121,16 @@ pub async fn run() {
 
         // run as GUI mode.
         _ => {
+            // eventually I'll move this code into it's own separate codeblock
             let job_store = SqliteJobStore::new(db.clone());
-            let mut worker_store = SqliteWorkerStore::new(db.clone());
-
-            // Clear worker database before usage!
-            // TODO: Find a better way to optimize this
-            if let Ok(old_workers) = worker_store.list_worker().await {
-                for worker in old_workers {
-                    let _ = &worker_store.delete_worker(&worker.machine_id).await;
-                }
-            }
+            let worker_store = SqliteWorkerStore::new(db.clone());
 
             let job_store = Arc::new(RwLock::new(job_store));
             let worker_store = Arc::new(RwLock::new(worker_store));
+
             TauriApp::new(worker_store, job_store)
+                .await
+                .clear_workers_collection()
                 .await
                 .run(controller, receiver)
                 .await

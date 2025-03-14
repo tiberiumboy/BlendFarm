@@ -11,27 +11,32 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
     let server = state.lock().await;
     let workers = server.worker_db.read().await;
     match &workers.list_worker().await {
-        Ok(data) => Ok(html! {
-            @for worker in data {
-                div {
-                    table tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.machine_id })) hx-target=(format!("#{WORKPLACE}")) {
-                        tbody {
-                            tr {
-                                td style="width:100%" {
-                                    div { (worker.spec.host) }
-                                    div { (worker.spec.os) " | " (worker.spec.arch) }
+        Ok(data) => {
+            let content = match data.len() {
+                0 => html! { div { } },
+                _ => html! {
+                    @for worker in data {
+                        div {
+                            table tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.machine_id.to_base58() })) hx-target=(format!("#{WORKPLACE}")) {
+                                tbody {
+                                    tr {
+                                        td style="width:100%" {
+                                            div { (worker.spec.host) }
+                                            div { (worker.spec.os) " | " (worker.spec.arch) }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            }
+                },
+            };
+            Ok(content.0)
         }
-        .0),
         Err(e) => {
             eprintln!("Received error on list workers: \n{e:?}");
             Ok(html!( div { }; ).0)
-        },
+        }
     }
 }
 

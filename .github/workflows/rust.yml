@@ -34,8 +34,9 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04' 
         run: |
           sudo apt-get update
-          sudo apt-get install -y libewbkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       
+# TODO: Find a way to fix SQLX error: "set `DATABASE_URL` to use query macros online, or run `cargo sqlx prepare` to update the query cache"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

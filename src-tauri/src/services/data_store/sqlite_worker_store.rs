@@ -9,7 +9,7 @@ use crate::{
 };
 use libp2p::PeerId;
 use serde::Deserialize;
-use sqlx::{ query, query_as, SqlitePool};
+use sqlx::{query_as, SqlitePool};
 
 pub struct SqliteWorkerStore {
     conn: SqlitePool,
@@ -30,7 +30,7 @@ struct WorkerDb {
 impl WorkerDb {
     pub fn new(worker: &Worker) -> WorkerDb {
         let machine_id = worker.machine_id.to_base58();
-        // TODO: Fix the unwrap()
+        // TODO: Fix the unwrap and into_bytes
         let spec = serde_json::to_string(&worker.spec).unwrap().into_bytes();
         WorkerDb { machine_id, spec }
     }
@@ -57,8 +57,9 @@ impl WorkerStore for SqliteWorkerStore {
             .and_then(|r: Vec<WorkerDb>| {
                 Ok(r.into_iter()
                     .map(|r: WorkerDb| {
-                        // TODO: Find a better way to handle the unwraps()
-                        let spec: ComputerSpec = serde_json::from_str(&r.spec).unwrap();
+                        // TODO: Find a better way to handle the unwraps and clone
+                        let data = String::from_utf8(r.spec.clone()).unwrap();
+                        let spec: ComputerSpec = serde_json::from_str(&data).unwrap();
                         let peer = PeerId::from_str(&r.machine_id).unwrap();
                         Worker::new(peer, spec)
                     })
@@ -80,7 +81,7 @@ impl WorkerStore for SqliteWorkerStore {
         .execute(&self.conn)
         .await
         {
-            eprintln!("{e}");
+            eprintln!("Fail to insert new worker: {e}");
         }
 
         Ok(())
@@ -88,34 +89,39 @@ impl WorkerStore for SqliteWorkerStore {
 
     // Read
     async fn get_worker(&self, id: &str) -> Option<Worker> {
-        let row: WorkerDb = query_as::<_, WorkerDb>(
-            r#"SELECT machine_id, spec FROM workers WHERE machine_id=$1"#,
-            id
-        )
-        .fetch_one(&self.conn)
-        .await.unwrap();
-        
-        // {
-        //     Ok(record) => {
-        // I'm a bit confused? where is Vec8 coming from?
-        let worker = row.from();
-        Some(worker)
-        //     }
-        //     Err(e) => {
-        //         eprintln!("{:?}", e.to_string());
-        //         return None;
-        //     }
-        // }
+        // so this panic when there's no record?
+        let sql = r#"SELECT machine_id, spec FROM workers WHERE machine_id=$1"#;
+        let worker_db: Result<WorkerDb, sqlx::Error> = query_as::<_, WorkerDb>(sql)
+            .bind(id)
+            .fetch_one(&self.conn)
+            .await;
+
+        match worker_db {
+            Ok(db) => Some(db.from()),
+            Err(e) => {
+                eprintln!("Unable to fetch workers: {e:?}");
+                None
+            }
+        }
     }
 
     // no update?
 
     // Delete
-    async fn delete_worker(&mut self, machine_id: &str) -> Result<(), WorkerError> {
+    async fn delete_worker(&mut self, machine_id: &PeerId) -> Result<(), WorkerError> {
         let _ = sqlx::query(r"DELETE FROM workers WHERE machine_id = $1")
-            .bind(machine_id)
+            .bind(machine_id.to_base58())
             .execute(&self.conn)
             .await;
+        Ok(())
+    }
+
+    // Clear worker table
+    async fn clear_worker(&mut self) -> Result<(), WorkerError> {
+        let _ = sqlx::query(r"DELETE FROM workers")
+            .execute(&self.conn)
+            .await
+            .map_err(|e| WorkerError::Database(e.to_string()))?;
         Ok(())
     }
 }
