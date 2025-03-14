@@ -1,0 +1,3 @@
+todo list
+
+Could I make the app run in client mode as well?

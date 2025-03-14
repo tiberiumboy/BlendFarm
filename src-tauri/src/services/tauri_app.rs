@@ -16,7 +16,6 @@ use crate::{
 use blender::{manager::Manager as BlenderManager,models::mode::Mode};
 use libp2p::PeerId;
 use maud::html;
-use serde::Serialize;
 use std::{collections::HashMap, ops::Range, sync::Arc, path::PathBuf, thread::sleep, time::Duration};
 use tauri::{self, command, App, AppHandle, Emitter, Manager};
 use tokio::{
@@ -267,8 +266,9 @@ impl TauriApp {
                     .unwrap();
             }
             NetEvent::NodeDiscovered(peer_id, spec) => {
-                let worker = Worker::new(peer_id.to_base58(), spec.clone());
+                let worker = Worker::new(peer_id, spec.clone());
                 let mut db = self.worker_store.write().await;
+                // this part works wonderfully.
                 if let Err(e) = db.add_worker(worker).await {
                     eprintln!("Error adding worker to database! {e:?}");
                 }
@@ -281,6 +281,7 @@ impl TauriApp {
             }
             NetEvent::NodeDisconnected(peer_id) => {
                 let mut db = self.worker_store.write().await;
+                // So the main issue is that there's no way to identify by the machine id?
                 if let Err(e) = db.delete_worker(&peer_id.to_base58()).await {
                     eprintln!("Error deleting worker from database! {e:?}");
                 }

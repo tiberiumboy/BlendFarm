@@ -1,5 +1,5 @@
 use super::computer_spec::ComputerSpec;
-use serde::{Deserialize, Serialize};
+use libp2p::PeerId;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -8,15 +8,15 @@ pub enum WorkerError {
     Database(String),
 }
 
-// we will use this to store data into database at some point.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Worker {
-    pub machine_id: String,
+    // machine id is really just peer_id
+    pub machine_id: PeerId,
     pub spec: ComputerSpec,
 }
 
 impl Worker {
-    pub fn new(machine_id: String, spec: ComputerSpec) -> Self {
+    pub fn new(machine_id: PeerId, spec: ComputerSpec) -> Self {
         Self { machine_id, spec }
     }
 }

@@ -28,7 +28,8 @@ Developer blog:
 
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use async_std::fs;
+use async_std::fs::{self, File};
+use async_std::path::Path;
 use blender::manager::Manager as BlenderManager;
 use clap::{Parser, Subcommand};
 use domains::worker_store::WorkerStore;
@@ -60,13 +61,21 @@ enum Commands {
     Client,
 }
 
+async fn create_database(path: impl AsRef<Path>) -> Result<File, async_std::io::Error> {
+    fs::File::create(path).await
+}
+
 async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> {
     let mut path = BlenderManager::get_config_dir();
     path = path.join("blendfarm.db");
 
     // create file if it doesn't exist (.config/BlendFarm/blendfarm.db)
+    // Would run into problems where if the version is out of date, the database needs to be refreshed?
+    // how can I fix that?
     if !path.exists() {
-        let _ = fs::File::create(&path).await;
+        if let Err(e) = create_database(&path).await {
+            eprintln!("Permission issue? {e:?}");
+        }    
     }
 
     // TODO: Consider thinking about the design behind this. Should we store database connection here or somewhere else?

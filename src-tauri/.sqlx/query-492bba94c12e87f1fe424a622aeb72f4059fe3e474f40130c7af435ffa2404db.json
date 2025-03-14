@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT machine_id, spec FROM workers WHERE machine_id=$1",
+  "describe": {
+    "columns": [
+      {
+        "name": "machine_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "spec",
+        "ordinal": 1,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "492bba94c12e87f1fe424a622aeb72f4059fe3e474f40130c7af435ffa2404db"
+}
