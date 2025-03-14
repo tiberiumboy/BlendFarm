@@ -55,24 +55,34 @@ pub async fn create_job(
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, ()> {
     let server = state.lock().await;
     let jobs = server.job_db.read().await;
-    let job_list = jobs.list_all().await.unwrap();
+    let queue = jobs.list_all().await;
 
-    Ok(html! {
-        @for job in job_list {
-            div {
-                table {
-                    tbody {
-                        tr tauri-invoke="get_job" hx-vals=(json!({"jobId":job.id.to_string()})) hx-target="#detail" {
-                            td style="width:100%" {
-                                (job.item.get_file_name())
+    let content = match queue {
+        Ok(list) => {
+            html! {
+                @for job in list {
+                    div {
+                        table {
+                            tbody {
+                                tr tauri-invoke="get_job" hx-vals=(json!({"jobId":job.id.to_string()})) hx-target="#detail" {
+                                    td style="width:100%" {
+                                        (job.item.get_file_name())
+                                    };
+                                };
                             };
                         };
                     };
                 };
-            };
-        };
-    }
-    .0)
+            }
+        }
+        Err(e) => {
+            eprintln!("Fail to list job collection: {e:?}");
+            html! {
+                div {}
+            }
+        }
+    };
+    Ok(content.0)
 }
 
 #[command(async)]

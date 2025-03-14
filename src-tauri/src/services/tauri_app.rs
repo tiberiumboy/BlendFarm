@@ -234,7 +234,6 @@ impl TauriApp {
                     &client.hostname
                 );
 
-                dbg!(&tasks);
                 // so here's the culprit. We're waiting for a peer to become idle and inactive waiting for the next job
                 for task in tasks {
                     // problem here - I'm getting one client to do all of the rendering jobs, not the inactive one.

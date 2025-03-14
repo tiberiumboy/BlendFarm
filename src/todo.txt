@@ -1,7 +1,10 @@
 todo list
 
-Could I make the app run in client mode as well?
-provide the menu context to allow user to start or end local host.
-Be sure to explain it well
+Make the GUI app run in client mode?
+provide the menu context to allow user to start or end local client mode.
 
 test fully through, see if it can render the job.
+
+client does not send message while the job is running, 
+- only at the end of the task does it ever notify host?
+

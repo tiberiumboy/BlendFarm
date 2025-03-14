@@ -22,7 +22,7 @@ impl SqliteJobStore {
 #[derive(FromRow)]
 struct JobDb {
     id: String,
-    mode: String,
+    mode: Vec<u8>,
     project_file: String,
     blender_version: String,
     output_path: String,
@@ -43,7 +43,7 @@ impl JobStore for SqliteJobStore {
                 VALUES($1, $2, $3, $4, $5);
             ",
         )
-        .bind(id)
+        .bind(id.to_string())
         .bind(mode)
         .bind(project_file)
         .bind(blender_version)
@@ -64,7 +64,8 @@ impl JobStore for SqliteJobStore {
         {
             Ok(r) => {
                 let id = Uuid::parse_str(&r.id).unwrap();
-                let mode: Mode = serde_json::from_str(&r.mode).unwrap();
+                let data = String::from_utf8(r.mode.clone()).unwrap();
+                let mode: Mode = serde_json::from_str(&data).unwrap();
                 let project = PathBuf::from(r.project_file);
                 let version = Version::from_str(&r.blender_version).unwrap();
                 let output = PathBuf::from(r.output_path);
@@ -83,24 +84,26 @@ impl JobStore for SqliteJobStore {
 
     async fn list_all(&self) -> Result<Vec<CreatedJobDto>, JobError> {
         let sql = r"SELECT id, mode, project_file, blender_version, output_path FROM jobs";
-        let mut data: Vec<CreatedJobDto> = Vec::new();
+        let mut collection: Vec<CreatedJobDto> = Vec::new();
         let results = sqlx::query_as::<_, JobDb>(sql).fetch_all(&self.conn).await;
         match results {
             Ok(records) => {
                 for r in records {
+                    // TODO: Remove unwrap()
                     let id = Uuid::parse_str(&r.id).unwrap();
-                    let mode: Mode = serde_json::from_str(&r.mode).unwrap();
+                    let data = String::from_utf8(r.mode.clone()).unwrap();
+                    let mode: Mode = serde_json::from_str(&data).unwrap();
                     let project = PathBuf::from(r.project_file);
                     let version = Version::from_str(&r.blender_version).unwrap();
                     let output = PathBuf::from(r.output_path);
                     let item = Job::new(mode, project, version, output);
                     let entry = CreatedJobDto { id, item };
-                    data.push(entry);
+                    collection.push(entry);
                 }
             }
             Err(e) => return Err(JobError::DatabaseError(e.to_string())),
         }
-        Ok(data)
+        Ok(collection)
     }
 
     async fn delete_job(&mut self, id: &Uuid) -> Result<(), JobError> {
