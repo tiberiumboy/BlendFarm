@@ -86,9 +86,6 @@ async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> {
     Ok(pool)
 }
 
-// Figure out how I can initiate a app spawn pool here?
-// fn run_client() -> JoinHandle<CliApp> {}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     dotenv().ok();
