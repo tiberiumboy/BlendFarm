@@ -5,6 +5,9 @@ use super::message::{NetCommand, NetEvent, NetworkError};
 use super::server_setting::ServerSetting;
 use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
+use std::sync::Arc;
+use async_std::stream::StreamExt;
+use futures::StreamExt;
 use futures::{channel::oneshot, prelude::*, StreamExt};
 use libp2p::kad::RecordKey;
 use libp2p::multiaddr::Protocol;
@@ -16,13 +19,15 @@ use libp2p::{
 };
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
 use machine_info::Machine;
+use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use std::collections::{hash_map, HashMap, HashSet};
 use std::error::Error;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::u64;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::{io, select};
+use tokio::{io, join, select};
 
 /*
 Network Service - Provides simple network interface for peer-to-peer network for BlendFarm.
@@ -301,8 +306,9 @@ impl NetworkController {
         file: Vec<u8>,
         channel: ResponseChannel<FileResponse>,
     ) {
+        let cmd = NetCommand::RespondFile { file, channel };
         self.sender
-            .send(NetCommand::RespondFile { file, channel })
+            .send(cmd)
             .await
             .expect("Command should not be dropped");
     }
@@ -335,21 +341,22 @@ pub struct NetworkService {
 
 impl NetworkService {
     // send command
-    async fn handle_command(&mut self, cmd: NetCommand) {
-        match cmd {
-            NetCommand::Status(msg) => {
-                let data = msg.as_bytes();
-                let topic = IdentTopic::new(STATUS);
-                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                    eprintln!("Fail to send status over network! {e:?}");
+    async fn handle_command(&mut self) {
+        for cmd in self.command_receiver.blocking_recv() {
+            match cmd {
+                NetCommand::Status(msg) => {
+                    let data = msg.as_bytes();
+                    let topic = IdentTopic::new(STATUS);
+                    if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+                        eprintln!("Fail to send status over network! {e:?}");
+                    }
                 }
-            }
-            NetCommand::RequestFile {
-                peer_id,
-                file_name,
-                sender,
-            } => {
-                let request_id = self
+                NetCommand::RequestFile {
+                    peer_id,
+                    file_name,
+                    sender,
+                } => {
+                    let request_id = self
                     .swarm
                     .behaviour_mut()
                     .request_response
@@ -357,13 +364,15 @@ impl NetworkService {
                 self.pending_request_file.insert(request_id, sender);
             }
             NetCommand::RespondFile { file, channel } => {
+                // somehow the send_response errored out? How come?
                 if let Err(e) = self
-                    .swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_response(channel, FileResponse(file))
+                .swarm
+                .behaviour_mut()
+                .request_response
+                .send_response(channel, FileResponse(file))
                 {
-                    eprintln!("{e:?}");
+                    // why am I'm getting error message here?
+                    eprintln!("Error received on sending response!");
                 }
             }
             NetCommand::IncomingWorker(peer_id) => {
@@ -383,45 +392,45 @@ impl NetworkService {
             NetCommand::StartProviding { file_name, sender } => {
                 let provider_key = RecordKey::new(&file_name.as_bytes());
                 let query_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .kad
-                    .start_providing(provider_key)
-                    .expect("No store error.");
-
-                self.pending_start_providing.insert(query_id, sender);
+                .swarm
+                .behaviour_mut()
+                .kad
+                .start_providing(provider_key)
+                .expect("No store error.");
+            
+            self.pending_start_providing.insert(query_id, sender);
             }
             NetCommand::SubscribeTopic(topic) => {
                 let ident_topic = IdentTopic::new(topic);
                 self.swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .subscribe(&ident_topic)
-                    .unwrap();
+                .behaviour_mut()
+                .gossipsub
+                .subscribe(&ident_topic)
+                .unwrap();
             }
             NetCommand::UnsubscribeTopic(topic) => {
                 let ident_topic = IdentTopic::new(topic);
                 self.swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .unsubscribe(&ident_topic);
+                .behaviour_mut()
+                .gossipsub
+                .unsubscribe(&ident_topic);
             }
             // for the time being we'll use gossip.
             // TODO: For future impl. I would like to target peer by peer_id instead of host name.
             NetCommand::JobStatus(host_name, event) => {
                 // convert data into json format.
                 let data = bincode::serialize(&event).unwrap();
-
+                
                 // currently using a hack by making the target machine subscribe to their hostname.
                 // the manager will send message to that specific hostname as target instead.
                 // TODO: Read more about libp2p and how I can just connect to one machine and send that machine job status information.
                 let topic = IdentTopic::new(host_name);
                 let _ = self.swarm.behaviour_mut().gossipsub.publish(topic, data);
-
+                
                 /*
-                   Let's break this down, we receive a worker with peer_id and peer_addr, both of which will be used to establish communication
-                   Once we establish a communication, that target peer will need to receive the pending task we have assigned for them.
-                   For now, we will try to dial the target peer, and append the task to our network service pool of pending task.
+                Let's break this down, we receive a worker with peer_id and peer_addr, both of which will be used to establish communication
+                Once we establish a communication, that target peer will need to receive the pending task we have assigned for them.
+                For now, we will try to dial the target peer, and append the task to our network service pool of pending task.
                 */
                 // self.pending_task.insert(peer_id);
             }
@@ -432,29 +441,30 @@ impl NetworkService {
             } => {
                 if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
                     self.swarm
-                        .behaviour_mut()
-                        .kad
-                        .add_address(&peer_id, peer_addr.clone());
-                    match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
-                        Ok(()) => {
-                            e.insert(sender);
-                        }
-                        Err(e) => {
-                            let _ = sender.send(Err(Box::new(e)));
-                        }
+                    .behaviour_mut()
+                    .kad
+                    .add_address(&peer_id, peer_addr.clone());
+                match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
+                    Ok(()) => {
+                        e.insert(sender);
+                    }
+                    Err(e) => {
+                        let _ = sender.send(Err(Box::new(e)));
                     }
                 }
             }
-        };
+        }
     }
+};
+}
 
-    async fn handle_event(&mut self, event: SwarmEvent<BlendFarmBehaviourEvent>) {
+    async fn handle_event(&mut self, swarm: &mut Swarm<BlendFarmBehaviour>, event: SwarmEvent<BlendFarmBehaviourEvent>) {
         match event {
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Mdns(mdns)) => {
-                self.handle_mdns(mdns).await
+                Self::handle_mdns(swarm, mdns).await
             }
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Gossipsub(gossip)) => {
-                self.handle_gossip(gossip).await
+                self.handle_gossip(swarm, gossip).await
             }
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Kad(kad)) => {
                 self.handle_kademila(kad).await
@@ -534,17 +544,17 @@ impl NetworkService {
         }
     }
 
-    async fn handle_mdns(&mut self, event: mdns::Event) {
+    async fn handle_mdns(swarm: &mut Swarm<BlendFarmBehaviour>, event: mdns::Event) {
         match event {
             mdns::Event::Discovered(peers) => {
                 for (peer_id, address) in peers {
-                    self.swarm
+                    swarm
                         .behaviour_mut()
                         .gossipsub
                         .add_explicit_peer(&peer_id);
 
                     // add the discover node to kademlia list.
-                    self.swarm
+                    swarm
                         .behaviour_mut()
                         .kad
                         .add_address(&peer_id, address);
@@ -552,7 +562,7 @@ impl NetworkService {
             }
             mdns::Event::Expired(peers) => {
                 for (peer_id, ..) in peers {
-                    self.swarm
+                    swarm
                         .behaviour_mut()
                         .gossipsub
                         .remove_explicit_peer(&peer_id);
@@ -562,15 +572,14 @@ impl NetworkService {
     }
 
     // TODO: Figure out how I can use the match operator for TopicHash. I'd like to use the TopicHash static variable above.
-    async fn handle_gossip(&mut self, event: gossipsub::Event) {
+    async fn handle_gossip(sender: &mut Sender<NetEvent>, event: gossipsub::Event) {
         match event {
             gossipsub::Event::Message { message, .. } => match message.topic.as_str() {
                 SPEC => {
                     let source = message.source.expect("Source cannot be empty!");
                     let specs =
                         bincode::deserialize(&message.data).expect("Fail to parse Computer Specs!");
-                    if let Err(e) = self
-                        .event_sender
+                    if let Err(e) = sender
                         .send(NetEvent::NodeDiscovered(source, specs))
                         .await
                     {
@@ -580,7 +589,7 @@ impl NetworkService {
                 STATUS => {
                     let source = message.source.expect("Source cannot be empty!");
                     let msg = String::from_utf8(message.data).unwrap();
-                    if let Err(e) = self.event_sender.send(NetEvent::Status(source, msg)).await {
+                    if let Err(e) = sender.send(NetEvent::Status(source, msg)).await {
                         eprintln!("Something failed? {e:?}");
                     }
                 }
@@ -592,8 +601,7 @@ impl NetworkService {
 
                     // I don't think this function is called?
                     println!("Is this function used?");
-                    if let Err(e) = self
-                        .event_sender
+                    if let Err(e) = sender
                         .send(NetEvent::JobUpdate(host, job_event))
                         .await
                     {
@@ -606,8 +614,7 @@ impl NetworkService {
                     if topic.eq(&self.machine.system_info().hostname) {
                         let job_event = bincode::deserialize::<JobEvent>(&message.data)
                             .expect("Fail to parse job data!");
-                        if let Err(e) = self
-                            .event_sender
+                        if let Err(e) = sender
                             .send(NetEvent::JobUpdate(topic.to_string(), job_event))
                             .await
                         {
@@ -673,18 +680,29 @@ impl NetworkService {
     }
 
     pub async fn run(mut self) {
-        if let Err(e) = tokio::spawn(async move {
+        let p1 = Arc::new(RwLock::new(self));
+        let p2 = p1.clone();
+        let command_feedback = tokio::spawn( async move {
             loop {
-                select! {
-                    event = self.swarm.select_next_some() => self.handle_event(event).await,
-                    Some(cmd) = self.command_receiver.recv() => self.handle_command(cmd).await,
+                let service = p1.write().await;
+                service.handle_command().await;
+            }
+        });
+
+        let network_feedback = tokio::spawn(async move {
+            loop {
+                // Here's the problem. Seems like I made a dispatch, but never had the chance to read through? Something blocking the thread?
+                // select! {
+                //     event = self.swarm.select_next_some() => self.handle_event(event).await,
+                // }
+                let service = p2.write().await;
+                if let Some(event) = service.swarm.next().await {
+                    service.handle_event(event).await;
                 }
             }
-        })
-        .await
-        {
-            println!("fail to start background pool for network run! {e:?}");
-        }
+        });
+        
+        join!(command_feedback, network_feedback);
     }
 }
 

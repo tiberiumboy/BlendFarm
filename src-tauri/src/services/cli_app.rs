@@ -155,9 +155,7 @@ impl CliApp {
                             };
                             // send message back
                             client.start_providing(file_name, result).await;
-                            println!("Finish providing file");
                             client.send_job_message(hostname, event).await;
-                            println!("Finish sending job message back...");
                         }
                         Status::Exit => {
                             client

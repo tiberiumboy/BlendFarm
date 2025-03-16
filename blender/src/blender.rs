@@ -511,7 +511,8 @@ impl Blender {
                             };
                             rx.send(msg).unwrap();
                         }
-                        line if line.contains("SUCCESS:") => {
+                        // it would be nice if we can somehow make this as a struct or enum of types?
+                        line if line.contains("Saved:") => {
                             let location = line.split('\'').collect::<Vec<&str>>();
                             let result = PathBuf::from(location[1]);
                             rx.send(Status::Completed { frame, result }).unwrap();
