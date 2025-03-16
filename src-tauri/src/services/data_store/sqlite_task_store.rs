@@ -53,7 +53,7 @@ impl TaskStore for SqliteTaskStore {
     }
 
     async fn delete_job_task(&self, job_id: &Uuid) -> Result<(), TaskError> {
-        let _ = sqlx::query(r"DELETE * FROM tasks WHERE job_id = $1")
+        let _ = sqlx::query(r"DELETE FROM tasks WHERE job_id = $1")
             .bind(job_id.to_string())
             .execute(&self.conn)
             .await;

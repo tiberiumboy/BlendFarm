@@ -155,7 +155,9 @@ impl CliApp {
                             };
                             // send message back
                             client.start_providing(file_name, result).await;
+                            println!("Finish providing file");
                             client.send_job_message(hostname, event).await;
+                            println!("Finish sending job message back...");
                         }
                         Status::Exit => {
                             client
@@ -186,7 +188,7 @@ impl CliApp {
                     // TODO: consider adding a poll/queue for all of the pending task to work on.
                     // This poll can be queued by other nodes to check if this node have any pending task to work on.
                     // This will help us balance our workstation priority flow.
-                    // for now we'll try to get one job focused on.
+                    // for now we'll try to get one job to focused on.
                     self.render_task(client, &hostname, &mut task).await
                 }
                 JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
@@ -230,18 +232,16 @@ impl BlendFarm for CliApp {
         // - so that we can distribute blender across network rather than download blender per each peers.
         // let system = self.machine.system_info();
         // let system_info = format!("blendfarm/{}{}", consts::OS, &system.processor.brand);
+        // TODO: Figure out why I need the JOB subscriber?
         client.subscribe_to_topic(JOB.to_string()).await;
         client.subscribe_to_topic(client.hostname.clone()).await;
 
-        // let current_job: Option<Job> = None;
         loop {
             select! {
                 // here we can insert job_db here to receive event invocation from Tauri_app
                 Some(event) = event_receiver.recv() => self.handle_message(&mut client, event).await,
                 // how do I poll database here?
-                // Some(task) = db.poll_task().await => self.handle_poll(&)
-
-                // how do I poll the machine specs in certain intervals?
+                // how do I poll the machine specs in certain intervals for activity monitor reading?
             }
         }
     }

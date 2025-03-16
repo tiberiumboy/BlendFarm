@@ -452,6 +452,7 @@ impl Blender {
             let script_path = Blender::get_config_path().join("render.py");
             if !script_path.exists() {
                 let data = include_bytes!("./render.py");
+                // TODO: Find a way to remove unwrap()
                 fs::write(&script_path, data).unwrap();
             }
 
@@ -464,6 +465,7 @@ impl Blender {
                 script_path.to_str().unwrap().to_string(),
             ];
 
+            // TODO: Find a way to remove unwrap()
             let stdout = Command::new(executable)
                 .args(col)
                 .stdout(Stdio::piped())
@@ -479,6 +481,7 @@ impl Blender {
             reader.lines().for_each(|line| {
                 if let Ok(line) = line {
                     match line {
+                        // TODO: find a more elegant way to parse the string std out and handle invocation action.
                         line if line.contains("Fra:") => {
                             let col = line.split('|').collect::<Vec<&str>>();
 
@@ -508,7 +511,7 @@ impl Blender {
                             };
                             rx.send(msg).unwrap();
                         }
-                        line if line.contains("Saved:") => {
+                        line if line.contains("SUCCESS:") => {
                             let location = line.split('\'').collect::<Vec<&str>>();
                             let result = PathBuf::from(location[1]);
                             rx.send(Status::Completed { frame, result }).unwrap();

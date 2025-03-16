@@ -182,16 +182,6 @@ def renderWithSettings(renderSettings, frame):
             useDevices("OPTIX", True, False)
             scn.cycles.device = "GPU"
             print("Use OptiX (GPU)")
-
-    # At the moment, we should derive to use the file settings instead of asking user to manually adjust. Remove denoiser if possible   
-    #Denoiser - Disable this until I can figure out how to fetch this info from Blend lib
-    # denoise = renderSettings["Denoiser"]
-    # if denoise is not None:
-    #     if denoise == "None":
-    #         scn.cycles.use_denoising = False
-    #     elif len(denoise) > 0:
-    #         scn.cycles.use_denoising = True
-    #         scn.cycles.denoiser = denoise
             
     # Set Frames Per Second
     fps = renderSettings["FPS"]
@@ -223,10 +213,7 @@ def renderWithSettings(renderSettings, frame):
     print("SUCCESS: " + id + "\n", flush=True)
 
 def runBatch():
-    # Fatal exception was thrown [Errno 61] Connection refused - see if it's the firewall?
     proxy = xmlrpc.client.ServerProxy("http://localhost:8081")
-    
-    # Do i need to send in RPC like this or can it just be a value instead?
     renderSettings = None
     try:
         renderSettings = proxy.fetch_info(1)

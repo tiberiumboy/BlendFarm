@@ -1,7 +1,7 @@
 todo list
 
 Make the GUI app run in client mode?
-provide the menu context to allow user to start or end local client mode.
+provide the menu context to allow user to start or end local client mode session
 
 test fully through, see if it can render the job.
 

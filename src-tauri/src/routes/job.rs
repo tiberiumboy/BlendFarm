@@ -128,11 +128,12 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Resu
         let server = state.lock().await;
         let mut jobs = server.job_db.write().await;
         let _ = jobs.delete_job(&id).await;
-        // TODO: Figure out what suppose to be done and handle here?
-        // let msg = UiCommand::StopJob(id);
-        // if let Err(e) = server.to_network.send(msg).await {
-        //     eprintln!("Fail to send stop job command! {e:?}");
-        // }
+
+        // Once we delete the job from the table, we need to notify the other node cluster to remove it as well.
+        let msg = UiCommand::RemoveJob(id);
+        if let Err(e) = server.to_network.send(msg).await {
+            eprintln!("Fail to send stop job command! {e:?}");
+        }
     }
 
     remote_render_page().await
