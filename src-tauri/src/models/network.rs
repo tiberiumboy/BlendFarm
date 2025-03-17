@@ -339,6 +339,22 @@ pub struct NetworkService {
     // pending_task: HashMap<PeerId, oneshot::Sender<Result<Task, Box<dyn Error + Send>>>>,
 }
 
+struct FileService {
+    pub pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
+    pub pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<()>>,
+    pub pending_request_file: HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
+}
+
+impl FileService {
+    fn new() -> Self {
+        FileService {
+            pending_get_providers: HashMap::new(),
+            pending_start_providing: HashMap::new(),
+            pending_request_file: HashMap::new()
+        }
+    }
+}
+
 impl NetworkService {
     // send command
     async fn handle_command(&mut self) {
@@ -464,7 +480,7 @@ impl NetworkService {
                 Self::handle_mdns(swarm, mdns).await
             }
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Gossipsub(gossip)) => {
-                self.handle_gossip(swarm, gossip).await
+                Self::handle_gossip(&mut self.event_sender, gossip).await
             }
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Kad(kad)) => {
                 self.handle_kademila(kad).await
@@ -697,7 +713,7 @@ impl NetworkService {
                 // }
                 let service = p2.write().await;
                 if let Some(event) = service.swarm.next().await {
-                    service.handle_event(event).await;
+                    service.handle_event(&mut service.swarm, event).await;
                 }
             }
         });
