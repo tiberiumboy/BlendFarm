@@ -20,3 +20,8 @@ pub struct BlendFarmBehaviour {
     // used to provide file availability
     pub kad: kad::Behaviour<kad::store::MemoryStore>,
 }
+
+// would this work for me?
+impl BlendFarmBehaviour {
+
+}

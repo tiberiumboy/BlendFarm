@@ -7,8 +7,7 @@ use crate::models::behaviour::BlendFarmBehaviourEvent;
 use core::str;
 use std::sync::Arc;
 use async_std::stream::StreamExt;
-use futures::StreamExt;
-use futures::{channel::oneshot, prelude::*, StreamExt};
+use futures::{channel::oneshot, prelude::*};
 use libp2p::kad::RecordKey;
 use libp2p::multiaddr::Protocol;
 use libp2p::{
@@ -20,14 +19,14 @@ use libp2p::{
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
 use machine_info::Machine;
 use tokio::sync::RwLock;
-use tokio::task::JoinHandle;
+// use tokio::task::JoinHandle;
 use std::collections::{hash_map, HashMap, HashSet};
 use std::error::Error;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::u64;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::{io, join, select};
+use tokio::{io, join /*, select */};
 
 /*
 Network Service - Provides simple network interface for peer-to-peer network for BlendFarm.
@@ -140,9 +139,7 @@ pub async fn new() -> Result<(NetworkService, NetworkController, Receiver<NetEve
             public_addr: None,
             machine: Machine::new(),
             pending_dial: Default::default(),
-            pending_get_providers: Default::default(),
-            pending_start_providing: Default::default(),
-            pending_request_file: Default::default(),
+            file_service: FileService::new(),
             // pending_task: Default::default(),
         },
         NetworkController {
@@ -330,10 +327,7 @@ pub struct NetworkService {
     public_addr: Option<Multiaddr>,
 
     // empheral key used to stored and communicate with.
-    pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
-    pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<()>>,
-    pending_request_file:
-        HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
+    file_service: FileService,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
     // feels like we got a coupling nightmare here?
     // pending_task: HashMap<PeerId, oneshot::Sender<Result<Task, Box<dyn Error + Send>>>>,
@@ -351,6 +345,57 @@ impl FileService {
             pending_get_providers: HashMap::new(),
             pending_start_providing: HashMap::new(),
             pending_request_file: HashMap::new()
+        }
+    }
+
+    // Handle kademila events (Used for file sharing)
+    // thinking about transferring this to behaviour class?
+    pub async fn handle_kademila(&mut self,  event: kad::Event) {
+        match event {
+            kad::Event::OutboundQueryProgressed {
+                id,
+                result: kad::QueryResult::StartProviding(_),
+                ..
+            } => {
+                let sender: oneshot::Sender<()> = self
+                    .pending_start_providing
+                    .remove(&id)
+                    .expect("Completed query to be previously pending.");
+                let _ = sender.send(());
+            }
+            kad::Event::OutboundQueryProgressed {
+                id,
+                result:
+                    kad::QueryResult::GetProviders(Ok(kad::GetProvidersOk::FoundProviders {
+                        providers,
+                        ..
+                    })),
+                ..
+            } => {
+                if let Some(sender) = self.pending_get_providers.remove(&id) {
+                    sender.send(providers).expect("Receiver not to be dropped");
+                    self.swarm
+                        .behaviour_mut()
+                        .kad
+                        .query_mut(&id)
+                        .unwrap()
+                        .finish();
+                }
+            }
+            kad::Event::OutboundQueryProgressed {
+                result:
+                    kad::QueryResult::GetProviders(Ok(
+                        kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
+                    )),
+                ..
+            } => {
+                // what was suppose to happen here?
+                eprintln!("On OutboundQueryProgressed with result filter of FinishedWithNoAdditionalRecord: This should do something?: {result:?}");
+
+            }
+            _ => {
+                eprintln!("Unhandle Kademila event: {event:?}");
+            }
         }
     }
 }
@@ -377,7 +422,7 @@ impl NetworkService {
                     .behaviour_mut()
                     .request_response
                     .send_request(&peer_id, FileRequest(file_name.into()));
-                self.pending_request_file.insert(request_id, sender);
+                self.file_service.pending_request_file.insert(request_id, sender);
             }
             NetCommand::RespondFile { file, channel } => {
                 // somehow the send_response errored out? How come?
@@ -403,7 +448,7 @@ impl NetworkService {
             NetCommand::GetProviders { file_name, sender } => {
                 let key = RecordKey::new(&file_name.as_bytes());
                 let query_id = self.swarm.behaviour_mut().kad.get_providers(key.into());
-                self.pending_get_providers.insert(query_id, sender);
+                self.file_service.pending_get_providers.insert(query_id, sender);
             }
             NetCommand::StartProviding { file_name, sender } => {
                 let provider_key = RecordKey::new(&file_name.as_bytes());
@@ -414,7 +459,7 @@ impl NetworkService {
                 .start_providing(provider_key)
                 .expect("No store error.");
             
-            self.pending_start_providing.insert(query_id, sender);
+            self.file_service.pending_start_providing.insert(query_id, sender);
             }
             NetCommand::SubscribeTopic(topic) => {
                 let ident_topic = IdentTopic::new(topic);
@@ -475,15 +520,16 @@ impl NetworkService {
 }
 
     async fn handle_event(&mut self, swarm: &mut Swarm<BlendFarmBehaviour>, event: SwarmEvent<BlendFarmBehaviourEvent>) {
+        
         match event {
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Mdns(mdns)) => {
                 Self::handle_mdns(swarm, mdns).await
             }
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Gossipsub(gossip)) => {
-                Self::handle_gossip(&mut self.event_sender, gossip).await
+                Self::handle_gossip(&mut self.event_sender, gossip).await;
             }
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Kad(kad)) => {
-                self.handle_kademila(kad).await
+                self.file_service.handle_kademila(kad).await
             }
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::RequestResponse(rr)) => {
                 self.handle_response(rr).await
@@ -534,7 +580,7 @@ impl NetworkService {
                     response,
                 } => {
                     if let Err(e) = self
-                        .pending_request_file
+                        .file_service.pending_request_file
                         .remove(&request_id)
                         .expect("Request is still pending?")
                         .send(Ok(response.0))
@@ -547,7 +593,7 @@ impl NetworkService {
                 request_id, error, ..
             } => {
                 if let Err(e) = self
-                    .pending_request_file
+                    .file_service.pending_request_file
                     .remove(&request_id)
                     .expect("Request is still pending")
                     .send(Err(Box::new(error)))
@@ -624,69 +670,29 @@ impl NetworkService {
                         eprintln!("Something failed? {e:?}");
                     }
                 }
-                // I may publish to a host name instead to target machine that matches the
+                // I think this needs to be changed.
                 _ => {
-                    let topic = message.topic.as_str();
-                    if topic.eq(&self.machine.system_info().hostname) {
-                        let job_event = bincode::deserialize::<JobEvent>(&message.data)
-                            .expect("Fail to parse job data!");
-                        if let Err(e) = sender
-                            .send(NetEvent::JobUpdate(topic.to_string(), job_event))
-                            .await
-                        {
-                            eprintln!("Fail to send job update!\n{e:?}");
-                        }
-                    } else {
-                        // let data = String::from_utf8(message.data).unwrap();
-                        println!("Intercepted unhandled signal here: {topic}");
-                        // TODO: We may intercept signal for other purpose here, how can I do that?
-                    }
+
+                    eprintln!("Received unhandled gossip event: \n{}", message.topic.as_str());
+                    todo!("Find a way to return the data we received from the network node. We could instead just figure out about the machine's hostname somewhere else");
+                    
+                    // let topic = message.topic.as_str();
+                    // if topic.eq(&self.machine.system_info().hostname) {
+                    //     let job_event = bincode::deserialize::<JobEvent>(&message.data)
+                    //         .expect("Fail to parse job data!");
+                    //     if let Err(e) = sender
+                    //         .send(NetEvent::JobUpdate(topic.to_string(), job_event))
+                    //         .await
+                    //     {
+                    //         eprintln!("Fail to send job update!\n{e:?}");
+                    //     }
+                    // } else {
+                    //     // let data = String::from_utf8(message.data).unwrap();
+                    //     println!("Intercepted unhandled signal here: {topic}");
+                    //     // TODO: We may intercept signal for other purpose here, how can I do that?
+                    // }
                 }
             },
-            _ => {}
-        }
-    }
-
-    // Handle kademila events (Used for file sharing)
-    async fn handle_kademila(&mut self, event: kad::Event) {
-        match event {
-            kad::Event::OutboundQueryProgressed {
-                id,
-                result: kad::QueryResult::StartProviding(_),
-                ..
-            } => {
-                let sender: oneshot::Sender<()> = self
-                    .pending_start_providing
-                    .remove(&id)
-                    .expect("Completed query to be previously pending.");
-                let _ = sender.send(());
-            }
-            kad::Event::OutboundQueryProgressed {
-                id,
-                result:
-                    kad::QueryResult::GetProviders(Ok(kad::GetProvidersOk::FoundProviders {
-                        providers,
-                        ..
-                    })),
-                ..
-            } => {
-                if let Some(sender) = self.pending_get_providers.remove(&id) {
-                    sender.send(providers).expect("Receiver not to be dropped");
-                    self.swarm
-                        .behaviour_mut()
-                        .kad
-                        .query_mut(&id)
-                        .unwrap()
-                        .finish();
-                }
-            }
-            kad::Event::OutboundQueryProgressed {
-                result:
-                    kad::QueryResult::GetProviders(Ok(
-                        kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
-                    )),
-                ..
-            } => {}
             _ => {}
         }
     }
@@ -707,10 +713,6 @@ impl NetworkService {
 
         let network_feedback = tokio::spawn(async move {
             loop {
-                // Here's the problem. Seems like I made a dispatch, but never had the chance to read through? Something blocking the thread?
-                // select! {
-                //     event = self.swarm.select_next_some() => self.handle_event(event).await,
-                // }
                 let service = p2.write().await;
                 if let Some(event) = service.swarm.next().await {
                     service.handle_event(&mut service.swarm, event).await;
