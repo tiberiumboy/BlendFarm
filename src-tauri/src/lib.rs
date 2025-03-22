@@ -42,7 +42,7 @@ use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use tokio::{spawn, sync::RwLock};
+use tokio::sync::RwLock;
 
 pub mod domains;
 pub mod models;
@@ -98,11 +98,8 @@ pub async fn run() {
         .expect("Must have database connection!");
 
     // must have working network services
-    let (service, controller, receiver) =
+    let (controller, receiver) =
         network::new().await.expect("Fail to start network service");
-
-    // start network service async
-    spawn(service.run());
 
     let _ = match cli.command {
         // run as client mode.

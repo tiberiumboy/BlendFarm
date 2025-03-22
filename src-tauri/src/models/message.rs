@@ -74,5 +74,5 @@ pub enum NetEvent {
         request: String,
         channel: ResponseChannel<FileResponse>,
     },
-    JobUpdate(String, JobEvent),
+    JobUpdate(JobEvent),
 }

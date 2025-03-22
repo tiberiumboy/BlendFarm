@@ -305,7 +305,7 @@ impl TauriApp {
                         .await
                 }
             }
-            NetEvent::JobUpdate(_host, job_event) => match job_event {
+            NetEvent::JobUpdate(job_event) => match job_event {
                 // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
                 JobEvent::ImageCompleted {
                     job_id,

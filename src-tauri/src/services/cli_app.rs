@@ -47,6 +47,7 @@ impl CliApp {
     // TODO: May have to refactor this to take consideration of Job Storage
     // How do I abort the job?
     // Invokes the render job. The task needs to be mutable for frame deque.
+    // TODO: Rewrite this to meet Single responsibility principle. 
     async fn render_task(
         &mut self,
         client: &mut NetworkController,
@@ -175,33 +176,33 @@ impl CliApp {
         };
     }
 
-    async fn handle_message(&mut self, client: &mut NetworkController, event: NetEvent) {
+    // handle income net event message
+    async fn handle_net_event(&mut self, client: &mut NetworkController, event: NetEvent) {
         match event {
             NetEvent::OnConnected(peer_id) => client.share_computer_info(peer_id).await,
             NetEvent::NodeDiscovered(..) => {}  // Ignored
             NetEvent::NodeDisconnected(_) => {} // ignored
-            NetEvent::JobUpdate(hostname, job_event) => match job_event {
+            NetEvent::JobUpdate(job_event) => match job_event {
                 // on render task received, we should store this in the database.
-                JobEvent::Render(mut task) => {
+                JobEvent::Render(task) => {
                     // TODO: consider adding a poll/queue for all of the pending task to work on.
                     // This poll can be queued by other nodes to check if this node have any pending task to work on.
                     // This will help us balance our workstation priority flow.
                     // for now we'll try to get one job to focused on.
-                    self.render_task(client, &hostname, &mut task).await
+                    let db = self.task_store.write().await;
+                    if let Err(e) = db.add_task(task).await {
+                        eprintln!("Unable to add task! {e:?}");
+                    }
                 }
                 JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
                 // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
                 JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
-                // Remove what exactly? Task? Job?
-                JobEvent::Remove(id) => {
+                // Remove all task with matching job id.
+                JobEvent::Remove(job_id) => {
                     let db = self.task_store.write().await;
-                    let _ = db.delete_job_task(&id).await;
-                    // let mut db = self.job_store.write().await;
-                    // if let Err(e) = db.delete_job(id).await {
-                    //     eprintln!("Fail to remove job from database! {e:?}");
-                    // } else {
-                    //     println!("Successfully remove job from database!");
-                    // }
+                    if let Err(e) = db.delete_job_task(&job_id).await {
+                        eprintln!("Unable to remove all task with matching job id! {e:?}");
+                    }
                 }
                 _ => println!("Unhandle Job Event: {job_event:?}"),
             },
@@ -237,7 +238,7 @@ impl BlendFarm for CliApp {
         loop {
             select! {
                 // here we can insert job_db here to receive event invocation from Tauri_app
-                Some(event) = event_receiver.recv() => self.handle_message(&mut client, event).await,
+                Some(event) = event_receiver.recv() => self.handle_net_event(&mut client, event).await,
                 // how do I poll database here?
                 // how do I poll the machine specs in certain intervals for activity monitor reading?
             }
