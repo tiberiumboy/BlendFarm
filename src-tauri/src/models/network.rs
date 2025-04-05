@@ -3,28 +3,24 @@ use super::job::JobEvent;
 use super::message::{NetCommand, NetEvent, NetworkError};
 use super::server_setting::ServerSetting;
 use core::str;
-use std::sync::Arc;
 use futures::{channel::oneshot, prelude::*};
 use libp2p::gossipsub;
-use libp2p::{
-    kad, mdns, ping,
-    swarm::Swarm,
-    tcp, Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
-};
+use libp2p::{kad, mdns, ping, swarm::Swarm, tcp, Multiaddr, PeerId, StreamProtocol, SwarmBuilder};
 use libp2p_request_response::{ProtocolSupport, ResponseChannel};
 use machine_info::Machine;
-use tokio::sync::RwLock;
-use tokio::task::JoinHandle;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use std::u64;
 use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use tokio::{io, join /*, select */};
 
 /*
-Network Service - Receive, handle, and process network request. 
+Network Service - Receive, handle, and process network request.
 */
 
 pub const STATUS: &str = "blendfarm/status";
@@ -36,8 +32,7 @@ const TRANSFER: &str = "/file-transfer/1";
 // the tuples return two objects
 // Network Controller invokes network commands
 // Receiver<NetCommand> receive network events
-pub async fn new() -> Result<(NetworkController, Receiver<NetEvent>), NetworkError>
-{
+pub async fn new() -> Result<(NetworkController, Receiver<NetEvent>), NetworkError> {
     // wonder if this is a good idea?
     let duration = Duration::from_secs(u64::MAX);
     // let id_keys = identity::Keypair::generate_ed25519();
@@ -147,7 +142,7 @@ pub async fn new() -> Result<(NetworkController, Receiver<NetEvent>), NetworkErr
             // there could be some other factor this this may not work as intended? Let's find out soon!
             public_id,
             hostname: Machine::new().system_info().hostname,
-            thread
+            thread,
         },
         event_receiver,
     ))
@@ -165,10 +160,10 @@ pub struct NetworkController {
     // move this to file_service?
     // Use string to defer OS specific path system. This will be treated as a URI instead. /job_id/frame
     pub providing_files: HashMap<String, PathBuf>,
-    
+
     // making it public until we can figure out how to use it correctly.
     pub public_id: PeerId,
-    
+
     // must have this available somewhere.
     // Can we make this private?
     pub hostname: String,
@@ -248,10 +243,10 @@ impl NetworkController {
         destination: &PathBuf,
     ) -> Result<PathBuf, NetworkError> {
         let providers = self.get_providers(&file_name).await;
-        
+
         let content = match providers.iter().next() {
             Some(peer_id) => self.request_file(peer_id, file_name).await,
-            None => return Err(NetworkError::NoPeerProviderFound)
+            None => return Err(NetworkError::NoPeerProviderFound),
         };
 
         match content {
@@ -261,7 +256,7 @@ impl NetworkController {
                     Ok(_) => Ok(file_path),
                     Err(e) => Err(NetworkError::UnableToSave(e.to_string())),
                 }
-            },
+            }
             Err(e) => {
                 // Received a "Timeout" error? What does that mean? Should I try to reconnect?
                 eprintln!("No peer found? {e:?}");
@@ -326,7 +321,7 @@ pub struct NetworkService {
 
     // receive Network command
     receiver: Receiver<NetCommand>,
-    
+
     // Send Network event to subscribers.
     sender: Sender<NetEvent>,
 
@@ -334,7 +329,7 @@ pub struct NetworkService {
     machine: Machine,
 
     public_addr: Option<Multiaddr>,
-    
+
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
     // feels like we got a coupling nightmare here?
     // pending_task: HashMap<PeerId, oneshot::Sender<Result<Task, Box<dyn Error + Send>>>>,
@@ -342,26 +337,23 @@ pub struct NetworkService {
 
 // network service will be used to handle and receive network signal. It will also transmit network package over lan
 impl NetworkService {
-
     pub fn get_host_name(&mut self) -> String {
         self.machine.system_info().hostname
     }
 
     // when I run, this will continue to run indefinitely
     pub async fn run(&mut self, cmd: &mut Receiver<NetCommand>, sender: Sender<NetEvent>) {
-        
-
         let b1 = Arc::new(RwLock::new(self.swarm.behaviour_mut()));
         let b2 = b1.clone();
         let fs1 = Arc::new(RwLock::new(FileService::new()));
         let fs2 = fs1.clone();
 
         // should have a channel here to send command in between?
-        let cmd_loop = tokio::spawn( async move {
+        let cmd_loop = tokio::spawn(async move {
             for cmd in cmd.recv().await {
                 let mut file_service = fs1.write().await;
                 let mut behaviour = b1.write().await;
-                &mut behaviour.handle_command( &mut file_service, cmd ).await;
+                &mut behaviour.handle_command(&mut file_service, cmd).await;
             }
         });
 
@@ -371,11 +363,13 @@ impl NetworkService {
                 if let Some(event) = &self.swarm.next().await {
                     let mut file_service = fs2.write().await;
                     let mut behaviour = b2.write().await;
-                    &mut behaviour.handle_event(&mut sender, &mut file_service, &event).await;
+                    &mut behaviour
+                        .handle_event(&mut sender, &mut file_service, event)
+                        .await;
                 }
             }
         });
-        
+
         // how do I gracefully abort?
         join!(cmd_loop, net_loop);
     }

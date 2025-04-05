@@ -1,14 +1,27 @@
-use std::{collections::{HashMap, HashSet}, error::Error};
 use futures::channel::oneshot;
-use libp2p::{gossipsub::{self, IdentTopic}, kad::{self, RecordKey}, mdns, ping, swarm::{NetworkBehaviour, SwarmEvent}, PeerId};
+use libp2p::{
+    gossipsub::{self, IdentTopic},
+    kad::{self, RecordKey},
+    mdns, ping,
+    swarm::{NetworkBehaviour, SwarmEvent},
+    PeerId,
+};
 use libp2p_request_response::{cbor, OutboundRequestId};
 use machine_info::Machine;
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+};
 use tokio::sync::mpsc::Sender;
 
 use crate::models::job::JobEvent;
 
-use super::{computer_spec::ComputerSpec, message::{NetCommand, NetEvent}, network::{SPEC, STATUS}};
+use super::{
+    computer_spec::ComputerSpec,
+    message::{NetCommand, NetEvent},
+    network::{SPEC, STATUS},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileRequest(pub String);
@@ -19,7 +32,8 @@ pub struct FileResponse(pub Vec<u8>);
 pub struct FileService {
     pub pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pub pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<()>>,
-    pub pending_request_file: HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
+    pub pending_request_file:
+        HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
 }
 
 impl FileService {
@@ -27,7 +41,7 @@ impl FileService {
         FileService {
             pending_get_providers: HashMap::new(),
             pending_start_providing: HashMap::new(),
-            pending_request_file: HashMap::new()
+            pending_request_file: HashMap::new(),
         }
     }
 }
@@ -49,7 +63,7 @@ pub struct BlendFarmBehaviour {
 impl BlendFarmBehaviour {
     // send command
     // is it possible to not use self?
-    pub async fn handle_command(&mut self, file_service: &mut FileService, cmd: NetCommand, ) {
+    pub async fn handle_command(&mut self, file_service: &mut FileService, cmd: NetCommand) {
         match cmd {
             NetCommand::Status(msg) => {
                 let data = msg.as_bytes();
@@ -102,28 +116,25 @@ impl BlendFarmBehaviour {
                     .kad
                     .start_providing(provider_key)
                     .expect("No store error.");
-                
-                file_service.pending_start_providing.insert(query_id, sender);
+
+                file_service
+                    .pending_start_providing
+                    .insert(query_id, sender);
             }
             NetCommand::SubscribeTopic(topic) => {
-                let ident_topic = IdentTopic::new(topic);                
-                self
-                    .gossipsub
-                    .subscribe(&ident_topic)
-                    .unwrap();
+                let ident_topic = IdentTopic::new(topic);
+                self.gossipsub.subscribe(&ident_topic).unwrap();
             }
             NetCommand::UnsubscribeTopic(topic) => {
                 let ident_topic = IdentTopic::new(topic);
-                self
-                    .gossipsub
-                    .unsubscribe(&ident_topic);
+                self.gossipsub.unsubscribe(&ident_topic);
             }
             // for the time being we'll use gossip.
             // TODO: For future impl. I would like to target peer by peer_id instead of host name.
             NetCommand::JobStatus(host_name, event) => {
                 // convert data into json format.
                 let data = bincode::serialize(&event).unwrap();
-                
+
                 // currently using a hack by making the target machine subscribe to their hostname.
                 // the manager will send message to that specific hostname as target instead.
                 // TODO: Read more about libp2p and how I can just connect to one machine and send that machine job status information.
@@ -131,7 +142,7 @@ impl BlendFarmBehaviour {
                 if let Err(e) = self.gossipsub.publish(topic, data) {
                     eprintln!("Error sending job status! {e:?}");
                 }
-                
+
                 /*
                 Let's break this down, we receive a worker with peer_id and peer_addr, both of which will be used to establish communication
                 Once we establish a communication, that target peer will need to receive the pending task we have assigned for them.
@@ -144,7 +155,10 @@ impl BlendFarmBehaviour {
                 peer_addr,
                 sender,
             } => {
-                println!("Dialed: \nid:{:?}\naddr:{:?}\nsender:{:?}", peer_id, peer_addr, sender);
+                println!(
+                    "Dialed: \nid:{:?}\naddr:{:?}\nsender:{:?}",
+                    peer_id, peer_addr, sender
+                );
                 // Ok so where is this coming from?
                 // if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
                 //     behaviour
@@ -163,20 +177,21 @@ impl BlendFarmBehaviour {
         }
     }
 
-    pub async fn handle_event( &mut self, 
+    pub async fn handle_event(
+        &mut self,
         sender: &mut Sender<NetEvent>,
-        file_service: &mut FileService, 
-        event: &SwarmEvent<BlendFarmBehaviourEvent>
-    ) {    
+        file_service: &mut FileService,
+        event: &SwarmEvent<BlendFarmBehaviourEvent>,
+    ) {
         match event {
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Mdns(mdns)) => {
-                self.handle_mdns(mdns).await
+                self.handle_mdns(&mdns).await
             }
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Gossipsub(gossip)) => {
-                Self::handle_gossip(sender, gossip).await;
+                Self::handle_gossip(sender, &gossip).await;
             }
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Kad(kad)) => {
-                self.handle_kademila(&mut file_service, kad).await
+                self.handle_kademila(&mut file_service, &kad).await
             }
             SwarmEvent::Behaviour(BlendFarmBehaviourEvent::RequestResponse(rr)) => {
                 Self::handle_response(sender, &mut file_service, rr).await
@@ -219,7 +234,7 @@ impl BlendFarmBehaviour {
                     sender
                         .send(NetEvent::InboundRequest {
                             request: request.0,
-                            channel,
+                            channel: channel.into(),
                         })
                         .await
                         .expect("Event receiver should not be dropped!");
@@ -228,7 +243,8 @@ impl BlendFarmBehaviour {
                     request_id,
                     response,
                 } => {
-                    if let Err(e) = file_service.pending_request_file
+                    if let Err(e) = file_service
+                        .pending_request_file
                         .remove(&request_id)
                         .expect("Request is still pending?")
                         .send(Ok(response.0))
@@ -240,7 +256,8 @@ impl BlendFarmBehaviour {
             libp2p_request_response::Event::OutboundFailure {
                 request_id, error, ..
             } => {
-                if let Err(e) = file_service.pending_request_file
+                if let Err(e) = file_service
+                    .pending_request_file
                     .remove(&request_id)
                     .expect("Request is still pending")
                     .send(Err(Box::new(error)))
@@ -257,21 +274,15 @@ impl BlendFarmBehaviour {
         match event {
             mdns::Event::Discovered(peers) => {
                 for (peer_id, address) in peers {
-                    self
-                        .gossipsub
-                        .add_explicit_peer(&peer_id);
+                    self.gossipsub.add_explicit_peer(&peer_id);
 
                     // add the discover node to kademlia list.
-                    self
-                        .kad
-                        .add_address(&peer_id, address.clone());
+                    self.kad.add_address(&peer_id, address.clone());
                 }
             }
             mdns::Event::Expired(peers) => {
                 for (peer_id, ..) in peers {
-                    self
-                        .gossipsub
-                        .remove_explicit_peer(&peer_id);
+                    self.gossipsub.remove_explicit_peer(&peer_id);
                 }
             }
         };
@@ -285,10 +296,7 @@ impl BlendFarmBehaviour {
                     let source = message.source.expect("Source cannot be empty!");
                     let specs =
                         bincode::deserialize(&message.data).expect("Fail to parse Computer Specs!");
-                    if let Err(e) = sender
-                        .send(NetEvent::NodeDiscovered(source, specs))
-                        .await
-                    {
+                    if let Err(e) = sender.send(NetEvent::NodeDiscovered(source, specs)).await {
                         eprintln!("Something failed? {e:?}");
                     }
                 }
@@ -307,19 +315,18 @@ impl BlendFarmBehaviour {
 
                     // I don't think this function is called?
                     println!("Is this function used?");
-                    if let Err(e) = sender
-                        .send(NetEvent::JobUpdate(job_event))
-                        .await
-                    {
+                    if let Err(e) = sender.send(NetEvent::JobUpdate(job_event)).await {
                         eprintln!("Something failed? {e:?}");
                     }
                 }
                 // I think this needs to be changed.
                 _ => {
-
-                    eprintln!("Received unhandled gossip event: \n{}", message.topic.as_str());
+                    eprintln!(
+                        "Received unhandled gossip event: \n{}",
+                        message.topic.as_str()
+                    );
                     todo!("Find a way to return the data we received from the network node. We could instead just figure out about the machine's hostname somewhere else");
-                    
+
                     // let topic = message.topic.as_str();
                     // if topic.eq(&self.machine.system_info().hostname) {
                     //     let job_event = bincode::deserialize::<JobEvent>(&message.data)
@@ -366,12 +373,10 @@ impl BlendFarmBehaviour {
                 ..
             } => {
                 if let Some(sender) = file_service.pending_get_providers.remove(&id) {
-                    sender.send(providers.clone()).expect("Receiver not to be dropped");
-                    self
-                        .kad
-                        .query_mut(&id)
-                        .unwrap()
-                        .finish();
+                    sender
+                        .send(providers.clone())
+                        .expect("Receiver not to be dropped");
+                    self.kad.query_mut(&id).unwrap().finish();
                 }
             }
             kad::Event::OutboundQueryProgressed {
@@ -382,14 +387,14 @@ impl BlendFarmBehaviour {
                 ..
             } => {
                 // what was suppose to happen here?
-                println!(r#"On OutboundQueryProgressed with result filter of 
-                FinishedWithNoAdditionalRecord: This should do something?"#);
-
+                println!(
+                    r#"On OutboundQueryProgressed with result filter of 
+                FinishedWithNoAdditionalRecord: This should do something?"#
+                );
             }
             _ => {
                 eprintln!("Unhandle Kademila event: {event:?}");
             }
         }
     }
-
 }
