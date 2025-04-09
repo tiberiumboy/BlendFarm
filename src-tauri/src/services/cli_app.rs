@@ -47,7 +47,7 @@ impl CliApp {
     // TODO: May have to refactor this to take consideration of Job Storage
     // How do I abort the job?
     // Invokes the render job. The task needs to be mutable for frame deque.
-    // TODO: Rewrite this to meet Single responsibility principle. 
+    // TODO: Rewrite this to meet Single responsibility principle.
     async fn render_task(
         &mut self,
         client: &mut NetworkController,
@@ -208,7 +208,7 @@ impl CliApp {
             },
             // maybe move this inside Network code? Seems repeative in both cli and Tauri side of application here.
             NetEvent::InboundRequest { request, channel } => {
-                if let Some(path) = client.providing_files.get(&request) {
+                if let Some(path) = client.file_service.providing_files.get(&request) {
                     println!("Sending file {path:?}");
                     client
                         .respond_file(std::fs::read(path).unwrap(), channel)

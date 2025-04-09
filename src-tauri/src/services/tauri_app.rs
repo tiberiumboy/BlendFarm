@@ -17,7 +17,7 @@ use blender::{manager::Manager as BlenderManager,models::mode::Mode};
 use libp2p::PeerId;
 use maud::html;
 use std::{collections::HashMap, ops::Range, sync::Arc, path::PathBuf, thread::sleep, time::Duration};
-use tauri::{self, command, App, AppHandle, Emitter, Manager};
+use tauri::{self, command, App};
 use tokio::{
     select, spawn, sync::{
         mpsc::{self, Receiver, Sender},
@@ -265,16 +265,13 @@ impl TauriApp {
         &mut self,
         client: &mut NetworkController,
         event: NetEvent,
+        // TODO: Remove this? Refactor so it's not coupled.
         // This is currently used to receive worker's status update. We do not want to store this information in the database, instead it should be sent only when the application is available.
-        app_handle: Arc<RwLock<AppHandle>>,
+        // app_handle: Arc<RwLock<AppHandle>>,
     ) {
         match event {
             NetEvent::Status(peer_id, msg) => {
-                // this may soon change.
-                let handle = app_handle.read().await;
-                handle
-                    .emit("node_status", (peer_id.to_base58(), msg))
-                    .unwrap();
+                println!("Status received [{peer_id}]: {msg}");
             }
             NetEvent::NodeDiscovered(peer_id, spec) => {
                 let worker = Worker::new(peer_id, spec.clone());
@@ -299,10 +296,9 @@ impl TauriApp {
                 self.peers.remove(&peer_id);
             }
             NetEvent::InboundRequest { request, channel } => {
-                if let Some(path) = client.providing_files.get(&request) {
-                    client
-                        .respond_file(std::fs::read(path).unwrap(), channel)
-                        .await
+                if let Some(path) = client.file_service.providing_files.get(&request) {
+                    let path = std::fs::read(path).unwrap();
+                    client.respond_file(path, channel).await;
                 }
             }
             NetEvent::JobUpdate(job_event) => match job_event {
@@ -388,14 +384,14 @@ impl BlendFarm for TauriApp {
 
         // create a safe and mutable way to pass application handler to send notification from network event.
         // TODO: Get rid of this.
-        let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
+        // let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
 
         // create a background loop to send and process network event
         spawn(async move {
             loop {
                 select! {
                     Some(msg) = command.recv() => self.handle_command(&mut client, msg).await,
-                    Some(event) = event_receiver.recv() => self.handle_net_event(&mut client, event, app_handle.clone()).await,
+                    Some(event) = event_receiver.recv() => self.handle_net_event(&mut client, event).await,
                 }
             }
         });
