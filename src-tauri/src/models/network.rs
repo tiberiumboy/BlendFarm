@@ -177,14 +177,14 @@ impl NetworkController {
         self.sender
             .send(NetCommand::SubscribeTopic(topic))
             .await
-            .unwrap();
+            .expect("sender should not be closed!");
     }
 
     pub async fn unsubscribe_from_topic(&mut self, topic: String) {
         self.sender
             .send(NetCommand::UnsubscribeTopic(topic))
             .await
-            .unwrap();
+            .expect("sender should not be closed!");
     }
 
     pub async fn send_status(&mut self, status: String) {
@@ -223,7 +223,9 @@ impl NetworkController {
             .await
             .expect("Command receiver not to be dropped");
         // somehow receiver was dropped?
-        receiver.await.expect("Sender should not be dropped");
+        if let Err(e) = receiver.await {
+            eprintln!("Why did the receiver dropped? What happen?: {e:?}");
+        }
     }
 
     pub async fn get_providers(&mut self, file_name: &str) -> HashSet<PeerId> {
@@ -282,9 +284,7 @@ impl NetworkController {
             })
             .await
             .expect("Command receiver should not be dropped");
-        receiver
-            .await
-            .expect("Command receiver should not be dropped")
+        receiver.await
     }
 
     async fn request_file(
@@ -301,7 +301,9 @@ impl NetworkController {
             })
             .await
             .expect("Command should not be dropped");
-        receiver.await.expect("Sender should not be dropped")
+        if let Err(e) = receiver.await {
+            println!("Command should not have been dropped? {e:?}");
+        }
     }
 
     pub(crate) async fn respond_file(
@@ -310,10 +312,9 @@ impl NetworkController {
         channel: ResponseChannel<FileResponse>,
     ) {
         let cmd = NetCommand::RespondFile { file, channel };
-        self.sender
-            .send(cmd)
-            .await
-            .expect("Command should not be dropped");
+        if let Err(e) = self.sender.send(cmd).await {
+            println!("Command should not be dropped: {e:?}");
+        }
     }
 }
 
@@ -643,10 +644,14 @@ impl NetworkService {
                 }
                 // I think this needs to be changed.
                 _ => {
+                    //
                     eprintln!(
-                        "Received unhandled gossip event: \n{}",
-                        message.topic.as_str()
+                        "Received unhandled gossip event: \n{}\n{:?}",
+                        message.topic.as_str(),
+                        message.data.to_vec()
                     );
+                    // I received Mac.lan from message.topic?
+                    // what does this mean?
                     todo!("Find a way to return the data we received from the network node. We could instead just figure out about the machine's hostname somewhere else");
 
                     // let topic = message.topic.as_str();
