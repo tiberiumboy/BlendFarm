@@ -45,6 +45,7 @@ pub struct TauriApp {
     peers: HashMap<PeerId, ComputerSpec>,
     worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static)>>,
     job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>,
+    settings: ServerSetting,
 }
 
 #[command]
@@ -95,6 +96,7 @@ impl TauriApp {
             peers: Default::default(),
             worker_store,
             job_store,
+            settings: ServerSetting::load(),
         }
     }
 
@@ -309,7 +311,7 @@ impl TauriApp {
                     file_name,
                 } => {
                     // create a destination with respective job id path.
-                    let destination = client.settings.render_dir.join(job_id.to_string());
+                    let destination = self.settings.render_dir.join(job_id.to_string());
                     if let Err(e) = async_std::fs::create_dir_all(destination.clone()).await {
                         println!("Issue creating temp job directory! {e:?}");
                     }
@@ -381,10 +383,6 @@ impl BlendFarm for TauriApp {
         let app = self
             .config_tauri_builder(event)
             .expect("Fail to build tauri app - Is there an active display session running?");
-
-        // create a safe and mutable way to pass application handler to send notification from network event.
-        // TODO: Get rid of this.
-        // let app_handle = Arc::new(RwLock::new(app.app_handle().clone()));
 
         // create a background loop to send and process network event
         spawn(async move {

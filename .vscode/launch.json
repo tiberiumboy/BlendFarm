@@ -8,7 +8,7 @@
             "name": "dbg Dev client",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceRoot}/target/debug/blendfarm",
+            "program": "${workspaceRoot}/src-tauri/target/debug/blendfarm",
             "args": [
                 // "build",
                 // "--manifest-path=./src-tauri/Cargo.toml",

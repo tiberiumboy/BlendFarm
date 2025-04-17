@@ -99,6 +99,8 @@ pub enum BlenderError {
     RenderError(String),
     #[error("Unable to launch blender! Received Python errors: {0}")]
     PythonError(String),
+    #[error("Unable to fetch info from blender home service! Are you connected to the internet and is blender foundation still around?")]
+    ServiceOffline,
 }
 
 /// Blender structure to hold path to executable and version of blender installed.
@@ -218,8 +220,7 @@ impl Blender {
             path
         };
 
-        // this should be clear and explicit that I must have a valid path? How can I do this?
-        // does it need a wrapper?
+        // this should be clear and explicit that I must have a valid path?
         if !path.exists() {
             return Err(BlenderError::ExecutableNotFound(path.to_path_buf()));
         }
@@ -311,19 +312,25 @@ impl Blender {
         // using scope to drop manager usage.
         let blend_version = {
             let manager = Manager::load();
-
-            // Get the latest patch from blender home
-            match manager
-                .home
-                .as_ref()
-                .iter()
-                .find(|v| v.major.eq(&major) && v.minor.eq(&minor))
-            {
-                // TODO: Find a better way to handle this without using unwrap
-                Some(v) => v.fetch_latest().unwrap().as_ref().clone(),
-                // potentially could be a problem, if there's no internet connection, then we can't rely on zero patch?
-                // For now this will do.
-                None => Version::new(major.into(), minor.into(), 0),
+            match manager.have_blender_partial(major, minor) {
+                Some(blend) => blend.version.clone(),
+                None => {
+                    match manager.home.get_version(major, minor) {
+                        Some(category) => {
+                            match category.fetch_latest() {
+                                Ok(link) => link.get_version().to_owned(),
+                                Err(e) => {
+                                    eprintln!("Encounter a blender category error when searching for partial version online. Are you connected to the internet? : {e:?}");
+                                    Version::new(major,minor,0)
+                                }
+                            }
+                        }
+                        None => {
+                            eprintln!("Somehow this went through all? User does not have version installed and unable to connect to internet? Version {major}.{minor}");
+                            Version::new(major, minor, 0)
+                        },
+                    }
+                }
             }
         };
 

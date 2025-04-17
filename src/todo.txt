@@ -1,10 +1,14 @@
-todo list
+[todo]
+    Make the GUI app run in client mode?
+    test fully through, see if it can render the job.
 
-Make the GUI app run in client mode?
-provide the menu context to allow user to start or end local client mode session
+[issues]
+    My client is not receiving network event from host.
+E.g. 
+%> Sending task Task { requestor: "udev", job_id: f5f3af8b-4a74-4729-84e1-d25c4da4f4dc, blender_version: Version { major: 4, minor: 1, patch: 0 }, blend_file_name: "test.blend", range: 1..10 } to "udev"
 
-test fully through, see if it can render the job.
-
-client does not send message while the job is running, 
+client does not send message while the job is running, I thought this was done async? what's going on?
 - only at the end of the task does it ever notify host?
 
+[features]
+    provide the menu context to allow user to start or end local client mode session

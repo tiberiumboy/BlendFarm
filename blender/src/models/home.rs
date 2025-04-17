@@ -1,7 +1,7 @@
-use super::category::BlenderCategory;
+use super::category::{BlenderCategory, BlenderCategoryError};
 use crate::page_cache::PageCache;
 use regex::Regex;
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, ErrorKind};
 use url::Url;
 
 #[derive(Debug)]
@@ -13,7 +13,7 @@ pub struct BlenderHome {
 }
 
 impl BlenderHome {
-    fn get_content(cache: &mut PageCache) -> Result<Vec<BlenderCategory>> {
+    fn get_content(cache: &mut PageCache) -> Result<Vec<BlenderCategory>, Error> {
         let parent = Url::parse("https://download.blender.org/release/").unwrap();
         let content = cache.fetch(&parent)?;
 
@@ -43,25 +43,29 @@ impl BlenderHome {
     }
 
     // I need to have this reference regardless. Offline or online mode.
-    pub fn new() -> Result<Self> {
-        //  TODO: Verify this-: In original source code - there's a comment implying we should use cache as much as possible to avoid possible IP lacklisted.
+    pub fn new() -> Result<Self, Error> {
+        //  TODO: Verify this-: In original source code - there's a comment implying we should use cache as much as possible to avoid possible IP Blacklisted.
         let mut cache = PageCache::load()?;
-        let list = match Self::get_content(&mut cache) {
-            Ok(col) => col,
-            // maybe the user is offline, we don't know, and that's ok! This shouldn't stop the program from running
-            // TODO: It would be nice to indicate that we're running in offline mode. Disable some feature such as download blender from web.
-            Err(e) => {
-                eprintln!("Unable to get content! {e:?}");
-                Vec::new()
-            }
-        };
+        let list = Self::get_content(&mut cache).unwrap_or_else(|_| Vec::new());
         Ok(Self { list, cache })
     }
 
-    pub fn refresh(&mut self) -> Result<()> {
+    pub fn refresh(&mut self) -> Result<(), Error> {
         let content = Self::get_content(&mut self.cache)?;
         self.list = content;
         Ok(())
+    }
+
+    pub fn get_latest(&self) -> Result<&BlenderCategory, BlenderCategoryError> {
+        self.list.first().ok_or_else( || { BlenderCategoryError::NotFound })
+    }
+
+    // I may want to change this to see if I'm picking the one from locally installed or from remote
+    pub fn get_version(&self, major: u64, minor: u64) -> Option<&BlenderCategory> {
+        // Get the latest patch from blender home
+        self.list
+            .iter()
+            .find(|v| v.major.eq(&major) && v.minor.eq(&minor))
     }
 }
 

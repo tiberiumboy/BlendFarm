@@ -142,7 +142,6 @@ pub async fn new() -> Result<(NetworkController, Receiver<NetEvent>), NetworkErr
         NetworkController {
             sender,
             file_service: FileService::new(),
-            settings: ServerSetting::load(),
             public_id,
             hostname: Machine::new().system_info().hostname,
             thread,
@@ -156,9 +155,6 @@ pub struct NetworkController {
     // send net commands
     sender: mpsc::Sender<NetCommand>,
 
-    // contain server settings...? Questionable? Dependency coupling?
-    pub settings: ServerSetting,
-
     // making it public until we can figure out how to use it correctly.
     pub public_id: PeerId,
 
@@ -166,6 +162,7 @@ pub struct NetworkController {
     // Can we make this private?
     pub hostname: String,
 
+    // Hmm? why does it need to be public?
     pub file_service: FileService,
 
     // network service background thread
@@ -213,15 +210,18 @@ impl NetworkController {
 
     pub async fn start_providing(&mut self, file_name: String, path: PathBuf) {
         let (sender, receiver) = oneshot::channel();
+        
         self.file_service
             .providing_files
             .insert(file_name.clone(), path);
         println!("Start providing file {:?}", &file_name);
         let cmd = NetCommand::StartProviding { file_name, sender };
+        
         self.sender
             .send(cmd)
             .await
             .expect("Command receiver not to be dropped");
+
         // somehow receiver was dropped?
         if let Err(e) = receiver.await {
             eprintln!("Why did the receiver dropped? What happen?: {e:?}");
@@ -284,7 +284,7 @@ impl NetworkController {
             })
             .await
             .expect("Command receiver should not be dropped");
-        receiver.await
+        receiver.await.expect("Should not be closed?")
     }
 
     async fn request_file(
@@ -301,9 +301,7 @@ impl NetworkController {
             })
             .await
             .expect("Command should not be dropped");
-        if let Err(e) = receiver.await {
-            println!("Command should not have been dropped? {e:?}");
-        }
+        receiver.await.expect("Should not be closed?") 
     }
 
     pub(crate) async fn respond_file(
@@ -362,7 +360,7 @@ impl NetworkService {
             NetCommand::RequestFile {
                 peer_id,
                 file_name,
-                sender: snd,
+                .. // sender: snd,
             } => {
                 let request_id = self
                     .swarm
@@ -644,31 +642,24 @@ impl NetworkService {
                 }
                 // I think this needs to be changed.
                 _ => {
-                    //
-                    eprintln!(
-                        "Received unhandled gossip event: \n{}\n{:?}",
-                        message.topic.as_str(),
-                        message.data.to_vec()
-                    );
                     // I received Mac.lan from message.topic?
-                    // what does this mean?
-                    todo!("Find a way to return the data we received from the network node. We could instead just figure out about the machine's hostname somewhere else");
+                    let topic = message.topic.as_str();
+                    if topic.eq(&self.machine.system_info().hostname) {
+                        let job_event = bincode::deserialize::<JobEvent>(&message.data)
+                            .expect("Fail to parse job data!");
+                        
+                        if let Err(e) = self.sender
+                            .send(NetEvent::JobUpdate(job_event))
+                            .await
+                        {
+                            eprintln!("Fail to send job update!\n{e:?}");
+                        }
 
-                    // let topic = message.topic.as_str();
-                    // if topic.eq(&self.machine.system_info().hostname) {
-                    //     let job_event = bincode::deserialize::<JobEvent>(&message.data)
-                    //         .expect("Fail to parse job data!");
-                    //     if let Err(e) = sender
-                    //         .send(NetEvent::JobUpdate(topic.to_string(), job_event))
-                    //         .await
-                    //     {
-                    //         eprintln!("Fail to send job update!\n{e:?}");
-                    //     }
-                    // } else {
-                    //     // let data = String::from_utf8(message.data).unwrap();
-                    //     println!("Intercepted unhandled signal here: {topic}");
-                    //     // TODO: We may intercept signal for other purpose here, how can I do that?
-                    // }
+                    } else {
+                        // let data = String::from_utf8(message.data).unwrap();
+                        eprintln!("Intercepted unhandled signal here: {topic}");
+                        // TODO: We may intercept signal for other purpose here, how can I do that?
+                    }
                 }
             },
             _ => {}
@@ -721,8 +712,11 @@ impl NetworkService {
                     FinishedWithNoAdditionalRecord: This should do something?"#
                 );
             }
+            
+            // ignoring for now.
+            kad::Event::InboundRequest { .. } => {}
             _ => {
-                eprintln!("Unhandle Kademila event: {event:?}");
+                eprintln!("Unhandled Kademila event: {event:?}");
             }
         }
     }

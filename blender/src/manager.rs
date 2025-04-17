@@ -51,8 +51,13 @@ pub enum ManagerError {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BlenderConfig {
+    /// List of installed blenders
     blenders: Vec<Blender>,
+    
+    /// Install path leads to ~/Downloads/Blender
     install_path: PathBuf,
+
+    /// auto save configuration features
     auto_save: bool,
 }
 
@@ -61,8 +66,8 @@ pub struct BlenderConfig {
 pub struct Manager {
     /// Store all known installation of blender directory information
     config: BlenderConfig,
-    pub home: BlenderHome, // for now let's make this public
-    has_modified: bool,
+    pub home: BlenderHome, // for now let's make this public until we can reduce couplings usage from outside scope
+    has_modified: bool, // detect if the configuration has changed.
 }
 
 impl Default for Manager {
@@ -101,21 +106,17 @@ impl Manager {
         Self::get_config_dir().join("BlenderManager.json")
     }
 
-    // Download the specific version from download.blender.org
+    // Download the specific version from url
     pub fn download(&mut self, version: &Version) -> Result<Blender, ManagerError> {
         // TODO: As a extra security measure, I would like to verify the hash of the content before extracting the files.
         let arch = std::env::consts::ARCH.to_owned();
         let os = std::env::consts::OS.to_owned();
 
         let category = self
-            .home
-            .as_ref()
-            .iter()
-            .find(|&b| b.major.eq(&version.major) && b.minor.eq(&version.minor))
-            .ok_or(ManagerError::DownloadNotFound {
+            .home.get_version(version.major, version.minor).ok_or(ManagerError::DownloadNotFound {
                 arch,
                 os,
-                url: "".to_owned(),
+                url: format!("Blender version {}.{} was not found!", version.major, version.minor),
             })?;
 
         let download_link = category
@@ -250,7 +251,8 @@ impl Manager {
         self.remove_blender(_blender);
     }
 
-    // TODO: Name ambiguous - clarify method name to clear and explicit
+    // TODO: Name ambiguous - clarify method name to be clear and explicit
+    /// This will first check if blender is installed locally, otherwise download the version online.
     pub fn fetch_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
         match self.have_blender(version) {
             Some(blender) => Ok(blender.clone()),
@@ -265,6 +267,17 @@ impl Manager {
             .find(|x| x.get_version().eq(version))
     }
 
+    pub fn have_blender_partial(&self, major: u64, minor: u64) -> Option<&Blender> {
+        self.config
+            .blenders
+            .iter()
+            .find(|x| {
+                let v = x.get_version();
+                v.major.eq(&major) && v.minor.eq(&minor)
+            })
+    }
+
+    // TODO: Try to remove unwrap as much as possible
     /// Fetch the latest version of blender available from Blender.org
     /// this function might be ambiguous. Should I use latest_local or latest_online?
     pub fn latest_local_avail(&mut self) -> Option<Blender> {
@@ -274,25 +287,34 @@ impl Manager {
         data.first().map(|v: &Blender| v.to_owned())
     }
 
-    // find a way to hold reference to blender home here?
-    pub fn download_latest_version(&mut self) -> Result<Blender, ManagerError> {
-        // in this case - we need to fetch the latest version from somewhere, download.blender.org will let us fetch the parent before we need to dive into
-        let list = self.home.as_ref();
-        // TODO: Find a way to replace these unwrap()
-        let category = list.first().unwrap();
+    fn generate_destination(&self, category: &BlenderCategory) -> PathBuf {
         let destination = self.config.install_path.join(&category.name);
-
+        
         // got a permission denied here? Interesting?
         // I need to figure out why and how I can stop this from happening?
         fs::create_dir_all(&destination).unwrap();
 
+        destination
+    }
+
+    // find a way to hold reference to blender home here?
+    // split this function
+    pub fn download_latest_version(&mut self) -> Result<Blender, ManagerError> {
+        // in this case - we need to fetch the latest version from somewhere, download.blender.org will let us fetch the parent before we need to dive into
+        let list = self.home.as_ref();
+
+        // TODO: Find a way to replace these unwrap()
+        let category = list.first().unwrap();
+        let destination = self.generate_destination(&category);
         let link = category.fetch_latest().unwrap();
+
         let path = link
             .download_and_extract(&destination)
             .map_err(|e| ManagerError::IoError(e.to_string()))?;
-        dbg!(&path);
+        
+        // I would expect this to always work?
         let blender =
-            Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
+            Blender::from_executable(path).expect("Invalid Blender executable!"); //.map_err(|e| ManagerError::BlenderError { source: e })?;
         self.config.blenders.push(blender.clone());
         Ok(blender)
     }
@@ -308,7 +330,7 @@ impl Drop for Manager {
     fn drop(&mut self) {
         if self.has_modified || self.config.auto_save {
             if let Err(e) = self.save() {
-                println!("Error saving manager file: {}", e);
+                eprintln!("Error saving manager file: {}", e);
             }
         }
     }
