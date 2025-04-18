@@ -6,6 +6,7 @@ use blender::{
 };
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use sqlx::prelude::FromRow;
 use std::{
     ops::Range,
     path::PathBuf,
@@ -21,9 +22,9 @@ pub type NewTaskDto = Task;
     this can be customize to determine what and how many frames to render.
     contains information about who requested the job in the first place so that the worker knows how to communicate back notification.
 */
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Task {
-    /// maybe maybe maybe?
+    /// host machine name that assign us the task
     pub requestor: String,
 
     /// reference to the job id
@@ -67,9 +68,7 @@ impl Task {
             range,
         }
     }
-
-    // this could be async? we'll see.
-
+    
     /// The behaviour of this function returns the percentage of the remaining jobs in poll.
     /// E.g. 102 (80%) of 120 remaining would return 96 end frames.
     /// TODO: Allow other node or host to fetch end frames from this task and distribute to other requesting workers.

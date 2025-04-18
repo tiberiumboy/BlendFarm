@@ -1,3 +1,4 @@
+use async_std::task::Task;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
@@ -40,8 +41,18 @@ impl TaskStore for SqliteTaskStore {
     }
 
     // TODO: Clarify definition here?
-    async fn poll_task(&self) -> Result<CreatedTaskDto, TaskError> {
-        todo!("poll pending task?");
+    async fn poll_task(&self) -> Result<CreatedTaskDto, TaskError> {d
+        // the idea behind this is to get any pending task.
+        let result = sqlx::query(r"SELECT id, requestor, job_id, blend_file_name, blender_version, range FROM tasks")
+            .fetch_all(&self.conn).await.map_err(|e| TaskError::DatabaseError(e.to_string()))?;
+
+        for(idx, row) in result.iter().enumerate() {
+            let id = Uuid::from_row.get::<String, &str>("id");
+        }
+
+        // for task in result {
+        //     println!("{task:?}");
+        // }
     }
 
     async fn delete_task(&self, id: &Uuid) -> Result<(), TaskError> {
