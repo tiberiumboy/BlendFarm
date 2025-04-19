@@ -214,13 +214,16 @@ impl NetworkController {
         self.file_service
             .providing_files
             .insert(file_name.clone(), path);
+
         println!("Start providing file {:?}", &file_name);
         let cmd = NetCommand::StartProviding { file_name, sender };
         
-        self.sender
+        if let Err(e) = self.sender
             .send(cmd)
             .await
-            .expect("Command receiver not to be dropped");
+            {
+                eprintln!("How did this happen? {e:?}");
+            }
 
         // somehow receiver was dropped?
         if let Err(e) = receiver.await {
@@ -237,7 +240,15 @@ impl NetworkController {
             })
             .await
             .expect("Command receiver should not be dropped");
-        receiver.await.expect("Sender should not be dropped")
+        
+        // why was this dropped?
+        match receiver.await {
+            Ok(data) => data,
+            Err(e) => {
+                println!("Somehow this receiver was cancelled... Maybe there is no providers? {e:?}");
+                HashSet::new()
+            }
+        }
     }
 
     // client request file from peers.
@@ -398,17 +409,12 @@ impl NetworkService {
                 };
             }
             NetCommand::GetProviders {
-                file_name, ..
-                // sender: snd,
+                file_name, 
+                sender: snd,
             } => {
                 let key = RecordKey::new(&file_name.as_bytes());
-                let _query_id = self.swarm.behaviour_mut().kad.get_providers(key.into());
-                // how do I access file service here? Could file service just be access by class instead of object?
-                // what can I access from this scope? what do I need to do to make the file service working again?
-                // sender.send(NetEvent::PendingGetProvider(query_id, snd));
-                // self.file_service
-                //     .pending_get_providers
-                //     .insert(query_id, sender);
+                let query_id = self.swarm.behaviour_mut().kad.get_providers(key.into());
+                self.sender.send(NetEvent::PendingGetProvider( query_id, snd));
             }
             NetCommand::StartProviding { file_name, /*sender*/ .. } => {
                 let provider_key = RecordKey::new(&file_name.as_bytes());

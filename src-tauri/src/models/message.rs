@@ -1,12 +1,11 @@
 use super::behaviour::FileResponse;
 use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
-use futures::channel::oneshot;
+use futures::channel::oneshot::{self, Sender};
 use libp2p::{kad::QueryId, Multiaddr, PeerId};
 use libp2p_request_response::{OutboundRequestId, ResponseChannel};
 use std::{collections::HashSet, error::Error};
 use thiserror::Error;
-use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Error)]
 pub enum NetworkError {

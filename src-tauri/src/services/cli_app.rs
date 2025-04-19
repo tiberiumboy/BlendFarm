@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, thread::sleep, time::Duration};
 
 /*
 Have a look into TUI for CLI status display window to show user entertainment on screen
@@ -50,31 +50,31 @@ impl CliApp {
 }
 
 impl CliApp {
-    /// EXPENSIVE: Call uses .to_owned()! 
-    async fn send_status(client: &mut NetworkController, status: String) {
-        println!("{status}");
-        client.send_status(status).await;
-    }
 
     async fn check_project_file(client: &mut NetworkController, task: &mut Task, search_directory: &PathBuf ) {
         let file_name = task.blend_file_name.to_str().unwrap();
 
+        println!("Calling network for project file {file_name}");
+
         // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
         match client.get_file_from_peers(&file_name, search_directory).await {
-            Ok(path) => println!("File successfully download from peers! path: {path:?}"),
+            Ok(path) => {
+                // ok so I got the file now. now what?
+                println!("File successfully download from peers! path: {path:?}")
+            },
             Err(e) => match e {
                 NetworkError::UnableToListen(_) => todo!(),
                 NetworkError::NotConnected => todo!(),
                 NetworkError::SendError(_) => {}
                 NetworkError::NoPeerProviderFound => {
                     // I was timed out here?
-                    client
-                        .send_status("No peer provider found on the network?".to_owned())
-                        .await
+                    // client
+                    //     .send_status("No peer provider found on the network.".to_owned())
+                    //     .await
                 }
                 NetworkError::UnableToSave(e) => {
                     client
-                        .send_status(format!("Fail to save file to disk: {e}"))
+                        .send_status(format!("Unable to save: {e}"))
                         .await
                 }
                 NetworkError::Timeout => {
@@ -95,9 +95,8 @@ impl CliApp {
         client: &mut NetworkController,
         task: &mut Task,
     ) {
-        println!("Receive task from peer [{:?}]", task);
         let id = task.job_id;
-
+        
         // create a path link where we think the file should be
         let blend_dir = self.settings.blend_dir.join(id.to_string());
         if let Err(e) = async_std::fs::create_dir_all(&blend_dir).await {
@@ -120,6 +119,8 @@ impl CliApp {
             // so I need to figure out something about this...
             CliApp::check_project_file(client, task, &blend_dir).await;
         }
+
+        println!("Ok we have project file, now check for Blender");
 
         // am I'm introducing multiple behaviour in this single function?
         let blender = match self.manager.have_blender(&task.blender_version) {
@@ -198,35 +199,37 @@ impl CliApp {
         };
     }
 
+    async fn handle_job_update(&mut self, event : JobEvent ) {
+        match event {
+            // on render task received, we should store this in the database.
+            JobEvent::Render(task) => {
+                println!("Received new Render Task! Added to Queue!!");
+
+                let db = self.task_store.write().await;
+                if let Err(e) = db.add_task(task).await {
+                    println!("Unable to add task! {e:?}");
+                }
+            }
+
+            JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
+            // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
+            JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
+            // Remove all task with matching job id.
+            JobEvent::Remove(job_id) => {
+                let db = self.task_store.write().await;
+                if let Err(e) = db.delete_job_task(&job_id).await {
+                    eprintln!("Unable to remove all task with matching job id! {e:?}");
+                }
+            }
+            _ => println!("Unhandle Job Event: {event:?}"),
+        }
+    }
+
     async fn handle_net_event(&mut self, client: &mut NetworkController, event: NetEvent) {
         match event {
             NetEvent::OnConnected(peer_id) => client.share_computer_info(peer_id).await,
-            NetEvent::NodeDiscovered(..) => {}  // Ignored
-            NetEvent::NodeDisconnected(_) => {} // ignored
-
-            NetEvent::JobUpdate(job_event) => match job_event {
-                // on render task received, we should store this in the database.
-                JobEvent::Render(task) => {
-                    println!("Received new Render Task! Added to Queue!!");
-
-                    let db = self.task_store.write().await;
-                    if let Err(e) = db.add_task(task).await {
-                        eprintln!("Unable to add task! {e:?}");
-                    }
-                }
-
-                JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
-                // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
-                JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
-                // Remove all task with matching job id.
-                JobEvent::Remove(job_id) => {
-                    let db = self.task_store.write().await;
-                    if let Err(e) = db.delete_job_task(&job_id).await {
-                        eprintln!("Unable to remove all task with matching job id! {e:?}");
-                    }
-                }
-                _ => println!("Unhandle Job Event: {job_event:?}"),
-            },
+            
+            NetEvent::JobUpdate(job_event) => self.handle_job_update(job_event).await,
             // maybe move this inside Network code? Seems repeative in both cli and Tauri side of application here.
             NetEvent::InboundRequest { request, channel } => {
                 if let Some(path) = client.file_service.providing_files.get(&request) {
@@ -234,19 +237,19 @@ impl CliApp {
                     
                     // this responded back to the network controller? Why?
                     client
-                        .respond_file(std::fs::read(path).unwrap(), channel)
-                        .await;
+                    .respond_file(std::fs::read(path).unwrap(), channel)
+                    .await;
                 }
             }
+            NetEvent::NodeDiscovered(..) => {}  // Ignored
+            NetEvent::NodeDisconnected(_) => {} // ignored
             _ => println!("[CLI] Unhandled event from network: {event:?}"),
         }
     }
 
     async fn handle_command(&mut self, client: &mut NetworkController, cmd: CmdCommand) {
         match cmd {
-            CmdCommand::Render(mut task) => {
-                self.render_task(client, &mut task).await;
-            }
+            CmdCommand::Render(mut task) => self.render_task(client, &mut task).await
         }
     }
 }
@@ -280,15 +283,21 @@ impl BlendFarm for CliApp {
                 // get the first task if exist.
                 // I don't want to spam the database for pending task?
                 let db = taskdb.write().await;
+                // so why can't I get this to work?
                 if let Ok(task_dto) = db.poll_task().await {
-                    let task = task_dto.item.clone();
-                    if let Err(e) = event.send(CmdCommand::Render(task)).await {
-                        eprintln!("Fail to send render command! {e:?}");
-                    }
-                    
                     if let Err(e) = db.delete_task(&task_dto.id).await {
                         eprintln!("Fail to delete task entry from database! {task_dto:?} \n{e:?}");
                     }
+
+                    let task = task_dto.item.clone();
+
+                    if let Err(e) = event.send(CmdCommand::Render(task)).await {
+                        eprintln!("Fail to send render command! {e:?}");
+                    }
+
+                } else {
+                    println!("No task found! Sleeping...");
+                    sleep(Duration::from_secs(2u64));
                 }
             }
         });
