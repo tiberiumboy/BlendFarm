@@ -338,6 +338,9 @@ impl TauriApp {
                         // }
                     }
                 }
+                JobEvent::Failed(e) => {
+                    println!("Job failed! {e}");
+                }
 
                 // when a job is complete, check the poll for next available job queue?
                 JobEvent::JobComplete => {} // Hmm how do I go about handling this one?

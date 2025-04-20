@@ -19,6 +19,7 @@ use uuid::Uuid;
 pub enum JobEvent {
     Render(Task),
     Remove(Uuid),
+    Failed(String),
     RequestTask,
     ImageCompleted {
         job_id: Uuid,

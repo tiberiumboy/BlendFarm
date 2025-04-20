@@ -371,7 +371,7 @@ impl NetworkService {
             NetCommand::RequestFile {
                 peer_id,
                 file_name,
-                .. // sender: snd,
+                sender: snd,
             } => {
                 let request_id = self
                     .swarm
@@ -381,8 +381,7 @@ impl NetworkService {
 
                 // so instead, we should just send a netevent?
                 // so I think I was trying to send a sender channel here so that I could fetch the file content...
-                // self.sender
-                //     .send(NetEvent::PendingRequestFiled(request_id, snd));
+                self.sender.send(NetEvent::PendingRequestFiled(request_id, snd));
             }
             NetCommand::RespondFile { file, channel } => {
                 // somehow the send_response errored out? How come?
@@ -403,7 +402,7 @@ impl NetworkService {
                 let spec = ComputerSpec::new(&mut machine);
                 let data = bincode::serialize(&spec).unwrap();
                 let topic = IdentTopic::new(SPEC);
-                // let _ = swarm.dial(peer_id);    // so close... yet why?
+
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to send identity to swarm! {e:?}");
                 };
@@ -414,7 +413,7 @@ impl NetworkService {
             } => {
                 let key = RecordKey::new(&file_name.as_bytes());
                 let query_id = self.swarm.behaviour_mut().kad.get_providers(key.into());
-                self.sender.send(NetEvent::PendingGetProvider( query_id, snd));
+                self.sender.send(NetEvent::PendingGetProvider( query_id, snd)).await;
             }
             NetCommand::StartProviding { file_name, /*sender*/ .. } => {
                 let provider_key = RecordKey::new(&file_name.as_bytes());

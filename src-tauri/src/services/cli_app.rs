@@ -15,18 +15,38 @@ use crate::{
         job::JobEvent,
         message::{NetEvent, NetworkError},
         network::{NetworkController, JOB},
-        server_setting::ServerSetting, 
+        server_setting::ServerSetting,
         task::Task,
     },
 };
-use blender::{blender::{Blender, Manager as BlenderManager}, models::download_link::DownloadLink};
 use blender::models::status::Status;
+use blender::{
+    blender::{Blender, Manager as BlenderManager},
+    models::download_link::DownloadLink,
+};
+use thiserror::Error;
 use tokio::{
-    select, spawn, sync::{mpsc::{self,Receiver}, RwLock}
+    select, spawn,
+    sync::{
+        mpsc::{self, Receiver},
+        RwLock,
+    },
 };
 
 enum CmdCommand {
     Render(Task),
+}
+
+#[derive(Debug, Error)]
+enum CliError {
+    #[error("Received Network issue: {0}")]
+    NetworkError(String),
+    #[error("Unknown error received: {0}")]
+    Unknown(String),
+    #[error("Unable to listen - Connection rejected?")]
+    ConnectionRejected,
+    #[error("Not connected")]
+    NotConnected,
 }
 
 pub struct CliApp {
@@ -44,47 +64,24 @@ impl CliApp {
             settings: ServerSetting::load(),
             manager,
             task_store,
-            // task_handle: None,
         }
     }
 }
 
 impl CliApp {
-
-    async fn check_project_file(client: &mut NetworkController, task: &mut Task, search_directory: &PathBuf ) {
+    async fn check_project_file(
+        client: &mut NetworkController,
+        task: &mut Task,
+        search_directory: &PathBuf,
+    ) -> Result<PathBuf, NetworkError> {
         let file_name = task.blend_file_name.to_str().unwrap();
 
         println!("Calling network for project file {file_name}");
 
         // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
-        match client.get_file_from_peers(&file_name, search_directory).await {
-            Ok(path) => {
-                // ok so I got the file now. now what?
-                println!("File successfully download from peers! path: {path:?}")
-            },
-            Err(e) => match e {
-                NetworkError::UnableToListen(_) => todo!(),
-                NetworkError::NotConnected => todo!(),
-                NetworkError::SendError(_) => {}
-                NetworkError::NoPeerProviderFound => {
-                    // I was timed out here?
-                    // client
-                    //     .send_status("No peer provider found on the network.".to_owned())
-                    //     .await
-                }
-                NetworkError::UnableToSave(e) => {
-                    client
-                        .send_status(format!("Unable to save: {e}"))
-                        .await
-                }
-                NetworkError::Timeout => {
-                    // somehow we lost connection, try to establish connection again?
-                    // client.dial(request_id, client.public_addr).await;
-                    dbg!("Timed out?");
-                }
-                _ => println!("Unhandle error received {e:?}"), // shouldn't be covered?
-            },
-        }
+        client
+            .get_file_from_peers(&file_name, search_directory)
+            .await
     }
 
     // TODO: Rewrite this to meet Single responsibility principle.
@@ -94,18 +91,18 @@ impl CliApp {
         &mut self,
         client: &mut NetworkController,
         task: &mut Task,
-    ) {
+    ) -> Result<(), CliError> {
         let id = task.job_id;
-        
+
         // create a path link where we think the file should be
         let blend_dir = self.settings.blend_dir.join(id.to_string());
         if let Err(e) = async_std::fs::create_dir_all(&blend_dir).await {
             eprintln!("Error creating blend directory! {e:?}");
         }
-        
+
         // assume project file is located inside this directory.
         let project_file = blend_dir.join(&task.blend_file_name); // append the file name here instead.
-        
+
         println!("Checking for {:?}", &project_file);
 
         // Fetch the project from peer if we don't have it.
@@ -114,10 +111,14 @@ impl CliApp {
                 "Project file do not exist, asking to download from DHT: {:?}",
                 &task.blend_file_name
             );
-            
-            // TODO: this needs to return Result<(), Error> if we still don't have the file. We should gracefully delete the task and notify the host with error info.
+
             // so I need to figure out something about this...
-            CliApp::check_project_file(client, task, &blend_dir).await;
+            // TODO - find a way to break out of this if we can't fetch the project file.
+            if let Err(e) = CliApp::check_project_file(client, task, &blend_dir).await {
+                // let the host know hey we can't do this job because reason
+                eprintln!("Fail to get project file: {e:?}");
+                return Err(CliError::Unknown(e.to_string()));
+            }
         }
 
         println!("Ok we have project file, now check for Blender");
@@ -132,18 +133,30 @@ impl CliApp {
                 // If we reach here - it is because no other node have matching version, and unable to connect to download url (Internet connectivity most likely).
                 // TODO: It would be nice to broadcast everyone else "Hey! I'm download this version, could you wait until I'm done to distribute?"
                 let v = &task.blender_version;
-                let link_name = &self.manager.home.get_version(v.major, v.minor).expect(&format!("Invalid Blender version used. Not found anywhere! Version {:?}", &task.blender_version)).name;
+                let link_name = &self
+                    .manager
+                    .home
+                    .get_version(v.major, v.minor)
+                    .expect(&format!(
+                        "Invalid Blender version used. Not found anywhere! Version {:?}",
+                        &task.blender_version
+                    ))
+                    .name;
                 // should also use this to send CmdCommands for network stuff.
-                let latest = client.get_file_from_peers( &link_name, &blend_dir).await;
+                let latest = client.get_file_from_peers(&link_name, &blend_dir).await;
 
                 match latest {
                     Ok(path) => {
                         // assumed the file I downloaded is already zipped, proceed with caution on installing.
                         let folder_name = self.manager.get_install_path();
-                        let exe = DownloadLink::extract_content(path, folder_name.to_str().unwrap()).expect("Unable to extract content, More likely a permission issue?");
+                        let exe =
+                            DownloadLink::extract_content(path, folder_name.to_str().unwrap())
+                                .expect(
+                                    "Unable to extract content, More likely a permission issue?",
+                                );
                         &Blender::from_executable(exe).expect("Received invalid blender copy!")
                     }
-                    Err(e)=> {
+                    Err(e) => {
                         println!("No client on network is advertising target blender installation! {e:?}");
                         &self
                             .manager
@@ -169,16 +182,28 @@ impl CliApp {
                 if let Ok(status) = rx.recv() {
                     match status {
                         Status::Idle => client.send_status("[Idle]".to_owned()).await,
-                        Status::Running { status } => client.send_status(format!("[Running] {status}")).await,
-                        Status::Log { status } => client.send_status(format!("[Log] {status}")).await,
-                        Status::Warning { message } => client.send_status(format!("[Warning] {message}")).await,
-                        Status::Error(blender_error) => client.send_status(format!("[ERR] {blender_error:?}")).await,
+                        Status::Running { status } => {
+                            client.send_status(format!("[Running] {status}")).await
+                        }
+                        Status::Log { status } => {
+                            client.send_status(format!("[Log] {status}")).await
+                        }
+                        Status::Warning { message } => {
+                            client.send_status(format!("[Warning] {message}")).await
+                        }
+                        Status::Error(blender_error) => {
+                            client.send_status(format!("[ERR] {blender_error:?}")).await
+                        }
 
-                        Status::Completed { frame, result } => {   
+                        Status::Completed { frame, result } => {
                             let file_name = result.file_name().unwrap().to_string_lossy();
                             let file_name = format!("/{}/{}", task.job_id, file_name);
-                            let event = JobEvent::ImageCompleted { job_id: task.job_id, frame, file_name: file_name.clone() };
-                
+                            let event = JobEvent::ImageCompleted {
+                                job_id: task.job_id,
+                                frame,
+                                file_name: file_name.clone(),
+                            };
+
                             client.start_providing(file_name, result).await;
                             client.send_job_message(&task.requestor, event).await;
                         }
@@ -194,12 +219,16 @@ impl CliApp {
             },
             Err(e) => {
                 let err = JobError::TaskError(e);
-                client.send_job_message(&task.requestor, JobEvent::Error(err)).await;
+                client
+                    .send_job_message(&task.requestor, JobEvent::Error(err))
+                    .await;
             }
         };
+
+        Ok(())
     }
 
-    async fn handle_job_update(&mut self, event : JobEvent ) {
+    async fn handle_job_update(&mut self, event: JobEvent) {
         match event {
             // on render task received, we should store this in the database.
             JobEvent::Render(task) => {
@@ -228,17 +257,17 @@ impl CliApp {
     async fn handle_net_event(&mut self, client: &mut NetworkController, event: NetEvent) {
         match event {
             NetEvent::OnConnected(peer_id) => client.share_computer_info(peer_id).await,
-            
+
             NetEvent::JobUpdate(job_event) => self.handle_job_update(job_event).await,
             // maybe move this inside Network code? Seems repeative in both cli and Tauri side of application here.
             NetEvent::InboundRequest { request, channel } => {
                 if let Some(path) = client.file_service.providing_files.get(&request) {
                     println!("Sending file {path:?}");
-                    
+
                     // this responded back to the network controller? Why?
                     client
-                    .respond_file(std::fs::read(path).unwrap(), channel)
-                    .await;
+                        .respond_file(std::fs::read(path).unwrap(), channel)
+                        .await;
                 }
             }
             NetEvent::NodeDiscovered(..) => {}  // Ignored
@@ -249,7 +278,13 @@ impl CliApp {
 
     async fn handle_command(&mut self, client: &mut NetworkController, cmd: CmdCommand) {
         match cmd {
-            CmdCommand::Render(mut task) => self.render_task(client, &mut task).await
+            CmdCommand::Render(mut task) => {
+                if let Err(e) = self.render_task(client, &mut task).await {
+                    client
+                        .send_job_message(&task.requestor, JobEvent::Failed(e.to_string()))
+                        .await
+                }
+            }
         }
     }
 }
@@ -269,16 +304,15 @@ impl BlendFarm for CliApp {
         client.subscribe_to_topic(JOB.to_string()).await;
         client.subscribe_to_topic(client.hostname.clone()).await;
 
-
         // could we just run a background thread here to handle task job?
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
 
         // we will have one thread to process blender and queue, but I must have access to database.
         let taskdb = self.task_store.clone();
         let (event, mut command) = mpsc::channel(32);
-        
+
         // background thread to handle blender invocation
-        spawn( async move {
+        spawn(async move {
             loop {
                 // get the first task if exist.
                 // I don't want to spam the database for pending task?
@@ -294,19 +328,18 @@ impl BlendFarm for CliApp {
                     if let Err(e) = event.send(CmdCommand::Render(task)).await {
                         eprintln!("Fail to send render command! {e:?}");
                     }
-
                 } else {
                     println!("No task found! Sleeping...");
                     sleep(Duration::from_secs(2u64));
                 }
             }
         });
-        
+
         loop {
             select! {
                 Some(event) = event_receiver.recv() => self.handle_net_event(&mut client, event).await,
                 Some(msg) = command.recv() => self.handle_command(&mut client, msg).await,
             }
-        };
+        }
     }
 }

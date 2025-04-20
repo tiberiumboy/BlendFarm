@@ -75,6 +75,9 @@ pub enum NetEvent {
         channel: ResponseChannel<FileResponse>,
     },
     JobUpdate(JobEvent),
-    PendingRequestFiled(OutboundRequestId, Option<Vec<u8>>),
+    PendingRequestFiled(
+        OutboundRequestId,
+        Sender<Result<Vec<u8>, Box<dyn Error + Send + 'static>>>,
+    ),
     PendingGetProvider(QueryId, Sender<HashSet<PeerId>>),
 }
