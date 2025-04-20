@@ -35,6 +35,7 @@ use tokio::{
 
 enum CmdCommand {
     Render(Task),
+    RequestTask // calls to host for more task.
 }
 
 #[derive(Debug, Error)]
@@ -285,6 +286,10 @@ impl CliApp {
                         .await
                 }
             }
+            CmdCommand::RequestTask => {
+                client.send_job_message(, event)
+                client.send_status("Idle".to_owned()).await;
+            }
         }
     }
 }
@@ -330,6 +335,7 @@ impl BlendFarm for CliApp {
                     }
                 } else {
                     println!("No task found! Sleeping...");
+                    event.send(CmdCommand::RequestTask).await;
                     sleep(Duration::from_secs(2u64));
                 }
             }

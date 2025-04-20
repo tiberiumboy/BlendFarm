@@ -184,6 +184,10 @@ impl NetworkController {
             .expect("sender should not be closed!");
     }
 
+    pub async fn send_node_status(&mut self, status: NodeEvent) {
+        self.sender.send(NetCommand::NodeStatus(status)).await;
+    }
+
     pub async fn send_status(&mut self, status: String) {
         println!("[Status]: {status}");
         self.sender
@@ -383,7 +387,7 @@ impl NetworkService {
                 // so I think I was trying to send a sender channel here so that I could fetch the file content...
                 // I received a request file command from UI - 
                 // This instructs both things, a File Request was sent out to the network, and a notification to accept incoming transfer on this side.
-                self.sender.send(NetEvent::PendingRequestFiled(request_id, snd));
+                self.sender.send(NetEvent::PendingRequestFiled(request_id, Some(snd)));
             }
             NetCommand::RespondFile { file, channel } => {
                 // somehow the send_response errored out? How come?
@@ -466,6 +470,9 @@ impl NetworkService {
                 For now, we will try to dial the target peer, and append the task to our network service pool of pending task.
                 */
                 // self.pending_task.insert(peer_id);
+            }
+            NetCommand::NodeStatus(status) => {
+                self.swarm.behaviour_mut().gossipsub.publish(topic, data)
             }
             NetCommand::Dial {
                 peer_id,
@@ -558,17 +565,13 @@ impl NetworkService {
                     request_id,
                     response,
                 } => {
-
-                    // let value = NetEvent::PendingRequestFiled(request_id, Some(response.0));
                     let value = response.0;
-                    let event = NetEvent::
+                    let event = NetEvent::ReceivedFileData(request_id, value);
+
                     self.sender
-                        .send(value)
+                        .send(event)
                         .await
                         .expect("Event receiver should not be dropped");
-                    //     .pending_request_file
-                    //     .remove(&request_id)
-                    //     .send(Ok(response.0))
                 }
             },
             libp2p_request_response::Event::OutboundFailure {

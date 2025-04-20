@@ -3,7 +3,7 @@ use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
 use futures::channel::oneshot::{self, Sender};
 use libp2p::{kad::QueryId, Multiaddr, PeerId};
-use libp2p_request_response::{InboundRequestId, OutboundRequestId, ResponseChannel};
+use libp2p_request_response::{OutboundRequestId, ResponseChannel};
 use std::{collections::HashSet, error::Error};
 use thiserror::Error;
 
@@ -34,6 +34,7 @@ pub enum NetCommand {
     Status(String),
     SubscribeTopic(String),
     UnsubscribeTopic(String),
+    NodeStatus(NodeEvent), // Notify the host this node activity - this will be useful to provide other message than program, such as os update.
     JobStatus(String, JobEvent),
     // use this event to send message to a specific node
     StartProviding {
@@ -77,8 +78,8 @@ pub enum NetEvent {
     JobUpdate(JobEvent),
     PendingRequestFiled(
         OutboundRequestId,
-        Sender<Result<Vec<u8>, Box<dyn Error + Send + 'static>>>,
+        Option<Sender<Result<Vec<u8>, Box<dyn Error + Send + 'static>>>>,
     ),
     PendingGetProvider(QueryId, Sender<HashSet<PeerId>>),
-    ReceivedFileData(InboundRequestId, Vec<u8>),
+    ReceivedFileData(OutboundRequestId, Vec<u8>),
 }

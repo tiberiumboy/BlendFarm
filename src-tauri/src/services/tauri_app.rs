@@ -338,10 +338,6 @@ impl TauriApp {
                         // }
                     }
                 }
-                JobEvent::Failed(e) => {
-                    println!("Job failed! {e}");
-                }
-
                 // when a job is complete, check the poll for next available job queue?
                 JobEvent::JobComplete => {} // Hmm how do I go about handling this one?
 
@@ -354,8 +350,14 @@ impl TauriApp {
                 // this will soon go away - host should not be receiving render jobs.
                 JobEvent::Render(..) => {}
                 // this will soon go away - host should not receive request job.
-                JobEvent::RequestTask => {}
+                JobEvent::RequestTask => {
+                    // Node have exhaust all of queue. Check and see if we can create or distribute pending jobs.
+                    todo!("A node from the network request more task to work on. More likely it was recently created or added after job was initially created.");
+                }
                 // this will soon go away
+                JobEvent::Failed(msg) => {
+                    eprintln!("Job failed! {msg}");
+                }
                 JobEvent::Remove(_) => {
                     // Should I do anything on the manager side? Shouldn't matter at this point?
                 }
