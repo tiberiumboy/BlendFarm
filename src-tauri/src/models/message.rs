@@ -3,7 +3,7 @@ use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
 use futures::channel::oneshot::{self, Sender};
 use libp2p::{kad::QueryId, Multiaddr, PeerId};
-use libp2p_request_response::{OutboundRequestId, ResponseChannel};
+use libp2p_request_response::{InboundRequestId, OutboundRequestId, ResponseChannel};
 use std::{collections::HashSet, error::Error};
 use thiserror::Error;
 
@@ -80,4 +80,5 @@ pub enum NetEvent {
         Sender<Result<Vec<u8>, Box<dyn Error + Send + 'static>>>,
     ),
     PendingGetProvider(QueryId, Sender<HashSet<PeerId>>),
+    ReceivedFileData(InboundRequestId, Vec<u8>),
 }

@@ -381,6 +381,8 @@ impl NetworkService {
 
                 // so instead, we should just send a netevent?
                 // so I think I was trying to send a sender channel here so that I could fetch the file content...
+                // I received a request file command from UI - 
+                // This instructs both things, a File Request was sent out to the network, and a notification to accept incoming transfer on this side.
                 self.sender.send(NetEvent::PendingRequestFiled(request_id, snd));
             }
             NetCommand::RespondFile { file, channel } => {
@@ -556,7 +558,10 @@ impl NetworkService {
                     request_id,
                     response,
                 } => {
-                    let value = NetEvent::PendingRequestFiled(request_id, Some(response.0));
+
+                    // let value = NetEvent::PendingRequestFiled(request_id, Some(response.0));
+                    let value = response.0;
+                    let event = NetEvent::
                     self.sender
                         .send(value)
                         .await

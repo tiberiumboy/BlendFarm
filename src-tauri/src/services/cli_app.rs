@@ -39,7 +39,7 @@ enum CmdCommand {
 
 #[derive(Debug, Error)]
 enum CliError {
-    #[error("Received Network issue: {0}")]
+    #[error("Received Network Issue: {0}")]
     NetworkError(String),
     #[error("Unknown error received: {0}")]
     Unknown(String),
