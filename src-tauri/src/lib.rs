@@ -80,7 +80,6 @@ async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> {
     // TODO: Consider thinking about the design behind this. Should we store database connection here or somewhere else?
     let url = format!("sqlite://{}", path.as_os_str().to_str().unwrap());
     // macos: "sqlite:///Users/megamind/Library/Application Support/BlendFarm/blendfarm.db"
-    // dbg!(&url);
     let pool = SqlitePoolOptions::new().connect(&url).await?;
     sqlx::migrate!().run(&pool).await?;
     Ok(pool)

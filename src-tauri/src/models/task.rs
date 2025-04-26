@@ -1,5 +1,6 @@
 use super::{job::CreatedJobDto, with_id::WithId};
 use crate::domains::task_store::TaskError;
+use std::path::Path;
 use blender::{
     blender::{Args, Blender},
     models::status::Status,
@@ -103,15 +104,15 @@ impl Task {
 
     // Invoke blender to run the job
     // how do I stop this? Will this be another async container?
-    pub async fn run(
+    pub async fn run<T: AsRef<Path>>(
         self,
-        blend_file: PathBuf,
+        blend_file: T,
         // output is used to create local path storage to save frame path to
-        output: PathBuf,
+        output: T,
         // reference to the blender executable path to run this task.
         blender: &Blender,
     ) -> Result<std::sync::mpsc::Receiver<Status>, TaskError> {
-        let args = Args::new(blend_file, output);
+        let args = Args::new(blend_file.as_ref().to_path_buf(), output.as_ref().to_path_buf());
         let arc_task = Arc::new(RwLock::new(self)).clone();
 
         // TODO: How can I adjust blender jobs?

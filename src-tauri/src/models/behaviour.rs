@@ -20,8 +20,9 @@ pub struct FileRequest(pub String);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileResponse(pub Vec<u8>);
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct FileService {
+    // I am still trying to figure out what to do with this...
     pub providing_files: HashMap<String, PathBuf>,
     pub pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pub pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<()>>,

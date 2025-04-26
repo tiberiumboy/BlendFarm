@@ -171,6 +171,23 @@ impl TauriApp {
         }
     }
 
+    // we will also create our own specific cli implementation for blender source distribution.
+    async fn broadcast_file_availability(&self, client: &mut NetworkController) -> Result<(), NetworkError> {
+        // go through and check the jobs we have in our database.
+        let db = self.job_store.write().await;
+        if let Ok(jobs) = db.list_all().await {
+            for job in jobs {
+                // in each job, we have project path. This is used to help locate the current project file path.
+                let file_name = job.item.project_file.file_name().expect("Must have file name!").to_str().expect("Must have file name!");
+                let path = job.item.get_project_path();
+                dbg!(&file_name, &path);
+                client.start_providing(file_name.to_string(), path.clone()).await;
+            }
+        }
+
+        Ok(())
+    }
+
     fn generate_tasks(job: &CreatedJobDto, file_name: PathBuf, chunks: i32, hostname: &str) -> Vec<Task> {
         // mode may be removed soon, we'll see?
         let (time_start, time_end) = match &job.item.mode {
@@ -297,11 +314,17 @@ impl TauriApp {
 
                 self.peers.remove(&peer_id);
             }
+            // let me figure out what's going on here. where is this coming from?
             NetEvent::InboundRequest { request, channel } => {
-                if let Some(path) = client.file_service.providing_files.get(&request) {
-                    let path = std::fs::read(path).unwrap();
-                    client.respond_file(path, channel).await;
+                let mut data: Vec<u8>;
+                {
+                    let fs = client.file_service.lock().await;
+                    if let Some(path) = fs.providing_files.get(&request) {
+                        data = std::fs::read(path).unwrap();
+                    }
                 }
+
+                client.respond_file(data, channel).await;
             }
             NetEvent::JobUpdate(job_event) => match job_event {
                 // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
@@ -380,6 +403,11 @@ impl BlendFarm for TauriApp {
         client.subscribe_to_topic(STATUS.to_owned()).await;
         client.subscribe_to_topic(JOB.to_owned()).await; // This might get changed? we'll see.
         client.subscribe_to_topic(client.hostname.clone()).await;
+
+        // there needs to be a event where we need to setup our kademlia server based on job we created.
+        if let Err(e) = self.broadcast_file_availability(&mut client).await {
+            eprintln!("Unable to broadcast local files! {e:?}");
+        }
 
         // this channel is used to send command to the network, and receive network notification back.
         let (event, mut command) = mpsc::channel(32);

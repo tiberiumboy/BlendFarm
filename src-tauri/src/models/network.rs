@@ -4,18 +4,20 @@ use super::behaviour::{
 use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
 use super::message::{NetCommand, NetEvent, NetworkError};
-use super::server_setting::ServerSetting;
 use core::str;
+use std::sync::Arc;
 use futures::{channel::oneshot, prelude::*};
-use libp2p::gossipsub::{self, IdentTopic};
+use libp2p::gossipsub::{self, IdentTopic, Message};
 use libp2p::kad::RecordKey;
 use libp2p::swarm::SwarmEvent;
 use libp2p::{kad, mdns, ping, swarm::Swarm, tcp, Multiaddr, PeerId, StreamProtocol, SwarmBuilder};
 use libp2p_request_response::{ProtocolSupport, ResponseChannel};
 use machine_info::Machine;
+use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use std::collections::HashSet;
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::time::Duration;
 use std::u64;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -128,11 +130,10 @@ pub async fn new() -> Result<(NetworkController, Receiver<NetEvent>), NetworkErr
         let mut network_service = NetworkService {
             swarm,
             receiver,
+            // Here is where network service communicates out.
             sender: event_sender,
-            // public_addr: None,
             machine: Machine::new(),
             // pending_dial: Default::default(),
-            // TODO: job_service
             // pending_task: Default::default(),
         };
         network_service.run().await;
@@ -141,7 +142,7 @@ pub async fn new() -> Result<(NetworkController, Receiver<NetEvent>), NetworkErr
     Ok((
         NetworkController {
             sender,
-            file_service: FileService::new(),
+            file_service: Arc::new(Mutex::new(FileService::new())),
             public_id,
             hostname: Machine::new().system_info().hostname,
             thread,
@@ -163,10 +164,19 @@ pub struct NetworkController {
     pub hostname: String,
 
     // Hmm? why does it need to be public?
-    pub file_service: FileService,
+    pub file_service: Arc<Mutex<FileService>>,
+
+    // feels like we got a coupling nightmare here?
+    // pending_task: HashMap<PeerId, oneshot::Sender<Result<Task, Box<dyn Error + Send>>>>,
 
     // network service background thread
     thread: JoinHandle<()>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum NodeEvent {
+    Idle,
+    Busy
 }
 
 impl NetworkController {
@@ -184,8 +194,11 @@ impl NetworkController {
             .expect("sender should not be closed!");
     }
 
+    // 
     pub async fn send_node_status(&mut self, status: NodeEvent) {
-        self.sender.send(NetCommand::NodeStatus(status)).await;
+        if let Err(e) = self.sender.send(NetCommand::NodeStatus(status)).await {
+            eprintln!("Failed to send node status to network service: {e:?}");
+        }
     }
 
     pub async fn send_status(&mut self, status: String) {
@@ -214,17 +227,21 @@ impl NetworkController {
 
     pub async fn start_providing(&mut self, file_name: String, path: PathBuf) {
         let (sender, receiver) = oneshot::channel();
-        
-        self.file_service
-            .providing_files
-            .insert(file_name.clone(), path);
+        // using closure trick to ensure we close mutex connection
+        {
+            let mut fs = self.file_service.lock().await;
+            fs
+                .providing_files
+                .insert(file_name.clone(), path);
+        }
 
         println!("Start providing file {:?}", &file_name);
-        let cmd = NetCommand::StartProviding { file_name, sender };
+        // I would have to provide a reference to our existing file service...
+        let cmd = NetCommand::StartProviding { file_name, sender, file_service: self.file_service.clone() };
         
         if let Err(e) = self.sender
-            .send(cmd)
-            .await
+        .send(cmd)
+        .await
             {
                 eprintln!("How did this happen? {e:?}");
             }
@@ -257,10 +274,10 @@ impl NetworkController {
 
     // client request file from peers.
     // I feel like we should make this as fetching data from network? Some sort of stream?
-    pub async fn get_file_from_peers(
+    pub async fn get_file_from_peers<T: AsRef<Path>>(
         &mut self,
         file_name: &str,
-        destination: &PathBuf,
+        destination: T,
     ) -> Result<PathBuf, NetworkError> {
         let providers = self.get_providers(&file_name).await;
 
@@ -271,7 +288,8 @@ impl NetworkController {
 
         match content {
             Ok(content) => {
-                let file_path = destination.join(file_name);
+                let file_path = destination.as_ref().join(file_name);
+                // TODO: See if we can re-write this better? Should be able to map this?
                 match async_std::fs::write(file_path.clone(), content).await {
                     Ok(_) => Ok(file_path),
                     Err(e) => Err(NetworkError::UnableToSave(e.to_string())),
@@ -319,6 +337,7 @@ impl NetworkController {
         receiver.await.expect("Should not be closed?") 
     }
 
+    // TODO: Come back to this one and see how this one gets invoked.
     pub(crate) async fn respond_file(
         &mut self,
         file: Vec<u8>,
@@ -328,6 +347,12 @@ impl NetworkController {
         if let Err(e) = self.sender.send(cmd).await {
             println!("Command should not be dropped: {e:?}");
         }
+    }
+}
+
+impl Drop for NetworkController {
+    fn drop(&mut self) {
+        self.thread.abort();
     }
 }
 
@@ -346,13 +371,9 @@ pub struct NetworkService {
 
     // Used to collect computer basic hardware info to distribute
     machine: Machine,
-    // current node address to reach/connect to - May not be needed?
-    // public_addr: Option<Multiaddr>,
 
+    // what was I'm using this for?
     // pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
-
-    // feels like we got a coupling nightmare here?
-    // pending_task: HashMap<PeerId, oneshot::Sender<Result<Task, Box<dyn Error + Send>>>>,
 }
 
 // network service will be used to handle and receive network signal. It will also transmit network package over lan
@@ -387,7 +408,9 @@ impl NetworkService {
                 // so I think I was trying to send a sender channel here so that I could fetch the file content...
                 // I received a request file command from UI - 
                 // This instructs both things, a File Request was sent out to the network, and a notification to accept incoming transfer on this side.
-                self.sender.send(NetEvent::PendingRequestFiled(request_id, Some(snd)));
+                if let Err(e) = self.sender.send(NetEvent::PendingRequestFiled(request_id, Some(snd))).await {
+                    eprintln!("Failed to send file contents: {e:?}");
+                }
             }
             NetCommand::RespondFile { file, channel } => {
                 // somehow the send_response errored out? How come?
@@ -400,7 +423,7 @@ impl NetworkService {
                     .send_response(channel, FileResponse(file.clone()))
                 {
                     // why am I'm getting error message here?
-                    eprintln!("Error received on sending response!");
+                    eprintln!("Error received on sending response! {e:?}");
                 }
             }
             NetCommand::IncomingWorker(..) => {
@@ -419,21 +442,20 @@ impl NetworkService {
             } => {
                 let key = RecordKey::new(&file_name.as_bytes());
                 let query_id = self.swarm.behaviour_mut().kad.get_providers(key.into());
-                self.sender.send(NetEvent::PendingGetProvider( query_id, snd)).await;
+                if let Err(e) = self.sender.send(NetEvent::PendingGetProvider( query_id, snd)).await {
+                    eprintln!("Fail to send provider data. {e:?}");
+                }
             }
-            NetCommand::StartProviding { file_name, /*sender*/ .. } => {
+            NetCommand::StartProviding { file_name, sender , file_service } => {
                 let provider_key = RecordKey::new(&file_name.as_bytes());
-                let _query_id = self
+                let query_id = self
                     .swarm
                     .behaviour_mut()
                     .kad
                     .start_providing(provider_key)
                     .expect("No store error.");
-
-                //  todo, handle this somewhere else.
-                // self.file_service
-                //     .pending_start_providing
-                //     .insert(query_id, sender);
+                let mut fs = file_service.lock().await;
+                fs.pending_start_providing.insert(query_id, sender);
             }
             NetCommand::SubscribeTopic(topic) => {
                 let ident_topic = IdentTopic::new(topic);
@@ -450,8 +472,6 @@ impl NetworkService {
                     .gossipsub
                     .unsubscribe(&ident_topic);
             }
-            // for the time being we'll use gossip.
-            // TODO: For future impl. I would like to target peer by peer_id instead of host name.
             NetCommand::JobStatus(host_name, event) => {
                 // convert data into json format.
                 let data = bincode::serialize(&event).unwrap();
@@ -471,8 +491,15 @@ impl NetworkService {
                 */
                 // self.pending_task.insert(peer_id);
             }
+            // TODO: need to figure out how this is called. 
             NetCommand::NodeStatus(status) => {
-                self.swarm.behaviour_mut().gossipsub.publish(topic, data)
+                // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
+                // where did we get 
+                let topic = IdentTopic::new(STATUS);
+                let data = bincode::serialize(&status).unwrap();
+                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+                    eprintln!("Fail to publish gossip message: {e:?}");
+                }
             }
             NetCommand::Dial {
                 peer_id,
@@ -500,49 +527,6 @@ impl NetworkService {
             }
         }
     }
-
-    // pub async fn handle_event(
-    //     &mut self,
-    //     sender: &mut Sender<NetEvent>,
-    //     event: &SwarmEvent<BlendFarmBehaviourEvent>,
-    // ) {
-    //     match event {
-    //         SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Mdns(mdns)) => {
-    //             self.handle_mdns(&mdns).await
-    //         }
-    //         SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Gossipsub(gossip)) => {
-    //             Self::handle_gossip(sender, &gossip).await;
-    //         }
-    //         SwarmEvent::Behaviour(BlendFarmBehaviourEvent::Kad(kad)) => {
-    //             self.handle_kademila(&kad).await
-    //         }
-    //         SwarmEvent::Behaviour(BlendFarmBehaviourEvent::RequestResponse(rr)) => {
-    //             Self::handle_response(sender, rr).await
-    //         }
-    //         // Once the swarm establish connection, we then send the peer_id we connected to.
-    //         SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-    //             sender
-    //                 .send(NetEvent::OnConnected(peer_id.clone()))
-    //                 .await
-    //                 .unwrap();
-    //         }
-    //         SwarmEvent::ConnectionClosed { peer_id, .. } => {
-    //             sender
-    //                 .send(NetEvent::NodeDisconnected(peer_id.clone()))
-    //                 .await
-    //                 .unwrap();
-    //         }
-    //         SwarmEvent::NewListenAddr { address, .. } => {
-    //             // hmm.. I need to capture the address here?
-    //             // how do I save the address?
-    //             // this seems problematic?
-    //             // if address.protocol_stack().any(|f| f.contains("tcp")) {
-    //             //     self.public_addr = Some(address);
-    //             // }
-    //         }
-    //         _ => {} //println!("[Network]: {event:?}");
-    //     }
-    // }
 
     async fn handle_response(
         &mut self,
@@ -618,40 +602,53 @@ impl NetworkService {
         };
     }
 
+    async fn handle_spec(&mut self, source: PeerId, message: Message ) {
+        // deserialize message into structure data. We expect this. Run unit test for null/invalid datastruct/malicious exploits.
+        if let Ok(specs) = bincode::deserialize(&message.data) {
+            // send a net event notification 
+            if let Err(e) = self
+                .sender
+                .send(NetEvent::NodeDiscovered(source, specs))
+                .await
+            {
+                eprintln!("Something failed? {e:?}");
+            }
+        }
+    }
+
+    async fn handle_status(&mut self, source : PeerId, message: Message) {
+        // this looks like a bad idea... any how we could not use clone? stream?
+        let msg = String::from_utf8(message.data.clone()).unwrap();
+        if let Err(e) = self.sender.send(NetEvent::Status(source, msg)).await {
+            eprintln!("Something failed? {e:?}");
+        }
+    }
+
+    async fn handle_job(&mut self, message: Message) {
+        // let peer_id = self.swarm.local_peer_id();
+        let job_event = bincode::deserialize::<JobEvent>(&message.data)
+            .expect("Fail to parse Job data!");
+
+        // I don't think this function is called?
+        println!("Is this function used?");
+        if let Err(e) = self.sender.send(NetEvent::JobUpdate(job_event)).await {
+            eprintln!("Something failed? {e:?}");
+        }
+    }
+
     // TODO: Figure out how I can use the match operator for TopicHash. I'd like to use the TopicHash static variable above.
     async fn handle_gossip(&mut self, event: gossipsub::Event) {
         match event {
-            gossipsub::Event::Message { message, .. } => match message.topic.as_str() {
-                SPEC => {
-                    let source = message.source.expect("Source cannot be empty!");
-                    let specs =
-                        bincode::deserialize(&message.data).expect("Fail to parse Computer Specs!");
-                    if let Err(e) = self
-                        .sender
-                        .send(NetEvent::NodeDiscovered(source, specs))
-                        .await
-                    {
-                        eprintln!("Something failed? {e:?}");
-                    }
+            gossipsub::Event::Message { propagation_source, message, .. } => match message.topic.as_str() {
+                // when we received a SPEC topic.
+                SPEC => {                    
+                    self.handle_spec(propagation_source, message).await;
                 }
                 STATUS => {
-                    let source = message.source.expect("Source cannot be empty!");
-                    // this looks like a bad idea... any how we could not use clone? stream?
-                    let msg = String::from_utf8(message.data.clone()).unwrap();
-                    if let Err(e) = self.sender.send(NetEvent::Status(source, msg)).await {
-                        eprintln!("Something failed? {e:?}");
-                    }
+                    self.handle_status(propagation_source, message).await;
                 }
                 JOB => {
-                    // let peer_id = self.swarm.local_peer_id();
-                    let job_event = bincode::deserialize::<JobEvent>(&message.data)
-                        .expect("Fail to parse Job data!");
-
-                    // I don't think this function is called?
-                    println!("Is this function used?");
-                    if let Err(e) = self.sender.send(NetEvent::JobUpdate(job_event)).await {
-                        eprintln!("Something failed? {e:?}");
-                    }
+                    self.handle_job(message).await;
                 }
                 // I think this needs to be changed.
                 _ => {
@@ -793,9 +790,27 @@ impl NetworkService {
                 }
             }
             // we'll do nothing for this for now.
-            _ => {}
+            // see what we're skipping?
+            _ => { println!("[Network]: {event:?}"); }
         };
     }
+
+    // pub async fn handle_event(
+    //     &mut self,
+    //     sender: &mut Sender<NetEvent>,
+    //     event: &SwarmEvent<BlendFarmBehaviourEvent>,
+    // ) {
+    //     match event {
+    //         SwarmEvent::NewListenAddr { address, .. } => {
+    //             // hmm.. I need to capture the address here?
+    //             // how do I save the address?
+    //             // this seems problematic?
+    //             // if address.protocol_stack().any(|f| f.contains("tcp")) {
+    //             //     self.public_addr = Some(address);
+    //             // }
+    //         }
+    //     }
+    // }
 
     pub async fn run(&mut self) {
         loop {
@@ -806,9 +821,3 @@ impl NetworkService {
         }
     }
 }
-
-// impl AsRef<Receiver<NetCommand>> for NetworkService {
-//     fn as_ref(&self) -> &Receiver<NetCommand> {
-//         &self.command_receiver
-//     }
-// }

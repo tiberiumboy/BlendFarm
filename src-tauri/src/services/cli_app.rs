@@ -12,13 +12,10 @@ use super::blend_farm::BlendFarm;
 use crate::{
     domains::{job_store::JobError, task_store::TaskStore},
     models::{
-        job::JobEvent,
-        message::{NetEvent, NetworkError},
-        network::{NetworkController, JOB},
-        server_setting::ServerSetting,
-        task::Task,
+        job::JobEvent, message::{self, NetEvent, NetworkError}, network::{NetworkController, NodeEvent, JOB}, server_setting::ServerSetting, task::Task
     },
 };
+use std::path::Path;
 use blender::models::status::Status;
 use blender::{
     blender::{Blender, Manager as BlenderManager},
@@ -32,22 +29,27 @@ use tokio::{
         RwLock,
     },
 };
+use uuid::Uuid;
 
 enum CmdCommand {
     Render(Task),
     RequestTask // calls to host for more task.
 }
 
+// enum CliEvent {
+
+// }
+
 #[derive(Debug, Error)]
 enum CliError {
-    #[error("Received Network Issue: {0}")]
-    NetworkError(String),
-    #[error("Unknown error received: {0}")]
-    Unknown(String),
-    #[error("Unable to listen - Connection rejected?")]
-    ConnectionRejected,
-    #[error("Not connected")]
-    NotConnected,
+    // #[error("Unknown error received: {0}")]
+    // Unknown(String),
+    // #[error("Unable to fetch project file from host! There may be an active firewall that's blocking file transfer. \n{0:?}")]
+    // UnableToRetrieveFile(async_std::io::Error),
+    #[error("Encounter an network error! \n{0:}")]
+    NetworkError(#[from] message::NetworkError),
+    #[error("Encounter an IO error! \n{0}")]
+    Io(#[from] async_std::io::Error)
 }
 
 pub struct CliApp {
@@ -72,9 +74,9 @@ impl CliApp {
 impl CliApp {
     async fn check_project_file(
         client: &mut NetworkController,
-        task: &mut Task,
-        search_directory: &PathBuf,
-    ) -> Result<PathBuf, NetworkError> {
+        task: &Task,
+        search_directory: &Path,
+    ) -> Result<PathBuf, CliError> {
         let file_name = task.blend_file_name.to_str().unwrap();
 
         println!("Calling network for project file {file_name}");
@@ -83,6 +85,55 @@ impl CliApp {
         client
             .get_file_from_peers(&file_name, search_directory)
             .await
+            .map_err(CliError::NetworkError)
+    }
+
+    // This function will ensure the directory will exist, and return the path to that given directory.
+    // It will remain valid unless directory or parent above is removed during runtime.
+    async fn generate_temp_project_task_directory(settings: &ServerSetting, task: &Task, id: &str) -> Result<PathBuf, async_std::io::Error> {
+        
+        // create a path link where we think the file should be
+        let project_path = settings.blend_dir.join(id.to_string()).join(&task.blend_file_name);
+        
+        // we only want the parent directory to exist.
+        match async_std::fs::create_dir_all(&project_path.parent().expect("I wouldn't think we'd be trying to check files in root? Please write a bug report and replicate step by step to reproduce the issue")).await {
+            Ok(_) => Ok(project_path),
+            Err(e) => {
+                Err(e)
+            }
+        }
+    }
+
+    async fn validate_project_file(&self, client: &mut NetworkController, task: &Task ) -> Result<PathBuf, CliError> {
+        let id = task.job_id;
+        let project_file_path = CliApp::generate_temp_project_task_directory(&self.settings, &task, &id.to_string()).await.expect("Should have permission!");
+    
+        // assume project file is located inside this directory.
+        println!("Checking for {:?}", &project_file_path);
+
+        // Fetch the project from peer if we don't have it.
+        if !project_file_path.exists() {
+
+            println!(
+                "Project file do not exist, asking to download from DHT: {:?}",
+                &task.blend_file_name
+            );
+
+            let search_directory = project_file_path.parent().expect("Shouldn't be anywhere near root level?");
+
+            // so I need to figure out something about this...
+            // TODO - find a way to break out of this if we can't fetch the project file.
+            CliApp::check_project_file(client, task, search_directory).await?;
+        }
+
+        Ok(project_file_path)
+    }
+
+    async fn verify_and_check_render_output_path(&self, id: &Uuid) -> Result<PathBuf, async_std::io::Error> {
+        // create a output destination for the render image
+        let output = self.settings.render_dir.join(&id.to_string());
+        async_std::fs::create_dir_all(&output).await?;
+        Ok(output)
     }
 
     // TODO: Rewrite this to meet Single responsibility principle.
@@ -93,36 +144,9 @@ impl CliApp {
         client: &mut NetworkController,
         task: &mut Task,
     ) -> Result<(), CliError> {
-        let id = task.job_id;
+        let project_file = self.validate_project_file(client, &task).await?;
 
-        // create a path link where we think the file should be
-        let blend_dir = self.settings.blend_dir.join(id.to_string());
-        if let Err(e) = async_std::fs::create_dir_all(&blend_dir).await {
-            eprintln!("Error creating blend directory! {e:?}");
-        }
-
-        // assume project file is located inside this directory.
-        let project_file = blend_dir.join(&task.blend_file_name); // append the file name here instead.
-
-        println!("Checking for {:?}", &project_file);
-
-        // Fetch the project from peer if we don't have it.
-        if !project_file.exists() {
-            println!(
-                "Project file do not exist, asking to download from DHT: {:?}",
-                &task.blend_file_name
-            );
-
-            // so I need to figure out something about this...
-            // TODO - find a way to break out of this if we can't fetch the project file.
-            if let Err(e) = CliApp::check_project_file(client, task, &blend_dir).await {
-                // let the host know hey we can't do this job because reason
-                eprintln!("Fail to get project file: {e:?}");
-                return Err(CliError::Unknown(e.to_string()));
-            }
-        }
-
-        println!("Ok we have project file, now check for Blender");
+        println!("Ok we expect to have the project file available, now let's check for Blender");
 
         // am I'm introducing multiple behaviour in this single function?
         let blender = match self.manager.have_blender(&task.blender_version) {
@@ -143,8 +167,10 @@ impl CliApp {
                         &task.blender_version
                     ))
                     .name;
+                let destination = self.manager.get_install_path();
+                
                 // should also use this to send CmdCommands for network stuff.
-                let latest = client.get_file_from_peers(&link_name, &blend_dir).await;
+                let latest = client.get_file_from_peers(&link_name, destination).await;
 
                 match latest {
                     Ok(path) => {
@@ -167,14 +193,8 @@ impl CliApp {
                 }
             }
         };
-        //     }
-        // }
 
-        // create a output destination for the render image
-        let output = self.settings.render_dir.join(id.to_string());
-        if let Err(e) = async_std::fs::create_dir_all(&output).await {
-            eprintln!("Error creating render directory: {e:?}");
-        }
+        let output = self.verify_and_check_render_output_path(&task.job_id).await.map_err(|e| CliError::Io(e))?;
 
         // run the job!
         // TODO: is there a better way to get around clone?
@@ -262,12 +282,15 @@ impl CliApp {
             NetEvent::JobUpdate(job_event) => self.handle_job_update(job_event).await,
             // maybe move this inside Network code? Seems repeative in both cli and Tauri side of application here.
             NetEvent::InboundRequest { request, channel } => {
-                if let Some(path) = client.file_service.providing_files.get(&request) {
+                // how come I don't have access to file_service from anywhere?
+                let fs = client.file_service.lock().await;
+                if let Some(path) = fs.providing_files.get(&request) {
                     println!("Sending file {path:?}");
-
+                    let file = std::fs::read(path).unwrap();
+                    
                     // this responded back to the network controller? Why?
                     client
-                        .respond_file(std::fs::read(path).unwrap(), channel)
+                        .respond_file(file, channel)
                         .await;
                 }
             }
@@ -280,6 +303,10 @@ impl CliApp {
     async fn handle_command(&mut self, client: &mut NetworkController, cmd: CmdCommand) {
         match cmd {
             CmdCommand::Render(mut task) => {
+                // we received command to render, notify the world I'm busy.
+                client.send_node_status(NodeEvent::Busy).await;
+                
+                // proceed to render the task.
                 if let Err(e) = self.render_task(client, &mut task).await {
                     client
                         .send_job_message(&task.requestor, JobEvent::Failed(e.to_string()))
@@ -287,8 +314,8 @@ impl CliApp {
                 }
             }
             CmdCommand::RequestTask => {
-                client.send_job_message(, event)
-                client.send_status("Idle".to_owned()).await;
+                // Notify the world we're available.
+                client.send_node_status(NodeEvent::Idle).await;
             }
         }
     }
@@ -301,17 +328,12 @@ impl BlendFarm for CliApp {
         mut client: NetworkController,
         mut event_receiver: Receiver<NetEvent>,
     ) -> Result<(), NetworkError> {
-        // Future Impl. Make this machine available to other peers that share the same operating system and arch
-        // - so that we can distribute blender across network rather than download blender per each peers.
-        // let system = self.machine.system_info();
-        // let system_info = format!("blendfarm/{}{}", consts::OS, &system.processor.brand);
         // TODO: Figure out why I need the JOB subscriber?
+        let hostname = client.hostname.clone();
         client.subscribe_to_topic(JOB.to_string()).await;
-        client.subscribe_to_topic(client.hostname.clone()).await;
+        client.subscribe_to_topic(hostname).await;
 
-        // could we just run a background thread here to handle task job?
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
-
         // we will have one thread to process blender and queue, but I must have access to database.
         let taskdb = self.task_store.clone();
         let (event, mut command) = mpsc::channel(32);
@@ -335,7 +357,10 @@ impl BlendFarm for CliApp {
                     }
                 } else {
                     println!("No task found! Sleeping...");
-                    event.send(CmdCommand::RequestTask).await;
+                    if let Err(e) = event.send(CmdCommand::RequestTask).await {
+                        eprintln!("Fail to send command to network! {e:?}");
+                    }
+                    // may need to adjust the timer duration.
                     sleep(Duration::from_secs(2u64));
                 }
             }

@@ -1,9 +1,12 @@
-use super::behaviour::FileResponse;
+use super::behaviour::FileService;
+use super::{behaviour::FileResponse, network::NodeEvent};
 use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
 use futures::channel::oneshot::{self, Sender};
 use libp2p::{kad::QueryId, Multiaddr, PeerId};
 use libp2p_request_response::{OutboundRequestId, ResponseChannel};
+use tokio::sync::Mutex;
+use std::sync::Arc;
 use std::{collections::HashSet, error::Error};
 use thiserror::Error;
 
@@ -34,12 +37,13 @@ pub enum NetCommand {
     Status(String),
     SubscribeTopic(String),
     UnsubscribeTopic(String),
-    NodeStatus(NodeEvent), // Notify the host this node activity - this will be useful to provide other message than program, such as os update.
+    NodeStatus(NodeEvent), // broadcast node activity changed
     JobStatus(String, JobEvent),
     // use this event to send message to a specific node
     StartProviding {
         file_name: String,
         sender: oneshot::Sender<()>,
+        file_service: Arc<Mutex<FileService>>, // dangerous coupling?
     },
     GetProviders {
         file_name: String,
