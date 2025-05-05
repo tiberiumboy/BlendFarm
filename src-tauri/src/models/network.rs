@@ -1,12 +1,15 @@
-use super::behaviour::{
-    BlendFarmBehaviour, BlendFarmBehaviourEvent, FileRequest, FileResponse,
-};
+use super::behaviour::{BlendFarmBehaviour, BlendFarmBehaviourEvent, FileRequest, FileResponse};
 use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
-use super::message::{Command, Event, NetworkError, Target};
+use super::message::{Command, Event, KeywordSearch, NetworkError, Target};
 use core::str;
-use std::str::FromStr;
-use futures::{channel::{mpsc::{self, Receiver, Sender}, oneshot}, prelude::*};
+use futures::{
+    channel::{
+        mpsc::{self, Receiver, Sender},
+        oneshot,
+    },
+    prelude::*,
+};
 use libp2p::gossipsub::{self, IdentTopic, Message};
 use libp2p::identity;
 use libp2p::kad::{QueryId, RecordKey};
@@ -17,7 +20,8 @@ use machine_info::Machine;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::path::{PathBuf, Path};
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::Duration;
 use std::u64;
 use tokio::{io, select};
@@ -34,19 +38,28 @@ pub const JOB: &str = "blendfarm/job";
 pub const HEARTBEAT: &str = "blendfarm/heartbeat";
 const TRANSFER: &str = "/file-transfer/1";
 
+pub enum ProviderRule {
+    // Use "file name.ext", Extracted from PathBuf.
+    Default(PathBuf),
+    // Custom keyword search for specific PathBuf.
+    Custom(KeywordSearch, PathBuf),
+}
+
 // the tuples return two objects
 // Network Controller to interface network service
 // Receiver<NetCommand> receive network events
-pub async fn new(secret_key_seed: Option<u8>) -> Result<(NetworkController, Receiver<Event>, NetworkService), NetworkError> {
+pub async fn new(
+    secret_key_seed: Option<u8>,
+) -> Result<(NetworkController, Receiver<Event>, NetworkService), NetworkError> {
     // wonder if this is a good idea?
     let duration = Duration::from_secs(u64::MAX);
-    let id_keys = match secret_key_seed { 
+    let id_keys = match secret_key_seed {
         Some(seed) => {
             let mut bytes = [0u8; 32];
             bytes[0] = seed;
             identity::Keypair::ed25519_from_bytes(bytes).unwrap()
         }
-        None => identity::Keypair::generate_ed25519()
+        None => identity::Keypair::generate_ed25519(),
     };
     let tcp_config: tcp::Config = tcp::Config::default();
 
@@ -140,11 +153,7 @@ pub async fn new(secret_key_seed: Option<u8>) -> Result<(NetworkController, Rece
         event_sender, // Here is where network service communicates out.
     );
 
-    Ok((
-        controller,
-        event_receiver,
-        service
-    ))
+    Ok((controller, event_receiver, service))
 }
 
 // Network Controller interfaces network service.
@@ -157,14 +166,15 @@ pub struct NetworkController {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StatusEvent {
+    Offline,
     Online,
     Busy,
-    Offline,
+    Error(String),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PeerIdString {
-    inner: String
+    inner: String,
 }
 
 // Must be serializable to send data across network
@@ -172,13 +182,13 @@ pub struct PeerIdString {
 pub enum NodeEvent {
     Discovered(PeerIdString, ComputerSpec),
     Disconnected(PeerIdString),
-    Status(StatusEvent)
+    Status(StatusEvent),
 }
 
 impl PeerIdString {
     pub fn new(peer: &PeerId) -> Self {
         Self {
-            inner: peer.to_base58()
+            inner: peer.to_base58(),
         }
     }
 
@@ -202,7 +212,7 @@ impl NetworkController {
             .expect("sender should not be closed!");
     }
 
-    // 
+    //
     pub async fn send_node_status(&mut self, status: NodeEvent) {
         if let Err(e) = self.sender.send(Command::NodeStatus(status)).await {
             eprintln!("Failed to send node status to network service: {e:?}");
@@ -235,20 +245,30 @@ impl NetworkController {
     }
 
     /// file_name are broadcasted with the extensions included, but not the directory it's located in. E.g. "test.blend"
-    pub async fn start_providing(&mut self, path: PathBuf) {
-        
+    // I need to use some kind of enumeration to help make this process flexible with rules..
+    pub async fn start_providing(&mut self, provider: &ProviderRule) {
         // what was the whole idea of using the receiver?
-        let cmd = Command::StartProviding(path);
-        
-        if let Err(e) = self.sender
-        .send(cmd)
-        .await
-            {
-                eprintln!("How did this happen? {e:?}");
+        let cmd = match provider {
+            ProviderRule::Default(path_buf) => {
+                let keyword = path_buf
+                    .file_name()
+                    .expect("Must have a valid file!")
+                    .to_str()
+                    .expect("Must be able to convert OsStr to Str!")
+                    .to_owned();
+                Command::StartProviding(keyword, path_buf.to_owned())
             }
+            ProviderRule::Custom(keyword, path_buf) => {
+                Command::StartProviding(keyword.to_owned(), path_buf.to_owned())
+            }
+        };
+
+        if let Err(e) = self.sender.send(cmd).await {
+            eprintln!("How did this happen? {e:?}");
+        }
 
         // somehow receiver was dropped?
-        // what are we receiving/awaiting for? 
+        // what are we receiving/awaiting for?
         // if let Err(e) = receiver.await {
         //     eprintln!("Why did the receiver dropped? What happen?: {e:?}");
         // }
@@ -263,12 +283,14 @@ impl NetworkController {
             })
             .await
             .expect("Command receiver should not be dropped");
-        
+
         // why was this dropped?
         match receiver.await {
             Ok(data) => data,
             Err(e) => {
-                println!("Somehow this receiver was cancelled... Maybe there is no providers? {e:?}");
+                println!(
+                    "Somehow this receiver was cancelled... Maybe there is no providers? {e:?}"
+                );
                 HashSet::new()
             }
         }
@@ -319,7 +341,7 @@ impl NetworkController {
             })
             .await
             .expect("Command should not be dropped");
-        receiver.await.expect("Should not be closed?") 
+        receiver.await.expect("Should not be closed?")
     }
 
     // TODO: Come back to this one and see how this one gets invoked.
@@ -352,14 +374,17 @@ pub struct NetworkService {
 
     providing_files: HashMap<QueryId, PathBuf>,
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
-    // hmm?
     pending_request_file:
         HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
 }
 
 // network service will be used to handle and receive network signal. It will also transmit network package over lan
 impl NetworkService {
-    pub fn new(swarm: Swarm<BlendFarmBehaviour>, receiver: Receiver<Command>, sender: Sender<Event>) -> NetworkService {
+    pub fn new(
+        swarm: Swarm<BlendFarmBehaviour>,
+        receiver: Receiver<Command>,
+        sender: Sender<Event>,
+    ) -> NetworkService {
         Self {
             swarm,
             receiver,
@@ -399,9 +424,13 @@ impl NetworkService {
 
                 // so instead, we should just send a netevent?
                 // so I think I was trying to send a sender channel here so that I could fetch the file content...
-                // I received a request file command from UI - 
+                // I received a request file command from UI -
                 // This instructs both things, a File Request was sent out to the network, and a notification to accept incoming transfer on this side.
-                if let Err(e) = self.sender.send(Event::PendingRequestFiled(request_id, Some(snd))).await {
+                if let Err(e) = self
+                    .sender
+                    .send(Event::PendingRequestFiled(request_id, Some(snd)))
+                    .await
+                {
                     eprintln!("Failed to send file contents: {e:?}");
                 }
             }
@@ -430,25 +459,29 @@ impl NetworkService {
                 };
             }
             Command::GetProviders {
-                file_name, 
+                file_name,
                 sender: snd,
             } => {
                 let key = RecordKey::new(&file_name.as_bytes());
                 let query_id = self.swarm.behaviour_mut().kad.get_providers(key.into());
-                if let Err(e) = self.sender.send(Event::PendingGetProvider( query_id, snd)).await {
+                if let Err(e) = self
+                    .sender
+                    .send(Event::PendingGetProvider(query_id, snd))
+                    .await
+                {
                     eprintln!("Fail to send provider data. {e:?}");
                 }
             }
-            Command::StartProviding (file_path) => {
-                let file_name = file_path.file_name().expect("Must be a valid file");
+            Command::StartProviding(keyword, file_path) => {
+                // let file_name = file_path.file_name().expect("Must be a valid file");
 
-                let provider_key = RecordKey::new(&file_name.as_encoded_bytes());
+                let provider_key = RecordKey::new(&keyword.as_bytes());
                 let query_id = self
                     .swarm
                     .behaviour_mut()
                     .kad
                     .start_providing(provider_key)
-                    .expect("No store error."); 
+                    .expect("No store error.");
 
                 self.providing_files.insert(query_id, file_path);
             }
@@ -474,11 +507,11 @@ impl NetworkService {
                 // currently using a hack by making the target machine subscribe to their hostname.
                 // the manager will send message to that specific hostname as target instead.
                 // TODO: Read more about libp2p and how I can just connect to one machine and send that machine job status information.
-                let name = match host_name { 
+                let name = match host_name {
                     Some(name) => name,
                     None => JOB.to_owned(),
                 };
-                
+
                 let topic = IdentTopic::new(name);
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Error sending job status! {e:?}");
@@ -491,10 +524,10 @@ impl NetworkService {
                 */
                 // self.pending_task.insert(peer_id);
             }
-            // TODO: need to figure out how this is called. 
+            // TODO: need to figure out how this is called.
             Command::NodeStatus(status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
-                // where did we get 
+                // where did we get
                 let topic = IdentTopic::new(STATUS);
                 let data = bincode::serialize(&status).unwrap();
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
@@ -578,21 +611,19 @@ impl NetworkService {
         };
     }
 
-    async fn handle_spec(&mut self, source: PeerId, message: Message ) {
+    async fn handle_spec(&mut self, source: PeerId, message: Message) {
         // deserialize message into structure data. We expect this. Run unit test for null/invalid datastruct/malicious exploits.
         if let Ok(specs) = bincode::deserialize(&message.data) {
-            // send a net event notification 
-            if let Err(e) = self
-                .sender
-                .send(Event::NodeDiscovered(source, specs))
-                .await
-            {
+            // send a net event notification
+            let peer_id_str = PeerIdString::new(&source);
+            let node_event = NodeEvent::Discovered(peer_id_str, specs);
+            if let Err(e) = self.sender.send(Event::NodeStatus(node_event)).await {
                 eprintln!("Something failed? {e:?}");
             }
         }
     }
 
-    async fn handle_status(&mut self, source : PeerId, message: Message) {
+    async fn handle_status(&mut self, source: PeerId, message: Message) {
         // this looks like a bad idea... any how we could not use clone? stream?
         let msg = String::from_utf8(message.data.clone()).unwrap();
         if let Err(e) = self.sender.send(Event::Status(source, msg)).await {
@@ -602,8 +633,8 @@ impl NetworkService {
 
     async fn handle_job(&mut self, message: Message) {
         // let peer_id = self.swarm.local_peer_id();
-        let job_event = bincode::deserialize::<JobEvent>(&message.data)
-            .expect("Fail to parse Job data!");
+        let job_event =
+            bincode::deserialize::<JobEvent>(&message.data).expect("Fail to parse Job data!");
 
         // I don't think this function is called?
         println!("Is this function used?");
@@ -615,9 +646,13 @@ impl NetworkService {
     // TODO: Figure out how I can use the match operator for TopicHash. I'd like to use the TopicHash static variable above.
     async fn process_gossip_event(&mut self, event: gossipsub::Event) {
         match event {
-            gossipsub::Event::Message { propagation_source, message, .. } => match message.topic.as_str() {
+            gossipsub::Event::Message {
+                propagation_source,
+                message,
+                ..
+            } => match message.topic.as_str() {
                 // when we received a SPEC topic.
-                SPEC => {                    
+                SPEC => {
                     self.handle_spec(propagation_source, message).await;
                 }
                 STATUS => {
@@ -633,14 +668,10 @@ impl NetworkService {
                     if topic.eq(&self.machine.system_info().hostname) {
                         let job_event = bincode::deserialize::<JobEvent>(&message.data)
                             .expect("Fail to parse job data!");
-                        
-                        if let Err(e) = self.sender
-                            .send(Event::JobUpdate(job_event))
-                            .await
-                        {
+
+                        if let Err(e) = self.sender.send(Event::JobUpdate(job_event)).await {
                             eprintln!("Fail to send job update!\n{e:?}");
                         }
-
                     } else {
                         // let data = String::from_utf8(message.data).unwrap();
                         eprintln!("Intercepted unhandled signal here: {topic}");
@@ -670,7 +701,7 @@ impl NetworkService {
                 // let _ = sender.send(());
             }
             kad::Event::OutboundQueryProgressed {
-                // id,
+                id,
                 result:
                     kad::QueryResult::GetProviders(Ok(kad::GetProvidersOk::FoundProviders {
                         providers,
@@ -678,34 +709,38 @@ impl NetworkService {
                     })),
                 ..
             } => {
-                
                 // So, here's where we finally receive the invocation?
                 if let Some(sender) = self.pending_get_providers.remove(&id) {
-                //     sender
-                //         .send(providers.clone())
-                //         .expect("Receiver not to be dropped");
-                //     self.kad.query_mut(&id).unwrap().finish();
+                    sender
+                        .send(providers.clone())
+                        .expect("Receiver not to be dropped");
+                    // self.kad.query_mut(&id).unwrap().finish();
                 }
             }
+            // here is where we're getting progress results.
             kad::Event::OutboundQueryProgressed {
                 result:
                     kad::QueryResult::GetProviders(Ok(
-                        kad::GetProvidersOk::FinishedWithNoAdditionalRecord { closest_peers },
+                        kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
                     )),
+                id,
+                step,
                 ..
             } => {
                 // This piece of code means that there's nobody advertising this on the network?
                 // what was suppose to happen here?
                 // TODO: I am once again stopped here. This message appeared from the CLI side. Not the host.
-                
-                let outbound_request_id = ???
-                let event = Event::PendingRequestFiled(outbound_request_id, None);
-                self.sender.send(event).await;
+                dbg!(id, step);
+                // let outbound_request_id = id;
+                // let event = Event::PendingRequestFiled(outbound_request_id, None);
+                // self.sender.send(event).await;
             }
 
-            
             // suppressed
-            kad::Event::OutboundQueryProgressed { result: kad::QueryResult::Bootstrap(..), .. } => {}
+            kad::Event::OutboundQueryProgressed {
+                result: kad::QueryResult::Bootstrap(..),
+                ..
+            } => {}
             // suppressed
             kad::Event::InboundRequest { .. } => {}
             // suppressed
@@ -739,7 +774,9 @@ impl NetworkService {
                 }
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                if let Err(e) = self.sender.send(Event::NodeDisconnected(peer_id)).await {
+                let peer_id_string = PeerIdString::new(&peer_id);
+                let event = Event::NodeStatus(NodeEvent::Disconnected(peer_id_string));
+                if let Err(e) = self.sender.send(event).await {
                     eprintln!("Fail to send event on connection closed! {e:?}");
                 }
             }
@@ -760,7 +797,6 @@ impl NetworkService {
             // SwarmEvent::ListenerClosed { .. } => todo!(),
             // SwarmEvent::ListenerError { listener_id, error } => todo!(),
             // SwarmEvent::Dialing { .. } => todo!(),
-
             SwarmEvent::NewExternalAddrOfPeer { peer_id, .. } => {
                 if let Err(e) = self.sender.send(Event::OnConnected(peer_id)).await {
                     eprintln!("{e:?}");
@@ -768,7 +804,9 @@ impl NetworkService {
             }
             // we'll do nothing for this for now.
             // see what we're skipping?
-            _ => { println!("[Network]: {event:?}"); }
+            _ => {
+                println!("[Network]: {event:?}");
+            }
         };
     }
 

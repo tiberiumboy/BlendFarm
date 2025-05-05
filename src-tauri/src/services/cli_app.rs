@@ -12,26 +12,30 @@ use super::blend_farm::BlendFarm;
 use crate::{
     domains::{job_store::JobError, task_store::TaskStore},
     models::{
-        job::JobEvent, message::{self, Event, NetworkError}, network::{NetworkController, NodeEvent, StatusEvent, JOB}, server_setting::ServerSetting, task::Task
+        job::JobEvent,
+        message::{self, Event, NetworkError},
+        network::{NetworkController, NodeEvent, ProviderRule, StatusEvent, JOB},
+        server_setting::ServerSetting,
+        task::Task,
     },
 };
-use std::path::Path;
 use blender::models::status::Status;
 use blender::{
     blender::{Blender, Manager as BlenderManager},
     models::download_link::DownloadLink,
 };
-use futures::{channel::mpsc::{self, Receiver}, SinkExt, StreamExt};
-use thiserror::Error;
-use tokio::{
-    select, spawn,
-    sync::RwLock,
+use futures::{
+    channel::mpsc::{self, Receiver},
+    SinkExt, StreamExt,
 };
+use std::path::Path;
+use thiserror::Error;
+use tokio::{select, spawn, sync::RwLock};
 use uuid::Uuid;
 
 enum CmdCommand {
     Render(Task),
-    RequestTask // calls to host for more task.
+    RequestTask, // calls to host for more task.
 }
 
 // enum CliEvent {
@@ -47,7 +51,7 @@ enum CliError {
     #[error("Encounter an network error! \n{0:}")]
     NetworkError(#[from] message::NetworkError),
     #[error("Encounter an IO error! \n{0}")]
-    Io(#[from] async_std::io::Error)
+    Io(#[from] async_std::io::Error),
 }
 
 pub struct CliApp {
@@ -88,11 +92,17 @@ impl CliApp {
 
     // This function will ensure the directory will exist, and return the path to that given directory.
     // It will remain valid unless directory or parent above is removed during runtime.
-    async fn generate_temp_project_task_directory(settings: &ServerSetting, task: &Task, id: &str) -> Result<PathBuf, async_std::io::Error> {
-        
+    async fn generate_temp_project_task_directory(
+        settings: &ServerSetting,
+        task: &Task,
+        id: &str,
+    ) -> Result<PathBuf, async_std::io::Error> {
         // create a path link where we think the file should be
-        let project_path = settings.blend_dir.join(id.to_string()).join(&task.blend_file_name);
-        
+        let project_path = settings
+            .blend_dir
+            .join(id.to_string())
+            .join(&task.blend_file_name);
+
         // we only want the parent directory to exist.
         match async_std::fs::create_dir_all(&project_path.parent().expect("I wouldn't think we'd be trying to check files in root? Please write a bug report and replicate step by step to reproduce the issue")).await {
             Ok(_) => Ok(project_path),
@@ -102,22 +112,30 @@ impl CliApp {
         }
     }
 
-    async fn validate_project_file(&self, client: &mut NetworkController, task: &Task ) -> Result<PathBuf, CliError> {
+    async fn validate_project_file(
+        &self,
+        client: &mut NetworkController,
+        task: &Task,
+    ) -> Result<PathBuf, CliError> {
         let id = task.job_id;
-        let project_file_path = CliApp::generate_temp_project_task_directory(&self.settings, &task, &id.to_string()).await.expect("Should have permission!");
-    
+        let project_file_path =
+            CliApp::generate_temp_project_task_directory(&self.settings, &task, &id.to_string())
+                .await
+                .expect("Should have permission!");
+
         // assume project file is located inside this directory.
         println!("Checking for {:?}", &project_file_path);
 
         // Fetch the project from peer if we don't have it.
         if !project_file_path.exists() {
-
             println!(
                 "Project file do not exist, asking to download from DHT: {:?}",
                 &task.blend_file_name
             );
 
-            let search_directory = project_file_path.parent().expect("Shouldn't be anywhere near root level?");
+            let search_directory = project_file_path
+                .parent()
+                .expect("Shouldn't be anywhere near root level?");
 
             // so I need to figure out something about this...
             // TODO - find a way to break out of this if we can't fetch the project file.
@@ -127,7 +145,10 @@ impl CliApp {
         Ok(project_file_path)
     }
 
-    async fn verify_and_check_render_output_path(&self, id: &Uuid) -> Result<PathBuf, async_std::io::Error> {
+    async fn verify_and_check_render_output_path(
+        &self,
+        id: &Uuid,
+    ) -> Result<PathBuf, async_std::io::Error> {
         // create a output destination for the render image
         let output = self.settings.render_dir.join(&id.to_string());
         async_std::fs::create_dir_all(&output).await?;
@@ -166,7 +187,7 @@ impl CliApp {
                     ))
                     .name;
                 let destination = self.manager.get_install_path();
-                
+
                 // should also use this to send CmdCommands for network stuff.
                 let latest = client.get_file_from_peers(&link_name, destination).await;
 
@@ -192,7 +213,10 @@ impl CliApp {
             }
         };
 
-        let output = self.verify_and_check_render_output_path(&task.job_id).await.map_err(|e| CliError::Io(e))?;
+        let output = self
+            .verify_and_check_render_output_path(&task.job_id)
+            .await
+            .map_err(|e| CliError::Io(e))?;
 
         // run the job!
         // TODO: is there a better way to get around clone?
@@ -223,9 +247,12 @@ impl CliApp {
                                 file_name: file_name.clone(),
                             };
 
-                            client.start_providing(file_name, result).await;
-                            client.send_job_message(Some(task.requestor.clone()), event).await;
-                        },
+                            let provider = ProviderRule::Custom(file_name, result);
+                            client.start_providing(&provider).await;
+                            client
+                                .send_job_message(Some(task.requestor.clone()), event)
+                                .await;
+                        }
 
                         Status::Exit => {
                             // hmm is this technically job complete?
@@ -279,25 +306,27 @@ impl CliApp {
             Event::OnConnected(peer_id) => client.share_computer_info(peer_id).await,
 
             Event::JobUpdate(job_event) => self.handle_job_update(job_event).await,
-            Event::InboundRequest { request, channel: _channel } => {
-                
-                
-
-
+            Event::InboundRequest {
+                //request,
+                channel: _channel,
+                ..
+            } => {
 
                 // if let Some(path) = fs.providing_files.get(&request) {
                 //     println!("Sending file {path:?}");
                 //     let _file = std::fs::read(path).unwrap();
-                    
+
                 //     todo!("Figure out this issue how did I get here. Write that down here.");
-                    
+
                 //     // this responded back to the network controller? Why?
                 //     // client
                 //     //     .respond_file(file, channel)
                 //     //     .await;
                 // }
             }
-            Event::NodeStatus(event) => { println!("{event:?}"); }, 
+            Event::NodeStatus(event) => {
+                println!("{event:?}");
+            }
             _ => println!("[CLI] Unhandled event from network: {event:?}"),
         }
     }
@@ -306,18 +335,25 @@ impl CliApp {
         match cmd {
             CmdCommand::Render(mut task) => {
                 // we received command to render, notify the world I'm busy.
-                client.send_node_status(NodeEvent::Status(StatusEvent::Busy)).await;
-                
+                client
+                    .send_node_status(NodeEvent::Status(StatusEvent::Busy))
+                    .await;
+
                 // proceed to render the task.
                 if let Err(e) = self.render_task(client, &mut task).await {
                     client
-                        .send_job_message(Some(task.requestor.clone()), JobEvent::Failed(e.to_string()))
+                        .send_job_message(
+                            Some(task.requestor.clone()),
+                            JobEvent::Failed(e.to_string()),
+                        )
                         .await
                 }
             }
             CmdCommand::RequestTask => {
                 // Notify the world we're available.
-                client.send_node_status(NodeEvent::Status(StatusEvent::Online)).await;
+                client
+                    .send_node_status(NodeEvent::Status(StatusEvent::Online))
+                    .await;
             }
         }
     }

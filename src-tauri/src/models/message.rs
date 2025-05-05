@@ -1,10 +1,10 @@
 use super::{behaviour::FileResponse, network::NodeEvent};
 // use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
-use std::path::PathBuf;
 use futures::channel::oneshot::{self, Sender};
 use libp2p::{kad::QueryId, PeerId};
 use libp2p_request_response::{OutboundRequestId, ResponseChannel};
+use std::path::PathBuf;
 use std::{collections::HashSet, error::Error};
 use thiserror::Error;
 
@@ -29,6 +29,7 @@ pub enum NetworkError {
 }
 
 pub type Target = Option<String>;
+pub type KeywordSearch = String;
 
 // Send commands to network.
 #[derive(Debug)]
@@ -40,7 +41,7 @@ pub enum Command {
     UnsubscribeTopic(String),
     NodeStatus(NodeEvent), // broadcast node activity changed
     JobStatus(Target, JobEvent),
-    StartProviding(PathBuf),    // update kademlia service to provide a new file. Must have a file name and a extension! Cannot be a directory!
+    StartProviding(KeywordSearch, PathBuf), // update kademlia service to provide a new file. Must have a file name and a extension! Cannot be a directory!
     GetProviders {
         file_name: String,
         sender: oneshot::Sender<HashSet<PeerId>>,
@@ -74,5 +75,4 @@ pub enum Event {
     ),
     PendingGetProvider(QueryId, Sender<HashSet<PeerId>>),
     ReceivedFileData(OutboundRequestId, Vec<u8>),
-
 }

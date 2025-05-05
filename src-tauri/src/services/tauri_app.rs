@@ -1,3 +1,10 @@
+/* DEV Blog
+
+    Issue: files provider are stored in memory, and do not recover after application restart. 
+        - mitigate this by using a persistent storage solution instead of memory storage.
+    
+*/
+
 use super::{blend_farm::BlendFarm, data_store::{sqlite_job_store::SqliteJobStore, sqlite_worker_store::SqliteWorkerStore}};
 use crate::{
     domains::{job_store::JobStore, worker_store::WorkerStore},
@@ -6,7 +13,7 @@ use crate::{
         computer_spec::ComputerSpec,
         job::{CreatedJobDto, JobEvent},
         message::{Event, NetworkError},
-        network::{NetworkController, HEARTBEAT, JOB, SPEC, STATUS},
+        network::{NetworkController, NodeEvent, ProviderRule, HEARTBEAT, JOB, SPEC, STATUS},
         server_setting::ServerSetting,
         task::Task,
         worker::Worker,
@@ -34,7 +41,7 @@ pub const WORKPLACE: &str = "workplace";
 pub enum UiCommand {
     StartJob(CreatedJobDto),
     StopJob(Uuid),
-    UploadFile(PathBuf, String),
+    UploadFile(PathBuf),
     RemoveJob(Uuid),
 }
 
@@ -183,9 +190,9 @@ impl TauriApp {
         if let Ok(jobs) = db.list_all().await {
             for job in jobs {
                 // in each job, we have project path. This is used to help locate the current project file path.
-                let file_name = job.item.project_file.file_name().expect("Must have file name!").to_str().expect("Must have file name!");
                 let path = job.item.get_project_path();
-                client.start_providing(file_name.to_string(), path.clone()).await;
+                let provider = ProviderRule::Default(path.to_owned());
+                client.start_providing(&provider).await;
             }
         }
 
@@ -238,17 +245,14 @@ impl TauriApp {
     // command received from UI
     async fn handle_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
         match cmd {
-            // TODO: This may subject to change. 
-            // Issue: What if the app restarts? We no longer provide the file after reboot.
             UiCommand::StartJob(job) => {
                 // first make the file available on the network
-                let file_name = job.item.project_file.file_name().unwrap();
+                let file_name = job.item.project_file.file_name().unwrap();// this is &OsStr
                 let path = job.item.project_file.clone();
 
                 // Once job is initiated, we need to be able to provide the files for network distribution.
-                client
-                    .start_providing(file_name.to_str().unwrap().to_string(), path)
-                    .await;
+                let provider = ProviderRule::Default(path);
+                client.start_providing(&provider).await;
    
                 let tasks = Self::generate_tasks(
                     &job,
@@ -266,8 +270,9 @@ impl TauriApp {
                     client.send_job_message(Some(host.clone()), JobEvent::Render(task)).await;
                 }
             }
-            UiCommand::UploadFile(path, file_name) => {
-                client.start_providing(file_name, path).await;
+            UiCommand::UploadFile(path) => {
+                let provider = ProviderRule::Default(path);
+                client.start_providing(&provider).await;
             }
             UiCommand::StopJob(id) => {
                 println!(
@@ -290,45 +295,47 @@ impl TauriApp {
             Event::Status(peer_id, msg) => {
                 println!("Status received [{peer_id}]: {msg}");
             }
-            Event::NodeDiscovered(peer_id, spec) => {
-                let worker = Worker::new(peer_id, spec.clone());
-                let mut db = self.worker_store.write().await;
-                if let Err(e) = db.add_worker(worker).await {
-                    eprintln!("Error adding worker to database! {e:?}");
-                }
-                
-                self.peers.insert(peer_id, spec);
-                // let handle = app_handle.write().await;
-                // emit a signal to query the data. 
-                // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
-                // let _ = handle.emit("worker_update");
-            }
-            Event::NodeDisconnected(peer_id) => {
-                let mut db = self.worker_store.write().await;
-                // So the main issue is that there's no way to identify by the machine id?
-                if let Err(e) = db.delete_worker(&peer_id).await {
-                    eprintln!("Error deleting worker from database! {e:?}");
-                }
+            Event::NodeStatus(node_status) => match node_status {
+                NodeEvent::Discovered(peer_id_string, spec) => {
+                    let peer_id = peer_id_string.to_peer_id();
+                    let worker = Worker::new(peer_id, spec.clone());
+                    let mut db = self.worker_store.write().await;
+                    if let Err(e) = db.add_worker(worker).await {
+                        eprintln!("Error adding worker to database! {e:?}");
+                    }
+                    
+                    self.peers.insert(peer_id, spec);
+                    // let handle = app_handle.write().await;
+                    // emit a signal to query the data. 
+                    // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
+                    // let _ = handle.emit("worker_update");
+                },
+                NodeEvent::Disconnected(peer_id_string) => {
+                    let mut db = self.worker_store.write().await;
+                    let peer_id = peer_id_string.to_peer_id();
+                    // So the main issue is that there's no way to identify by the machine id?
+                    if let Err(e) = db.delete_worker(&peer_id).await {
+                        eprintln!("Error deleting worker from database! {e:?}");
+                    }
 
-                self.peers.remove(&peer_id);
-            }
-            
+                    self.peers.remove(&peer_id);
+                },
+                NodeEvent::Status(status_event) => println!("{status_event:?}"),
+            },
             
             // let me figure out what's going on here. where is this coming from?
-            Event::InboundRequest { request, channel } => {    
-                let mut data: Option<Vec<u8>> = None;
-                {
+            // I shouldn't have to deal this from tauri-app side, instead this should be handle on the network side?
+            Event::InboundRequest { /*request, channel*/ .. } => {    
+            //     let mut data: Option<Vec<u8>> = None;
 
-                    let fs = client.file_service.lock().await;
-                    if let Some(path) = fs.providing_files.get(&request) {
-                        // if the file is no longer there, then we need to remove it from DHT.
-                        data = Some(async_std::fs::read(path).await.expect("File must exist to transfer!"));
-                    }
-                }
-
-                if let Some(bit) = data {
-                    client.respond_file(bit, channel).await;
-                };
+            //     if let Some(path) = fs.providing_files.get(&request) {
+            //         // if the file is no longer there, then we need to remove it from DHT.
+            //         data = Some(async_std::fs::read(path).await.expect("File must exist to transfer!"));
+            //     }
+                
+            //     if let Some(bit) = data {
+            //         client.respond_file(bit, channel).await;
+            //     };
             }
 
             Event::JobUpdate(job_event) => match job_event {
