@@ -34,13 +34,11 @@ use blender::manager::Manager as BlenderManager;
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use models::network;
-use models::{app_state::AppState /* server_setting::ServerSetting */};
-use services::data_store::sqlite_job_store::SqliteJobStore;
 use services::data_store::sqlite_task_store::SqliteTaskStore;
-use services::data_store::sqlite_worker_store::SqliteWorkerStore;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
+use tokio::spawn;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -92,13 +90,15 @@ pub async fn run() {
     // to run custom behaviour
     let cli = Cli::parse();
 
-    let db = config_sqlite_db()
+    let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db()
         .await
         .expect("Must have database connection!");
 
     // must have working network services
-    let (controller, receiver) =
-        network::new().await.expect("Fail to start network service");
+    let (controller, receiver, mut server) =
+        network::new(None).await.expect("Fail to start network service");
+
+    spawn( async move { server.run().await; });
 
     let _ = match cli.command {
         // run as client mode.
@@ -114,14 +114,7 @@ pub async fn run() {
 
         // run as GUI mode.
         _ => {
-            // eventually I'll move this code into it's own separate codeblock
-            let job_store = SqliteJobStore::new(db.clone());
-            let worker_store = SqliteWorkerStore::new(db.clone());
-
-            let job_store = Arc::new(RwLock::new(job_store));
-            let worker_store = Arc::new(RwLock::new(worker_store));
-
-            TauriApp::new(worker_store, job_store)
+            TauriApp::new(&db)
                 .await
                 .clear_workers_collection()
                 .await

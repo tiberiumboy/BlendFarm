@@ -20,7 +20,8 @@ ureq = { version = "^3.0" }
 blend = "0.8.0"
 tokio = { version = "1.42.0", features = ["full"] }
 # hack to get updated patches - og inactive for 6 years
-xml-rpc = { git = "https://github.com/tiberiumboy/xml-rpc-rs.git" }
+# xml-rpc = { git = "https://github.com/tiberiumboy/xml-rpc-rs.git" }
+xml-rpc = "0.1.0" 
 
 [target.'cfg(target_os = "windows")'.dependencies]
 zip = "^2"
@@ -31,7 +32,6 @@ dmg = { version = "^0.1" }
 [target.'cfg(target_os = "linux")'.dependencies]
 xz = { version = "^0.1" }
 tar = { version = "^0.4" }
-
 
 # [features]
 # manager = ["ureq", "xz", "tar", "dmg"]

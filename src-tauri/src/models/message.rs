@@ -1,12 +1,10 @@
-use super::behaviour::FileService;
 use super::{behaviour::FileResponse, network::NodeEvent};
-use super::computer_spec::ComputerSpec;
+// use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
+use std::path::PathBuf;
 use futures::channel::oneshot::{self, Sender};
-use libp2p::{kad::QueryId, Multiaddr, PeerId};
+use libp2p::{kad::QueryId, PeerId};
 use libp2p_request_response::{OutboundRequestId, ResponseChannel};
-use tokio::sync::Mutex;
-use std::sync::Arc;
 use std::{collections::HashSet, error::Error};
 use thiserror::Error;
 
@@ -30,21 +28,19 @@ pub enum NetworkError {
     Timeout,
 }
 
+pub type Target = Option<String>;
+
 // Send commands to network.
 #[derive(Debug)]
-pub enum NetCommand {
+pub enum Command {
+    // what's the reason behind this?
     IncomingWorker(PeerId),
     Status(String),
     SubscribeTopic(String),
     UnsubscribeTopic(String),
     NodeStatus(NodeEvent), // broadcast node activity changed
-    JobStatus(String, JobEvent),
-    // use this event to send message to a specific node
-    StartProviding {
-        file_name: String,
-        sender: oneshot::Sender<()>,
-        file_service: Arc<Mutex<FileService>>, // dangerous coupling?
-    },
+    JobStatus(Target, JobEvent),
+    StartProviding(PathBuf),    // update kademlia service to provide a new file. Must have a file name and a extension! Cannot be a directory!
     GetProviders {
         file_name: String,
         sender: oneshot::Sender<HashSet<PeerId>>,
@@ -58,23 +54,15 @@ pub enum NetCommand {
         file: Vec<u8>,
         channel: ResponseChannel<FileResponse>,
     },
-    Dial {
-        peer_id: PeerId,
-        peer_addr: Multiaddr,
-        sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
-    },
 }
 
 // TODO: Received network events.
 #[derive(Debug)]
-pub enum NetEvent {
+pub enum Event {
     // Share basic computer configuration for sharing Blender compatible executable over the network. (To help speed up the installation over the network.)
     Status(PeerId, String), // Receive message status (To GUI?) Could I treat this like Chat messages?
     OnConnected(PeerId),
-    NodeDiscovered(PeerId, ComputerSpec),
-    // TODO: Future impl. Use this to send computer activity
-    // Heartbeat() // share hardware statistic monitor heartbeat. (CPU/GPU/RAM activity readings)
-    NodeDisconnected(PeerId), // On Node disconnected
+    NodeStatus(NodeEvent),
     InboundRequest {
         request: String,
         channel: ResponseChannel<FileResponse>,
@@ -86,4 +74,5 @@ pub enum NetEvent {
     ),
     PendingGetProvider(QueryId, Sender<HashSet<PeerId>>),
     ReceivedFileData(OutboundRequestId, Vec<u8>),
+
 }

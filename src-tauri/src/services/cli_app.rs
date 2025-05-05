@@ -12,7 +12,7 @@ use super::blend_farm::BlendFarm;
 use crate::{
     domains::{job_store::JobError, task_store::TaskStore},
     models::{
-        job::JobEvent, message::{self, NetEvent, NetworkError}, network::{NetworkController, NodeEvent, JOB}, server_setting::ServerSetting, task::Task
+        job::JobEvent, message::{self, Event, NetworkError}, network::{NetworkController, NodeEvent, StatusEvent, JOB}, server_setting::ServerSetting, task::Task
     },
 };
 use std::path::Path;
@@ -21,13 +21,11 @@ use blender::{
     blender::{Blender, Manager as BlenderManager},
     models::download_link::DownloadLink,
 };
+use futures::{channel::mpsc::{self, Receiver}, SinkExt, StreamExt};
 use thiserror::Error;
 use tokio::{
     select, spawn,
-    sync::{
-        mpsc::{self, Receiver},
-        RwLock,
-    },
+    sync::RwLock,
 };
 use uuid::Uuid;
 
@@ -226,8 +224,9 @@ impl CliApp {
                             };
 
                             client.start_providing(file_name, result).await;
-                            client.send_job_message(&task.requestor, event).await;
-                        }
+                            client.send_job_message(Some(task.requestor.clone()), event).await;
+                        },
+
                         Status::Exit => {
                             // hmm is this technically job complete?
                             // Check and see if we have any queue pending, otherwise ask hosts around for available job queue.
@@ -241,7 +240,7 @@ impl CliApp {
             Err(e) => {
                 let err = JobError::TaskError(e);
                 client
-                    .send_job_message(&task.requestor, JobEvent::Error(err))
+                    .send_job_message(Some(task.requestor.clone()), JobEvent::Error(err))
                     .await;
             }
         };
@@ -275,27 +274,30 @@ impl CliApp {
         }
     }
 
-    async fn handle_net_event(&mut self, client: &mut NetworkController, event: NetEvent) {
+    async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
-            NetEvent::OnConnected(peer_id) => client.share_computer_info(peer_id).await,
+            Event::OnConnected(peer_id) => client.share_computer_info(peer_id).await,
 
-            NetEvent::JobUpdate(job_event) => self.handle_job_update(job_event).await,
-            // maybe move this inside Network code? Seems repeative in both cli and Tauri side of application here.
-            NetEvent::InboundRequest { request, channel } => {
-                // how come I don't have access to file_service from anywhere?
-                let fs = client.file_service.lock().await;
-                if let Some(path) = fs.providing_files.get(&request) {
-                    println!("Sending file {path:?}");
-                    let file = std::fs::read(path).unwrap();
+            Event::JobUpdate(job_event) => self.handle_job_update(job_event).await,
+            Event::InboundRequest { request, channel: _channel } => {
+                
+                
+
+
+
+                // if let Some(path) = fs.providing_files.get(&request) {
+                //     println!("Sending file {path:?}");
+                //     let _file = std::fs::read(path).unwrap();
                     
-                    // this responded back to the network controller? Why?
-                    client
-                        .respond_file(file, channel)
-                        .await;
-                }
+                //     todo!("Figure out this issue how did I get here. Write that down here.");
+                    
+                //     // this responded back to the network controller? Why?
+                //     // client
+                //     //     .respond_file(file, channel)
+                //     //     .await;
+                // }
             }
-            NetEvent::NodeDiscovered(..) => {}  // Ignored
-            NetEvent::NodeDisconnected(_) => {} // ignored
+            Event::NodeStatus(event) => { println!("{event:?}"); }, 
             _ => println!("[CLI] Unhandled event from network: {event:?}"),
         }
     }
@@ -304,18 +306,18 @@ impl CliApp {
         match cmd {
             CmdCommand::Render(mut task) => {
                 // we received command to render, notify the world I'm busy.
-                client.send_node_status(NodeEvent::Busy).await;
+                client.send_node_status(NodeEvent::Status(StatusEvent::Busy)).await;
                 
                 // proceed to render the task.
                 if let Err(e) = self.render_task(client, &mut task).await {
                     client
-                        .send_job_message(&task.requestor, JobEvent::Failed(e.to_string()))
+                        .send_job_message(Some(task.requestor.clone()), JobEvent::Failed(e.to_string()))
                         .await
                 }
             }
             CmdCommand::RequestTask => {
                 // Notify the world we're available.
-                client.send_node_status(NodeEvent::Idle).await;
+                client.send_node_status(NodeEvent::Status(StatusEvent::Online)).await;
             }
         }
     }
@@ -326,7 +328,7 @@ impl BlendFarm for CliApp {
     async fn run(
         mut self,
         mut client: NetworkController,
-        mut event_receiver: Receiver<NetEvent>,
+        mut event_receiver: Receiver<Event>,
     ) -> Result<(), NetworkError> {
         // TODO: Figure out why I need the JOB subscriber?
         let hostname = client.hostname.clone();
@@ -336,7 +338,7 @@ impl BlendFarm for CliApp {
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
         // we will have one thread to process blender and queue, but I must have access to database.
         let taskdb = self.task_store.clone();
-        let (event, mut command) = mpsc::channel(32);
+        let (mut event, mut command) = mpsc::channel(32);
 
         // background thread to handle blender invocation
         spawn(async move {
@@ -360,16 +362,18 @@ impl BlendFarm for CliApp {
                     if let Err(e) = event.send(CmdCommand::RequestTask).await {
                         eprintln!("Fail to send command to network! {e:?}");
                     }
+
                     // may need to adjust the timer duration.
                     sleep(Duration::from_secs(2u64));
                 }
             }
         });
 
+        // run cli mode in loop
         loop {
             select! {
-                Some(event) = event_receiver.recv() => self.handle_net_event(&mut client, event).await,
-                Some(msg) = command.recv() => self.handle_command(&mut client, msg).await,
+                event = event_receiver.select_next_some() => self.handle_net_event(&mut client, event).await,
+                msg = command.select_next_some() => self.handle_command(&mut client, msg).await,
             }
         }
     }

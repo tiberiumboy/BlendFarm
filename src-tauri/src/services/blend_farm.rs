@@ -1,15 +1,15 @@
 use crate::models::{
-        message::{NetEvent, NetworkError},
+        message::{Event, NetworkError},
         network::NetworkController,
     };
 use async_trait::async_trait;
-use tokio::sync::mpsc::Receiver;
+use futures::channel::mpsc::Receiver;
 
 #[async_trait]
 pub trait BlendFarm {
     async fn run(
         mut self,
         client: NetworkController,
-        event_receiver: Receiver<NetEvent>,
+        event_receiver: Receiver<Event>,
     ) -> Result<(), NetworkError>;
 }

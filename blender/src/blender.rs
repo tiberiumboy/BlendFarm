@@ -74,7 +74,7 @@ use std::{
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    sync::mpsc::{self, Receiver},
+    sync::mpsc::{self,Sender, Receiver},
 };
 use thiserror::Error;
 use tokio::spawn;
@@ -133,6 +133,14 @@ impl Ord for Blender {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.version.cmp(&other.version)
     }
+}
+
+// TODO: Come back to this and start implementing into Blender.rs
+#[allow(dead_code)]
+enum BlenderEvent {
+    Rendering{ current: f32, total: f32 },
+    Sample(String),
+    Unhandled(String),
 }
 
 impl Blender {
@@ -415,9 +423,7 @@ impl Blender {
     where
         F: Fn() -> Option<i32> + Send + Sync + 'static,
     {
-        let (rx, tx) = mpsc::channel::<Status>();
         let (signal, listener) = mpsc::channel::<Status>();
-        let executable = self.executable.clone();
 
         let blend_info = Self::peek(&args.file)
             .await
@@ -425,6 +431,25 @@ impl Blender {
 
         // this is the only place used for BlenderRenderSetting... thoughts?
         let settings = BlenderRenderSetting::parse_from(&args, &blend_info);
+        self.setup_listening_server(settings, listener, get_next_frame).await;
+
+        let (rx, tx) = mpsc::channel::<Status>();
+        let executable = self.executable.clone();
+
+        println!("About to spawn!");
+        spawn(async move {
+            Blender::setup_listening_blender(args, executable, rx, signal).await;
+        });
+
+        // maybe here's the culprit? Spawn is awaited?
+        println!("Finish spawning! returning receiver!");
+        tx
+    }
+
+    async fn setup_listening_server<F>(&self, settings: BlenderRenderSetting, listener: Receiver<Status>, get_next_frame: F) 
+    where
+        F: Fn() -> Option<i32> + Send + Sync + 'static,
+    {
         let global_settings = Arc::new(settings);
 
         let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8081);
@@ -432,6 +457,8 @@ impl Blender {
 
         server.register_simple("next_render_queue", move |_i: i32| match get_next_frame() {
             Some(frame) => Ok(frame),
+            
+            // this is our only way to stop python script.
             None => Err(Fault::new(1, "No more frames to render!")),
         });
 
@@ -454,110 +481,128 @@ impl Blender {
                 }
             }
         });
+    }
 
-        spawn(async move {
-            let script_path = Blender::get_config_path().join("render.py");
-            if !script_path.exists() {
-                let data = include_bytes!("./render.py");
-                // TODO: Find a way to remove unwrap()
-                fs::write(&script_path, data).unwrap();
+    async fn setup_listening_blender<T: AsRef<Path>>(args: Args, executable: T, rx: Sender<Status>, signal: Sender<Status>) {
+        let script_path = Blender::get_config_path().join("render.py");
+        if !script_path.exists() {
+            let data = include_bytes!("./render.py");
+            // TODO: Find a way to remove unwrap()
+            fs::write(&script_path, data).unwrap();
+        }
+
+        let col = vec![
+            "--factory-startup".to_string(),
+            "-noaudio".to_owned(),
+            "-b".to_owned(),
+            args.file.to_str().unwrap().to_string(),
+            "-P".to_owned(),
+            script_path.to_str().unwrap().to_string(),
+        ];
+
+        // TODO: Find a way to remove unwrap()
+        let stdout = Command::new(executable.as_ref())
+            .args(col)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .stdout
+            .unwrap();
+
+        let reader = BufReader::new(stdout);
+        
+        // parse stdout for human to read
+        let mut frame: i32 = 0;
+
+        reader.lines().for_each(|line| {
+            if let Ok(line) = line {
+                Self::handle_blender_stdio(line, &mut frame, &rx, &signal);
+            };
+        });
+    }
+
+    // TODO: This function updates a value above this scope -> See if we can just return the value instead?
+    // TODO: Can we use stream instead? how can we parse data from blender into recognizable style?
+    fn handle_blender_stdio(line: String, frame: &mut i32, rx: &Sender<Status>, signal: &Sender<Status>) {
+        match line {
+            // TODO: find a more elegant way to parse the string std out and handle invocation action.
+            line if line.contains("Fra:") => {
+                let col = line.split('|').collect::<Vec<&str>>();
+
+                // this seems a bit expensive?
+                let init = col[0].split(" ").next();
+                if let Some(value) = init {
+                    *frame = value.replace("Fra:", "").parse().unwrap_or(*frame);
+                }
+                let last = col.last().unwrap().trim();
+                let slice = last.split(' ').collect::<Vec<&str>>();
+                let msg = match slice[0] {
+                    "Rendering" => {
+                        let current = slice[1].parse::<f32>().unwrap();
+                        let total = slice[3].parse::<f32>().unwrap();
+                        let percentage = current / total * 100.0;
+                        let render_perc = format!("{} {:.2}%", last, percentage);
+                        let _event = BlenderEvent::Rendering{ current, total };
+                        Status::Running {
+                            status: render_perc,
+                        }
+                    }
+                    "Sample" => {
+                        let _event = BlenderEvent::Sample(last.to_owned());
+                        Status::Running {
+                            status: last.to_owned(),
+                        }
+                    },
+                    _ => Status::Log {
+                        status: last.to_owned(),
+                    },
+                };
+                rx.send(msg).unwrap();
             }
 
-            let col = vec![
-                "--factory-startup".to_string(),
-                "-noaudio".to_owned(),
-                "-b".to_owned(),
-                args.file.to_str().unwrap().to_string(),
-                "-P".to_owned(),
-                script_path.to_str().unwrap().to_string(),
-            ];
+            // it would be nice if we can somehow make this as a struct or enum of types?
+            line if line.contains("Saved:") => {
+                let location = line.split('\'').collect::<Vec<&str>>();
+                let result = PathBuf::from(location[1]);
+                rx.send(Status::Completed { frame: *frame, result }).unwrap();
+            }
 
-            // TODO: Find a way to remove unwrap()
-            let stdout = Command::new(executable)
-                .args(col)
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .stdout
+            // Strange how this was thrown, but doesn't report back to this program?
+            line if line.contains("EXCEPTION:") => {
+                signal.send(Status::Exit).unwrap();
+                rx.send(Status::Error(BlenderError::PythonError(line.to_owned())))
+                    .unwrap();
+            }
+
+            // TODO: Warning keyword is used multiple of times. Consider removing warning apart and submit remaining content above
+            line if line.contains("Warning:") => {
+                rx.send(Status::Warning {
+                    message: line.to_owned(),
+                })
                 .unwrap();
+            }
 
-            let reader = BufReader::new(stdout);
-            let mut frame: i32 = 0;
+            line if line.contains("Error:") => {
+                let msg = Status::Error(BlenderError::RenderError(line.to_owned()));
+                rx.send(msg).unwrap();
+            }
 
-            // parse stdout for human to read
-            reader.lines().for_each(|line| {
-                if let Ok(line) = line {
-                    match line {
-                        // TODO: find a more elegant way to parse the string std out and handle invocation action.
-                        line if line.contains("Fra:") => {
-                            let col = line.split('|').collect::<Vec<&str>>();
+            line if line.contains("Blender quit") => {
+                signal.send(Status::Exit).unwrap();
+                rx.send(Status::Exit).unwrap();
+            }
 
-                            // this seems a bit expensive?
-                            let init = col[0].split(" ").next();
-                            if let Some(value) = init {
-                                frame = value.replace("Fra:", "").parse().unwrap_or(1);
-                            }
-                            let last = col.last().unwrap().trim();
-                            let slice = last.split(' ').collect::<Vec<&str>>();
-                            let msg = match slice[0] {
-                                "Rendering" => {
-                                    let current = slice[1].parse::<f32>().unwrap();
-                                    let total = slice[3].parse::<f32>().unwrap();
-                                    let percentage = current / total * 100.0;
-                                    let render_perc = format!("{} {:.2}%", last, percentage);
-                                    Status::Running {
-                                        status: render_perc,
-                                    }
-                                }
-                                "Sample" => Status::Running {
-                                    status: last.to_owned(),
-                                },
-                                _ => Status::Log {
-                                    status: last.to_owned(),
-                                },
-                            };
-                            rx.send(msg).unwrap();
-                        }
-                        // it would be nice if we can somehow make this as a struct or enum of types?
-                        line if line.contains("Saved:") => {
-                            let location = line.split('\'').collect::<Vec<&str>>();
-                            let result = PathBuf::from(location[1]);
-                            rx.send(Status::Completed { frame, result }).unwrap();
-                        }
-                        // Strange how this was thrown, but doesn't report back to this program?
-                        line if line.contains("EXCEPTION:") => {
-                            signal.send(Status::Exit).unwrap();
-                            rx.send(Status::Error(BlenderError::PythonError(line.to_owned())))
-                                .unwrap();
-                        }
-                        line if line.contains("Warning:") => {
-                            rx.send(Status::Warning {
-                                message: line.to_owned(),
-                            })
-                            .unwrap();
-                        }
-                        line if line.contains("Error:") => {
-                            let msg = Status::Error(BlenderError::RenderError(line.to_owned()));
-                            rx.send(msg).unwrap();
-                        }
-                        line if line.contains("Blender quit") => {
-                            signal.send(Status::Exit).unwrap();
-                            rx.send(Status::Exit).unwrap();
-                        }
-                        line if !line.is_empty() => {
-                            let msg = Status::Running {
-                                status: line.to_owned(),
-                            };
-                            rx.send(msg).unwrap();
-                        }
-                        _ => {
-                            // Only empty log entry would show up here...
-                        }
-                    };
+            // any unhandle handler is submitted raw in console output here.
+            line if !line.is_empty() => {
+                let msg = Status::Running {
+                    status: format!("[Unhandle Blender Event]:{line}"),
                 };
-            });
-        });
-        tx
+                rx.send(msg).unwrap();
+            }
+            _ => {
+                // Only empty log entry would show up here...
+            }
+        };
     }
 }
 

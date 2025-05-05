@@ -8,10 +8,8 @@ use tauri::{command, State};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::{
-    models::{app_state::AppState, job::Job},
-    services::tauri_app::UiCommand,
-};
+use crate::models::job::JobEvent;
+use crate::models::{app_state::AppState, job::Job};
 
 use super::remote_render::remote_render_page;
 
@@ -36,14 +34,19 @@ pub async fn create_job(
     let app_state = state.lock().await;
     let mut jobs = app_state.job_db.write().await;
 
+    // is there a way for me to rely on using tauri_app.rs api call instead of route behaviour directly?
     // use this to send the job over to database instead of command to network directly.
     // We're splitting this apart to rely on database collection instead of forcing to send command over.
     match jobs.add_job(job).await {
-        Ok(job) => {
+        Ok(_job) => {
+            // I'm a little confused about this one...?
             // send job to server
-            if let Err(e) = app_state.to_network.send(UiCommand::StartJob(job)).await {
-                eprintln!("Fail to send command to the server! \n{e:?}");
-            }
+            // let event = JobEvent::Render(())
+            // app_state.network_controller.send_job_message(None, event).await;
+
+            // if let Err(e) = app_state.network_controller.send_job_message(None, event).send(UiCommand::StartJob(job)).await {
+            //     eprintln!("Fail to send command to the server! \n{e:?}");
+            // }
         }
         Err(e) => eprintln!("{:?}", e),
     }
@@ -125,14 +128,16 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
 pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, String> {
     {
         let id = Uuid::from_str(job_id).unwrap();
-        let server = state.lock().await;
-        let mut jobs = server.job_db.write().await;
-        let _ = jobs.delete_job(&id).await;
-
-        // Once we delete the job from the table, we need to notify the other node cluster to remove it as well.
-        let msg = UiCommand::RemoveJob(id);
-        if let Err(e) = server.to_network.send(msg).await {
-            eprintln!("Fail to send stop job command! {e:?}");
+        {
+            let server = state.lock().await;
+            let mut jobs = server.job_db.write().await;
+            let _ = jobs.delete_job(&id).await;
+        }
+        {
+            let server = state.lock().await;
+            let event = JobEvent::Remove(id);
+            let mut controller = server.network_controller.write().await;
+            controller.send_job_message(None, event).await;
         }
     }
 

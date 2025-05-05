@@ -1,11 +1,11 @@
-use super::blend_farm::BlendFarm;
+use super::{blend_farm::BlendFarm, data_store::{sqlite_job_store::SqliteJobStore, sqlite_worker_store::SqliteWorkerStore}};
 use crate::{
     domains::{job_store::JobStore, worker_store::WorkerStore},
     models::{
-        app_state::AppState,
+        app_state::{AppState, SafeLock},
         computer_spec::ComputerSpec,
         job::{CreatedJobDto, JobEvent},
-        message::{NetEvent, NetworkError},
+        message::{Event, NetworkError},
         network::{NetworkController, HEARTBEAT, JOB, SPEC, STATUS},
         server_setting::ServerSetting,
         task::Task,
@@ -13,14 +13,15 @@ use crate::{
     },
     routes::{job::*, remote_render::*, settings::*, util::*, worker::*},
 };
+use futures::{channel::mpsc, StreamExt};
 use blender::{manager::Manager as BlenderManager,models::mode::Mode};
 use libp2p::PeerId;
 use maud::html;
+use sqlx::{Pool, Sqlite};
 use std::{collections::HashMap, ops::Range, sync::Arc, path::PathBuf, thread::sleep, time::Duration};
 use tauri::{self, command, App};
 use tokio::{
     select, spawn, sync::{
-        mpsc::{self, Receiver, Sender},
         Mutex, RwLock,
     }
 };
@@ -28,7 +29,7 @@ use uuid::Uuid;
 
 pub const WORKPLACE: &str = "workplace";
 
-// This UI Command represent the top level UI that user clicks and interface with.
+// Could we not just use message::Command?
 #[derive(Debug)]
 pub enum UiCommand {
     StartJob(CreatedJobDto),
@@ -89,19 +90,23 @@ impl TauriApp {
     }
 
     pub async fn new(
-        worker_store: Arc<RwLock<(dyn WorkerStore + Send + Sync + 'static)>>,
-        job_store: Arc<RwLock<(dyn JobStore + Send + Sync + 'static)>>,
+        pool: &Pool<Sqlite>,
     ) -> Self {
+        let worker = SqliteWorkerStore::new(pool.clone());
+        let job = SqliteJobStore::new(pool.clone());
+
         Self {
             peers: Default::default(),
-            worker_store,
-            job_store,
+            // why?
+            worker_store: Arc::new(RwLock::new(worker)),
+            job_store: Arc::new(RwLock::new(job)),
             settings: ServerSetting::load(),
         }
     }
 
     // Create a builder to make Tauri application
-    fn config_tauri_builder(&self, to_network: Sender<UiCommand>) -> Result<App, tauri::Error> {
+    // Let's just use the controller in here anyway.
+    fn config_tauri_builder(&self, network_controller: SafeLock<NetworkController>) -> Result<App, tauri::Error> {
         // I would like to find a better way to update or append data to render_nodes,
         // "Do not communicate with shared memory"
         let builder = tauri::Builder::default()
@@ -120,7 +125,7 @@ impl TauriApp {
         // here we're setting the sender command to app state before the builder.
         let app_state = AppState {
             manager,
-            to_network,
+            network_controller,
             setting,
             job_db: self.job_store.clone(),
             worker_db: self.worker_store.clone(),
@@ -180,7 +185,6 @@ impl TauriApp {
                 // in each job, we have project path. This is used to help locate the current project file path.
                 let file_name = job.item.project_file.file_name().expect("Must have file name!").to_str().expect("Must have file name!");
                 let path = job.item.get_project_path();
-                dbg!(&file_name, &path);
                 client.start_providing(file_name.to_string(), path.clone()).await;
             }
         }
@@ -258,9 +262,8 @@ impl TauriApp {
                     // problem here - I'm getting one client to do all of the rendering jobs, not the inactive one.
                     // Perform a round-robin selection instead.
                     let host = self.get_idle_peers().await; // this means I must wait for an active peers to become available?
-                    println!("Sending task {:?} to {:?}", &task, &host);
-                    let event = JobEvent::Render(task);
-                    client.send_job_message(&host, event).await;
+                    println!("Sending task to {:?} \nJob Id: {:?} \nRange( {} - {} )\n", &host, &task.job_id, &task.range.start, &task.range.end);
+                    client.send_job_message(Some(host.clone()), JobEvent::Render(task)).await;
                 }
             }
             UiCommand::UploadFile(path, file_name) => {
@@ -272,9 +275,7 @@ impl TauriApp {
                 );
             }
             UiCommand::RemoveJob(id) => {
-                for (_, spec) in self.peers.clone() {
-                    client.send_job_message(&spec.host, JobEvent::Remove(id)).await;
-                }
+                client.send_job_message(None, JobEvent::Remove(id)).await;
             }
         }
     }
@@ -283,16 +284,13 @@ impl TauriApp {
     async fn handle_net_event(
         &mut self,
         client: &mut NetworkController,
-        event: NetEvent,
-        // TODO: Remove this? Refactor so it's not coupled.
-        // This is currently used to receive worker's status update. We do not want to store this information in the database, instead it should be sent only when the application is available.
-        // app_handle: Arc<RwLock<AppHandle>>,
+        event: Event,
     ) {
         match event {
-            NetEvent::Status(peer_id, msg) => {
+            Event::Status(peer_id, msg) => {
                 println!("Status received [{peer_id}]: {msg}");
             }
-            NetEvent::NodeDiscovered(peer_id, spec) => {
+            Event::NodeDiscovered(peer_id, spec) => {
                 let worker = Worker::new(peer_id, spec.clone());
                 let mut db = self.worker_store.write().await;
                 if let Err(e) = db.add_worker(worker).await {
@@ -305,7 +303,7 @@ impl TauriApp {
                 // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
                 // let _ = handle.emit("worker_update");
             }
-            NetEvent::NodeDisconnected(peer_id) => {
+            Event::NodeDisconnected(peer_id) => {
                 let mut db = self.worker_store.write().await;
                 // So the main issue is that there's no way to identify by the machine id?
                 if let Err(e) = db.delete_worker(&peer_id).await {
@@ -314,19 +312,26 @@ impl TauriApp {
 
                 self.peers.remove(&peer_id);
             }
+            
+            
             // let me figure out what's going on here. where is this coming from?
-            NetEvent::InboundRequest { request, channel } => {
-                let mut data: Vec<u8>;
+            Event::InboundRequest { request, channel } => {    
+                let mut data: Option<Vec<u8>> = None;
                 {
+
                     let fs = client.file_service.lock().await;
                     if let Some(path) = fs.providing_files.get(&request) {
-                        data = std::fs::read(path).unwrap();
+                        // if the file is no longer there, then we need to remove it from DHT.
+                        data = Some(async_std::fs::read(path).await.expect("File must exist to transfer!"));
                     }
                 }
 
-                client.respond_file(data, channel).await;
+                if let Some(bit) = data {
+                    client.respond_file(bit, channel).await;
+                };
             }
-            NetEvent::JobUpdate(job_event) => match job_event {
+
+            Event::JobUpdate(job_event) => match job_event {
                 // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
                 JobEvent::ImageCompleted {
                     job_id,
@@ -395,7 +400,7 @@ impl BlendFarm for TauriApp {
     async fn run(
         mut self,
         mut client: NetworkController,
-        mut event_receiver: Receiver<NetEvent>,
+        mut event_receiver: futures::channel::mpsc::Receiver<Event>,
     ) -> Result<(), NetworkError> {
         // for application side, we will subscribe to message event that's important to us to intercept.
         client.subscribe_to_topic(SPEC.to_owned()).await;
@@ -410,19 +415,20 @@ impl BlendFarm for TauriApp {
         }
 
         // this channel is used to send command to the network, and receive network notification back.
-        let (event, mut command) = mpsc::channel(32);
+        let (_event, mut command) = mpsc::channel(32);
+        let rw_client = Arc::new(RwLock::new(client.clone()));
 
         // we send the sender to the tauri builder - which will send commands to "from_ui".
         let app = self
-            .config_tauri_builder(event)
+            .config_tauri_builder(rw_client)
             .expect("Fail to build tauri app - Is there an active display session running?");
 
         // create a background loop to send and process network event
         spawn(async move {
             loop {
                 select! {
-                    Some(msg) = command.recv() => self.handle_command(&mut client, msg).await,
-                    Some(event) = event_receiver.recv() => self.handle_net_event(&mut client, event).await,
+                    msg = command.select_next_some() => self.handle_command(&mut client, msg).await,
+                    event = event_receiver.select_next_some() => self.handle_net_event(&mut client, event).await,
                 }
             }
         });

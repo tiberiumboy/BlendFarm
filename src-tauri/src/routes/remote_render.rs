@@ -5,7 +5,7 @@ for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
 use super::util::select_directory;
-use crate::AppState;
+use crate::models::app_state::AppState;
 use blender::blender::Blender;
 use maud::html;
 use semver::Version;
