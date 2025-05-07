@@ -1,18 +1,11 @@
-use futures::channel::oneshot;
 use libp2p::{
     gossipsub::{self},
     kad::{self},
-    mdns, ping,
+    mdns,
     swarm::NetworkBehaviour,
-    PeerId,
 };
-use libp2p_request_response::{cbor, OutboundRequestId};
+use libp2p_request_response::cbor;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{HashMap, HashSet},
-    error::Error,
-    path::PathBuf,
-};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileRequest(pub String);

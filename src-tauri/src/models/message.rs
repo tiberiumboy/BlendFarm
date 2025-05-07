@@ -60,8 +60,7 @@ pub enum Command {
 // TODO: Received network events.
 #[derive(Debug)]
 pub enum Event {
-    // Share basic computer configuration for sharing Blender compatible executable over the network. (To help speed up the installation over the network.)
-    Status(PeerId, String), // Receive message status (To GUI?) Could I treat this like Chat messages?
+    // Status(PeerId, String), // Receive message status (To GUI?) Could I treat this like Chat messages?
     OnConnected(PeerId),
     NodeStatus(NodeEvent),
     InboundRequest {

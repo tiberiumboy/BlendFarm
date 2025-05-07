@@ -12,6 +12,7 @@ use super::blend_farm::BlendFarm;
 use crate::{
     domains::{job_store::JobError, task_store::TaskStore},
     models::{
+        behaviour::FileResponse,
         job::JobEvent,
         message::{self, Event, NetworkError},
         network::{NetworkController, NodeEvent, ProviderRule, StatusEvent, JOB},
@@ -80,7 +81,6 @@ impl CliApp {
         search_directory: &Path,
     ) -> Result<PathBuf, CliError> {
         let file_name = task.blend_file_name.to_str().unwrap();
-
         println!("Calling network for project file {file_name}");
 
         // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
@@ -301,28 +301,18 @@ impl CliApp {
         }
     }
 
+    // Handle network event (From network as user to operate this)
     async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
             Event::OnConnected(peer_id) => client.share_computer_info(peer_id).await,
 
             Event::JobUpdate(job_event) => self.handle_job_update(job_event).await,
-            Event::InboundRequest {
-                //request,
-                channel: _channel,
-                ..
-            } => {
-
-                // if let Some(path) = fs.providing_files.get(&request) {
-                //     println!("Sending file {path:?}");
-                //     let _file = std::fs::read(path).unwrap();
-
-                //     todo!("Figure out this issue how did I get here. Write that down here.");
-
-                //     // this responded back to the network controller? Why?
-                //     // client
-                //     //     .respond_file(file, channel)
-                //     //     .await;
-                // }
+            Event::InboundRequest { request, channel } => {
+                // first get the full path from request, if exist.
+                // network service have all of the file providing list. How do I fetch it from there?
+                let path = 
+                let file = async_std::fs::read(path).await.unwrap();
+                client.respond_file(file, channel).await;
             }
             Event::NodeStatus(event) => {
                 println!("{event:?}");

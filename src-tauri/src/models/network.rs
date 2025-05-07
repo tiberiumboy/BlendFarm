@@ -14,7 +14,7 @@ use libp2p::gossipsub::{self, IdentTopic, Message};
 use libp2p::identity;
 use libp2p::kad::{QueryId, RecordKey};
 use libp2p::swarm::SwarmEvent;
-use libp2p::{kad, mdns, ping, swarm::Swarm, tcp, Multiaddr, PeerId, StreamProtocol, SwarmBuilder};
+use libp2p::{kad, mdns, swarm::Swarm, tcp, Multiaddr, PeerId, StreamProtocol, SwarmBuilder};
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
 use machine_info::Machine;
 use serde::{Deserialize, Serialize};
@@ -164,6 +164,7 @@ pub struct NetworkController {
     pub hostname: String,
 }
 
+// what is StatusEvent responsibility?
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StatusEvent {
     Offline,
@@ -247,9 +248,9 @@ impl NetworkController {
     /// file_name are broadcasted with the extensions included, but not the directory it's located in. E.g. "test.blend"
     // I need to use some kind of enumeration to help make this process flexible with rules..
     pub async fn start_providing(&mut self, provider: &ProviderRule) {
-        // what was the whole idea of using the receiver?
         let cmd = match provider {
             ProviderRule::Default(path_buf) => {
+                // TODO: remove .expect(), .to_str(), and .to_owned()
                 let keyword = path_buf
                     .file_name()
                     .expect("Must have a valid file!")
@@ -372,7 +373,7 @@ pub struct NetworkService {
     // Used to collect computer basic hardware info to distribute
     machine: Machine,
 
-    providing_files: HashMap<QueryId, PathBuf>,
+    providing_files: HashMap<KeywordSearch, PathBuf>,
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pending_request_file:
         HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
@@ -401,9 +402,10 @@ impl NetworkService {
     }
 
     // send command
-    // is it possible to not use self?
+    // Receive commands from foreign invocation.
     pub async fn process_command(&mut self, cmd: Command) {
         match cmd {
+            // this has been replaced and removed entirely.
             Command::Status(msg) => {
                 let data = msg.as_bytes();
                 let topic = IdentTopic::new(STATUS);
@@ -473,17 +475,16 @@ impl NetworkService {
                 }
             }
             Command::StartProviding(keyword, file_path) => {
-                // let file_name = file_path.file_name().expect("Must be a valid file");
-
                 let provider_key = RecordKey::new(&keyword.as_bytes());
-                let query_id = self
+                // could we make use of this query ID?
+                let _query_id = self
                     .swarm
                     .behaviour_mut()
                     .kad
                     .start_providing(provider_key)
                     .expect("No store error.");
 
-                self.providing_files.insert(query_id, file_path);
+                self.providing_files.insert(keyword, file_path);
             }
             Command::SubscribeTopic(topic) => {
                 let ident_topic = IdentTopic::new(topic);
@@ -623,14 +624,6 @@ impl NetworkService {
         }
     }
 
-    async fn handle_status(&mut self, source: PeerId, message: Message) {
-        // this looks like a bad idea... any how we could not use clone? stream?
-        let msg = String::from_utf8(message.data.clone()).unwrap();
-        if let Err(e) = self.sender.send(Event::Status(source, msg)).await {
-            eprintln!("Something failed? {e:?}");
-        }
-    }
-
     async fn handle_job(&mut self, message: Message) {
         // let peer_id = self.swarm.local_peer_id();
         let job_event =
@@ -655,9 +648,10 @@ impl NetworkService {
                 SPEC => {
                     self.handle_spec(propagation_source, message).await;
                 }
-                STATUS => {
-                    self.handle_status(propagation_source, message).await;
-                }
+                // STATUS => {
+                //     println!("Process_gossip_event(Message::STATUS) was called");
+                //     self.handle_status(propagation_source, message).await;
+                // }
                 JOB => {
                     self.handle_job(message).await;
                 }
@@ -684,7 +678,6 @@ impl NetworkService {
     }
 
     // Handle kademila events (Used for file sharing)
-    // thinking about transferring this to behaviour class?
     async fn process_kademlia_event(&mut self, event: kad::Event) {
         match event {
             kad::Event::OutboundQueryProgressed {
@@ -723,14 +716,13 @@ impl NetworkService {
                     kad::QueryResult::GetProviders(Ok(
                         kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
                     )),
-                id,
-                step,
                 ..
             } => {
+
                 // This piece of code means that there's nobody advertising this on the network?
                 // what was suppose to happen here?
                 // TODO: I am once again stopped here. This message appeared from the CLI side. Not the host.
-                dbg!(id, step);
+
                 // let outbound_request_id = id;
                 // let event = Event::PendingRequestFiled(outbound_request_id, None);
                 // self.sender.send(event).await;
@@ -752,6 +744,7 @@ impl NetworkService {
         }
     }
 
+    // Process incoming network events - Treat this as receiving new orders.
     async fn process_swarm_event(&mut self, event: SwarmEvent<BlendFarmBehaviourEvent>) {
         match event {
             SwarmEvent::Behaviour(behaviour) => match behaviour {
@@ -780,52 +773,36 @@ impl NetworkService {
                     eprintln!("Fail to send event on connection closed! {e:?}");
                 }
             }
-
-            // hmm?
-            // SwarmEvent::IncomingConnection {
-            //     connection_id,
-            //     local_addr,
-            //     send_back_addr,
-            // } => {
-            //     todo!()
-            // }
-
-            // hmm?
-            // SwarmEvent::IncomingConnectionError { .. } => {}
-            // SwarmEvent::OutgoingConnectionError { .. } => {}
-            // SwarmEvent::NewListenAddr { .. } => {}
+            // TODO: Figure out what these events are, and see if they're any use for us to play with or delete them. Unnecessary comment codeblocks
             // SwarmEvent::ListenerClosed { .. } => todo!(),
             // SwarmEvent::ListenerError { listener_id, error } => todo!(),
-            // SwarmEvent::Dialing { .. } => todo!(),
+            // vvignorevv
+            SwarmEvent::NewListenAddr { address, .. } => {
+                // hmm.. I need to capture the address here?
+                // how do I save the address?
+                // this seems problematic?
+                if address.protocol_stack().any(|f| f.contains("tcp")) {
+                    println!("[New Listener Address]: {address}");
+                }
+            }
+            SwarmEvent::Dialing { .. } => {} // Suppressing logs
+            SwarmEvent::IncomingConnection { .. } => {} // Suppressing logs
+            // SwarmEvent::OutgoingConnectionError { connection_id, peer_id, error } => {}  // I recognize this and do want to display result below.
+            // SwarmEvent::IncomingConnectionError { .. } => {}                             // I recognize this and do want to display result below.
+
+            // ^^eof ignore^^
             SwarmEvent::NewExternalAddrOfPeer { peer_id, .. } => {
                 if let Err(e) = self.sender.send(Event::OnConnected(peer_id)).await {
                     eprintln!("{e:?}");
                 }
             }
             // we'll do nothing for this for now.
-            // see what we're skipping?
+            // see what we're skipping? Anything we identify must have described behaviour, or add to ignore list.
             _ => {
                 println!("[Network]: {event:?}");
             }
         };
     }
-
-    // pub async fn handle_event(
-    //     &mut self,
-    //     sender: &mut Sender<NetEvent>,
-    //     event: &SwarmEvent<BlendFarmBehaviourEvent>,
-    // ) {
-    //     match event {
-    //         SwarmEvent::NewListenAddr { address, .. } => {
-    //             // hmm.. I need to capture the address here?
-    //             // how do I save the address?
-    //             // this seems problematic?
-    //             // if address.protocol_stack().any(|f| f.contains("tcp")) {
-    //             //     self.public_addr = Some(address);
-    //             // }
-    //         }
-    //     }
-    // }
 
     pub async fn run(&mut self) {
         loop {

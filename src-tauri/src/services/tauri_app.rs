@@ -13,7 +13,7 @@ use crate::{
         computer_spec::ComputerSpec,
         job::{CreatedJobDto, JobEvent},
         message::{Event, NetworkError},
-        network::{NetworkController, NodeEvent, ProviderRule, HEARTBEAT, JOB, SPEC, STATUS},
+        network::{NetworkController, NodeEvent, ProviderRule, HEARTBEAT, JOB, SPEC},
         server_setting::ServerSetting,
         task::Task,
         worker::Worker,
@@ -292,9 +292,6 @@ impl TauriApp {
         event: Event,
     ) {
         match event {
-            Event::Status(peer_id, msg) => {
-                println!("Status received [{peer_id}]: {msg}");
-            }
             Event::NodeStatus(node_status) => match node_status {
                 NodeEvent::Discovered(peer_id_string, spec) => {
                     let peer_id = peer_id_string.to_peer_id();
@@ -320,22 +317,26 @@ impl TauriApp {
 
                     self.peers.remove(&peer_id);
                 },
-                NodeEvent::Status(status_event) => println!("{status_event:?}"),
+                NodeEvent::Status(status_event) => println!("Status Received: {status_event:?}"),
             },
             
-            // let me figure out what's going on here. where is this coming from?
-            // I shouldn't have to deal this from tauri-app side, instead this should be handle on the network side?
-            Event::InboundRequest { /*request, channel*/ .. } => {    
-            //     let mut data: Option<Vec<u8>> = None;
+            // let me figure out what's going on here.
+            // a network sent us a inbound request - reply back with the file data in channel.
+            Event::InboundRequest { request, channel } => {    
+                // in the event of inboundrequest, it expects a file response back.
+                // use channel to send the content of the file, that matches to the request's key-value pair path.
 
+                let mut data: Option<Vec<u8>> = None;
+            
             //     if let Some(path) = fs.providing_files.get(&request) {
             //         // if the file is no longer there, then we need to remove it from DHT.
             //         data = Some(async_std::fs::read(path).await.expect("File must exist to transfer!"));
             //     }
-                
-            //     if let Some(bit) = data {
-            //         client.respond_file(bit, channel).await;
-            //     };
+            
+                channel.
+                // if let Some(bit) = data {
+                //     client.respond_file(bit, channel).await;
+                // };
             }
 
             Event::JobUpdate(job_event) => match job_event {
@@ -412,7 +413,6 @@ impl BlendFarm for TauriApp {
         // for application side, we will subscribe to message event that's important to us to intercept.
         client.subscribe_to_topic(SPEC.to_owned()).await;
         client.subscribe_to_topic(HEARTBEAT.to_owned()).await;
-        client.subscribe_to_topic(STATUS.to_owned()).await;
         client.subscribe_to_topic(JOB.to_owned()).await; // This might get changed? we'll see.
         client.subscribe_to_topic(client.hostname.clone()).await;
 
