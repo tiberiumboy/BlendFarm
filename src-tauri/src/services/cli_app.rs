@@ -12,12 +12,7 @@ use super::blend_farm::BlendFarm;
 use crate::{
     domains::{job_store::JobError, task_store::TaskStore},
     models::{
-        behaviour::FileResponse,
-        job::JobEvent,
-        message::{self, Event, NetworkError},
-        network::{NetworkController, NodeEvent, ProviderRule, StatusEvent, JOB},
-        server_setting::ServerSetting,
-        task::Task,
+        job::JobEvent, message::{self, Event, NetworkError}, network::{NetworkController, NodeEvent, ProviderRule, StatusEvent, JOB }, server_setting::ServerSetting, task::Task
     },
 };
 use blender::models::status::Status;
@@ -81,7 +76,6 @@ impl CliApp {
         search_directory: &Path,
     ) -> Result<PathBuf, CliError> {
         let file_name = task.blend_file_name.to_str().unwrap();
-        println!("Calling network for project file {file_name}");
 
         // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
         client
@@ -129,7 +123,7 @@ impl CliApp {
         // Fetch the project from peer if we don't have it.
         if !project_file_path.exists() {
             println!(
-                "Project file do not exist, asking to download from DHT: {:?}",
+                "calling network for project file, asking to download from DHT: {:?}",
                 &task.blend_file_name
             );
 
@@ -304,19 +298,14 @@ impl CliApp {
     // Handle network event (From network as user to operate this)
     async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
-            Event::OnConnected(peer_id) => client.share_computer_info(peer_id).await,
-
+            // see if we can do something else beside this?
+            // whose peer id is this?
+            // Event::OnConnected(peer_id) => {
+                
+            // }
             Event::JobUpdate(job_event) => self.handle_job_update(job_event).await,
-            Event::InboundRequest { request, channel } => {
-                // first get the full path from request, if exist.
-                // network service have all of the file providing list. How do I fetch it from there?
-                let path = 
-                let file = async_std::fs::read(path).await.unwrap();
-                client.respond_file(file, channel).await;
-            }
-            Event::NodeStatus(event) => {
-                println!("{event:?}");
-            }
+            Event::InboundRequest { request, channel } => self.handle_inbound_request(client, request, channel).await,
+            Event::NodeStatus(event) => println!("{event:?}"),
             _ => println!("[CLI] Unhandled event from network: {event:?}"),
         }
     }
@@ -357,6 +346,8 @@ impl BlendFarm for CliApp {
         mut event_receiver: Receiver<Event>,
     ) -> Result<(), NetworkError> {
         // TODO: Figure out why I need the JOB subscriber?
+        // Answer: In case manager removes/delete a job. All cli must stop working on task related to deleted job. Treat it as job/task cancelled. 
+        //  this will be replaced with DHT instead.
         let hostname = client.hostname.clone();
         client.subscribe_to_topic(JOB.to_string()).await;
         client.subscribe_to_topic(hostname).await;

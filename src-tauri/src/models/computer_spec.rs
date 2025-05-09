@@ -2,9 +2,11 @@ use machine_info::Machine;
 use serde::{Deserialize, Serialize};
 use std::env::consts;
 
+pub type Hostname = String;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ComputerSpec {
-    pub host: String,
+    pub host: Hostname,
     pub os: String,
     pub arch: String,
     pub memory: u64,

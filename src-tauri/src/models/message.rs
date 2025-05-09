@@ -1,8 +1,8 @@
 use super::{behaviour::FileResponse, network::NodeEvent};
 // use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
-use futures::channel::oneshot::{self, Sender};
-use libp2p::{kad::QueryId, PeerId};
+use futures::channel::oneshot::{self};
+use libp2p::PeerId;
 use libp2p_request_response::{OutboundRequestId, ResponseChannel};
 use std::path::PathBuf;
 use std::{collections::HashSet, error::Error};
@@ -31,17 +31,11 @@ pub enum NetworkError {
 pub type Target = Option<String>;
 pub type KeywordSearch = String;
 
-// Send commands to network.
+// to make things simple, we'll create a file service command to handle file service.
 #[derive(Debug)]
-pub enum Command {
-    // what's the reason behind this?
-    IncomingWorker(PeerId),
-    Status(String),
-    SubscribeTopic(String),
-    UnsubscribeTopic(String),
-    NodeStatus(NodeEvent), // broadcast node activity changed
-    JobStatus(Target, JobEvent),
+pub enum FileCommand {
     StartProviding(KeywordSearch, PathBuf), // update kademlia service to provide a new file. Must have a file name and a extension! Cannot be a directory!
+    StopProviding(KeywordSearch),   // update kademlia service to stop providing the file.
     GetProviders {
         file_name: String,
         sender: oneshot::Sender<HashSet<PeerId>>,
@@ -55,23 +49,32 @@ pub enum Command {
         file: Vec<u8>,
         channel: ResponseChannel<FileResponse>,
     },
+    RequestFilePath {
+        keyword: KeywordSearch,
+        sender: oneshot::Sender<Option<PathBuf>>,
+    }
 }
 
-// TODO: Received network events.
+// Send commands to network.
+#[derive(Debug)]
+pub enum Command {
+    Status(String),
+    SubscribeTopic(String),
+    UnsubscribeTopic(String),
+    NodeStatus(NodeEvent), // broadcast node activity changed
+    JobStatus(Target, JobEvent),
+    FileService(FileCommand),
+}
+
+// Received network events.
 #[derive(Debug)]
 pub enum Event {
-    // Status(PeerId, String), // Receive message status (To GUI?) Could I treat this like Chat messages?
-    OnConnected(PeerId),
+    // Don't think I need this anymore, trying to rely on DHT for node availability somehow?
     NodeStatus(NodeEvent),
     InboundRequest {
         request: String,
         channel: ResponseChannel<FileResponse>,
     },
     JobUpdate(JobEvent),
-    PendingRequestFiled(
-        OutboundRequestId,
-        Option<Sender<Result<Vec<u8>, Box<dyn Error + Send + 'static>>>>,
-    ),
-    PendingGetProvider(QueryId, Sender<HashSet<PeerId>>),
     ReceivedFileData(OutboundRequestId, Vec<u8>),
 }

@@ -137,7 +137,9 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Resu
             let server = state.lock().await;
             let event = JobEvent::Remove(id);
             let mut controller = server.network_controller.write().await;
+            // instead of doing this, we should use DHT table to say this node have this job pending. delete it instead, or notify the node to delete/unsubscribe the job provider.
             controller.send_job_message(None, event).await;
+            // for now we'll do something baout it.
         }
     }
 

@@ -1,8 +1,9 @@
 use super::behaviour::{BlendFarmBehaviour, BlendFarmBehaviourEvent, FileRequest, FileResponse};
 use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
-use super::message::{Command, Event, KeywordSearch, NetworkError, Target};
+use super::message::{Command, Event, FileCommand, KeywordSearch, NetworkError, Target};
 use core::str;
+use std::num::NonZeroUsize;
 use futures::{
     channel::{
         mpsc::{self, Receiver, Sender},
@@ -12,7 +13,7 @@ use futures::{
 };
 use libp2p::gossipsub::{self, IdentTopic, Message};
 use libp2p::identity;
-use libp2p::kad::{QueryId, RecordKey};
+use libp2p::kad::{Quorum, Record, RecordKey}; // QueryId was removed
 use libp2p::swarm::SwarmEvent;
 use libp2p::{kad, mdns, swarm::Swarm, tcp, Multiaddr, PeerId, StreamProtocol, SwarmBuilder};
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
@@ -33,8 +34,8 @@ Network Service - Receive, handle, and process network request.
 */
 
 pub const STATUS: &str = "blendfarm/status";
-pub const SPEC: &str = "blendfarm/spec";
-pub const JOB: &str = "blendfarm/job";
+pub const NODE: &[u8] = b"/blendfarm/node";
+pub const JOB: &str = "blendfarm/job";  // Ok well here we are again.
 pub const HEARTBEAT: &str = "blendfarm/heartbeat";
 const TRANSFER: &str = "/file-transfer/1";
 
@@ -171,6 +172,7 @@ pub enum StatusEvent {
     Online,
     Busy,
     Error(String),
+    Signal(String),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -182,7 +184,7 @@ pub struct PeerIdString {
 #[derive(Debug, Serialize, Deserialize)] // Clone,
 pub enum NodeEvent {
     Discovered(PeerIdString, ComputerSpec),
-    Disconnected(PeerIdString),
+    Disconnected(PeerIdString, Option<String>), // reason
     Status(StatusEvent),
 }
 
@@ -221,11 +223,9 @@ impl NetworkController {
     }
 
     pub async fn send_status(&mut self, status: String) {
-        println!("[Status]: {status}");
-        self.sender
-            .send(Command::Status(status))
-            .await
-            .expect("Command should not been dropped");
+        println!("[Status]: {}", &status);
+        let status = NodeEvent::Status(StatusEvent::Signal(status));
+        self.send_node_status(status).await;
     }
 
     // How do I get the peers info I want to communicate with?
@@ -237,12 +237,8 @@ impl NetworkController {
             .expect("Command should not be dropped");
     }
 
-    // Share computer info to
-    pub async fn share_computer_info(&mut self, peer_id: PeerId) {
-        self.sender
-            .send(Command::IncomingWorker(peer_id))
-            .await
-            .expect("Command should not have been dropped");
+    pub async fn file_service(&mut self, command: FileCommand) {
+        self.sender.send(Command::FileService(command)).await.expect("Command should not have been dropped!");
     }
 
     /// file_name are broadcasted with the extensions included, but not the directory it's located in. E.g. "test.blend"
@@ -257,35 +253,27 @@ impl NetworkController {
                     .to_str()
                     .expect("Must be able to convert OsStr to Str!")
                     .to_owned();
-                Command::StartProviding(keyword, path_buf.to_owned())
+                FileCommand::StartProviding(keyword, path_buf.to_owned())
             }
             ProviderRule::Custom(keyword, path_buf) => {
-                Command::StartProviding(keyword.to_owned(), path_buf.to_owned())
+                FileCommand::StartProviding(keyword.to_owned(), path_buf.to_owned())
             }
         };
 
-        if let Err(e) = self.sender.send(cmd).await {
+        if let Err(e) = self.sender.send(Command::FileService(cmd)).await {
             eprintln!("How did this happen? {e:?}");
         }
-
-        // somehow receiver was dropped?
-        // what are we receiving/awaiting for?
-        // if let Err(e) = receiver.await {
-        //     eprintln!("Why did the receiver dropped? What happen?: {e:?}");
-        // }
     }
 
     pub async fn get_providers(&mut self, file_name: &str) -> HashSet<PeerId> {
         let (sender, receiver) = oneshot::channel();
+        let cmd = Command::FileService(FileCommand::GetProviders { file_name: file_name.to_string(), sender });
         self.sender
-            .send(Command::GetProviders {
-                file_name: file_name.to_string(),
-                sender,
-            })
+            .send(cmd)
             .await
             .expect("Command receiver should not be dropped");
 
-        // why was this dropped?
+        // receiver should no longer drop
         match receiver.await {
             Ok(data) => data,
             Err(e) => {
@@ -305,26 +293,9 @@ impl NetworkController {
         destination: T,
     ) -> Result<PathBuf, NetworkError> {
         let providers = self.get_providers(&file_name).await;
-
-        let content = match providers.iter().next() {
-            Some(peer_id) => self.request_file(peer_id, file_name).await,
+        match providers.iter().next() {
+            Some(peer_id) => self.request_file(peer_id, file_name, destination.as_ref()).await,
             None => return Err(NetworkError::NoPeerProviderFound),
-        };
-
-        match content {
-            Ok(content) => {
-                let file_path = destination.as_ref().join(file_name);
-                // TODO: See if we can re-write this better? Should be able to map this?
-                match async_std::fs::write(file_path.clone(), content).await {
-                    Ok(_) => Ok(file_path),
-                    Err(e) => Err(NetworkError::UnableToSave(e.to_string())),
-                }
-            }
-            Err(e) => {
-                // Received a "Timeout" error? What does that mean? Should I try to reconnect?
-                eprintln!("No peer found? {e:?}");
-                Err(NetworkError::Timeout)
-            }
         }
     }
 
@@ -332,17 +303,22 @@ impl NetworkController {
         &mut self,
         peer_id: &PeerId,
         file_name: &str,
-    ) -> Result<Vec<u8>, Box<dyn Error + Send>> {
+        destination: &Path
+    ) -> Result<PathBuf, NetworkError> {
         let (sender, receiver) = oneshot::channel();
+        let cmd = Command::FileService(FileCommand::RequestFile { peer_id: *peer_id, file_name: file_name.into(), sender });
         self.sender
-            .send(Command::RequestFile {
-                peer_id: peer_id.clone(),
-                file_name: file_name.into(),
-                sender,
-            })
+            .send(cmd)
             .await
             .expect("Command should not be dropped");
-        receiver.await.expect("Should not be closed?")
+        let content = receiver.await.expect("Should not be closed?").or_else(|e| Err(NetworkError::UnableToSave(e.to_string())))?;
+
+        let file_path = destination.join(file_name);
+        // TODO: See if we can re-write this better? Should be able to map this?
+        match async_std::fs::write(file_path.clone(), content).await {
+            Ok(_) => Ok(file_path),
+            Err(e) => Err(NetworkError::UnableToSave(e.to_string())),
+        }
     }
 
     // TODO: Come back to this one and see how this one gets invoked.
@@ -351,7 +327,7 @@ impl NetworkController {
         file: Vec<u8>,
         channel: ResponseChannel<FileResponse>,
     ) {
-        let cmd = Command::RespondFile { file, channel };
+        let cmd = Command::FileService(FileCommand::RespondFile { file, channel });
         if let Err(e) = self.sender.send(cmd).await {
             println!("Command should not be dropped: {e:?}");
         }
@@ -373,7 +349,7 @@ pub struct NetworkService {
     // Used to collect computer basic hardware info to distribute
     machine: Machine,
 
-    providing_files: HashMap<KeywordSearch, PathBuf>,
+    providing_files: HashMap<String, PathBuf>,
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pending_request_file:
         HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
@@ -401,91 +377,76 @@ impl NetworkService {
         self.machine.system_info().hostname
     }
 
-    // send command
-    // Receive commands from foreign invocation.
-    pub async fn process_command(&mut self, cmd: Command) {
-        match cmd {
-            // this has been replaced and removed entirely.
-            Command::Status(msg) => {
-                let data = msg.as_bytes();
-                let topic = IdentTopic::new(STATUS);
-                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                    eprintln!("Fail to send status over network! {e:?}");
-                }
-            }
-            Command::RequestFile {
+    // here we will deviate handling the file service command.
+    async fn process_file_service(&mut self, cmd: FileCommand) {
+        match cmd { 
+            FileCommand::RequestFile {
                 peer_id,
                 file_name,
-                sender: snd,
+                sender
             } => {
+
                 let request_id = self
                     .swarm
                     .behaviour_mut()
                     .request_response
                     .send_request(&peer_id, FileRequest(file_name.into()));
-
-                // so instead, we should just send a netevent?
-                // so I think I was trying to send a sender channel here so that I could fetch the file content...
-                // I received a request file command from UI -
-                // This instructs both things, a File Request was sent out to the network, and a notification to accept incoming transfer on this side.
-                if let Err(e) = self
-                    .sender
-                    .send(Event::PendingRequestFiled(request_id, Some(snd)))
-                    .await
-                {
-                    eprintln!("Failed to send file contents: {e:?}");
-                }
+                self.pending_request_file.insert(request_id, sender);
             }
-            Command::RespondFile { file, channel } => {
+            FileCommand::RespondFile { file, channel } => {
                 // somehow the send_response errored out? How come?
                 // Seems like this function got timed out?
                 if let Err(e) = self
                     .swarm
                     .behaviour_mut()
                     .request_response
-                    // TODO: find a way to get around cloning values.
-                    .send_response(channel, FileResponse(file.clone()))
+                    .send_response(channel, FileResponse(file))
                 {
                     // why am I'm getting error message here?
                     eprintln!("Error received on sending response! {e:?}");
                 }
             }
-            Command::IncomingWorker(..) => {
-                let mut machine = Machine::new();
-                let spec = ComputerSpec::new(&mut machine);
-                let data = bincode::serialize(&spec).unwrap();
-                let topic = IdentTopic::new(SPEC);
-
-                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                    eprintln!("Fail to send identity to swarm! {e:?}");
-                };
+            FileCommand::GetProviders { file_name, sender} => {
+                let key = file_name.into_bytes().into();
+                let query_id = self.swarm.behaviour_mut().kad.get_providers(key);
+                self.pending_get_providers.insert(query_id, sender);
             }
-            Command::GetProviders {
-                file_name,
-                sender: snd,
-            } => {
-                let key = RecordKey::new(&file_name.as_bytes());
-                let query_id = self.swarm.behaviour_mut().kad.get_providers(key.into());
-                if let Err(e) = self
-                    .sender
-                    .send(Event::PendingGetProvider(query_id, snd))
-                    .await
-                {
-                    eprintln!("Fail to send provider data. {e:?}");
-                }
-            }
-            Command::StartProviding(keyword, file_path) => {
-                let provider_key = RecordKey::new(&keyword.as_bytes());
+            FileCommand::StartProviding(keyword, file_path) => {
+                let key = keyword.clone().into_bytes().into();
                 // could we make use of this query ID?
                 let _query_id = self
                     .swarm
                     .behaviour_mut()
                     .kad
-                    .start_providing(provider_key)
+                    .start_providing(key)
                     .expect("No store error.");
-
-                self.providing_files.insert(keyword, file_path);
+                self.providing_files.insert(keyword, file_path);    
             }
+            FileCommand::StopProviding(keyword) => {
+                let key = RecordKey::new(&keyword.as_bytes());  
+                self.swarm.behaviour_mut().kad.stop_providing(&key);
+                self.providing_files.remove(&keyword);
+            }
+            FileCommand::RequestFilePath { keyword, sender } => {
+                let result = self.providing_files.get(&keyword).and_then(|f| Some(f.to_owned()));
+                println!("{keyword:?} | {result:?}");
+                sender.send(result).expect("Receiver should not be dropped");
+            }
+        };
+    }
+
+    // send command
+    // Receive commands from foreign invocation.
+    pub async fn process_command(&mut self, cmd: Command) {
+        match cmd {
+            Command::Status(msg) => {
+                
+                let topic = IdentTopic::new(STATUS);
+                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, msg.into_bytes()) {
+                    eprintln!("Fail to send status over network! {e:?}");
+                }
+            }
+            Command::FileService(service) => self.process_file_service(service).await,
             Command::SubscribeTopic(topic) => {
                 let ident_topic = IdentTopic::new(topic);
                 self.swarm
@@ -501,6 +462,7 @@ impl NetworkService {
                     .gossipsub
                     .unsubscribe(&ident_topic);
             }
+            // See where this is being used?
             Command::JobStatus(host_name, event) => {
                 // convert data into json format.
                 let data = bincode::serialize(&event).unwrap();
@@ -525,14 +487,20 @@ impl NetworkService {
                 */
                 // self.pending_task.insert(peer_id);
             }
-            // TODO: need to figure out how this is called.
+            // TODO: need to figure out how this is called
             Command::NodeStatus(status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
-                // where did we get
-                let topic = IdentTopic::new(STATUS);
-                let data = bincode::serialize(&status).unwrap();
-                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                    eprintln!("Fail to publish gossip message: {e:?}");
+                // let topic = IdentTopic::new(STATUS);
+                // if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+                //     eprintln!("Fail to publish gossip message: {e:?}");
+                // }
+                let key = RecordKey::new(&NODE.to_vec());
+                let value = bincode::serialize(&status).unwrap(); 
+                let record  = Record::new(key, value);
+
+                let quorum = Quorum::N(NonZeroUsize::new(3).unwrap());
+                if let Err(e) = self.swarm.behaviour_mut().kad.put_record(record, quorum) {
+                    eprintln!("Fail to update kademlia node status! {e:?}");
                 }
             }
         }
@@ -550,7 +518,7 @@ impl NetworkService {
                     self.sender
                         .send(Event::InboundRequest {
                             request: request.0,
-                            channel: channel.into(),
+                            channel,
                         })
                         .await
                         .expect("Event receiver should not be dropped!");
@@ -559,26 +527,19 @@ impl NetworkService {
                     request_id,
                     response,
                 } => {
-                    let value = response.0;
-                    let event = Event::ReceivedFileData(request_id, value);
-
-                    self.sender
-                        .send(event)
-                        .await
-                        .expect("Event receiver should not be dropped");
+                    let _ = self.pending_request_file
+                                .remove(&request_id)
+                                .expect("Request to still be pending")
+                                .send(Ok(response.0));
                 }
             },
             libp2p_request_response::Event::OutboundFailure {
                 request_id, error, ..
             } => {
-                println!("Received outbound failure! {error:?}");
-                if let Err(e) = self
-                    .sender
-                    .send(Event::PendingRequestFiled(request_id, None))
-                    .await
-                {
-                    eprintln!("Fail to send outbound failure! {e:?}");
-                }
+                let _ = self.pending_request_file
+                            .remove(&request_id)
+                            .expect("Request to still be pending")
+                            .send(Err(Box::new(error)));
             }
             libp2p_request_response::Event::ResponseSent { .. } => {}
             _ => {}
@@ -612,20 +573,18 @@ impl NetworkService {
         };
     }
 
-    async fn handle_spec(&mut self, source: PeerId, message: Message) {
-        // deserialize message into structure data. We expect this. Run unit test for null/invalid datastruct/malicious exploits.
-        if let Ok(specs) = bincode::deserialize(&message.data) {
-            // send a net event notification
-            let peer_id_str = PeerIdString::new(&source);
-            let node_event = NodeEvent::Discovered(peer_id_str, specs);
-            if let Err(e) = self.sender.send(Event::NodeStatus(node_event)).await {
-                eprintln!("Something failed? {e:?}");
-            }
-        }
-    }
+    // async fn handle_spec(&mut self, peer_id: PeerId, data: &[u8]) {
+    //     // deserialize message into structure data. We expect this. Run unit test for null/invalid datastruct/malicious exploits.
+    //     if let Ok(specs) = bincode::deserialize(data) {
+    //         let peer_id_str = PeerIdString::new(&peer_id);
+    //         let node_event = NodeEvent::Discovered(peer_id_str, specs);
+    //         if let Err(e) = self.sender.send(Event::NodeStatus(node_event)).await {
+    //             eprintln!("Something failed? {e:?}");
+    //         }
+    //     }
+    // }
 
     async fn handle_job(&mut self, message: Message) {
-        // let peer_id = self.swarm.local_peer_id();
         let job_event =
             bincode::deserialize::<JobEvent>(&message.data).expect("Fail to parse Job data!");
 
@@ -640,22 +599,14 @@ impl NetworkService {
     async fn process_gossip_event(&mut self, event: gossipsub::Event) {
         match event {
             gossipsub::Event::Message {
-                propagation_source,
                 message,
                 ..
             } => match message.topic.as_str() {
-                // when we received a SPEC topic.
-                SPEC => {
-                    self.handle_spec(propagation_source, message).await;
-                }
-                // STATUS => {
-                //     println!("Process_gossip_event(Message::STATUS) was called");
-                //     self.handle_status(propagation_source, message).await;
-                // }
                 JOB => {
                     self.handle_job(message).await;
                 }
                 // I think this needs to be changed.
+                // TODO: This will be changed, this is being handled differently now.
                 _ => {
                     // I received Mac.lan from message.topic?
                     let topic = message.topic.as_str();
@@ -678,6 +629,7 @@ impl NetworkService {
     }
 
     // Handle kademila events (Used for file sharing)
+    // can we use this same DHT to make node spec publicly available?
     async fn process_kademlia_event(&mut self, event: kad::Event) {
         match event {
             kad::Event::OutboundQueryProgressed {
@@ -707,7 +659,10 @@ impl NetworkService {
                     sender
                         .send(providers.clone())
                         .expect("Receiver not to be dropped");
-                    // self.kad.query_mut(&id).unwrap().finish();
+
+                    if let Some(mut node) = self.swarm.behaviour_mut().kad.query_mut(&id) {
+                        node.finish();
+                    } 
                 }
             }
             // here is where we're getting progress results.
@@ -726,6 +681,13 @@ impl NetworkService {
                 // let outbound_request_id = id;
                 // let event = Event::PendingRequestFiled(outbound_request_id, None);
                 // self.sender.send(event).await;
+            }
+
+            kad::Event::OutboundQueryProgressed { result: kad::QueryResult::PutRecord(Err(err)), ..} => {
+                eprintln!("Error putting record in! {err:?}");
+            }
+            kad::Event::OutboundQueryProgressed { result: kad::QueryResult::PutRecord(Ok(value)), ..} => {
+                println!("Successfully append the record! {value:?}");
             }
 
             // suppressed
@@ -761,14 +723,24 @@ impl NetworkService {
                     self.process_kademlia_event(event).await;
                 }
             },
-            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                if let Err(e) = self.sender.send(Event::OnConnected(peer_id)).await {
-                    eprintln!("Fail to send event on connection established! {e:?}");
-                }
+            SwarmEvent::ConnectionEstablished { .. } => {
+                //
+                // once we establish a connection, we should ping kademlia for all available nodes on the network.
+                // let key = NODE.to_vec();
+                // let _query_id = self.swarm.behaviour_mut().kad.get_providers(key.into());
+
+                // let mut machine = Machine::new();
+                // let spec = ComputerSpec::new(&mut machine);
+                // let event = Event::NodeStatus(NodeEvent::Discovered(spec));
+                // if let Err(e) = self.sender.send(event).await {
+                //     eprintln!("Fail to send event on connection established! {e:?}");
+                // }
             }
-            SwarmEvent::ConnectionClosed { peer_id, .. } => {
+            // how do we fetch the 
+            SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
                 let peer_id_string = PeerIdString::new(&peer_id);
-                let event = Event::NodeStatus(NodeEvent::Disconnected(peer_id_string));
+                let reason = cause.and_then(|f| Some(f.to_string()));
+                let event = Event::NodeStatus(NodeEvent::Disconnected(peer_id_string, reason));
                 if let Err(e) = self.sender.send(event).await {
                     eprintln!("Fail to send event on connection closed! {e:?}");
                 }
@@ -781,21 +753,17 @@ impl NetworkService {
                 // hmm.. I need to capture the address here?
                 // how do I save the address?
                 // this seems problematic?
-                if address.protocol_stack().any(|f| f.contains("tcp")) {
+                // if address.protocol_stack().any(|f| f.contains("tcp")) {
                     println!("[New Listener Address]: {address}");
-                }
+                // }
             }
             SwarmEvent::Dialing { .. } => {} // Suppressing logs
             SwarmEvent::IncomingConnection { .. } => {} // Suppressing logs
+            SwarmEvent::NewExternalAddrOfPeer { .. } => {}
             // SwarmEvent::OutgoingConnectionError { connection_id, peer_id, error } => {}  // I recognize this and do want to display result below.
             // SwarmEvent::IncomingConnectionError { .. } => {}                             // I recognize this and do want to display result below.
 
             // ^^eof ignore^^
-            SwarmEvent::NewExternalAddrOfPeer { peer_id, .. } => {
-                if let Err(e) = self.sender.send(Event::OnConnected(peer_id)).await {
-                    eprintln!("{e:?}");
-                }
-            }
             // we'll do nothing for this for now.
             // see what we're skipping? Anything we identify must have described behaviour, or add to ignore list.
             _ => {

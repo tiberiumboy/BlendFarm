@@ -13,7 +13,7 @@ use crate::{
         computer_spec::ComputerSpec,
         job::{CreatedJobDto, JobEvent},
         message::{Event, NetworkError},
-        network::{NetworkController, NodeEvent, ProviderRule, HEARTBEAT, JOB, SPEC},
+        network::{NetworkController, NodeEvent, ProviderRule, HEARTBEAT, JOB},
         server_setting::ServerSetting,
         task::Task,
         worker::Worker,
@@ -307,9 +307,15 @@ impl TauriApp {
                     // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
                     // let _ = handle.emit("worker_update");
                 },
-                NodeEvent::Disconnected(peer_id_string) => {
+                // concerning - this String could be anything?
+                // TODO: Find a better way to get around this.
+                NodeEvent::Disconnected(peer_id_string, reason) => {
+                    if let Some(msg) = reason {
+                        eprintln!("Node disconnected with reason!\n {msg}");
+                    }
                     let mut db = self.worker_store.write().await;
                     let peer_id = peer_id_string.to_peer_id();
+
                     // So the main issue is that there's no way to identify by the machine id?
                     if let Err(e) = db.delete_worker(&peer_id).await {
                         eprintln!("Error deleting worker from database! {e:?}");
@@ -322,21 +328,9 @@ impl TauriApp {
             
             // let me figure out what's going on here.
             // a network sent us a inbound request - reply back with the file data in channel.
+            // yeah I wonder why we can't move this inside network class?
             Event::InboundRequest { request, channel } => {    
-                // in the event of inboundrequest, it expects a file response back.
-                // use channel to send the content of the file, that matches to the request's key-value pair path.
-
-                let mut data: Option<Vec<u8>> = None;
-            
-            //     if let Some(path) = fs.providing_files.get(&request) {
-            //         // if the file is no longer there, then we need to remove it from DHT.
-            //         data = Some(async_std::fs::read(path).await.expect("File must exist to transfer!"));
-            //     }
-            
-                channel.
-                // if let Some(bit) = data {
-                //     client.respond_file(bit, channel).await;
-                // };
+                self.handle_inbound_request(client, request, channel).await;
             }
 
             Event::JobUpdate(job_event) => match job_event {
@@ -410,10 +404,10 @@ impl BlendFarm for TauriApp {
         mut client: NetworkController,
         mut event_receiver: futures::channel::mpsc::Receiver<Event>,
     ) -> Result<(), NetworkError> {
-        // for application side, we will subscribe to message event that's important to us to intercept.
-        client.subscribe_to_topic(SPEC.to_owned()).await;
         client.subscribe_to_topic(HEARTBEAT.to_owned()).await;
-        client.subscribe_to_topic(JOB.to_owned()).await; // This might get changed? we'll see.
+        // This was used to check and see if any other manager have deleted the job/task. Treat it as job/task cancellation notice.
+        client.subscribe_to_topic(JOB.to_owned()).await; 
+        // soon to be deprecated. Use DHT somehow?
         client.subscribe_to_topic(client.hostname.clone()).await;
 
         // there needs to be a event where we need to setup our kademlia server based on job we created.
