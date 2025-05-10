@@ -56,9 +56,9 @@ TODO:
 extern crate xml_rpc;
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
+use crate::models::event::BlenderEvent;
 use crate::models::{
-    blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderRenderSetting,
-    status::Status,
+    blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderRenderSetting
 };
 
 use blend::Blend;
@@ -133,14 +133,6 @@ impl Ord for Blender {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.version.cmp(&other.version)
     }
-}
-
-// TODO: Come back to this and start implementing into Blender.rs
-#[allow(dead_code)]
-enum BlenderEvent {
-    Rendering{ current: f32, total: f32 },
-    Sample(String),
-    Unhandled(String),
 }
 
 impl Blender {
@@ -419,11 +411,11 @@ impl Blender {
     /// let final_output = blender.render(&args).unwrap();
     /// ```
     // so instead of just returning the string of render result or blender error, we'll simply use the single producer to produce result from this class.
-    pub async fn render<F>(&self, args: Args, get_next_frame: F) -> Receiver<Status>
+    pub async fn render<F>(&self, args: Args, get_next_frame: F) -> Receiver<BlenderEvent>
     where
         F: Fn() -> Option<i32> + Send + Sync + 'static,
     {
-        let (signal, listener) = mpsc::channel::<Status>();
+        let (signal, listener) = mpsc::channel::<BlenderEvent>();
 
         let blend_info = Self::peek(&args.file)
             .await
@@ -433,7 +425,7 @@ impl Blender {
         let settings = BlenderRenderSetting::parse_from(&args, &blend_info);
         self.setup_listening_server(settings, listener, get_next_frame).await;
 
-        let (rx, tx) = mpsc::channel::<Status>();
+        let (rx, tx) = mpsc::channel::<BlenderEvent>();
         let executable = self.executable.clone();
 
         println!("About to spawn!");
@@ -446,7 +438,7 @@ impl Blender {
         tx
     }
 
-    async fn setup_listening_server<F>(&self, settings: BlenderRenderSetting, listener: Receiver<Status>, get_next_frame: F) 
+    async fn setup_listening_server<F>(&self, settings: BlenderRenderSetting, listener: Receiver<BlenderEvent>, get_next_frame: F) 
     where
         F: Fn() -> Option<i32> + Send + Sync + 'static,
     {
@@ -476,14 +468,14 @@ impl Blender {
             loop {
                 // if the program shut down or if we've completed the render, then we should stop the server
                 match listener.try_recv() {
-                    Ok(Status::Exit) => break,
+                    Ok(BlenderEvent::Exit) => break,
                     _ => bind_server.poll(),
                 }
             }
         });
     }
 
-    async fn setup_listening_blender<T: AsRef<Path>>(args: Args, executable: T, rx: Sender<Status>, signal: Sender<Status>) {
+    async fn setup_listening_blender<T: AsRef<Path>>(args: Args, executable: T, rx: Sender<BlenderEvent>, signal: Sender<BlenderEvent>) {
         let script_path = Blender::get_config_path().join("render.py");
         if !script_path.exists() {
             let data = include_bytes!("./render.py");
@@ -523,7 +515,7 @@ impl Blender {
 
     // TODO: This function updates a value above this scope -> See if we can just return the value instead?
     // TODO: Can we use stream instead? how can we parse data from blender into recognizable style?
-    fn handle_blender_stdio(line: String, frame: &mut i32, rx: &Sender<Status>, signal: &Sender<Status>) {
+    fn handle_blender_stdio(line: String, frame: &mut i32, rx: &Sender<BlenderEvent>, signal: &Sender<BlenderEvent>) {
         match line {
             // TODO: find a more elegant way to parse the string std out and handle invocation action.
             line if line.contains("Fra:") => {
@@ -540,22 +532,13 @@ impl Blender {
                     "Rendering" => {
                         let current = slice[1].parse::<f32>().unwrap();
                         let total = slice[3].parse::<f32>().unwrap();
-                        let percentage = current / total * 100.0;
-                        let render_perc = format!("{} {:.2}%", last, percentage);
-                        let _event = BlenderEvent::Rendering{ current, total };
-                        Status::Running {
-                            status: render_perc,
-                        }
+                        BlenderEvent::Rendering{ current, total }
                     }
                     "Sample" => {
-                        let _event = BlenderEvent::Sample(last.to_owned());
-                        Status::Running {
-                            status: last.to_owned(),
-                        }
+                        // where is this suppose to go?
+                        BlenderEvent::Sample(last.to_owned())
                     },
-                    _ => Status::Log {
-                        status: last.to_owned(),
-                    },
+                    _ => BlenderEvent::Unhandled(format!("[Unhandle Msg]: {line:?}"))
                 };
                 rx.send(msg).unwrap();
             }
@@ -564,40 +547,36 @@ impl Blender {
             line if line.contains("Saved:") => {
                 let location = line.split('\'').collect::<Vec<&str>>();
                 let result = PathBuf::from(location[1]);
-                rx.send(Status::Completed { frame: *frame, result }).unwrap();
+                rx.send(BlenderEvent::Completed { frame: *frame, result }).unwrap();
             }
 
             // Strange how this was thrown, but doesn't report back to this program?
             line if line.contains("EXCEPTION:") => {
-                signal.send(Status::Exit).unwrap();
-                rx.send(Status::Error(BlenderError::PythonError(line.to_owned())))
+                signal.send(BlenderEvent::Exit).unwrap();
+                rx.send(BlenderEvent::Error(line.to_owned()))
                     .unwrap();
             }
 
             // TODO: Warning keyword is used multiple of times. Consider removing warning apart and submit remaining content above
             line if line.contains("Warning:") => {
-                rx.send(Status::Warning {
-                    message: line.to_owned(),
-                })
-                .unwrap();
+                rx.send(BlenderEvent::Warning(line.to_owned())).unwrap();
             }
 
             line if line.contains("Error:") => {
-                let msg = Status::Error(BlenderError::RenderError(line.to_owned()));
+                let msg = BlenderEvent::Error(line.to_owned());
                 rx.send(msg).unwrap();
             }
 
             line if line.contains("Blender quit") => {
-                signal.send(Status::Exit).unwrap();
-                rx.send(Status::Exit).unwrap();
+                signal.send(BlenderEvent::Exit).unwrap();
+                rx.send(BlenderEvent::Exit).unwrap();
             }
 
             // any unhandle handler is submitted raw in console output here.
             line if !line.is_empty() => {
-                let msg = Status::Running {
-                    status: format!("[Unhandle Blender Event]:{line}"),
-                };
-                rx.send(msg).unwrap();
+                let msg = format!("[Unhandle Blender Event]:{line}");
+                let event = BlenderEvent::Unhandled(msg);
+                rx.send(event).unwrap();
             }
             _ => {
                 // Only empty log entry would show up here...

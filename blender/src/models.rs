@@ -8,4 +8,4 @@ pub mod engine;
 pub mod format;
 pub mod home;
 pub mod mode;
-pub mod status;
+pub mod event;

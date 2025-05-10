@@ -1,3 +1,3 @@
 fn main() {
-    println!("Hello, world!");
+    println!("Please read the example to learn more about Blender crate - ./blender/examples/render/README.md ");
 }

@@ -15,7 +15,7 @@ use crate::{
         job::JobEvent, message::{self, Event, NetworkError}, network::{NetworkController, NodeEvent, ProviderRule, StatusEvent, JOB }, server_setting::ServerSetting, task::Task
     },
 };
-use blender::models::status::Status;
+use blender::models::event::BlenderEvent;
 use blender::{
     blender::{Blender, Manager as BlenderManager},
     models::download_link::DownloadLink,
@@ -218,21 +218,25 @@ impl CliApp {
             Ok(rx) => loop {
                 if let Ok(status) = rx.recv() {
                     match status {
-                        Status::Idle => client.send_status("[Idle]".to_owned()).await,
-                        Status::Running { status } => {
-                            client.send_status(format!("[Running] {status}")).await
-                        }
-                        Status::Log { status } => {
-                            client.send_status(format!("[Log] {status}")).await
-                        }
-                        Status::Warning { message } => {
-                            client.send_status(format!("[Warning] {message}")).await
-                        }
-                        Status::Error(blender_error) => {
-                            client.send_status(format!("[ERR] {blender_error:?}")).await
+                        
+                        BlenderEvent::Rendering { current, total } => {
+                            let percent = ( current / total ) * 100;
+                            client.send_status(format!("[ACT] Rendering {current} out of {total} - %{percent}")).await
                         }
 
-                        Status::Completed { frame, result } => {
+                        BlenderEvent::Log(status) => {
+                            client.send_status(format!("[LOG] {status}")).await
+                        }
+                
+                        BlenderEvent::Warning(message ) => {
+                            client.send_status(format!("[WARN] {message}")).await
+                        }
+                        
+                        BlenderEvent::Error(msg) => {
+                            client.send_status(format!("[ERR] {msg:?}")).await
+                        }
+
+                        BlenderEvent::Completed { frame, result } => {
                             let file_name = result.file_name().unwrap().to_string_lossy();
                             let file_name = format!("/{}/{}", task.job_id, file_name);
                             let event = JobEvent::ImageCompleted {
@@ -247,13 +251,18 @@ impl CliApp {
                                 .send_job_message(Some(task.requestor.clone()), event)
                                 .await;
                         }
-
-                        Status::Exit => {
+                        BlenderEvent::Exit => {
                             // hmm is this technically job complete?
                             // Check and see if we have any queue pending, otherwise ask hosts around for available job queue.
-                            // sender.send(CmdCommand::TaskComplete(task.into())).await;
+                            let event = JobEvent::JobComplete;
+                            client.send_node_status(status);
+                            sender.send(CmdCommand::TaskComplete(task.into())).await;
                             println!("Task complete, breaking loop!");
                             break;
+                        }
+                        BlenderEvent::Sample(sample) => {
+                            // what is this?
+                            println!("Sample: {sample} = Keyword TANGO");
                         }
                     };
                 }

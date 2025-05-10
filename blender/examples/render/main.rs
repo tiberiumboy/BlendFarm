@@ -1,5 +1,5 @@
 use blender::blender::Manager;
-use blender::models::{args::Args, status::Status};
+use blender::models::{args::Args, event::BlenderEvent};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -68,19 +68,23 @@ async fn render_with_manager() {
     // Handle blender status
     while let Ok(status) = listener.recv() {
         match status {
-            Status::Completed { frame, result } => {
+            BlenderEvent::Completed { frame, result } => {
                 println!("[Completed] {frame} {result:?}");
             }
-            Status::Log { status } => {
-                println!("[Info] {}", status);
+            BlenderEvent::Rendering { current, total } => {
+                let percent = ( current / total ) * 100.0;
+                println!("[Rendering] {current} out of {total} (%{percent})");
             }
-            Status::Running { status } => {
-                println!("[Running] {}", status);
+            BlenderEvent::Error(e) => {
+                println!("[ERR] {e}");
             }
-            Status::Error(e) => {
-                println!("[ERROR] {:?}", e);
+            BlenderEvent::Warning(msg) => {
+                println!("[WARN] {msg}");
             }
-            Status::Exit => {
+            BlenderEvent::Log(msg) => {
+                println!("[LOG] {msg}")
+            }
+            BlenderEvent::Exit => {
                 println!("[Exit]");
             }
             _ => {
