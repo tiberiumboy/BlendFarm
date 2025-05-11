@@ -368,8 +368,10 @@ impl TauriApp {
                         // }
                     }
                 }
-                // when a job is complete, check the poll for next available job queue?
-                JobEvent::JobComplete => {} // Hmm how do I go about handling this one?
+                // when a task is complete, check the poll for next available job queue?
+                JobEvent::TaskComplete => {
+                    println!("Received Task Completed! Do something about this!");
+                }
 
                 // TODO: how do we handle error from node? What kind of errors are we expecting here and what can the host do about it?
                 JobEvent::Error(job_error) => {

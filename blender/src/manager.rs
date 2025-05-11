@@ -53,12 +53,19 @@ pub enum ManagerError {
 pub struct BlenderConfig {
     /// List of installed blenders
     blenders: Vec<Blender>,
-    
-    /// Install path leads to ~/Downloads/Blender
+
+    /// Install path. By default set to `$HOME/Downloads/Blender`
     install_path: PathBuf,
 
-    /// auto save configuration features
+    /// Auto save on drop
     auto_save: bool,
+}
+
+impl BlenderConfig {
+    /// Remove any invalid blender path entry from BlenderConfig
+    pub fn remove_invalid_blender_path(&mut self) {
+        self.blenders.retain(|x| !x.get_executable().exists());
+    }
 }
 
 // I wanted to keep this struct private only to this library crate?
@@ -67,7 +74,7 @@ pub struct Manager {
     /// Store all known installation of blender directory information
     config: BlenderConfig,
     pub home: BlenderHome, // for now let's make this public until we can reduce couplings usage from outside scope
-    has_modified: bool, // detect if the configuration has changed.
+    has_modified: bool,    // detect if the configuration has changed.
 }
 
 impl Default for Manager {
@@ -112,12 +119,16 @@ impl Manager {
         let arch = std::env::consts::ARCH.to_owned();
         let os = std::env::consts::OS.to_owned();
 
-        let category = self
-            .home.get_version(version.major, version.minor).ok_or(ManagerError::DownloadNotFound {
+        let category = self.home.get_version(version.major, version.minor).ok_or(
+            ManagerError::DownloadNotFound {
                 arch,
                 os,
-                url: format!("Blender version {}.{} was not found!", version.major, version.minor),
-            })?;
+                url: format!(
+                    "Blender version {}.{} was not found!",
+                    version.major, version.minor
+                ),
+            },
+        )?;
 
         let download_link = category
             .retrieve(version)
@@ -162,7 +173,8 @@ impl Manager {
         let path = Self::get_config_path();
         let mut data = Self::default();
         if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(config) = serde_json::from_str(&content) {
+            if let Ok(mut config) = serde_json::from_str::<BlenderConfig>(&content) {
+                config.remove_invalid_blender_path();
                 data.set_config(config);
                 return data;
             } else {
@@ -268,13 +280,10 @@ impl Manager {
     }
 
     pub fn have_blender_partial(&self, major: u64, minor: u64) -> Option<&Blender> {
-        self.config
-            .blenders
-            .iter()
-            .find(|x| {
-                let v = x.get_version();
-                v.major.eq(&major) && v.minor.eq(&minor)
-            })
+        self.config.blenders.iter().find(|x| {
+            let v = x.get_version();
+            v.major.eq(&major) && v.minor.eq(&minor)
+        })
     }
 
     // TODO: Try to remove unwrap as much as possible
@@ -289,7 +298,7 @@ impl Manager {
 
     fn generate_destination(&self, category: &BlenderCategory) -> PathBuf {
         let destination = self.config.install_path.join(&category.name);
-        
+
         // got a permission denied here? Interesting?
         // I need to figure out why and how I can stop this from happening?
         fs::create_dir_all(&destination).unwrap();
@@ -311,10 +320,9 @@ impl Manager {
         let path = link
             .download_and_extract(&destination)
             .map_err(|e| ManagerError::IoError(e.to_string()))?;
-        
+
         // I would expect this to always work?
-        let blender =
-            Blender::from_executable(path).expect("Invalid Blender executable!"); //.map_err(|e| ManagerError::BlenderError { source: e })?;
+        let blender = Blender::from_executable(path).expect("Invalid Blender executable!"); //.map_err(|e| ManagerError::BlenderError { source: e })?;
         self.config.blenders.push(blender.clone());
         Ok(blender)
     }

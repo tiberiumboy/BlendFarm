@@ -3,7 +3,6 @@ use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
 use super::message::{Command, Event, FileCommand, KeywordSearch, NetworkError, Target};
 use core::str;
-use std::num::NonZeroUsize;
 use futures::{
     channel::{
         mpsc::{self, Receiver, Sender},
@@ -21,6 +20,7 @@ use machine_info::Machine;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
@@ -35,7 +35,7 @@ Network Service - Receive, handle, and process network request.
 
 pub const STATUS: &str = "blendfarm/status";
 pub const NODE: &[u8] = b"/blendfarm/node";
-pub const JOB: &str = "blendfarm/job";  // Ok well here we are again.
+pub const JOB: &str = "blendfarm/job"; // Ok well here we are again.
 pub const HEARTBEAT: &str = "blendfarm/heartbeat";
 const TRANSFER: &str = "/file-transfer/1";
 
@@ -238,7 +238,10 @@ impl NetworkController {
     }
 
     pub async fn file_service(&mut self, command: FileCommand) {
-        self.sender.send(Command::FileService(command)).await.expect("Command should not have been dropped!");
+        self.sender
+            .send(Command::FileService(command))
+            .await
+            .expect("Command should not have been dropped!");
     }
 
     /// file_name are broadcasted with the extensions included, but not the directory it's located in. E.g. "test.blend"
@@ -265,24 +268,18 @@ impl NetworkController {
         }
     }
 
-    pub async fn get_providers(&mut self, file_name: &str) -> HashSet<PeerId> {
+    pub async fn get_providers(&mut self, file_name: &str) -> Option<HashSet<PeerId>> {
         let (sender, receiver) = oneshot::channel();
-        let cmd = Command::FileService(FileCommand::GetProviders { file_name: file_name.to_string(), sender });
+        let cmd = Command::FileService(FileCommand::GetProviders {
+            file_name: file_name.to_string(),
+            sender,
+        });
         self.sender
             .send(cmd)
             .await
             .expect("Command receiver should not be dropped");
 
-        // receiver should no longer drop
-        match receiver.await {
-            Ok(data) => data,
-            Err(e) => {
-                println!(
-                    "Somehow this receiver was cancelled... Maybe there is no providers? {e:?}"
-                );
-                HashSet::new()
-            }
-        }
+        receiver.await.unwrap_or(None)
     }
 
     // client request file from peers.
@@ -292,10 +289,16 @@ impl NetworkController {
         file_name: &str,
         destination: T,
     ) -> Result<PathBuf, NetworkError> {
-        let providers = self.get_providers(&file_name).await;
+        let providers = self
+            .get_providers(&file_name)
+            .await
+            .ok_or(NetworkError::NoPeerProviderFound)?;
         match providers.iter().next() {
-            Some(peer_id) => self.request_file(peer_id, file_name, destination.as_ref()).await,
-            None => return Err(NetworkError::NoPeerProviderFound),
+            Some(peer_id) => {
+                self.request_file(peer_id, file_name, destination.as_ref())
+                    .await
+            }
+            None => Err(NetworkError::NoPeerProviderFound),
         }
     }
 
@@ -303,15 +306,22 @@ impl NetworkController {
         &mut self,
         peer_id: &PeerId,
         file_name: &str,
-        destination: &Path
+        destination: &Path,
     ) -> Result<PathBuf, NetworkError> {
         let (sender, receiver) = oneshot::channel();
-        let cmd = Command::FileService(FileCommand::RequestFile { peer_id: *peer_id, file_name: file_name.into(), sender });
+        let cmd = Command::FileService(FileCommand::RequestFile {
+            peer_id: *peer_id,
+            file_name: file_name.into(),
+            sender,
+        });
         self.sender
             .send(cmd)
             .await
             .expect("Command should not be dropped");
-        let content = receiver.await.expect("Should not be closed?").or_else(|e| Err(NetworkError::UnableToSave(e.to_string())))?;
+        let content = receiver
+            .await
+            .expect("Should not be closed?")
+            .or_else(|e| Err(NetworkError::UnableToSave(e.to_string())))?;
 
         let file_path = destination.join(file_name);
         // TODO: See if we can re-write this better? Should be able to map this?
@@ -350,7 +360,7 @@ pub struct NetworkService {
     machine: Machine,
 
     providing_files: HashMap<String, PathBuf>,
-    pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
+    pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<Option<HashSet<PeerId>>>>,
     pending_request_file:
         HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
 }
@@ -379,13 +389,12 @@ impl NetworkService {
 
     // here we will deviate handling the file service command.
     async fn process_file_service(&mut self, cmd: FileCommand) {
-        match cmd { 
+        match cmd {
             FileCommand::RequestFile {
                 peer_id,
                 file_name,
-                sender
+                sender,
             } => {
-
                 let request_id = self
                     .swarm
                     .behaviour_mut()
@@ -406,7 +415,7 @@ impl NetworkService {
                     eprintln!("Error received on sending response! {e:?}");
                 }
             }
-            FileCommand::GetProviders { file_name, sender} => {
+            FileCommand::GetProviders { file_name, sender } => {
                 let key = file_name.into_bytes().into();
                 let query_id = self.swarm.behaviour_mut().kad.get_providers(key);
                 self.pending_get_providers.insert(query_id, sender);
@@ -420,15 +429,18 @@ impl NetworkService {
                     .kad
                     .start_providing(key)
                     .expect("No store error.");
-                self.providing_files.insert(keyword, file_path);    
+                self.providing_files.insert(keyword, file_path);
             }
             FileCommand::StopProviding(keyword) => {
-                let key = RecordKey::new(&keyword.as_bytes());  
+                let key = RecordKey::new(&keyword.as_bytes());
                 self.swarm.behaviour_mut().kad.stop_providing(&key);
                 self.providing_files.remove(&keyword);
             }
             FileCommand::RequestFilePath { keyword, sender } => {
-                let result = self.providing_files.get(&keyword).and_then(|f| Some(f.to_owned()));
+                let result = self
+                    .providing_files
+                    .get(&keyword)
+                    .and_then(|f| Some(f.to_owned()));
                 println!("{keyword:?} | {result:?}");
                 sender.send(result).expect("Receiver should not be dropped");
             }
@@ -440,9 +452,13 @@ impl NetworkService {
     pub async fn process_command(&mut self, cmd: Command) {
         match cmd {
             Command::Status(msg) => {
-                
                 let topic = IdentTopic::new(STATUS);
-                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, msg.into_bytes()) {
+                if let Err(e) = self
+                    .swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .publish(topic, msg.into_bytes())
+                {
                     eprintln!("Fail to send status over network! {e:?}");
                 }
             }
@@ -495,8 +511,8 @@ impl NetworkService {
                 //     eprintln!("Fail to publish gossip message: {e:?}");
                 // }
                 let key = RecordKey::new(&NODE.to_vec());
-                let value = bincode::serialize(&status).unwrap(); 
-                let record  = Record::new(key, value);
+                let value = bincode::serialize(&status).unwrap();
+                let record = Record::new(key, value);
 
                 let quorum = Quorum::N(NonZeroUsize::new(3).unwrap());
                 if let Err(e) = self.swarm.behaviour_mut().kad.put_record(record, quorum) {
@@ -527,19 +543,21 @@ impl NetworkService {
                     request_id,
                     response,
                 } => {
-                    let _ = self.pending_request_file
-                                .remove(&request_id)
-                                .expect("Request to still be pending")
-                                .send(Ok(response.0));
+                    let _ = self
+                        .pending_request_file
+                        .remove(&request_id)
+                        .expect("Request to still be pending")
+                        .send(Ok(response.0));
                 }
             },
             libp2p_request_response::Event::OutboundFailure {
                 request_id, error, ..
             } => {
-                let _ = self.pending_request_file
-                            .remove(&request_id)
-                            .expect("Request to still be pending")
-                            .send(Err(Box::new(error)));
+                let _ = self
+                    .pending_request_file
+                    .remove(&request_id)
+                    .expect("Request to still be pending")
+                    .send(Err(Box::new(error)));
             }
             libp2p_request_response::Event::ResponseSent { .. } => {}
             _ => {}
@@ -598,10 +616,7 @@ impl NetworkService {
     // TODO: Figure out how I can use the match operator for TopicHash. I'd like to use the TopicHash static variable above.
     async fn process_gossip_event(&mut self, event: gossipsub::Event) {
         match event {
-            gossipsub::Event::Message {
-                message,
-                ..
-            } => match message.topic.as_str() {
+            gossipsub::Event::Message { message, .. } => match message.topic.as_str() {
                 JOB => {
                     self.handle_job(message).await;
                 }
@@ -633,17 +648,10 @@ impl NetworkService {
     async fn process_kademlia_event(&mut self, event: kad::Event) {
         match event {
             kad::Event::OutboundQueryProgressed {
-                // id,
                 result: kad::QueryResult::StartProviding(providers),
                 ..
             } => {
-                println!("Received OutboundQueryProgressed: {providers:?}");
-                // let sender: oneshot::Sender<()> = self
-                //     .file_service
-                //     .pending_start_providing
-                //     .remove(&id)
-                //     .expect("Completed query to be previously pending.");
-                // let _ = sender.send(());
+                println!("List of providers: {providers:?}");
             }
             kad::Event::OutboundQueryProgressed {
                 id,
@@ -657,23 +665,30 @@ impl NetworkService {
                 // So, here's where we finally receive the invocation?
                 if let Some(sender) = self.pending_get_providers.remove(&id) {
                     sender
-                        .send(providers.clone())
+                        .send(Some(providers.clone()))
                         .expect("Receiver not to be dropped");
 
                     if let Some(mut node) = self.swarm.behaviour_mut().kad.query_mut(&id) {
                         node.finish();
-                    } 
+                    }
                 }
             }
             // here is where we're getting progress results.
             kad::Event::OutboundQueryProgressed {
+                id,
                 result:
                     kad::QueryResult::GetProviders(Ok(
                         kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
                     )),
                 ..
             } => {
+                if let Some(sender) = self.pending_get_providers.remove(&id) {
+                    sender.send(None).expect("Sender not to be dropped");
+                }
 
+                if let Some(mut node) = self.swarm.behaviour_mut().kad.query_mut(&id) {
+                    node.finish();
+                }
                 // This piece of code means that there's nobody advertising this on the network?
                 // what was suppose to happen here?
                 // TODO: I am once again stopped here. This message appeared from the CLI side. Not the host.
@@ -683,10 +698,16 @@ impl NetworkService {
                 // self.sender.send(event).await;
             }
 
-            kad::Event::OutboundQueryProgressed { result: kad::QueryResult::PutRecord(Err(err)), ..} => {
+            kad::Event::OutboundQueryProgressed {
+                result: kad::QueryResult::PutRecord(Err(err)),
+                ..
+            } => {
                 eprintln!("Error putting record in! {err:?}");
             }
-            kad::Event::OutboundQueryProgressed { result: kad::QueryResult::PutRecord(Ok(value)), ..} => {
+            kad::Event::OutboundQueryProgressed {
+                result: kad::QueryResult::PutRecord(Ok(value)),
+                ..
+            } => {
                 println!("Successfully append the record! {value:?}");
             }
 
@@ -736,7 +757,7 @@ impl NetworkService {
                 //     eprintln!("Fail to send event on connection established! {e:?}");
                 // }
             }
-            // how do we fetch the 
+            // how do we fetch the
             SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
                 let peer_id_string = PeerIdString::new(&peer_id);
                 let reason = cause.and_then(|f| Some(f.to_string()));
@@ -754,7 +775,7 @@ impl NetworkService {
                 // how do I save the address?
                 // this seems problematic?
                 // if address.protocol_stack().any(|f| f.contains("tcp")) {
-                    println!("[New Listener Address]: {address}");
+                println!("[New Listener Address]: {address}");
                 // }
             }
             SwarmEvent::Dialing { .. } => {} // Suppressing logs

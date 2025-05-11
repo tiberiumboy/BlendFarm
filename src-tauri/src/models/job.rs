@@ -26,7 +26,7 @@ pub enum JobEvent {
         frame: Frame,
         file_name: String,
     },
-    JobComplete,    // what's the difference between JobComplete and TaskComplete?
+    TaskComplete, // what's the difference between JobComplete and TaskComplete?
     Error(JobError),
 }
 

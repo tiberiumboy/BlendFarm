@@ -12,7 +12,11 @@ use super::blend_farm::BlendFarm;
 use crate::{
     domains::{job_store::JobError, task_store::TaskStore},
     models::{
-        job::JobEvent, message::{self, Event, NetworkError}, network::{NetworkController, NodeEvent, ProviderRule, StatusEvent, JOB }, server_setting::ServerSetting, task::Task
+        job::JobEvent,
+        message::{self, Event, NetworkError},
+        network::{NetworkController, NodeEvent, ProviderRule, StatusEvent, JOB},
+        server_setting::ServerSetting,
+        task::Task,
     },
 };
 use blender::models::event::BlenderEvent;
@@ -218,22 +222,27 @@ impl CliApp {
             Ok(rx) => loop {
                 if let Ok(status) = rx.recv() {
                     match status {
-                        
                         BlenderEvent::Rendering { current, total } => {
-                            let percent = ( current / total ) * 100;
-                            client.send_status(format!("[ACT] Rendering {current} out of {total} - %{percent}")).await
+                            let percent = (current / total) * 100.0;
+                            client
+                                .send_status(format!(
+                                    "[ACT] Rendering {current} out of {total} - %{percent}"
+                                ))
+                                .await
                         }
 
-                        BlenderEvent::Log(status) => {
-                            client.send_status(format!("[LOG] {status}")).await
+                        BlenderEvent::Log(msg) => client.send_status(format!("[LOG] {msg}")).await,
+
+                        BlenderEvent::Warning(msg) => {
+                            client.send_status(format!("[WARN] {msg}")).await
                         }
-                
-                        BlenderEvent::Warning(message ) => {
-                            client.send_status(format!("[WARN] {message}")).await
-                        }
-                        
+
                         BlenderEvent::Error(msg) => {
-                            client.send_status(format!("[ERR] {msg:?}")).await
+                            client.send_status(format!("[ERR] {msg}")).await
+                        }
+
+                        BlenderEvent::Unhandled(msg) => {
+                            client.send_status(format!("[UNK] {msg}")).await;
                         }
 
                         BlenderEvent::Completed { frame, result } => {
@@ -251,15 +260,19 @@ impl CliApp {
                                 .send_job_message(Some(task.requestor.clone()), event)
                                 .await;
                         }
+
                         BlenderEvent::Exit => {
                             // hmm is this technically job complete?
                             // Check and see if we have any queue pending, otherwise ask hosts around for available job queue.
-                            let event = JobEvent::JobComplete;
-                            client.send_node_status(status);
-                            sender.send(CmdCommand::TaskComplete(task.into())).await;
+                            let event = JobEvent::TaskComplete;
+                            client
+                                .send_job_message(Some(task.requestor.clone()), event)
+                                .await;
+                            // sender.send(CmdCommand::TaskComplete(task.into())).await;
                             println!("Task complete, breaking loop!");
                             break;
                         }
+
                         BlenderEvent::Sample(sample) => {
                             // what is this?
                             println!("Sample: {sample} = Keyword TANGO");
@@ -292,7 +305,7 @@ impl CliApp {
 
             JobEvent::ImageCompleted { .. } => {} // ignored since we do not want to capture image?
             // For future impl. we can take advantage about how we can allieve existing job load. E.g. if I'm still rendering 50%, try to send this node the remaining parts?
-            JobEvent::JobComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
+            JobEvent::TaskComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
             // Remove all task with matching job id.
             JobEvent::Remove(job_id) => {
                 let db = self.task_store.write().await;
@@ -310,10 +323,12 @@ impl CliApp {
             // see if we can do something else beside this?
             // whose peer id is this?
             // Event::OnConnected(peer_id) => {
-                
+
             // }
             Event::JobUpdate(job_event) => self.handle_job_update(job_event).await,
-            Event::InboundRequest { request, channel } => self.handle_inbound_request(client, request, channel).await,
+            Event::InboundRequest { request, channel } => {
+                self.handle_inbound_request(client, request, channel).await
+            }
             Event::NodeStatus(event) => println!("{event:?}"),
             _ => println!("[CLI] Unhandled event from network: {event:?}"),
         }
@@ -355,7 +370,7 @@ impl BlendFarm for CliApp {
         mut event_receiver: Receiver<Event>,
     ) -> Result<(), NetworkError> {
         // TODO: Figure out why I need the JOB subscriber?
-        // Answer: In case manager removes/delete a job. All cli must stop working on task related to deleted job. Treat it as job/task cancelled. 
+        // Answer: In case manager removes/delete a job. All cli must stop working on task related to deleted job. Treat it as job/task cancelled.
         //  this will be replaced with DHT instead.
         let hostname = client.hostname.clone();
         client.subscribe_to_topic(JOB.to_string()).await;

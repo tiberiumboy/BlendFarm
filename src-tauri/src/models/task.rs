@@ -1,13 +1,13 @@
 use super::{job::CreatedJobDto, with_id::WithId};
 use crate::domains::task_store::TaskError;
-use std::path::Path;
 use blender::{
     blender::{Args, Blender},
-    models::status::Status,
+    models::event::BlenderEvent,
 };
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;
+use std::path::Path;
 use std::{
     ops::Range,
     path::PathBuf,
@@ -69,7 +69,7 @@ impl Task {
             range,
         }
     }
-    
+
     /// The behaviour of this function returns the percentage of the remaining jobs in poll.
     /// E.g. 102 (80%) of 120 remaining would return 96 end frames.
     /// TODO: Allow other node or host to fetch end frames from this task and distribute to other requesting workers.
@@ -111,8 +111,11 @@ impl Task {
         output: T,
         // reference to the blender executable path to run this task.
         blender: &Blender,
-    ) -> Result<std::sync::mpsc::Receiver<Status>, TaskError> {
-        let args = Args::new(blend_file.as_ref().to_path_buf(), output.as_ref().to_path_buf());
+    ) -> Result<std::sync::mpsc::Receiver<BlenderEvent>, TaskError> {
+        let args = Args::new(
+            blend_file.as_ref().to_path_buf(),
+            output.as_ref().to_path_buf(),
+        );
         let arc_task = Arc::new(RwLock::new(self)).clone();
 
         // TODO: How can I adjust blender jobs?

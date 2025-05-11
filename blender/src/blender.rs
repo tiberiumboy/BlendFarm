@@ -58,7 +58,7 @@ pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
 use crate::models::event::BlenderEvent;
 use crate::models::{
-    blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderRenderSetting
+    blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderRenderSetting,
 };
 
 use blend::Blend;
@@ -74,7 +74,7 @@ use std::{
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    sync::mpsc::{self,Sender, Receiver},
+    sync::mpsc::{self, Receiver, Sender},
 };
 use thiserror::Error;
 use tokio::spawn;
@@ -314,23 +314,19 @@ impl Blender {
             let manager = Manager::load();
             match manager.have_blender_partial(major, minor) {
                 Some(blend) => blend.version.clone(),
-                None => {
-                    match manager.home.get_version(major, minor) {
-                        Some(category) => {
-                            match category.fetch_latest() {
-                                Ok(link) => link.get_version().to_owned(),
-                                Err(e) => {
-                                    eprintln!("Encounter a blender category error when searching for partial version online. Are you connected to the internet? : {e:?}");
-                                    Version::new(major,minor,0)
-                                }
-                            }
-                        }
-                        None => {
-                            eprintln!("Somehow this went through all? User does not have version installed and unable to connect to internet? Version {major}.{minor}");
+                None => match manager.home.get_version(major, minor) {
+                    Some(category) => match category.fetch_latest() {
+                        Ok(link) => link.get_version().to_owned(),
+                        Err(e) => {
+                            eprintln!("Encounter a blender category error when searching for partial version online. Are you connected to the internet? : {e:?}");
                             Version::new(major, minor, 0)
-                        },
+                        }
+                    },
+                    None => {
+                        eprintln!("Somehow this went through all? User does not have version installed and unable to connect to internet? Version {major}.{minor}");
+                        Version::new(major, minor, 0)
                     }
-                }
+                },
             }
         };
 
@@ -423,7 +419,8 @@ impl Blender {
 
         // this is the only place used for BlenderRenderSetting... thoughts?
         let settings = BlenderRenderSetting::parse_from(&args, &blend_info);
-        self.setup_listening_server(settings, listener, get_next_frame).await;
+        self.setup_listening_server(settings, listener, get_next_frame)
+            .await;
 
         let (rx, tx) = mpsc::channel::<BlenderEvent>();
         let executable = self.executable.clone();
@@ -438,8 +435,12 @@ impl Blender {
         tx
     }
 
-    async fn setup_listening_server<F>(&self, settings: BlenderRenderSetting, listener: Receiver<BlenderEvent>, get_next_frame: F) 
-    where
+    async fn setup_listening_server<F>(
+        &self,
+        settings: BlenderRenderSetting,
+        listener: Receiver<BlenderEvent>,
+        get_next_frame: F,
+    ) where
         F: Fn() -> Option<i32> + Send + Sync + 'static,
     {
         let global_settings = Arc::new(settings);
@@ -449,7 +450,7 @@ impl Blender {
 
         server.register_simple("next_render_queue", move |_i: i32| match get_next_frame() {
             Some(frame) => Ok(frame),
-            
+
             // this is our only way to stop python script.
             None => Err(Fault::new(1, "No more frames to render!")),
         });
@@ -475,7 +476,12 @@ impl Blender {
         });
     }
 
-    async fn setup_listening_blender<T: AsRef<Path>>(args: Args, executable: T, rx: Sender<BlenderEvent>, signal: Sender<BlenderEvent>) {
+    async fn setup_listening_blender<T: AsRef<Path>>(
+        args: Args,
+        executable: T,
+        rx: Sender<BlenderEvent>,
+        signal: Sender<BlenderEvent>,
+    ) {
         let script_path = Blender::get_config_path().join("render.py");
         if !script_path.exists() {
             let data = include_bytes!("./render.py");
@@ -502,7 +508,7 @@ impl Blender {
             .unwrap();
 
         let reader = BufReader::new(stdout);
-        
+
         // parse stdout for human to read
         let mut frame: i32 = 0;
 
@@ -515,7 +521,12 @@ impl Blender {
 
     // TODO: This function updates a value above this scope -> See if we can just return the value instead?
     // TODO: Can we use stream instead? how can we parse data from blender into recognizable style?
-    fn handle_blender_stdio(line: String, frame: &mut i32, rx: &Sender<BlenderEvent>, signal: &Sender<BlenderEvent>) {
+    fn handle_blender_stdio(
+        line: String,
+        frame: &mut i32,
+        rx: &Sender<BlenderEvent>,
+        signal: &Sender<BlenderEvent>,
+    ) {
         match line {
             // TODO: find a more elegant way to parse the string std out and handle invocation action.
             line if line.contains("Fra:") => {
@@ -532,13 +543,13 @@ impl Blender {
                     "Rendering" => {
                         let current = slice[1].parse::<f32>().unwrap();
                         let total = slice[3].parse::<f32>().unwrap();
-                        BlenderEvent::Rendering{ current, total }
+                        BlenderEvent::Rendering { current, total }
                     }
                     "Sample" => {
                         // where is this suppose to go?
                         BlenderEvent::Sample(last.to_owned())
-                    },
-                    _ => BlenderEvent::Unhandled(format!("[Unhandle Msg]: {line:?}"))
+                    }
+                    _ => BlenderEvent::Unhandled(format!("[Unhandle Msg]: {line:?}")),
                 };
                 rx.send(msg).unwrap();
             }
@@ -547,14 +558,17 @@ impl Blender {
             line if line.contains("Saved:") => {
                 let location = line.split('\'').collect::<Vec<&str>>();
                 let result = PathBuf::from(location[1]);
-                rx.send(BlenderEvent::Completed { frame: *frame, result }).unwrap();
+                rx.send(BlenderEvent::Completed {
+                    frame: *frame,
+                    result,
+                })
+                .unwrap();
             }
 
             // Strange how this was thrown, but doesn't report back to this program?
             line if line.contains("EXCEPTION:") => {
                 signal.send(BlenderEvent::Exit).unwrap();
-                rx.send(BlenderEvent::Error(line.to_owned()))
-                    .unwrap();
+                rx.send(BlenderEvent::Error(line.to_owned())).unwrap();
             }
 
             // TODO: Warning keyword is used multiple of times. Consider removing warning apart and submit remaining content above

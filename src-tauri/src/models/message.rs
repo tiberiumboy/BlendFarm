@@ -35,10 +35,10 @@ pub type KeywordSearch = String;
 #[derive(Debug)]
 pub enum FileCommand {
     StartProviding(KeywordSearch, PathBuf), // update kademlia service to provide a new file. Must have a file name and a extension! Cannot be a directory!
-    StopProviding(KeywordSearch),   // update kademlia service to stop providing the file.
+    StopProviding(KeywordSearch),           // update kademlia service to stop providing the file.
     GetProviders {
         file_name: String,
-        sender: oneshot::Sender<HashSet<PeerId>>,
+        sender: oneshot::Sender<Option<HashSet<PeerId>>>,
     },
     RequestFile {
         peer_id: PeerId,
@@ -52,7 +52,7 @@ pub enum FileCommand {
     RequestFilePath {
         keyword: KeywordSearch,
         sender: oneshot::Sender<Option<PathBuf>>,
-    }
+    },
 }
 
 // Send commands to network.
