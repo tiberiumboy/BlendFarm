@@ -1,7 +1,8 @@
+use super::engine::Engine;
 use std::path::PathBuf;
-
 use semver::Version;
 use serde::{Deserialize, Serialize};
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -18,6 +19,6 @@ pub struct BlenderPeekResponse {
     pub selected_camera: String,
     pub scenes: Vec<String>,
     pub selected_scene: String,
-    pub engine: String,
+    pub engine: Engine,
     pub output: PathBuf,
 }

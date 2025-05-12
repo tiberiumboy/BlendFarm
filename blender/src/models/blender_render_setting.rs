@@ -1,5 +1,5 @@
 use super::{
-    args::Args, blender_peek_response::BlenderPeekResponse, device::Device, engine::Engine,
+    args::Args, blender_peek_response::BlenderPeekResponse, device::RenderKind, engine::Engine,
     format::Format,
 };
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Serialize};
@@ -29,6 +29,7 @@ impl Default for Window {
     }
 }
 
+// TODO: Remove this as this may no longer be needed
 impl Serialize for Window {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -86,7 +87,8 @@ pub struct BlenderRenderSetting {
     pub scene: String,
     pub camera: String,
     pub cores: usize,
-    pub compute_unit: i32,
+    // TODO: Replace this with proper names and usage.
+    pub render_kind: RenderKind,
     #[serde(rename = "FPS")]
     pub fps: u16, // u32 convert into string for xml-rpc. BEWARE!
     pub border: Window,
@@ -107,7 +109,7 @@ impl BlenderRenderSetting {
         output: PathBuf,
         scene: String,
         camera: String,
-        compute_unit: Device,
+        render_kind: RenderKind,
         fps: u16,
         border: Window,
         tile_width: i32,
@@ -125,7 +127,7 @@ impl BlenderRenderSetting {
             scene,
             camera,
             cores: std::thread::available_parallelism().unwrap().get(),
-            compute_unit: compute_unit as i32,
+            render_kind,
             fps,
             border,
             tile_width,
@@ -139,9 +141,11 @@ impl BlenderRenderSetting {
         }
     }
 
+    // would like to obtain information about the local computer itself instead of what user provided to us.
     pub fn parse_from(args: &Args, info: &BlenderPeekResponse) -> Self {
         let output = args.output.clone();
-        let compute_unit = args.device.clone();
+        // let render_kind = args.device.clone();
+        render_kind = info.engine;
         let border = Default::default();
         let engine = args.engine.clone();
         let format = args.format.clone();
@@ -150,7 +154,7 @@ impl BlenderRenderSetting {
             output.to_owned(),
             info.selected_scene.to_owned(),
             info.selected_camera.to_owned(),
-            compute_unit.to_owned(),
+            render_kind,
             info.fps,
             border,
             -1,

@@ -490,12 +490,12 @@ impl Blender {
         }
 
         let col = vec![
-            "--factory-startup".to_string(),
-            "-noaudio".to_owned(),
-            "-b".to_owned(),
-            args.file.to_str().unwrap().to_string(),
-            "-P".to_owned(),
-            script_path.to_str().unwrap().to_string(),
+            "--factory-startup".to_owned(),
+            "-noaudio".into(),
+            "-b".into(),
+            args.file.to_str().unwrap().into(),
+            "-P".into(),
+            script_path.to_str().unwrap().into(),
         ];
 
         // TODO: Find a way to remove unwrap()
@@ -549,11 +549,22 @@ impl Blender {
                         // where is this suppose to go?
                         BlenderEvent::Sample(last.to_owned())
                     }
-                    _ => BlenderEvent::Unhandled(format!("[Unhandle Msg]: {line:?}")),
+                    _ => BlenderEvent::Unhandled(line),
                 };
                 rx.send(msg).unwrap();
             }
 
+            line if line.contains("Time:") => {
+                rx.send(BlenderEvent::Log(line)).unwrap();
+            }
+            // Python logs get injected to stdio
+            line if line.contains("SUCCESS:") => {
+                rx.send(BlenderEvent::Log(line)).unwrap();
+            }
+            line if line.contains("Use:") => {
+                rx.send(BlenderEvent::Log(line)).unwrap();
+            }
+            
             // it would be nice if we can somehow make this as a struct or enum of types?
             line if line.contains("Saved:") => {
                 let location = line.split('\'').collect::<Vec<&str>>();
