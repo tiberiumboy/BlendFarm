@@ -58,7 +58,7 @@ pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
 use crate::models::event::BlenderEvent;
 use crate::models::{
-    blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderRenderSetting,
+    blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderConfiguration,
 };
 
 use blend::Blend;
@@ -418,7 +418,7 @@ impl Blender {
             .expect("Fail to parse blend file!"); // TODO: Need to clean this error up a bit.
 
         // this is the only place used for BlenderRenderSetting... thoughts?
-        let settings = BlenderRenderSetting::parse_from(&args, &blend_info);
+        let settings = BlenderConfiguration::parse_from(&args, &blend_info);
         self.setup_listening_server(settings, listener, get_next_frame)
             .await;
 
@@ -437,7 +437,7 @@ impl Blender {
 
     async fn setup_listening_server<F>(
         &self,
-        settings: BlenderRenderSetting,
+        settings: BlenderConfiguration,
         listener: Receiver<BlenderEvent>,
         get_next_frame: F,
     ) where
@@ -564,7 +564,7 @@ impl Blender {
             line if line.contains("Use:") => {
                 rx.send(BlenderEvent::Log(line)).unwrap();
             }
-            
+
             // it would be nice if we can somehow make this as a struct or enum of types?
             line if line.contains("Saved:") => {
                 let location = line.split('\'').collect::<Vec<&str>>();

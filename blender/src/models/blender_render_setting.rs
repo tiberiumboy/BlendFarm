@@ -1,6 +1,10 @@
 use super::{
-    args::Args, blender_peek_response::BlenderPeekResponse, device::RenderKind, engine::Engine,
+    args::{Args, HardwareMode},
+    blender_peek_response::BlenderPeekResponse,
+    device::{Processor, RenderKind},
+    engine::Engine,
     format::Format,
+    mode::RenderMode,
 };
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Serialize};
 use std::{ops::Range, path::PathBuf};
@@ -79,19 +83,55 @@ impl<'de> Deserialize<'de> for Window {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlenderScene {
+    /// What render engine to use (Optix/CUDA)
+    engine: Engine,
+    /// Render image size
+    border: Window,
+    /// Image format
+    format: Format,
+    /// Name of the scene
+    scene: String,
+    /// Camera reference name to render from
+    camera: String,
+    /// Samples capture from the scene
+    samples: i32,
+    /// Frame per second
+    fps: u16, // u32 convert into string for xml-rpc. BEWARE!
+}
+
+impl BlenderScene {
+    pub fn new(
+        scene: String,
+        camera: String,
+        engine: Engine,
+        border: Window,
+        format: Format,
+    ) -> Self {
+        Self {
+            scene,
+            camera,
+            engine,
+            border,
+            format,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct BlenderRenderSetting {
+pub struct BlenderConfiguration {
     #[serde(rename = "TaskID")]
     pub id: Uuid,
+    // output various
     pub output: PathBuf,
-    pub scene: String,
-    pub camera: String,
-    pub cores: usize,
-    // TODO: Replace this with proper names and usage.
-    pub render_kind: RenderKind,
+    pub scene_info: BlenderScene,
+    // TODO: May be phased out
+    pub cores: Option<usize>,
+    processor: Processor,
+    hardware_mode: HardwareMode,
     #[serde(rename = "FPS")]
-    pub fps: u16, // u32 convert into string for xml-rpc. BEWARE!
-    pub border: Window,
+    // TODO: May be phased out?
     pub tile_width: i32,
     pub tile_height: i32,
     pub samples: i32,
@@ -104,7 +144,7 @@ pub struct BlenderRenderSetting {
     pub crop: bool,
 }
 
-impl BlenderRenderSetting {
+impl BlenderConfiguration {
     fn new(
         output: PathBuf,
         scene: String,
@@ -141,16 +181,16 @@ impl BlenderRenderSetting {
         }
     }
 
-    // would like to obtain information about the local computer itself instead of what user provided to us.
+    /// Args are user provided value - this should not correlate to the machine's hardware (CUDA/OPTIX/GPU usage)
     pub fn parse_from(args: &Args, info: &BlenderPeekResponse) -> Self {
         let output = args.output.clone();
         // let render_kind = args.device.clone();
-        render_kind = info.engine;
+        let render_kind = info.engine;
         let border = Default::default();
         let engine = args.engine.clone();
         let format = args.format.clone();
 
-        BlenderRenderSetting::new(
+        BlenderConfiguration::new(
             output.to_owned(),
             info.selected_scene.to_owned(),
             info.selected_camera.to_owned(),
