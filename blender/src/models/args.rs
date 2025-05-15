@@ -11,36 +11,18 @@
 
     Do note that blender is open source - it's not impossible to create FFI that interfaces blender directly, but rather, there's no support to perform this kind of action.
 */
-
 // May Subject to change.
-
 use crate::models::{engine::Engine, format::Format};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+use super::device::Processor;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum HardwareMode {
     CPU,
     GPU,
-    Both,
-}
-
-impl Serialize for HardwareMode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer {
-        serializer.
-    }
-}
-
-impl ToString for HardwareMode {
-    fn to_string(&self) -> String {
-        match self {
-            HardwareMode::CPU => "CPU", 
-            HardwareMode::GPU => "GPU", 
-            HardwareMode::Both => "BOTH",
-        }.to_owned()
-    }
+    BOTH,
 }
 
 // ref: https://docs.blender.org/manual/en/latest/advanced/command_line/render.html
@@ -49,9 +31,9 @@ pub struct Args {
     pub file: PathBuf,          // required
     pub output: PathBuf,        // optional
     pub engine: Engine,         // optional
-    pub mode: HardwareMode,             // optional
+    pub processor: Processor,
+    pub mode: HardwareMode,     // optional
     pub format: Format,         // optional - default to Png
-    pub use_continuation: bool, // optional - default to false
 }
 
 impl Args {
@@ -59,10 +41,10 @@ impl Args {
         Args {
             file: file,
             output: output,
+            processor: Processor::default(),
             mode: HardwareMode::CPU,
             engine: Engine::default(),
             format: Format::default(),
-            use_continuation: false,
         }
     }
 }

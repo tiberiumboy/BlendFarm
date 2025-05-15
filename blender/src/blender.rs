@@ -56,9 +56,14 @@ TODO:
 extern crate xml_rpc;
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
+use crate::models::blender_scene::{BlenderScene, Camera, Sample, SceneName};
+use crate::models::engine::Engine;
 use crate::models::event::BlenderEvent;
+use crate::models::format::Format;
+use crate::models::render_setting::{FrameRate, RenderSetting};
+use crate::models::window::Window;
 use crate::models::{
-    blender_peek_response::BlenderPeekResponse, blender_render_setting::BlenderConfiguration,
+    peek_response::PeekResponse, config::BlenderConfiguration,
 };
 
 use blend::Blend;
@@ -296,7 +301,7 @@ impl Blender {
     }
 
     /// Peek is a function design to read and fetch information about the blender file.
-    pub async fn peek(blend_file: &PathBuf) -> Result<BlenderPeekResponse, BlenderError> {
+    pub async fn peek(blend_file: &PathBuf) -> Result<PeekResponse, BlenderError> {
         let blend = Blend::from_path(&blend_file)
             .map_err(|_| BlenderError::InvalidFile("Received BlenderParseError".to_owned()))?;
 
@@ -330,26 +335,30 @@ impl Blender {
             }
         };
 
-        let mut scenes: Vec<String> = Vec::new();
-        let mut cameras: Vec<String> = Vec::new();
+        let mut scenes: Vec<SceneName> = Vec::new();
+        let mut cameras: Vec<Camera> = Vec::new();
 
-        let mut frame_start: i32 = 0;
-        let mut frame_end: i32 = 0;
+        let mut frame_start: Frame = 0;
+        let mut frame_end: Frame = 0;
         let mut render_width: i32 = 0;
         let mut render_height: i32 = 0;
-        let mut fps: u16 = 0;
-        let mut samples: i32 = 0;
+        let mut fps: FrameRate = 0;
+        let mut sample: Sample = 0;
         let mut output: PathBuf = PathBuf::new();
-        let mut engine = String::from("");
+        let mut engine: Engine = Engine::default();
 
         // this denotes how many scene objects there are.
         for obj in blend.instances_with_code(*b"SC") {
             let scene = obj.get("id").get_string("name").replace("SC", ""); // not the correct name usage?
-                                                                            // get render data
-            let render = &obj.get("r");
+            let render = &obj.get("r"); // get render data
 
-            engine = render.get_string("engine"); // will show BLENDER_EEVEE_NEXT properly
-            samples = obj.get("eevee").get_i32("taa_render_samples");
+            // will show BLENDER_EEVEE_NEXT properly
+            engine = match render.get_string("engine") {
+                x if x.contains("EEVEE") => Engine::BLENDER_EEVEE,
+                _ => Engine::CYCLES
+            };
+
+            sample = obj.get("eevee").get_i32("taa_render_samples");
 
             // Issue, Cannot find cycles info! Blender show that it should be here under SCscene, just like eevee, but I'm looking it over and over and it's not there? Where is cycle?
             // Use this for development only!
@@ -377,22 +386,9 @@ impl Blender {
         let selected_camera = cameras.get(0).unwrap_or(&"".to_owned()).to_owned();
         let selected_scene = scenes.get(0).unwrap_or(&"".to_owned()).to_owned();
 
-        // parse i32 into u16
-        let result = BlenderPeekResponse {
-            last_version: blend_version,
-            render_width,
-            render_height,
-            frame_start,
-            frame_end,
-            fps,
-            samples,
-            cameras,
-            selected_camera,
-            scenes,
-            selected_scene,
-            engine,
-            output,
-        };
+        let render_setting = RenderSetting::new(output, render_width, render_height, sample, fps, engine, Format::default());
+        let current = BlenderScene::new(selected_scene, selected_camera, Window::default(), render_setting);
+        let result = PeekResponse::new(blend_version, frame_start, frame_end, cameras, scenes, current);
 
         Ok(result)
     }
@@ -425,13 +421,10 @@ impl Blender {
         let (rx, tx) = mpsc::channel::<BlenderEvent>();
         let executable = self.executable.clone();
 
-        println!("About to spawn!");
         spawn(async move {
             Blender::setup_listening_blender(args, executable, rx, signal).await;
         });
 
-        // maybe here's the culprit? Spawn is awaited?
-        println!("Finish spawning! returning receiver!");
         tx
     }
 

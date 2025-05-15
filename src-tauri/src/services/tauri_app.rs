@@ -21,7 +21,7 @@ use crate::{
     routes::{job::*, remote_render::*, settings::*, util::*, worker::*},
 };
 use futures::{channel::mpsc, StreamExt};
-use blender::{manager::Manager as BlenderManager,models::mode::Mode};
+use blender::{manager::Manager as BlenderManager,models::mode::RenderMode};
 use libp2p::PeerId;
 use maud::html;
 use sqlx::{Pool, Sqlite};
@@ -202,8 +202,8 @@ impl TauriApp {
     fn generate_tasks(job: &CreatedJobDto, file_name: PathBuf, chunks: i32, hostname: &str) -> Vec<Task> {
         // mode may be removed soon, we'll see?
         let (time_start, time_end) = match &job.item.mode {
-            Mode::Animation(anim) => (anim.start, anim.end),
-            Mode::Frame(frame) => (frame.clone(), frame.clone()),
+            RenderMode::Animation(anim) => (anim.start, anim.end),
+            RenderMode::Frame(frame) => (frame.clone(), frame.clone()),
         };
 
         // What if it's in the negative? e.g. [-200, 2 ] ? would this result to -180 and what happen to the equation?

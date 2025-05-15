@@ -9,7 +9,7 @@
 use super::task::Task;
 use super::with_id::WithId;
 use crate::domains::job_store::JobError;
-use blender::models::mode::Mode;
+use blender::models::mode::RenderMode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -39,7 +39,7 @@ pub type CreatedJobDto = WithId<Job, Uuid>;
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct Job {
     /// contains the information to specify the kind of job to render (We could auto fill this from blender peek function?)
-    pub mode: Mode,
+    pub mode: RenderMode,
     /// Path to blender files
     pub project_file: PathBuf,
     // target blender version
@@ -51,7 +51,7 @@ pub struct Job {
 impl Job {
     /// Create a new job entry with provided all information intact. Used for holding database records
     pub fn new(
-        mode: Mode,
+        mode: RenderMode,
         project_file: PathBuf,
         blender_version: Version,
         output: PathBuf,
@@ -69,7 +69,7 @@ impl Job {
         project_file: PathBuf,
         output: PathBuf,
         blender_version: Version,
-        mode: Mode,
+        mode: RenderMode,
     ) -> Self {
         Self {
             mode,

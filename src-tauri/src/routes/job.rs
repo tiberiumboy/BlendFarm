@@ -1,4 +1,4 @@
-use blender::models::mode::Mode;
+use blender::models::mode::RenderMode;
 use maud::html;
 use semver::Version;
 use serde_json::json;
@@ -29,7 +29,7 @@ pub async fn create_job(
     let end = end.parse::<i32>().map_err(|e| e.to_string())?;
     // stop if the parse fail to parse.
 
-    let mode = Mode::Animation(Range { start, end });
+    let mode = RenderMode::Animation(Range { start, end });
     let job = Job::from(path, output, version, mode);
     let app_state = state.lock().await;
     let mut jobs = app_state.job_db.write().await;

@@ -1,6 +1,6 @@
 pub mod args;
-pub mod blender_peek_response;
-pub mod blender_render_setting;
+pub mod peek_response;
+pub mod render_setting;
 pub mod category;
 pub mod device;
 pub mod download_link;
@@ -9,3 +9,6 @@ pub mod format;
 pub mod home;
 pub mod mode;
 pub mod event;
+pub mod blender_scene;
+pub mod window;
+pub mod config;

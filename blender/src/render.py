@@ -13,7 +13,10 @@ isPreEeveeNext = bpy.app.version < (4, 2, 0)
 
 scn = bpy.context.scene
 
-def useDevices(kind, allowGPU, allowCPU):
+# change allowGPU/allowCPU to rely on hardwareMode (CPU|GPU|BOTH)
+
+def useDevices(kind, hardware):
+    scn.cycles.device = kind
     cyclesPref = bpy.context.preferences.addons["cycles"].preferences
     cyclesPref.compute_device_type = kind
     devices = None
@@ -38,15 +41,19 @@ def useDevices(kind, allowGPU, allowCPU):
             raise Exception("No devices found for type " + kind + ", Unsupported hardware or platform?")
     
     for d in devices:
-        d.use = (allowCPU and d.type == "CPU") or (allowGPU and d.type != "CPU")
+        d.use = (d.type == hardware or hardware == "BOTH") # or (allowGPU and d.type != "CPU")  // todo see if d.type is GPU?
+        print("d.type:", d.type, hardware, d.use)
         print(kind + " Device:", d["name"], d["use"])
 
 #Renders provided settings with id to path
-def renderWithSettings(renderSettings, frame):
+def renderWithSettings(config, frame):
     global scn
 
     # Scene parse
-    scene = renderSettings["Scene"]
+    sceneInfo = config["SceneInfo"]
+    scene = sceneInfo["scene"]
+    renderSetting = sceneInfo["render_setting"]
+
     if(scene is None):
         scene = ""
     if(scene != "" + scn.name != scene):
@@ -56,62 +63,57 @@ def renderWithSettings(renderSettings, frame):
             raise Exception("Unknown Scene :" + scene)
 
     # set render format 
-    renderFormat = renderSettings["RenderFormat"] or "PNG"
-    scn.render.image_settings.file_format = renderFormat
+    scn.render.image_settings.file_format = config["Format"] or "PNG"
         
     # Set threading
     scn.render.threads_mode = 'FIXED'
-    scn.render.threads = max(cpu_count(), int(renderSettings["Cores"]))
+    scn.render.threads = max(cpu_count(), int(config["Cores"]))
     
+    # is this still possible? not sure if we still need this?
     if (isPre3):
-        scn.render.tile_x = int(renderSettings["TileWidth"])
-        scn.render.tile_y = int(renderSettings["TileHeight"])
+        scn.render.tile_x = int(config["TileWidth"])
+        scn.render.tile_y = int(config["TileHeight"])
     
     # Set constraints
     scn.render.use_border = True
-    scn.render.use_crop_to_border = renderSettings["Crop"]
-    if not renderSettings["Crop"]:
+    scn.render.use_crop_to_border = config["Crop"]
+    if not config["Crop"]:
         scn.render.film_transparent = True
         
-    scn.render.border_min_x = float(renderSettings["Border"]["X"])
-    scn.render.border_max_x = float(renderSettings["Border"]["X2"])
-    scn.render.border_min_y = float(renderSettings["Border"]["Y"])
-    scn.render.border_max_y = float(renderSettings["Border"]["Y2"])
+    scn.render.border_min_x = float(sceneInfo["Border"]["X"])
+    scn.render.border_max_x = float(sceneInfo["Border"]["X2"])
+    scn.render.border_min_y = float(sceneInfo["Border"]["Y"])
+    scn.render.border_max_y = float(sceneInfo["Border"]["Y2"])
 
     #Set Camera
-    camera = renderSettings["Camera"]
+    camera = sceneInfo["camera"]
     if(camera != None and camera != "" and bpy.data.objects[camera]):
         scn.camera = bpy.data.objects[camera]
 
     #Set Resolution
-    scn.render.resolution_x = int(renderSettings["Width"])
-    scn.render.resolution_y = int(renderSettings["Height"])
+    scn.render.resolution_x = int(renderSetting["width"])
+    scn.render.resolution_y = int(renderSetting["height"])
     scn.render.resolution_percentage = 100
 
     #Set Samples
-    scn.cycles.samples = int(renderSettings["Samples"])
+    scn.cycles.samples = int(renderSetting["Sample"])
     scn.render.use_persistent_data = True
 
     # Set Frames Per Second
-    fps = renderSettings["FPS"]
+    fps = renderSetting["FPS"]
     if fps is not None and fps > 0:
         scn.render.fps = fps
 
-    #Render 
-    renderKind = renderSettings["RenderKind"]
-
     # This might get replaced
-    engine = int(renderSettings["Engine"])
-    
-    scn.cycles.device = renderKind["Device"]
-    useDevices(renderKind["Processor"], renderKind["UseGpu"], renderKind["UseCpu"])
+    engine = config["Engine"]
+    processor = config["Processor"]
+    hardware = config["HardwareMode"]
 
-    if(engine != 2): #Cycles/Eevee
-        scn.cycles.device = renderKind["Device"]
+    useDevices(processor, hardware)
 
-    if(engine == 1): #Eevee
+    if(engine == "BLENDER_EEVEE"): #Eevee
         # blender uses the new BLENDER_EEVEE_NEXT enum for blender4.2 and above.
-        scn.render.engine = "BLENDER_EEVEE" if isPreEeveeNext else "BLENDER_EEVEE_NEXT"
+        scn.render.engine = engine if isPreEeveeNext else "BLENDER_EEVEE_NEXT"
     else:
         scn.render.engine = "CYCLES"
     
@@ -119,8 +121,8 @@ def renderWithSettings(renderSettings, frame):
     scn.frame_set(frame)
     
     # Set Output
-    scn.render.filepath = renderSettings["Output"] + '/' + str(frame).zfill(5)
-    id = str(renderSettings["TaskID"])
+    scn.render.filepath = config["Output"] + '/' + str(frame).zfill(5)
+    id = str(config["TaskID"])
 
     # Render
     print("RENDER_START: " + id + "\n", flush=True)
@@ -130,9 +132,10 @@ def renderWithSettings(renderSettings, frame):
 
 def runBatch():
     proxy = xmlrpc.client.ServerProxy("http://localhost:8081")
-    renderSettings = None
+    config = None
     try:
-        renderSettings = proxy.fetch_info(1)
+        config = proxy.fetch_info(1)
+        print("Config:\n", config)   # testing out something here.
     except Exception as e:
         print("EXCEPTION: Fail to call fetch_info over xml_rpc: " + str(e) + "\n")
         return
@@ -141,12 +144,12 @@ def runBatch():
     while True:
         try:
             frame = proxy.next_render_queue(1)
-            renderWithSettings(renderSettings, frame)
+            renderWithSettings(config, frame)
         except Exception as e:
             print(e)
             break
 
-    print("COMPLETED\n")
+    print("COMPLETED")
 
 #Main
 try:

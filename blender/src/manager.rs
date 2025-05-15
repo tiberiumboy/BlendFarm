@@ -64,7 +64,7 @@ pub struct BlenderConfig {
 impl BlenderConfig {
     /// Remove any invalid blender path entry from BlenderConfig
     pub fn remove_invalid_blender_path(&mut self) {
-        self.blenders.retain(|x| !x.get_executable().exists());
+        self.blenders.retain(|x| x.get_executable().exists());
     }
 }
 
@@ -293,7 +293,9 @@ impl Manager {
         // in this case I need to contact Manager class or BlenderDownloadLink somewhere and fetch the latest blender information
         let mut data = self.config.blenders.clone();
         data.sort();
-        data.first().map(|v: &Blender| v.to_owned())
+        let value = data.first().map(|v| v.to_owned());
+        println!("{data:?} | {value:?}");
+        value
     }
 
     fn generate_destination(&self, category: &BlenderCategory) -> PathBuf {

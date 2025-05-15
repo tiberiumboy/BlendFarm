@@ -7,33 +7,16 @@ is because we're passing in the arguments to the python file instead of Blender 
 Once I get this part of the code working, then I'll go back and refactor python code.
 */
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 // TODO: Find a way to convert enum into String literal for json de/serialize
 pub enum Processor {
+    #[default]
     CPU,
     CUDA,
     HIP,
     OPENCL,
     ONEAPI,
     OPTIX,
-}
-
-impl Serialize for Processor {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(self.as_str())
-    }
-}
-
-impl Deserialize for Processor {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_str(visitor)
-    }
 }
 
 // TODO: Find a way to serialize/deserialize into correct values
@@ -49,6 +32,7 @@ impl Processor {
         }
     }
 
+    // TODO: How do I find this information from parsing blender file?
     fn from_str(str: &str) -> Self {
         match str {
             "CUDA" => Processor::CUDA,

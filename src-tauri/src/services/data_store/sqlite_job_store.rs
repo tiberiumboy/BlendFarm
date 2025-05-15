@@ -4,7 +4,7 @@ use crate::{
     domains::job_store::{JobError, JobStore},
     models::job::{CreatedJobDto, Job, NewJobDto},
 };
-use blender::models::mode::Mode;
+use blender::models::mode::RenderMode;
 use semver::Version;
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
@@ -65,7 +65,7 @@ impl JobStore for SqliteJobStore {
             Ok(r) => {
                 let id = Uuid::parse_str(&r.id).unwrap();
                 let data = String::from_utf8(r.mode.clone()).unwrap();
-                let mode: Mode = serde_json::from_str(&data).unwrap();
+                let mode: RenderMode = serde_json::from_str(&data).unwrap();
                 let project = PathBuf::from(r.project_file);
                 let version = Version::from_str(&r.blender_version).unwrap();
                 let output = PathBuf::from(r.output_path);
@@ -92,7 +92,7 @@ impl JobStore for SqliteJobStore {
                     // TODO: Remove unwrap()
                     let id = Uuid::parse_str(&r.id).unwrap();
                     let data = String::from_utf8(r.mode.clone()).unwrap();
-                    let mode: Mode = serde_json::from_str(&data).unwrap();
+                    let mode: RenderMode = serde_json::from_str(&data).unwrap();
                     let project = PathBuf::from(r.project_file);
                     let version = Version::from_str(&r.blender_version).unwrap();
                     let output = PathBuf::from(r.output_path);

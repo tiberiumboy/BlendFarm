@@ -119,7 +119,7 @@ pub async fn import_blend(
 
                     label { "Output destination:" };
                     div tauri-invoke="update_output_field" hx-target="this" {
-                        input type="text" class="form-input" placeholder="Output Path" name="output" value=(data.output.to_str().unwrap()) readonly={true};
+                        input type="text" class="form-input" placeholder="Output Path" name="output" value=(data.current.render_setting.get_output().to_str().unwrap()) readonly={true};
                     }
                     br;
 
