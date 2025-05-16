@@ -37,13 +37,13 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn new(file: PathBuf, output: PathBuf) -> Self {
+    pub fn new(file: PathBuf, output: PathBuf, engine: Engine) -> Self {
         Args {
             file: file,
             output: output,
-            processor: Processor::default(),
+            processor: Processor::NONE,
             mode: HardwareMode::CPU,
-            engine: Engine::default(),
+            engine,
             format: Format::default(),
         }
     }

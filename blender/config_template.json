@@ -1,0 +1,26 @@
+{'TaskID': 'ede3915e-e682-44b1-9fd6-9bc762664f77', 
+'Output': './examples/assets/', 
+'SceneInfo': {
+    'scene': 'Scene', 
+    'camera': 'Camera', 
+    'render_setting': {
+        'output': '/tmp/', 
+        'width': 1920, 
+        'height': 1080, 
+        'sample': 64, 
+        'FPS': 24, 
+        'engine': 'BLENDER_EEVEE_NEXT', 
+        'format': 'PNG'
+    }, 
+    'border': {'X': 0.0, 'X2': 1.0, 'Y': 0.0, 'Y2': 1.0}
+    }, 
+    'Cores': 24, 
+    'Processor': 'CPU', 
+    'HardwareMode': 'CPU', 
+    'TileWidth': -1, 
+    'TileHeight': -1, 
+    'Sample': 64, 
+    'Engine': 'BLENDER_EEVEE_NEXT', 
+    'Format': 'PNG', 
+    'Crop': False
+}

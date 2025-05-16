@@ -337,15 +337,14 @@ impl Blender {
 
         let mut scenes: Vec<SceneName> = Vec::new();
         let mut cameras: Vec<Camera> = Vec::new();
-
         let mut frame_start: Frame = 0;
         let mut frame_end: Frame = 0;
         let mut render_width: i32 = 0;
         let mut render_height: i32 = 0;
         let mut fps: FrameRate = 0;
         let mut sample: Sample = 0;
-        let mut output: PathBuf = PathBuf::new();
-        let mut engine: Engine = Engine::default();
+        let mut output = PathBuf::new();
+        let mut engine = Engine::CYCLES;
 
         // this denotes how many scene objects there are.
         for obj in blend.instances_with_code(*b"SC") {
@@ -354,7 +353,9 @@ impl Blender {
 
             // will show BLENDER_EEVEE_NEXT properly
             engine = match render.get_string("engine") {
+                x if x.contains("NEXT") => Engine::BLENDER_EEVEE_NEXT,
                 x if x.contains("EEVEE") => Engine::BLENDER_EEVEE,
+                x if x.contains("OPTIX") => Engine::OPTIX,
                 _ => Engine::CYCLES
             };
 
@@ -449,7 +450,7 @@ impl Blender {
         });
 
         server.register_simple("fetch_info", move |_i: i32| {
-            let setting = (*global_settings).clone();
+            let setting = serde_json::to_string(&*global_settings.clone()).unwrap();
             Ok(setting)
         });
 
@@ -573,6 +574,11 @@ impl Blender {
             line if line.contains("EXCEPTION:") => {
                 signal.send(BlenderEvent::Exit).unwrap();
                 rx.send(BlenderEvent::Error(line.to_owned())).unwrap();
+            }
+
+            line if line.contains("COMPLETED") => {
+                signal.send(BlenderEvent::Exit).unwrap();
+                rx.send(BlenderEvent::Exit).unwrap();
             }
 
             // TODO: Warning keyword is used multiple of times. Consider removing warning apart and submit remaining content above

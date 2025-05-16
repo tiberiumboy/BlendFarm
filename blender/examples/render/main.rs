@@ -1,4 +1,5 @@
 use blender::blender::Manager;
+use blender::models::engine::Engine;
 use blender::models::{args::Args, event::BlenderEvent};
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
@@ -30,7 +31,7 @@ async fn render_with_manager() {
     let output = PathBuf::from("./examples/assets/");
 
     // Create blender argument
-    let args = Args::new(blend_path, output);
+    let args = Args::new(blend_path, output, Engine::BLENDER_EEVEE_NEXT);
     let frames = Arc::new(RwLock::new(RangeInclusive::new(2, 10)));
 
     // render the frame. Completed render will return the path of the rendered frame, error indicates failure to render due to blender incompatible hardware settings or configurations. (CPU vs GPU / Metal vs OpenGL)

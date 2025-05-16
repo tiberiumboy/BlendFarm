@@ -5,6 +5,7 @@
 #Start
 import bpy # type: ignore
 import xmlrpc.client
+import json
 from multiprocessing import cpu_count
 
 isPre3 = bpy.app.version < (3,0,0)
@@ -80,10 +81,10 @@ def renderWithSettings(config, frame):
     if not config["Crop"]:
         scn.render.film_transparent = True
         
-    scn.render.border_min_x = float(sceneInfo["Border"]["X"])
-    scn.render.border_max_x = float(sceneInfo["Border"]["X2"])
-    scn.render.border_min_y = float(sceneInfo["Border"]["Y"])
-    scn.render.border_max_y = float(sceneInfo["Border"]["Y2"])
+    scn.render.border_min_x = float(sceneInfo["border"]["X"])
+    scn.render.border_max_x = float(sceneInfo["border"]["X2"])
+    scn.render.border_min_y = float(sceneInfo["border"]["Y"])
+    scn.render.border_max_y = float(sceneInfo["border"]["Y2"])
 
     #Set Camera
     camera = sceneInfo["camera"]
@@ -96,7 +97,7 @@ def renderWithSettings(config, frame):
     scn.render.resolution_percentage = 100
 
     #Set Samples
-    scn.cycles.samples = int(renderSetting["Sample"])
+    scn.cycles.samples = int(renderSetting["sample"])
     scn.render.use_persistent_data = True
 
     # Set Frames Per Second
@@ -106,10 +107,7 @@ def renderWithSettings(config, frame):
 
     # This might get replaced
     engine = config["Engine"]
-    processor = config["Processor"]
-    hardware = config["HardwareMode"]
-
-    useDevices(processor, hardware)
+    useDevices(config["Processor"], config["HardwareMode"])
 
     if(engine == "BLENDER_EEVEE"): #Eevee
         # blender uses the new BLENDER_EEVEE_NEXT enum for blender4.2 and above.
@@ -134,7 +132,7 @@ def runBatch():
     proxy = xmlrpc.client.ServerProxy("http://localhost:8081")
     config = None
     try:
-        config = proxy.fetch_info(1)
+        config = json.loads(proxy.fetch_info(1))
         print("Config:\n", config)   # testing out something here.
     except Exception as e:
         print("EXCEPTION: Fail to call fetch_info over xml_rpc: " + str(e) + "\n")

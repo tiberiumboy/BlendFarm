@@ -294,7 +294,6 @@ impl Manager {
         let mut data = self.config.blenders.clone();
         data.sort();
         let value = data.first().map(|v| v.to_owned());
-        println!("{data:?} | {value:?}");
         value
     }
 

@@ -2,7 +2,7 @@ use super::{job::CreatedJobDto, with_id::WithId};
 use crate::domains::task_store::TaskError;
 use blender::{
     blender::{Args, Blender},
-    models::event::BlenderEvent,
+    models::{engine::Engine, event::BlenderEvent},
 };
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -115,6 +115,7 @@ impl Task {
         let args = Args::new(
             blend_file.as_ref().to_path_buf(),
             output.as_ref().to_path_buf(),
+            Engine::CYCLES
         );
         let arc_task = Arc::new(RwLock::new(self)).clone();
 
