@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use super::{window::Window, render_setting::RenderSetting};
+use super::render_setting::RenderSetting;
 
 pub type SceneName = String;
 pub type Camera = String;
@@ -13,22 +13,18 @@ pub struct BlenderScene {
     pub camera: Camera,
     /// Render Settings
     pub render_setting: RenderSetting,
-    /// Render image size
-    pub border: Window,
 }
 
 impl BlenderScene {
     pub fn new(
         scene: SceneName,
         camera: Camera,
-        border: Window,
         render_setting: RenderSetting,
     ) -> Self {
         Self {
             scene,
             camera,
             render_setting,
-            border,
         }
     }
 }

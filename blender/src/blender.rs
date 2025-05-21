@@ -386,9 +386,8 @@ impl Blender {
 
         let selected_camera = cameras.get(0).unwrap_or(&"".to_owned()).to_owned();
         let selected_scene = scenes.get(0).unwrap_or(&"".to_owned()).to_owned();
-
-        let render_setting = RenderSetting::new(output, render_width, render_height, sample, fps, engine, Format::default());
-        let current = BlenderScene::new(selected_scene, selected_camera, Window::default(), render_setting);
+        let render_setting = RenderSetting::new(output, render_width, render_height, sample, fps, engine, Format::default(), Window::default());
+        let current = BlenderScene::new(selected_scene, selected_camera, render_setting);
         let result = PeekResponse::new(blend_version, frame_start, frame_end, cameras, scenes, current);
 
         Ok(result)
@@ -558,6 +557,9 @@ impl Blender {
             line if line.contains("Use:") => {
                 rx.send(BlenderEvent::Log(line)).unwrap();
             }
+            line if line.contains("RENDER_START:") => {
+                rx.send(BlenderEvent::Log(line)).unwrap();
+            }
 
             // it would be nice if we can somehow make this as a struct or enum of types?
             line if line.contains("Saved:") => {
@@ -592,8 +594,7 @@ impl Blender {
             }
 
             line if line.contains("Blender quit") => {
-                signal.send(BlenderEvent::Exit).unwrap();
-                rx.send(BlenderEvent::Exit).unwrap();
+                // ignoring this...
             }
 
             // any unhandle handler is submitted raw in console output here.
