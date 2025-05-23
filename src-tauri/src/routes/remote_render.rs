@@ -55,28 +55,25 @@ pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<Str
     .0)
 }
 
+/// Ask Tauri to display ui blocking dialog and return file path to blender.
+/// This function will read the file and display another dialog prompt for additional detail before continue to display the result from import_blend()
 #[command(async)]
 pub async fn create_new_job(
     state: State<'_, Mutex<AppState>>,
     app: AppHandle,
 ) -> Result<String, String> {
-    // tell tauri to open file dialog
-    // with that file path we will run import_blend function.
-    // else return nothing.
-    let result = match app
-        .dialog()
-        .file()
-        .add_filter("Blender", &["blend"])
-        .blocking_pick_file()
-    {
-        Some(file_path) => match file_path {
-            FilePath::Path(path) => import_blend(state, path).await.unwrap(),
-            FilePath::Url(uri) => import_blend(state, uri.as_str().into()).await.unwrap(),
-        },
-        None => "".to_owned(),
-    };
-
-    Ok(result)
+    let path = match app
+            .dialog()
+            .file()
+            .add_filter("Blender", &["blend"])
+            .blocking_pick_file() {
+                Some(file_path) => match file_path {
+                    FilePath::Path(path) => path,
+                    FilePath::Url(uri) => uri.as_str().into(),
+                }
+                None => return Err("No file selected".into())
+            };
+    import_blend(state, path).await
 }
 
 #[command(async)]

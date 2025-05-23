@@ -1,4 +1,6 @@
 use blender::models::mode::RenderMode;
+use futures::channel::mpsc;
+use futures::{SinkExt, StreamExt};
 use maud::html;
 use semver::Version;
 use serde_json::json;
@@ -7,10 +9,8 @@ use std::{ops::Range, str::FromStr};
 use tauri::{command, State};
 use tokio::sync::Mutex;
 use uuid::Uuid;
-
-use crate::models::job::JobEvent;
 use crate::models::{app_state::AppState, job::Job};
-
+use crate::services::tauri_app::UiCommand;
 use super::remote_render::remote_render_page;
 
 // input values are always string type. I need to validate input on backend instead of front end.
@@ -24,44 +24,33 @@ pub async fn create_job(
     path: PathBuf,
     output: PathBuf,
 ) -> Result<String, String> {
-    // first thing first, parse the string into number
     let start = start.parse::<i32>().map_err(|e| e.to_string())?;
     let end = end.parse::<i32>().map_err(|e| e.to_string())?;
     // stop if the parse fail to parse.
 
     let mode = RenderMode::Animation(Range { start, end });
-    let job = Job::from(path, output, version, mode);
-    let app_state = state.lock().await;
-    let mut jobs = app_state.job_db.write().await;
+    let job = Job::new(mode, path, version, output );
 
-    // is there a way for me to rely on using tauri_app.rs api call instead of route behaviour directly?
-    // use this to send the job over to database instead of command to network directly.
-    // We're splitting this apart to rely on database collection instead of forcing to send command over.
-    match jobs.add_job(job).await {
-        Ok(_job) => {
-            // I'm a little confused about this one...?
-            // send job to server
-            // let event = JobEvent::Render(())
-            // app_state.network_controller.send_job_message(None, event).await;
-
-            // if let Err(e) = app_state.network_controller.send_job_message(None, event).send(UiCommand::StartJob(job)).await {
-            //     eprintln!("Fail to send command to the server! \n{e:?}");
-            // }
-        }
-        Err(e) => eprintln!("{:?}", e),
-    }
-
+    let mut app_state = state.lock().await;
+    let data = UiCommand::StartJob(job);        
+    if let Err(e) = app_state.invoke.send(data).await {
+        eprintln!("Failed to send job command!{e:?}");
+    };
+    
     remote_render_page().await
 }
 
 #[command(async)]
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, ()> {
-    let server = state.lock().await;
-    let jobs = server.job_db.read().await;
-    let queue = jobs.list_all().await;
+    let (sender, mut receiver) = mpsc::channel(0); 
+    let mut server = state.lock().await;
+    let cmd = UiCommand::ListJobs(sender);
+    if let Err(e) = server.invoke.send(cmd).await {
+        eprintln!("Should not happen! {e:?}");
+    }
 
-    let content = match queue {
-        Ok(list) => {
+    let content = match receiver.select_next_some().await {
+        Some(list) => {
             html! {
                 @for job in list {
                     div {
@@ -78,8 +67,7 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, ()> 
                 };
             }
         }
-        Err(e) => {
-            eprintln!("Fail to list job collection: {e:?}");
+        None => {
             html! {
                 div {}
             }
@@ -91,15 +79,20 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, ()> 
 #[command(async)]
 pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, ()> {
     // TODO: ask for the key to fetch the job details.
+    let (sender,mut receiver) = mpsc::channel(0);
     let job_id = Uuid::from_str(job_id).map_err(|e| {
         eprintln!("Unable to parse uuid? \n{e:?}");
         ()
     })?;
-    let app_state = state.lock().await;
-    let jobs = app_state.job_db.read().await;
 
-    match jobs.get_job(&job_id).await {
-        Ok(job) => Ok(html!(
+    let mut app_state = state.lock().await;
+    let cmd = UiCommand::GetJob(job_id.into(), sender);
+    if let Err(e) = app_state.invoke.send(cmd).await {
+        eprintln!("{e:?}");
+    };
+
+    match receiver.select_next_some().await {
+        Some(job) => Ok(html!(
         div {
                 p { "Job Detail" };
                 div { ( job.item.project_file.to_str().unwrap() ) };
@@ -109,10 +102,9 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
             };
         )
         .0),
-        Err(e) => Ok(html!(
+        None => Ok(html!(
         div {
                 p { "Job do not exist.. How did you get here?" };
-                input type="hidden" value=(e.to_string());
             };
         )
         .0),
@@ -127,19 +119,12 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
 #[command(async)]
 pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, String> {
     {
-        let id = Uuid::from_str(job_id).unwrap();
-        {
-            let server = state.lock().await;
-            let mut jobs = server.job_db.write().await;
-            let _ = jobs.delete_job(&id).await;
-        }
-        {
-            let server = state.lock().await;
-            let event = JobEvent::Remove(id);
-            let mut controller = server.network_controller.write().await;
-            // instead of doing this, we should use DHT table to say this node have this job pending. delete it instead, or notify the node to delete/unsubscribe the job provider.
-            controller.send_job_message(None, event).await;
-            // for now we'll do something baout it.
+        // here we're deleting it from the database
+        let mut app_state = state.lock().await;
+        let id = Uuid::from_str(job_id).map_err(|e| format!("{e:?}"))?;
+        let cmd = UiCommand::RemoveJob(id);
+        if let Err(e) = app_state.invoke.send(cmd).await {
+            eprintln!("{e:?}");
         }
     }
 

@@ -1,28 +1,35 @@
+use futures::channel::mpsc;
+use futures::{SinkExt, StreamExt};
 use maud::html;
 use serde_json::json;
 use tauri::{command, State};
 use tokio::sync::Mutex;
 
 use crate::models::app_state::AppState;
-use crate::services::tauri_app::WORKPLACE;
+use crate::services::tauri_app::{UiCommand, WORKPLACE};
 
 #[command(async)]
 pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let server = state.lock().await;
-    let workers = server.worker_db.read().await;
-    match &workers.list_worker().await {
-        Ok(data) => {
+    let mut server = state.lock().await;
+    let (sender, mut receiver) = mpsc::channel(1);
+    let cmd = UiCommand::ListWorker(sender);
+    if let Err(e) = server.invoke.send(cmd).await {
+        eprintln!("Fail to send command to fetch workers{e:?}");
+    }
+
+    match receiver.select_next_some().await {
+        Some(data) => {
             let content = match data.len() {
                 0 => html! { div { } },
                 _ => html! {
                     @for worker in data {
                         div {
-                            table tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.machine_id.to_base58() })) hx-target=(format!("#{WORKPLACE}")) {
+                            table tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.id })) hx-target=(format!("#{WORKPLACE}")) {
                                 tbody {
                                     tr {
                                         td style="width:100%" {
-                                            div { (worker.spec.host) }
-                                            div { (worker.spec.os) " | " (worker.spec.arch) }
+                                            div { (worker.item.host) }
+                                            div { (worker.item.os) " | " (worker.item.arch) }
                                         }
                                     }
                                 }
@@ -33,8 +40,8 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
             };
             Ok(content.0)
         }
-        Err(e) => {
-            eprintln!("Received error on list workers: \n{e:?}");
+        None => {
+            eprintln!("No workers found");
             Ok(html!( div { }; ).0)
         }
     }
@@ -61,12 +68,15 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
 */
 #[command(async)]
 pub async fn get_worker(state: State<'_, Mutex<AppState>>, machine_id: &str) -> Result<String, ()> {
-    let app_state = state.lock().await;
-    let workers = app_state.worker_db.read().await;
-    match workers.get_worker(machine_id).await {
+    let mut app_state = state.lock().await;
+    let (sender,mut receiver) = mpsc::channel(0);
+    let cmd = UiCommand::GetWorker(machine_id.into(), sender);
+    app_state.invoke.send(cmd).await;
+    
+    match receiver.select_next_some().await {
         Some(worker) => Ok(html! {
             div class="content" {
-                h1 { (format!("Computer: {}", worker.spec.host)) };
+                h1 { (format!("Computer: {}", worker.item.host)) };
                 h3 { "Hardware Info:" };
                 table {
                     tr {
@@ -85,18 +95,18 @@ pub async fn get_worker(state: State<'_, Mutex<AppState>>, machine_id: &str) -> 
                     }
                     tr {
                         td {
-                            p { (worker.spec.os) }
-                            span { (worker.spec.arch) }
+                            p { (worker.item.os) }
+                            span { (worker.item.arch) }
                         }
                         td {
-                            p { (worker.spec.cpu) }
-                            span { (format!("({} cores)",worker.spec.cores)) }
+                            p { (worker.item.cpu) }
+                            span { (format!("({} cores)",worker.item.cores)) }
                         }
                         td {
-                            (format!("{}GB", worker.spec.memory / ( 1024 * 1024 * 1024 )))
+                            (format!("{}GB", worker.item.memory / ( 1024 * 1024 * 1024 )))
                         }
                         td {
-                            @if let Some(gpu) = worker.spec.gpu {
+                            @if let Some(gpu) = worker.item.gpu {
                                 label { (gpu) };
                             } @else {
                                 label { "N/A" };

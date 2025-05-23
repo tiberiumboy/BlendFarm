@@ -351,7 +351,6 @@ impl Blender {
             let scene = obj.get("id").get_string("name").replace("SC", ""); // not the correct name usage?
             let render = &obj.get("r"); // get render data
 
-            // will show BLENDER_EEVEE_NEXT properly
             engine = match render.get_string("engine") {
                 x if x.contains("NEXT") => Engine::BLENDER_EEVEE_NEXT,
                 x if x.contains("EEVEE") => Engine::BLENDER_EEVEE,
@@ -414,7 +413,7 @@ impl Blender {
             .expect("Fail to parse blend file!"); // TODO: Need to clean this error up a bit.
 
         // this is the only place used for BlenderRenderSetting... thoughts?
-        let settings = BlenderConfiguration::parse_from(&args, &blend_info);
+        let settings = BlenderConfiguration::parse_from(&args, &blend_info, &self.version);
         self.setup_listening_server(settings, listener, get_next_frame)
             .await;
 

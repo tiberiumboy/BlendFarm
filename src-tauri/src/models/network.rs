@@ -177,7 +177,7 @@ pub enum StatusEvent {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PeerIdString {
-    inner: String,
+    pub inner: String,
 }
 
 // Must be serializable to send data across network
@@ -363,6 +363,7 @@ pub struct NetworkService {
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<Option<HashSet<PeerId>>>>,
     pending_request_file:
         HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
+    
 }
 
 // network service will be used to handle and receive network signal. It will also transmit network package over lan
@@ -506,18 +507,24 @@ impl NetworkService {
             // TODO: need to figure out how this is called
             Command::NodeStatus(status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
-                // let topic = IdentTopic::new(STATUS);
-                // if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                //     eprintln!("Fail to publish gossip message: {e:?}");
-                // }
-                let key = RecordKey::new(&NODE.to_vec());
-                let value = bincode::serialize(&status).unwrap();
-                let record = Record::new(key, value);
-
-                let quorum = Quorum::N(NonZeroUsize::new(3).unwrap());
-                if let Err(e) = self.swarm.behaviour_mut().kad.put_record(record, quorum) {
-                    eprintln!("Fail to update kademlia node status! {e:?}");
+                let data = bincode::serialize(&status).unwrap();
+                let topic = IdentTopic::new(STATUS);
+                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+                    eprintln!("Fail to publish gossip message: {e:?}");
                 }
+                
+                // let key = RecordKey::new(&NODE.to_vec());
+                // let value = bincode::serialize(&status).unwrap();
+                // let record = Record::new(key, value);
+                
+                // match self.swarm.behaviour_mut().kad.put_record(record, Quorum::Majority) {
+                //     Ok(id) => {
+                //         // successful record, append to table?
+                //         self.pending_get_providers.insert(id, v)
+                //     }
+                //     Err(e) =>
+                //     eprintln!("Fail to update kademlia node status! {e:?}");
+                // }
             }
         }
     }
@@ -653,6 +660,12 @@ impl NetworkService {
             } => {
                 println!("List of providers: {providers:?}");
             }
+
+            kad::Event::OutboundQueryProgressed { id, result, stats, step } => {
+                // guess we need to maintain the query id and result.
+                // 
+            }
+
             kad::Event::OutboundQueryProgressed {
                 id,
                 result:

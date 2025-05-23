@@ -1,7 +1,11 @@
 use std::path::PathBuf;
 use super::{args::{Args, HardwareMode}, blender_scene::{BlenderScene, Sample}, device::Processor, engine::Engine, format::Format, peek_response::PeekResponse};
+use semver::Version;
 use uuid::Uuid;
 use serde::{Serialize, Deserialize};
+
+// Blender 4.2 introduce a new enum called BLENDER_EEVEE_NEXT, which is currently handle in python file atm.
+const EEVEE_SWITCH: Version = Version::new(4, 2, 0);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -53,7 +57,7 @@ impl BlenderConfiguration {
     }
 
     /// Args are user provided value - this should not correlate to the machine's hardware (CUDA/OPTIX/GPU usage)
-    pub fn parse_from(args: &Args, info: &PeekResponse) -> Self {
+    pub fn parse_from(args: &Args, info: &PeekResponse, version: &Version) -> Self {
         BlenderConfiguration::new(
             args.output.clone(),
             info.current.clone(),
@@ -62,7 +66,16 @@ impl BlenderConfiguration {
             -1,
             -1,
             info.current.render_setting.sample,
-            info.current.render_setting.engine,
+            match info.current.render_setting.engine {
+                Engine::BLENDER_EEVEE | Engine::BLENDER_EEVEE_NEXT => {
+                    if version.ge(&EEVEE_SWITCH) {
+                        Engine::BLENDER_EEVEE_NEXT
+                    } else {
+                        Engine::BLENDER_EEVEE
+                    }
+                }
+                _ => info.current.render_setting.engine
+            },
             info.current.render_setting.format,
         )
     }
