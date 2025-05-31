@@ -28,8 +28,8 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
                                 tbody {
                                     tr {
                                         td style="width:100%" {
-                                            div { (worker.item.host) }
-                                            div { (worker.item.os) " | " (worker.item.arch) }
+                                            div { (worker.spec.host) }
+                                            div { (worker.spec.os) " | " (worker.spec.arch) }
                                         }
                                     }
                                 }
@@ -71,12 +71,14 @@ pub async fn get_worker(state: State<'_, Mutex<AppState>>, machine_id: &str) -> 
     let mut app_state = state.lock().await;
     let (sender,mut receiver) = mpsc::channel(0);
     let cmd = UiCommand::GetWorker(machine_id.into(), sender);
-    app_state.invoke.send(cmd).await;
+    if let Err(e) = app_state.invoke.send(cmd).await {
+        eprintln!("{e:?}");
+    }
     
     match receiver.select_next_some().await {
         Some(worker) => Ok(html! {
             div class="content" {
-                h1 { (format!("Computer: {}", worker.item.host)) };
+                h1 { (format!("Computer: {}", &worker.spec.host)) };
                 h3 { "Hardware Info:" };
                 table {
                     tr {
@@ -95,18 +97,18 @@ pub async fn get_worker(state: State<'_, Mutex<AppState>>, machine_id: &str) -> 
                     }
                     tr {
                         td {
-                            p { (worker.item.os) }
-                            span { (worker.item.arch) }
+                            p { (worker.spec.os) }
+                            span { (worker.spec.arch) }
                         }
                         td {
-                            p { (worker.item.cpu) }
-                            span { (format!("({} cores)",worker.item.cores)) }
+                            p { (worker.spec.cpu) }
+                            span { (format!("({} cores)",worker.spec.cores)) }
                         }
                         td {
-                            (format!("{}GB", worker.item.memory / ( 1024 * 1024 * 1024 )))
+                            (format!("{}GB", worker.spec.memory / ( 1024 * 1024 * 1024 )))
                         }
                         td {
-                            @if let Some(gpu) = worker.item.gpu {
+                            @if let Some(gpu) = &worker.spec.gpu {
                                 label { (gpu) };
                             } @else {
                                 label { "N/A" };

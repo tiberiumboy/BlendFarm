@@ -1,12 +1,9 @@
-use std::{ops::Range, path::PathBuf, str::FromStr};
-
-use sqlx::{Row, SqlitePool};
-use semver::Version;
+use sqlx::{query_as, SqlitePool};
 use uuid::Uuid;
 
 use crate::{
     domains::task_store::{TaskError, TaskStore},
-    models::task::{CreatedTaskDto, NewTaskDto, Task},
+    models::task::Task,
 };
 
 pub struct SqliteTaskStore {
@@ -21,54 +18,43 @@ impl SqliteTaskStore {
 
 #[async_trait::async_trait]
 impl TaskStore for SqliteTaskStore {
-    async fn add_task(&self, task: NewTaskDto) -> Result<CreatedTaskDto, TaskError> {
-        let id = Uuid::new_v4();
-        let host = &task.requestor;
-        let job_id = &task.job_id.to_string();
-        let blend_file_name = &task.blend_file_name.to_str().unwrap().to_string();
-        let blender_version = &task.blender_version.to_string();
-        let start = &task.range.start;
-        let end = &task.range.end;
-        if let Err(e) = sqlx::query(
-            r"INSERT INTO tasks(id, requestor, job_id, blend_file_name, blender_version, start_frame, end_frame) 
-            VALUES($1, $2, $3, $4, $5, $6, $7)",
-        )
-        .bind(id.to_string())
-        .bind(host)
-        .bind(job_id)
-        .bind(blend_file_name)
-        .bind(blender_version)
-        .bind(start)
-        .bind(end)
-        .execute(&self.conn).await {
-            eprintln!("Fail to add Task to database! {e:?}");
-        }
+    async fn add_task(&self, task: Task) -> Result<(), TaskError> {
+        let  sql = r"INSERT INTO tasks(id, requestor, job_id, blend_file_name, blender_version, start, end) 
+            VALUES($1, $2, $3, $4, $5, $6, $7)";
         
-        Ok(CreatedTaskDto { id, item: task })
+        let _ = sqlx::query( sql )
+            .bind(Uuid::new_v4().to_string())
+            .bind(task.requestor)
+            .bind(task.job_id)
+            .bind(task.blend_file_name.to_str())
+            .bind(task.blender_version)
+            .bind(task.range.start)
+            .bind(task.range.end)
+            .execute(&self.conn).await.map_err(|e| TaskError::DatabaseError(e.to_string()))?;
+        
+        Ok(())
     }
 
     // TODO: Clarify definition here?
-    async fn poll_task(&self) -> Result<CreatedTaskDto, TaskError> {
+    async fn poll_task(&self) -> Result<Task, TaskError> {
         // the idea behind this is to get any pending task.
-        let result = sqlx::query(
-                r"SELECT id, requestor, job_id, blend_file_name, blender_version, start_frame, end_frame FROM tasks LIMIT 1")
-            .fetch_all(&self.conn).await.map_err(|e| TaskError::DatabaseError(e.to_string()))?;
+        let sql = r"SELECT id, requestor, job_id, blend_file_name, blender_version, start, end FROM tasks LIMIT 1";
+        let result: Task = query_as(sql)
+            .fetch_one(&self.conn)
+            .await
+            .map_err(|e| TaskError::DatabaseError(e.to_string()))?;
+        
+        Ok(result)
+    }
 
-        for(_, row) in result.iter().enumerate() {
-            let id = Uuid::from_str(&row.get::<String, &str>("id")).expect("ID cannot be null!");
-            let requestor = row.get::<String, &str>("requestor");
-            let job_id = Uuid::from_str(&row.get::<String, &str>("job_id")).expect("Job ID cannot be null!");
-            let blend_file_name = PathBuf::from_str( &row.get::<String, &str>("blend_file_name")).expect("Must have valid file name!");
-            let blender_version = Version::from_str(&row.get::<String, &str>("blender_version")).expect("Must have valid target blender version!");
-            let start_frame = row.get::<i32, &str>("start_frame");
-            let end_frame = row.get::<i32, &str>("end_frame");
-            
-            let range = Range { start: start_frame, end: end_frame };
-            let task = Task::new(requestor, job_id, blend_file_name, blender_version, range);
-            return Ok( CreatedTaskDto { id, item: task } );
-        };
+    async fn list_tasks(&self) -> Result<Option<Vec<Task>>, TaskError> {
+        let sql = r"SELECT id, requestor, job_id, blend_file_name, blender_version, start, end FROM tasks LIMIT 10";
 
-        Err(TaskError::DatabaseError("None found".to_owned()))
+        let result: Vec<Task> = sqlx::query_as(sql).fetch_all(&self.conn)
+            .await
+            .map_err(|e| TaskError::DatabaseError(e.to_string()))?;
+
+        Ok(Some(result))
     }
 
     async fn delete_task(&self, id: &Uuid) -> Result<(), TaskError> {

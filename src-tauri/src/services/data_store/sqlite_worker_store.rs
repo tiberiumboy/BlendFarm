@@ -1,6 +1,6 @@
 use sqlx::{query_as, SqlitePool};
 
-use crate::{domains::worker_store::WorkerStore, models::{computer_spec::ComputerSpec, job::CreatedJobDto, network::PeerIdString, worker::{self, Worker, WorkerError}}};
+use crate::{domains::worker_store::WorkerStore, models::{network::PeerIdString, worker::{Worker, WorkerError}}};
 
 pub struct SqliteWorkerStore {
     conn: SqlitePool,
@@ -18,24 +18,30 @@ impl WorkerStore for SqliteWorkerStore {
     async fn list_worker(&self) -> Result<Vec<Worker>, WorkerError> {
         // we'll add a limit here for now.
         let sql = r"SELECT spec, machine_id FROM workers LIMIT 255";
-        let result: Result<Vec<Worker>, sqlx::Error> = sqlx::query_as(sql)
+        let result: Vec<Worker> = sqlx::query_as(sql)
             .fetch_all(&self.conn)
             .await
-            .map_err(|e| WorkerError::Database(e.to_string()));
-        
-        result
+            .map_err(|e| WorkerError::Database(e.to_string()))?;
+
+        Ok(result)
     }
 
     // Create
     async fn add_worker(&mut self, worker: Worker) -> Result<(), WorkerError> {
         if let Err(e) = sqlx::query(
             r"
-            INSERT INTO workers (machine_id, spec)
-            VALUES($1, $2);
+            INSERT INTO workers (machine_id, host, os, arch, memory, gpu, cpu, cores)
+            VALUES($1, $2, $3, $4, $5, $6, $7, $8);
         ",
         )
         .bind(worker.id)
-        .bind(worker.item)
+        .bind(worker.spec.host)
+        .bind(worker.spec.os)
+        .bind(worker.spec.arch)
+        .bind(worker.spec.memory as i32)
+        .bind(worker.spec.gpu)
+        .bind(worker.spec.cpu)
+        .bind(worker.spec.cores as i32)
         .execute(&self.conn)
         .await
         {
@@ -53,6 +59,10 @@ impl WorkerStore for SqliteWorkerStore {
             .bind(id)
             .fetch_one(&self.conn)
             .await;
+
+        if let Err(e) = &result {
+            eprintln!("SQLx generated an error: {e:?}");
+        }
         
         result.ok()
     }
@@ -62,7 +72,7 @@ impl WorkerStore for SqliteWorkerStore {
     // Delete
     async fn delete_worker(&mut self, machine_id: &PeerIdString) -> Result<(), WorkerError> {
         let _ = sqlx::query(r"DELETE FROM workers WHERE machine_id = $1")
-            .bind(machine_id.inner)
+            .bind(machine_id)
             .execute(&self.conn)
             .await;
         Ok(())

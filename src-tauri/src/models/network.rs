@@ -12,7 +12,7 @@ use futures::{
 };
 use libp2p::gossipsub::{self, IdentTopic, Message};
 use libp2p::identity;
-use libp2p::kad::{Quorum, Record, RecordKey}; // QueryId was removed
+use libp2p::kad::RecordKey; // QueryId was removed
 use libp2p::swarm::SwarmEvent;
 use libp2p::{kad, mdns, swarm::Swarm, tcp, Multiaddr, PeerId, StreamProtocol, SwarmBuilder};
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
@@ -20,9 +20,7 @@ use machine_info::Machine;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::time::Duration;
 use std::u64;
 use tokio::{io, select};
@@ -175,10 +173,12 @@ pub enum StatusEvent {
     Signal(String),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PeerIdString {
-    pub inner: String,
-}
+pub type PeerIdString = String;
+
+// #[derive(Debug, Serialize, Deserialize, FromRow)]
+// pub struct PeerIdString {
+//     pub inner: String,
+// }
 
 // Must be serializable to send data across network
 #[derive(Debug, Serialize, Deserialize)] // Clone,
@@ -186,18 +186,6 @@ pub enum NodeEvent {
     Discovered(PeerIdString, ComputerSpec),
     Disconnected(PeerIdString, Option<String>), // reason
     Status(StatusEvent),
-}
-
-impl PeerIdString {
-    pub fn new(peer: &PeerId) -> Self {
-        Self {
-            inner: peer.to_base58(),
-        }
-    }
-
-    pub fn to_peer_id(self) -> PeerId {
-        PeerId::from_str(&self.inner).expect("Should not fail?")
-    }
 }
 
 impl NetworkController {
@@ -649,86 +637,69 @@ impl NetworkService {
             _ => {}
         }
     }
+    
+    // async fn process_outbound_query(&mut )
 
     // Handle kademila events (Used for file sharing)
     // can we use this same DHT to make node spec publicly available?
     async fn process_kademlia_event(&mut self, event: kad::Event) {
         match event {
             kad::Event::OutboundQueryProgressed {
-                result: kad::QueryResult::StartProviding(providers),
+                id,
+                result,
                 ..
             } => {
-                println!("List of providers: {providers:?}");
-            }
-
-            kad::Event::OutboundQueryProgressed { id, result, stats, step } => {
-                // guess we need to maintain the query id and result.
-                // 
-            }
-
-            kad::Event::OutboundQueryProgressed {
-                id,
-                result:
+                match result {
+                    kad::QueryResult::StartProviding(providers) => {
+                        println!("List of providers: {providers:?}");
+                    }
                     kad::QueryResult::GetProviders(Ok(kad::GetProvidersOk::FoundProviders {
                         providers,
                         ..
-                    })),
-                ..
-            } => {
-                // So, here's where we finally receive the invocation?
-                if let Some(sender) = self.pending_get_providers.remove(&id) {
-                    sender
-                        .send(Some(providers.clone()))
-                        .expect("Receiver not to be dropped");
+                    })) => {
+                        
+                        // So, here's where we finally receive the invocation?
+                        if let Some(sender) = self.pending_get_providers.remove(&id) {
+                            sender
+                                .send(Some(providers.clone()))
+                                .expect("Receiver not to be dropped");
+
+                            if let Some(mut node) = self.swarm.behaviour_mut().kad.query_mut(&id) {
+                                node.finish();
+                            }
+                        }
+                    }
+                    kad::QueryResult::GetProviders(Ok(
+                        kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
+                    )) => {
+                        if let Some(sender) = self.pending_get_providers.remove(&id) {
+                        sender.send(None).expect("Sender not to be dropped");
+                    }
 
                     if let Some(mut node) = self.swarm.behaviour_mut().kad.query_mut(&id) {
                         node.finish();
                     }
+                    // This piece of code means that there's nobody advertising this on the network?
+                    // what was suppose to happen here?
+                    // TODO: I am once again stopped here. This message appeared from the CLI side. Not the host.
+
+                    // let outbound_request_id = id;
+                    // let event = Event::PendingRequestFiled(outbound_request_id, None);
+                    // self.sender.send(event).await;
+                    }
+                    kad::QueryResult::PutRecord(result) => {
+                        match result {
+                            Ok(value) => println!("Successfully append the record! {value:?}"),
+                            Err(e) => eprintln!("Error putting record in! {e:?}"),
+
+                        }
+                    }
+                    // suppressed
+                    _=> {}
                 }
-            }
-            // here is where we're getting progress results.
-            kad::Event::OutboundQueryProgressed {
-                id,
-                result:
-                    kad::QueryResult::GetProviders(Ok(
-                        kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
-                    )),
-                ..
-            } => {
-                if let Some(sender) = self.pending_get_providers.remove(&id) {
-                    sender.send(None).expect("Sender not to be dropped");
-                }
 
-                if let Some(mut node) = self.swarm.behaviour_mut().kad.query_mut(&id) {
-                    node.finish();
-                }
-                // This piece of code means that there's nobody advertising this on the network?
-                // what was suppose to happen here?
-                // TODO: I am once again stopped here. This message appeared from the CLI side. Not the host.
-
-                // let outbound_request_id = id;
-                // let event = Event::PendingRequestFiled(outbound_request_id, None);
-                // self.sender.send(event).await;
             }
 
-            kad::Event::OutboundQueryProgressed {
-                result: kad::QueryResult::PutRecord(Err(err)),
-                ..
-            } => {
-                eprintln!("Error putting record in! {err:?}");
-            }
-            kad::Event::OutboundQueryProgressed {
-                result: kad::QueryResult::PutRecord(Ok(value)),
-                ..
-            } => {
-                println!("Successfully append the record! {value:?}");
-            }
-
-            // suppressed
-            kad::Event::OutboundQueryProgressed {
-                result: kad::QueryResult::Bootstrap(..),
-                ..
-            } => {}
             // suppressed
             kad::Event::InboundRequest { .. } => {}
             // suppressed
@@ -772,7 +743,7 @@ impl NetworkService {
             }
             // how do we fetch the
             SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
-                let peer_id_string = PeerIdString::new(&peer_id);
+                let peer_id_string = peer_id.to_base58();
                 let reason = cause.and_then(|f| Some(f.to_string()));
                 let event = Event::NodeStatus(NodeEvent::Disconnected(peer_id_string, reason));
                 if let Err(e) = self.sender.send(event).await {

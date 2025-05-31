@@ -1,10 +1,32 @@
-use super::{computer_spec::ComputerSpec, network::PeerIdString, with_id::WithId};
+use std::str::FromStr;
+use super::{computer_spec::ComputerSpec, network::PeerIdString};
+use libp2p::PeerId;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub type Worker = WithId<ComputerSpec, PeerIdString>;
+#[derive(sqlx::FromRow, sqlx::Decode, Serialize, Deserialize, Debug)]
+pub struct Worker {
+    pub id: PeerIdString,
+    #[sqlx(JSON)]
+    pub spec: ComputerSpec,
+}
 
 #[derive(Debug, Error)]
 pub enum WorkerError {
     #[error("Received error from database: {0}")]
     Database(String),
+}
+
+impl Worker {
+    pub fn new(id: PeerIdString, spec: ComputerSpec) -> Self {
+        Self {
+            id,
+            spec
+        }
+    }
+
+    // not in use?
+    pub fn peer_id(self) -> PeerId {
+        PeerId::from_str(&self.id).expect("Should not fail?")
+    }
 }

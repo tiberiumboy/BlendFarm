@@ -10,7 +10,7 @@ use crate::{
     models::{
         app_state::AppState,
         computer_spec::ComputerSpec,
-        job::{CreatedJobDto, JobEvent, NewJobDto},
+        job::{CreatedJobDto, JobEvent, JobId, NewJobDto},
         message::{Event, NetworkError},
         network::{NetworkController, NodeEvent, ProviderRule, HEARTBEAT, JOB},
         server_setting::ServerSetting,
@@ -24,14 +24,13 @@ use blender::{manager::Manager as BlenderManager, models::mode::RenderMode};
 use libp2p::PeerId;
 use maud::html;
 use sqlx::{Pool, Sqlite};
-use std::{collections::HashMap, ops::Range, sync::Arc, path::PathBuf, thread::sleep, time::Duration};
+use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr, sync::Arc, thread::sleep, time::Duration};
 use tauri::{self, command, App};
 use tokio::{
     select, spawn, sync::{
         Mutex, RwLock,
     }
 };
-use uuid::Uuid;
 
 pub const WORKPLACE: &str = "workplace";
 
@@ -39,10 +38,10 @@ pub const WORKPLACE: &str = "workplace";
 #[derive(Debug)]
 pub enum UiCommand {
     StartJob(NewJobDto),
-    StopJob(Uuid),
-    GetJob(String, Sender<Option<CreatedJobDto>>),
+    StopJob(JobId),
+    GetJob(JobId, Sender<Option<CreatedJobDto>>),
     UploadFile(PathBuf),
-    RemoveJob(Uuid),
+    RemoveJob(JobId),
     ListJobs(Sender<Option<Vec<CreatedJobDto>>>),
     ListWorker(Sender<Option<Vec<Worker>>>),
     GetWorker(String, Sender<Option<Worker>>)
@@ -243,54 +242,69 @@ impl TauriApp {
     async fn handle_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
         match cmd {
             UiCommand::StartJob(job) => {
-                                // create a new database entry
-                                let job = self.job_store.add_job(job).await.expect("Database shouldn't fail?");
-                
-                                // first make the file available on the network
-                                let file_name = job.item.project_file.file_name().unwrap().clone();// this is &OsStr
-                                let path = job.item.project_file.clone();
+                // create a new database entry
+                let job = self.job_store.add_job(job).await.expect("Database shouldn't fail?");
 
-                                // Once job is initiated, we need to be able to provide the files for network distribution.
-                                let provider = ProviderRule::Default(path);
-                                client.start_providing(&provider).await;
+                // first make the file available on the network
+                let file_name = job.item.project_file.file_name().unwrap();// this is &OsStr
+                let path = job.item.project_file.clone();
 
-                                let tasks = Self::generate_tasks(
-                                    &job,
-                                    PathBuf::from(file_name),
-                                    MAX_BLOCK_SIZE,
-                                    &client.hostname
-                                );
+                // Once job is initiated, we need to be able to provide the files for network distribution.
+                let provider = ProviderRule::Default(path);
+                client.start_providing(&provider).await;
 
-                                // so here's the culprit. We're waiting for a peer to become idle and inactive waiting for the next job
-                                for task in tasks {
-                                    // problem here - I'm getting one client to do all of the rendering jobs, not the inactive one.
-                                    // Perform a round-robin selection instead.
-                                    let host = self.get_idle_peers().await; // this means I must wait for an active peers to become available?
-                                    println!("Sending task to {:?} \nJob Id: {:?} \nRange( {} - {} )\n", &host, &task.job_id, &task.range.start, &task.range.end);
-                                    client.send_job_message(Some(host.clone()), JobEvent::Render(task)).await;
-                                }
-                            }
+                let tasks = Self::generate_tasks(
+                    &job,
+                    PathBuf::from(file_name),
+                    MAX_BLOCK_SIZE,
+                    &client.hostname
+                );
+
+                // so here's the culprit. We're waiting for a peer to become idle and inactive waiting for the next job
+                for task in tasks {
+                    // problem here - I'm getting one client to do all of the rendering jobs, not the inactive one.
+                    // Perform a round-robin selection instead.
+                    let host = self.get_idle_peers().await; // this means I must wait for an active peers to become available?
+                    println!("Sending task to {:?} \nJob Id: {:?} \nRange( {} - {} )\n", &host, &task.job_id, &task.range.start, &task.range.end);
+                    client.send_job_message(Some(host.clone()), JobEvent::Render(task)).await;
+                }
+            }
             UiCommand::UploadFile(path) => {
-                                let provider = ProviderRule::Default(path);
-                                client.start_providing(&provider).await;
-                            }
+                let provider = ProviderRule::Default(path);
+                client.start_providing(&provider).await;
+            }
             UiCommand::StopJob(id) => {
-                                println!(
-                                    "Impl how to send a stop signal to stop the job and remove the job from queue {id:?}"
-                                );
-                            }
+                println!(
+                    "Impl how to send a stop signal to stop the job and remove the job from queue {id:?}"
+                );
+            }
             UiCommand::RemoveJob(id) => {
-                                client.send_job_message(None, JobEvent::Remove(id)).await;
-                            }
-            UiCommand::ListJobs(sender) => {
-                        sender.send(self.job_store.list_all().await.ok()).await;
-                    },
-            UiCommand::ListWorker(sender) => {
-                sender.send(self.worker_store.list_worker().await.ok()).await;
+                client.send_job_message(None, JobEvent::Remove(id)).await;
+            }
+            UiCommand::ListJobs(mut sender) => {
+                let result = sender.send(self.job_store.list_all().await.ok()).await;
+                if let Err(e) = result {
+                    eprintln!("Unable to send list of jobs: {e:?}");
+                }
             },
-            UiCommand::GetWorker(id, sender) => {
-                sender.send(self.worker_store.get_worker(&id).await).await;
+            UiCommand::ListWorker(mut sender) => {
+                let result = sender.send(self.worker_store.list_worker().await.ok()).await;
+                if let Err(e) = result {
+                    eprintln!("Unable to send list of workers: {e:?}");
+                }
             },
+            UiCommand::GetWorker(id,mut sender) => {
+                let result = sender.send(self.worker_store.get_worker(&id).await).await;
+                if let Err(e) = result {
+                    eprintln!("Unable to get worker!: {e:?}");
+                }
+            },
+            UiCommand::GetJob(id, mut sender) => {
+                let result = sender.send(self.job_store.get_job(&id).await.ok()).await;
+                if let Err(e) = result {
+                    eprintln!("Unable to get a job!: {e:?}");
+                }
+            }
         }
     }
 
@@ -303,8 +317,8 @@ impl TauriApp {
         match event {
             Event::NodeStatus(node_status) => match node_status {
                 NodeEvent::Discovered(peer_id_string, spec) => {
-                    let peer_id = peer_id_string.to_peer_id();
-                    let worker = Worker::new(peer_id, spec.clone());
+                    let peer_id = PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
+                    let worker = Worker::new(peer_id_string.clone(), spec.clone());
                     if let Err(e) = self.worker_store.add_worker(worker).await {
                         eprintln!("Error adding worker to database! {e:?}");
                     }
@@ -321,13 +335,14 @@ impl TauriApp {
                     if let Some(msg) = reason {
                         eprintln!("Node disconnected with reason!\n {msg}");
                     }
-                    let peer_id = peer_id_string.to_peer_id();
-
+                    
                     // So the main issue is that there's no way to identify by the machine id?
-                    if let Err(e) = self.worker_store.delete_worker(&peer_id).await {
+                    if let Err(e) = self.worker_store.delete_worker(&peer_id_string).await {
                         eprintln!("Error deleting worker from database! {e:?}");
                     }
 
+                    let peer_id = PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
+                    
                     self.peers.remove(&peer_id);
                 },
                 NodeEvent::Status(status_event) => println!("Status Received: {status_event:?}"),

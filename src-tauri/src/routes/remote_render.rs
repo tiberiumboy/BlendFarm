@@ -15,7 +15,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FilePath;
 use tokio::sync::Mutex;
 
-// todo break commands apart, find a way to get the list of versions
+// todo break commands apart, find a way to get the list of versions without using appstate?
 async fn list_versions(app_state: &AppState) -> Vec<Version> {
     let manager = app_state.manager.read().await;
     let mut versions = Vec::new();

@@ -30,9 +30,10 @@ pub enum JobEvent {
     Error(JobError),
 }
 
+pub type JobId = Uuid;
 pub type Frame = i32;
 pub type NewJobDto = Job;
-pub type CreatedJobDto = WithId<Job, Uuid>;
+pub type CreatedJobDto = WithId<Job, JobId>;
 
 // This job is created by the manager and will be used to help determine the individual task created for the workers
 // we will derive this job into separate task for individual workers to process based on chunk size.

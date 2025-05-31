@@ -166,7 +166,8 @@ impl CliApp {
         println!("Ok we expect to have the project file available, now let's check for Blender");
 
         // am I'm introducing multiple behaviour in this single function?
-        let blender = match self.manager.have_blender(&task.blender_version) {
+        let version = task.get_version().expect("Version was malformed");
+        let blender = match self.manager.have_blender(&version) {
             Some(blend) => blend,
             None => {
                 // when I do not have task blender version installed - two things will happen here before an error is thrown
@@ -174,14 +175,13 @@ impl CliApp {
                 // Secondly, download the file online.
                 // If we reach here - it is because no other node have matching version, and unable to connect to download url (Internet connectivity most likely).
                 // TODO: It would be nice to broadcast everyone else "Hey! I'm download this version, could you wait until I'm done to distribute?"
-                let v = &task.blender_version;
                 let link_name = &self
                     .manager
                     .home
-                    .get_version(v.major, v.minor)
+                    .get_version(version.major, version.minor)
                     .expect(&format!(
                         "Invalid Blender version used. Not found anywhere! Version {:?}",
-                        &task.blender_version
+                        &version
                     ))
                     .name;
                 let destination = self.manager.get_install_path();
@@ -204,7 +204,7 @@ impl CliApp {
                         println!("No client on network is advertising target blender installation! {e:?}");
                         &self
                             .manager
-                            .fetch_blender(&task.blender_version)
+                            .fetch_blender(&version)
                             .expect("Fail to download blender")
                     }
                 }
@@ -385,15 +385,13 @@ impl BlendFarm for CliApp {
         spawn(async move {
             loop {
                 // get the first task if exist.
-                // I don't want to spam the database for pending task?
                 let db = taskdb.write().await;
-                // so why can't I get this to work?
-                if let Ok(task_dto) = db.poll_task().await {
-                    if let Err(e) = db.delete_task(&task_dto.id).await {
-                        eprintln!("Fail to delete task entry from database! {task_dto:?} \n{e:?}");
+                
+                if let Ok(task) = db.poll_task().await {
+                    if let Err(e) = db.delete_task(&task.id).await {
+                        // if the task doesn't exist
+                        eprintln!("Fail to delete task entry from database! {task:?} \n{e:?}");
                     }
-
-                    let task = task_dto.item.clone();
 
                     if let Err(e) = event.send(CmdCommand::Render(task)).await {
                         eprintln!("Fail to send render command! {e:?}");
