@@ -1,21 +1,17 @@
 use machine_info::Machine;
 use serde::{Deserialize, Serialize};
-use sqlx::prelude::{FromRow, Encode, Decode};
 use std::env::consts;
 
 pub type Hostname = String;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Encode, Decode, FromRow)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ComputerSpec {
     pub host: Hostname,
     pub os: String,
     pub arch: String,
-    #[sqlx(try_from="i64")]
     pub memory: u64,
-    #[sqlx(default)]
     pub gpu: Option<String>,
     pub cpu: String,
-    #[sqlx(try_from="i32")]
     pub cores: usize,
 }
 

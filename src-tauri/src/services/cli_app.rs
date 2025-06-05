@@ -166,8 +166,8 @@ impl CliApp {
         println!("Ok we expect to have the project file available, now let's check for Blender");
 
         // am I'm introducing multiple behaviour in this single function?
-        let version = task.get_version().expect("Version was malformed");
-        let blender = match self.manager.have_blender(&version) {
+        let version = &task.blender_version;
+        let blender = match self.manager.have_blender(version) {
             Some(blend) => blend,
             None => {
                 // when I do not have task blender version installed - two things will happen here before an error is thrown
@@ -387,15 +387,17 @@ impl BlendFarm for CliApp {
                 // get the first task if exist.
                 let db = taskdb.write().await;
                 
-                if let Ok(task) = db.poll_task().await {
-                    if let Err(e) = db.delete_task(&task.id).await {
-                        // if the task doesn't exist
-                        eprintln!("Fail to delete task entry from database! {task:?} \n{e:?}");
-                    }
-
-                    if let Err(e) = event.send(CmdCommand::Render(task)).await {
-                        eprintln!("Fail to send render command! {e:?}");
-                    }
+                if let Ok(result) = db.poll_task().await {
+                    if let Some(task) = result {
+                        if let Err(e) = db.delete_task(&task.id).await {
+                            // if the task doesn't exist
+                            eprintln!("Fail to delete task entry from database! {task:?} \n{e:?}");
+                        }
+                        
+                        if let Err(e) = event.send(CmdCommand::Render(task)).await {
+                            eprintln!("Fail to send render command! {e:?}");
+                        }
+                    } 
                 } else {
                     println!("No task found! Sleeping...");
                     if let Err(e) = event.send(CmdCommand::RequestTask).await {

@@ -36,9 +36,9 @@ use dotenvy::dotenv;
 use models::network;
 use services::data_store::sqlite_task_store::SqliteTaskStore;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
-use sqlx::sqlite::SqlitePoolOptions;
-use sqlx::SqlitePool;
+use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use tokio::spawn;
+use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -69,18 +69,21 @@ async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> {
     // create file if it doesn't exist (.config/BlendFarm/blendfarm.db)
     // Would run into problems where if the version is out of date, the database needs to be refreshed?
     // how can I fix that?
-    if !path.exists() {
-        if let Err(e) = create_database(&path).await {
-            eprintln!("Permission issue? {e:?}");
-        }
-    }
+    // if !path.exists() {
+    //     if let Err(e) = create_database(&path).await {
+    //         eprintln!("Permission issue? {e:?}");
+    //     }
+    // }
 
+    let options = SqliteConnectOptions::new().filename(path).create_if_missing(true);
+    
     // TODO: Consider thinking about the design behind this. Should we store database connection here or somewhere else?
-    let url = format!("sqlite://{}", path.as_os_str().to_str().unwrap());
+    // let url = format!("sqlite://{}", path.as_os_str().to_str().unwrap());
     // macos: "sqlite:///Users/megamind/Library/Application Support/BlendFarm/blendfarm.db"
-    let pool = SqlitePoolOptions::new().connect(&url).await?;
-    sqlx::migrate!().run(&pool).await?;
-    Ok(pool)
+    // let pool = SqlitePoolOptions::new().connect(&url).await?;
+    SqlitePool::connect_with(options).await
+    // sqlx::migrate!().run(&pool).await?;
+    // Ok(pool)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

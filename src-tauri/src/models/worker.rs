@@ -2,12 +2,13 @@ use std::str::FromStr;
 use super::{computer_spec::ComputerSpec, network::PeerIdString};
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 use thiserror::Error;
 
-#[derive(sqlx::FromRow, sqlx::Decode, Serialize, Deserialize, Debug)]
+#[derive(FromRow, Serialize, Deserialize, Debug)]
 pub struct Worker {
     pub id: PeerIdString,
-    #[sqlx(JSON)]
+    #[sqlx(json)]
     pub spec: ComputerSpec,
 }
 

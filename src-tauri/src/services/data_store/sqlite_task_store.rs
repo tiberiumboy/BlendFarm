@@ -1,5 +1,4 @@
-use sqlx::{query_as, SqlitePool};
-use uuid::Uuid;
+use sqlx::{types::Uuid, SqlitePool};
 
 use crate::{
     domains::task_store::{TaskError, TaskStore},
@@ -27,7 +26,7 @@ impl TaskStore for SqliteTaskStore {
             .bind(task.requestor)
             .bind(task.job_id)
             .bind(task.blend_file_name.to_str())
-            .bind(task.blender_version)
+            .bind(task.blender_version.to_string())
             .bind(task.range.start)
             .bind(task.range.end)
             .execute(&self.conn).await.map_err(|e| TaskError::DatabaseError(e.to_string()))?;
@@ -35,12 +34,18 @@ impl TaskStore for SqliteTaskStore {
         Ok(())
     }
 
-    // TODO: Clarify definition here?
-    async fn poll_task(&self) -> Result<Task, TaskError> {
+    // Poll next available task if there any.
+    async fn poll_task(&self) -> Result<Option<Task>, TaskError> {
         // the idea behind this is to get any pending task.
-        let sql = r"SELECT id, requestor, job_id, blend_file_name, blender_version, start, end FROM tasks LIMIT 1";
-        let result: Task = query_as(sql)
-            .fetch_one(&self.conn)
+        let query = sqlx::query_as!(Task, 
+            r"
+            SELECT id, requestor, job_id, blend_file_name, blender_version, start, end
+            FROM tasks 
+            LIMIT 1
+        ");
+        
+        let result = query
+            .fetch_optional(&self.conn)
             .await
             .map_err(|e| TaskError::DatabaseError(e.to_string()))?;
         
@@ -48,9 +53,11 @@ impl TaskStore for SqliteTaskStore {
     }
 
     async fn list_tasks(&self) -> Result<Option<Vec<Task>>, TaskError> {
-        let sql = r"SELECT id, requestor, job_id, blend_file_name, blender_version, start, end FROM tasks LIMIT 10";
-
-        let result: Vec<Task> = sqlx::query_as(sql).fetch_all(&self.conn)
+        let result: Vec<Task> = sqlx::query_as!(Task, 
+            r"
+            SELECT id, requestor, job_id, blend_file_name, blender_version, start, end
+            FROM tasks LIMIT 10
+        ").fetch_all(&self.conn)
             .await
             .map_err(|e| TaskError::DatabaseError(e.to_string()))?;
 

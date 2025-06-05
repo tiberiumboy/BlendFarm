@@ -18,7 +18,7 @@ pub trait TaskStore {
     // append new task to queue
     async fn add_task(&self, task: Task) -> Result<(), TaskError>;
     // Poll task will pop task entry from database
-    async fn poll_task(&self) -> Result<Task, TaskError>;
+    async fn poll_task(&self) -> Result<Option<Task>, TaskError>;
     // List pending task
     async fn list_tasks(&self) -> Result<Option<Vec<Task>>, TaskError>;
     // delete task by id
