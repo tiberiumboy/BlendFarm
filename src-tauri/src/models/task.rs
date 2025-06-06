@@ -6,12 +6,11 @@ use blender::{
 };
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use sqlx::{types::Uuid, FromRow, Row};
 use std::{
-    ops::Range, path::PathBuf, str::FromStr, sync::{Arc, RwLock}
+    ops::Range, path::PathBuf, sync::{Arc, RwLock}
 };
 use std::path::Path;
-
+use uuid::Uuid;
 /*
     Task is used to send Worker individual task to work on
     this can be customize to determine what and how many frames to render.
@@ -36,29 +35,6 @@ pub struct Task {
 
     /// Render range frame to perform the task
     pub range: Range<i32>,
-}
-
-impl<R: Row> FromRow<'_, R> for Task {
-    fn from_row(row: &R) -> Result<Self, sqlx::Error> {
-        let id = uuid::Uuid::from_str(row.try_get("id")?).expect("id was mutated");
-        let requestor: String = row.try_get("requestor")?;
-        let job_id = Uuid::from_str(row.try_get("job_id")?).expect("job_id was mutated");
-        let blender_version = Version::from_str(row.try_get("blender_version")?)?;
-        let blend_file_name = PathBuf::from_str(row.try_get("blend_file_name")?)?;
-        let start:i32 = row.try_get("start")?;
-        let end:i32 = row.try_get("end")?;
-        let range = Range { start, end };
-        Ok(
-            Self {
-                id,
-                requestor,
-                job_id,
-                blender_version,
-                blend_file_name,
-                range
-            }
-        )
-    }
 }
 
 // To better understand Task, this is something that will be save to the database and maintain a record copy for data recovery

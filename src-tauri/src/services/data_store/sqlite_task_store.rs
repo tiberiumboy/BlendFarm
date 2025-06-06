@@ -1,5 +1,6 @@
-use sqlx::{types::Uuid, SqlitePool};
-
+use sqlx::{types::Uuid, SqlitePool, FromRow};
+use std::{ops::Range, path::PathBuf, str::FromStr};
+use semver::Version;
 use crate::{
     domains::task_store::{TaskError, TaskStore},
     models::task::Task,
@@ -12,6 +13,31 @@ pub struct SqliteTaskStore {
 impl SqliteTaskStore {
     pub fn new(conn: SqlitePool) -> Self {
         Self { conn }
+    }
+}
+
+
+#[derive(Debug, Clone, FromRow)]
+struct TaskDAO {
+    id: String,
+    requestor: String,
+    job_id: String,
+    blender_version: String,
+    blend_file_name: String,
+    start: i64,
+    end: i64
+}
+
+impl TaskDAO {    
+    fn dto_to_task(self) -> Task {
+        Task {
+            id: Uuid::from_str(&self.id).expect("id was mutated"),
+            requestor: self.requestor,
+            job_id: Uuid::from_str(&self.job_id).expect("job_id was mutated"),
+            blender_version: Version::from_str(&self.blender_version).expect("version was mutated"),
+            blend_file_name: PathBuf::from_str(&self.blend_file_name).expect("file name was mutated"),
+            range: Range { start: self.start as i32, end: self.end as i32 }
+        }        
     }
 }
 
@@ -37,8 +63,8 @@ impl TaskStore for SqliteTaskStore {
     // Poll next available task if there any.
     async fn poll_task(&self) -> Result<Option<Task>, TaskError> {
         // the idea behind this is to get any pending task.
-        let query = sqlx::query_as!(Task, 
-            r"
+        let query = sqlx::query_as!(TaskDAO, 
+        r"
             SELECT id, requestor, job_id, blend_file_name, blender_version, start, end
             FROM tasks 
             LIMIT 1
@@ -49,19 +75,25 @@ impl TaskStore for SqliteTaskStore {
             .await
             .map_err(|e| TaskError::DatabaseError(e.to_string()))?;
         
-        Ok(result)
+        match result {
+            Some(data) => Ok(Some(data.dto_to_task())),
+            None => Ok(None)
+        }
     }
 
     async fn list_tasks(&self) -> Result<Option<Vec<Task>>, TaskError> {
-        let result: Vec<Task> = sqlx::query_as!(Task, 
+        let result = sqlx::query_as!(TaskDAO, 
             r"
             SELECT id, requestor, job_id, blend_file_name, blender_version, start, end
-            FROM tasks LIMIT 10
+            FROM tasks 
+            LIMIT 10
         ").fetch_all(&self.conn)
-            .await
-            .map_err(|e| TaskError::DatabaseError(e.to_string()))?;
-
-        Ok(Some(result))
+            .await;
+        
+        match result {
+            Ok(list) => Ok(Some(list.iter().map(|d| d.clone().dto_to_task()).collect())),
+            Err(e) => Err(TaskError::DatabaseError(e.to_string()))
+        }
     }
 
     async fn delete_task(&self, id: &Uuid) -> Result<(), TaskError> {
