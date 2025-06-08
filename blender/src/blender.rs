@@ -62,9 +62,7 @@ use crate::models::event::BlenderEvent;
 use crate::models::format::Format;
 use crate::models::render_setting::{FrameRate, RenderSetting};
 use crate::models::window::Window;
-use crate::models::{
-    peek_response::PeekResponse, config::BlenderConfiguration,
-};
+use crate::models::{config::BlenderConfiguration, peek_response::PeekResponse};
 
 use blend::Blend;
 #[cfg(test)]
@@ -328,7 +326,10 @@ impl Blender {
                         }
                     },
                     None => {
-                        eprintln!("Somehow this went through all? User does not have version installed and unable to connect to internet? Version {major}.{minor}");
+                        // TODO: Provide a better message to display to the client describing the problem here.
+                        eprintln!(
+                            r"Current user does not have version installed and is unable to connect to internet to fetch online version. Blender Manager cannot fetch exact version, but will insist on relying locally installed version instead."
+                        );
                         Version::new(major, minor, 0)
                     }
                 },
@@ -355,7 +356,7 @@ impl Blender {
                 x if x.contains("NEXT") => Engine::BLENDER_EEVEE_NEXT,
                 x if x.contains("EEVEE") => Engine::BLENDER_EEVEE,
                 x if x.contains("OPTIX") => Engine::OPTIX,
-                _ => Engine::CYCLES
+                _ => Engine::CYCLES,
             };
 
             sample = obj.get("eevee").get_i32("taa_render_samples");
@@ -385,9 +386,25 @@ impl Blender {
 
         let selected_camera = cameras.get(0).unwrap_or(&"".to_owned()).to_owned();
         let selected_scene = scenes.get(0).unwrap_or(&"".to_owned()).to_owned();
-        let render_setting = RenderSetting::new(output, render_width, render_height, sample, fps, engine, Format::default(), Window::default());
+        let render_setting = RenderSetting::new(
+            output,
+            render_width,
+            render_height,
+            sample,
+            fps,
+            engine,
+            Format::default(),
+            Window::default(),
+        );
         let current = BlenderScene::new(selected_scene, selected_camera, render_setting);
-        let result = PeekResponse::new(blend_version, frame_start, frame_end, cameras, scenes, current);
+        let result = PeekResponse::new(
+            blend_version,
+            frame_start,
+            frame_end,
+            cameras,
+            scenes,
+            current,
+        );
 
         Ok(result)
     }
@@ -536,10 +553,6 @@ impl Blender {
                         let current = slice[1].parse::<f32>().unwrap();
                         let total = slice[3].parse::<f32>().unwrap();
                         BlenderEvent::Rendering { current, total }
-                    }
-                    "Sample" => {
-                        // where is this suppose to go?
-                        BlenderEvent::Sample(last.to_owned())
                     }
                     _ => BlenderEvent::Unhandled(line),
                 };

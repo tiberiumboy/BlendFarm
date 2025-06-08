@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT id, requestor, job_id, blend_file_name, blender_version, start, end\n            FROM tasks \n            LIMIT 10\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "requestor",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "job_id",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "blend_file_name",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "blender_version",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "start",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "end",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e0fdbe09bd3dcb33ee56a8795a76e7bde6f28d720ffe3be29ef1bba060ec0f06"
+}

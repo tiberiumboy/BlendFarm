@@ -5,8 +5,7 @@ use std::path::PathBuf;
 pub enum BlenderEvent {
     Log(String),
     Warning(String),
-    Sample(String),
-    Rendering{ current: f32, total: f32 },
+    Rendering { current: f32, total: f32 },
     Completed { frame: i32, result: PathBuf },
     Unhandled(String),
     Exit,

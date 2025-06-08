@@ -2,11 +2,14 @@ use std::{path::PathBuf, str::FromStr};
 
 use crate::{
     domains::job_store::{JobError, JobStore},
-    models::job::{CreatedJobDto, Job, NewJobDto},
+    models::{
+        job::{CreatedJobDto, Job, NewJobDto},
+        with_id::WithId,
+    },
 };
 use blender::models::mode::RenderMode;
 use semver::Version;
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{query_as, FromRow, SqlitePool};
 use uuid::Uuid;
 
 pub struct SqliteJobStore {
@@ -19,13 +22,27 @@ impl SqliteJobStore {
     }
 }
 
-#[derive(FromRow)]
-struct JobDb {
+// this information is used to help transcribe the data into database acceptable format.
+#[derive(Debug, Clone, FromRow)]
+struct JobDAO {
     id: String,
-    mode: Vec<u8>,
+    mode: String,
     project_file: String,
     blender_version: String,
     output_path: String,
+}
+
+impl JobDAO {
+    pub fn dto_to_obj(self) -> WithId<Job, Uuid> {
+        let id = Uuid::from_str(&self.id).expect("id malformed");
+        let mode = serde_json::from_str(&self.mode).expect("mode malformed");
+        let project_file = PathBuf::from_str(&self.project_file).expect("Project path malformed");
+        let blender_version =
+            Version::from_str(&self.blender_version).expect("Blender version malformed");
+        let output = PathBuf::from_str(&self.output_path).expect("Output path malformed");
+        let item = Job::new(mode, project_file, blender_version, output);
+        WithId { id, item }
+    }
 }
 
 #[async_trait::async_trait]
@@ -57,15 +74,14 @@ impl JobStore for SqliteJobStore {
     async fn get_job(&self, job_id: &Uuid) -> Result<CreatedJobDto, JobError> {
         let sql =
             "SELECT id, mode, project_file, blender_version, output_path FROM Jobs WHERE id=$1";
-        match sqlx::query_as::<_, JobDb>(sql)
+        match sqlx::query_as::<_, JobDAO>(sql)
             .bind(job_id.to_string())
             .fetch_one(&self.conn)
             .await
         {
             Ok(r) => {
                 let id = Uuid::parse_str(&r.id).unwrap();
-                let data = String::from_utf8(r.mode.clone()).unwrap();
-                let mode: RenderMode = serde_json::from_str(&data).unwrap();
+                let mode: RenderMode = serde_json::from_str(&r.mode).unwrap();
                 let project = PathBuf::from(r.project_file);
                 let version = Version::from_str(&r.blender_version).unwrap();
                 let output = PathBuf::from(r.output_path);
@@ -83,27 +99,21 @@ impl JobStore for SqliteJobStore {
     }
 
     async fn list_all(&self) -> Result<Vec<CreatedJobDto>, JobError> {
-        let sql = r"SELECT id, mode, project_file, blender_version, output_path FROM jobs";
-        let mut collection: Vec<CreatedJobDto> = Vec::new();
-        let results = sqlx::query_as::<_, JobDb>(sql).fetch_all(&self.conn).await;
-        match results {
-            Ok(records) => {
-                for r in records {
-                    // TODO: Remove unwrap()
-                    let id = Uuid::parse_str(&r.id).unwrap();
-                    let data = String::from_utf8(r.mode.clone()).unwrap();
-                    let mode: RenderMode = serde_json::from_str(&data).unwrap();
-                    let project = PathBuf::from(r.project_file);
-                    let version = Version::from_str(&r.blender_version).unwrap();
-                    let output = PathBuf::from(r.output_path);
-                    let item = Job::new(mode, project, version, output);
-                    let entry = CreatedJobDto { id, item };
-                    collection.push(entry);
-                }
-            }
-            Err(e) => return Err(JobError::DatabaseError(e.to_string())),
+        let query = query_as!(
+            JobDAO,
+            r"
+            SELECT id, mode, project_file, blender_version, output_path
+            FROM jobs
+            LIMIT 10
+            "
+        );
+        // let query = sqlx::query_as::<_, JobDAO>(sql);
+
+        let result = query.fetch_all(&self.conn).await;
+        match result {
+            Ok(records) => Ok(records.iter().map(|r| r.clone().dto_to_obj()).collect()),
+            Err(e) => Err(JobError::DatabaseError(e.to_string())),
         }
-        Ok(collection)
     }
 
     async fn delete_job(&mut self, id: &Uuid) -> Result<(), JobError> {

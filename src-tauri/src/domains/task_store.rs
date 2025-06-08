@@ -1,4 +1,4 @@
-use crate::models::task::Task;
+use crate::models::task::{CreatedTaskDto, Task};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
@@ -16,11 +16,11 @@ pub enum TaskError {
 #[async_trait::async_trait]
 pub trait TaskStore {
     // append new task to queue
-    async fn add_task(&self, task: Task) -> Result<(), TaskError>;
+    async fn add_task(&self, task: Task) -> Result<CreatedTaskDto, TaskError>;
     // Poll task will pop task entry from database
-    async fn poll_task(&self) -> Result<Option<Task>, TaskError>;
+    async fn poll_task(&self) -> Result<Option<CreatedTaskDto>, TaskError>;
     // List pending task
-    async fn list_tasks(&self) -> Result<Option<Vec<Task>>, TaskError>;
+    async fn list_tasks(&self) -> Result<Option<Vec<CreatedTaskDto>>, TaskError>;
     // delete task by id
     async fn delete_task(&self, id: &Uuid) -> Result<(), TaskError>;
     // delete all task with matching job id

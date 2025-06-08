@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT id, mode, project_file, blender_version, output_path\n            FROM jobs\n            LIMIT 10\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "mode",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "project_file",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "blender_version",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "output_path",
+        "ordinal": 4,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3611611777965777c95e09bb733623d5b3707f0799e2a6079af98ef779599251"
+}

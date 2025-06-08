@@ -282,9 +282,22 @@ impl TauriApp {
                 client.send_job_message(None, JobEvent::Remove(id)).await;
             }
             UiCommand::ListJobs(mut sender) => {
-                let result = sender.send(self.job_store.list_all().await.ok()).await;
-                if let Err(e) = result {
-                    eprintln!("Unable to send list of jobs: {e:?}");
+                let results = self.job_store.list_all().await;
+                let result = match results {
+                    Ok(jobs) => {
+                        if jobs.is_empty() {
+                            None
+                        } else {
+                            Some(jobs)
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Unable to send list of jobs: {e:?}");
+                        None
+                    }
+                };
+                if let Err(e) = sender.send(result).await {
+                    eprintln!("Fail to send data back! {e:?}");
                 }
             },
             UiCommand::ListWorker(mut sender) => {
