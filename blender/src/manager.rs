@@ -7,13 +7,17 @@
     - Implements download and install code
 */
 use crate::blender::Blender;
-use crate::models::{category::BlenderCategory, download_link::DownloadLink, home::BlenderHome};
+use crate::models::{category::BlenderCategory, download_link::DownloadLink};
+use crate::page_cache::PageCache;
 
+use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::{fs, path::PathBuf};
 use thiserror::Error;
+use url::Url;
 
 // I would like this to be a feature only crate. blender by itself should be lightweight and interface with the program directly.
 // could also implement serde as optionals?
@@ -68,13 +72,13 @@ impl BlenderConfig {
     }
 }
 
-// I wanted to keep this struct private only to this library crate?
-#[derive(Debug)]
 pub struct Manager {
     /// Store all known installation of blender directory information
     config: BlenderConfig,
-    pub home: BlenderHome, // for now let's make this public until we can reduce couplings usage from outside scope
-    has_modified: bool,    // detect if the configuration has changed.
+    list: Vec<BlenderCategory>,
+    download_links: Vec<DownloadLink>,
+    cache: PageCache,
+    has_modified: bool, // detect if the configuration has changed.
 }
 
 impl Default for Manager {
@@ -87,15 +91,52 @@ impl Default for Manager {
             install_path,
             auto_save: true,
         };
+        let mut cache =
+            PageCache::load().expect("Page Cache should have permission to load content!");
+
+        let list = Self::fetch_categories(&mut cache).unwrap_or_else(|_| Vec::new());
+
         Self {
             config,
-            home: BlenderHome::new().expect("Unable to load blender home!"),
+            list,
+            download_links: Vec::new(),
+            cache,
             has_modified: false,
         }
     }
 }
 
 impl Manager {
+    fn fetch_categories(cache: &mut PageCache) -> Result<Vec<BlenderCategory>, Error> {
+        let parent = Url::parse("https://download.blender.org/release/").unwrap();
+        let content = cache.fetch(&parent)?;
+
+        // Omit any blender version 2.8 and below
+        let pattern =
+            r#"<a href=\"(?<url>.*)\">Blender(?<major>[3-9]|\d{2,}).(?<minor>\d*).*\/<\/a>"#;
+        let regex = Regex::new(pattern).map_err(|e| {
+            Error::new(
+                ErrorKind::InvalidData,
+                format!("Unable to create new Regex pattern! {e:?}"),
+            )
+        })?;
+
+        let mut list: Vec<BlenderCategory> = regex
+            .captures_iter(&content)
+            .map(|c| {
+                let (_, [url, major, minor]) = c.extract();
+                let url = parent.join(url).ok()?;
+                let major = major.parse().ok()?;
+                let minor = minor.parse().ok()?;
+                Some(BlenderCategory::new(url, major, minor))
+            })
+            .flatten()
+            .collect();
+
+        list.sort_by(|a, b| b.cmp(a));
+        Ok(list)
+    }
+
     fn set_config(&mut self, config: BlenderConfig) -> &mut Self {
         self.config = config;
         self
@@ -113,28 +154,26 @@ impl Manager {
         Self::get_config_dir().join("BlenderManager.json")
     }
 
-    // Download the specific version from url
-    pub fn download(&mut self, version: &Version) -> Result<Blender, ManagerError> {
+    /// Download Blender of matching version, install on this machine, and returns blender struct.
+    /// This function will update PageCache if not previously visited. Hence mutation requirement.
+    pub fn download_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
         // TODO: As a extra security measure, I would like to verify the hash of the content before extracting the files.
         let arch = std::env::consts::ARCH.to_owned();
         let os = std::env::consts::OS.to_owned();
 
-        let category = self.home.get_version(version.major, version.minor).ok_or(
-            ManagerError::DownloadNotFound {
-                arch,
-                os,
-                url: format!(
-                    "Blender version {}.{} was not found!",
-                    version.major, version.minor
-                ),
-            },
-        )?;
+        let download_link =
+            self.get_blender_link_by_version(version)
+                .ok_or(ManagerError::DownloadNotFound {
+                    arch,
+                    os,
+                    url: format!(
+                        "Blender version {}.{} was not found!",
+                        version.major, version.minor
+                    ),
+                })?;
 
-        let download_link = category
-            .retrieve(version)
-            .map_err(|e| ManagerError::FetchError(e.to_string()))?;
-
-        let destination = self.config.install_path.join(&category.name);
+        // need to fetch category name such as "Blender4.1"
+        let destination = self.config.install_path.join(&download_link.name);
 
         // got a permission denied here? Interesting?
         // I need to figure out why and how I can stop this from happening?
@@ -147,6 +186,7 @@ impl Manager {
 
         let blender = Blender::from_executable(destination)
             .map_err(|e| ManagerError::BlenderError { source: e })?;
+
         self.add_blender(blender.clone());
         self.save().unwrap();
         Ok(blender)
@@ -268,7 +308,16 @@ impl Manager {
     pub fn fetch_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
         match self.have_blender(version) {
             Some(blender) => Ok(blender.clone()),
-            None => self.download(version),
+            None => self.download_blender(version),
+        }
+    }
+
+    // TODO: Refactor this method to provide already established DownloadLinks from the manager instead.
+    // Category struct is going away and will be used to fetch download links only. Nothing more beyond that.
+    pub fn fetch_download_list(&self) -> Option<Vec<DownloadLink>> {
+        match &self.download_links.is_empty() {
+            false => Some(self.download_links.clone()),
+            true => None,
         }
     }
 
@@ -297,35 +346,52 @@ impl Manager {
         value
     }
 
-    fn generate_destination(&self, category: &BlenderCategory) -> PathBuf {
-        let destination = self.config.install_path.join(&category.name);
-
-        // got a permission denied here? Interesting?
-        // I need to figure out why and how I can stop this from happening?
-        fs::create_dir_all(&destination).unwrap();
-
-        destination
-    }
-
     // find a way to hold reference to blender home here?
     // split this function
     pub fn download_latest_version(&mut self) -> Result<Blender, ManagerError> {
         // in this case - we need to fetch the latest version from somewhere, download.blender.org will let us fetch the parent before we need to dive into
-        let list = self.home.as_ref();
-
         // TODO: Find a way to replace these unwrap()
-        let category = list.first().unwrap();
-        let destination = self.generate_destination(&category);
-        let link = category.fetch_latest().unwrap();
+        let category = &self.list.first().map_or(Err(ManagerError::RequestError("Category list is empty! Did you clear the cache? Please connect to the internet to retrieve blender download list".to_string())), |c| Ok(c))?;
+
+        // TODO how do I get around this? I moved PageCache to manager class instead of BlenderHome.
+        // This kinda open up a whole can of worms.
+        let link = category.fetch_latest(&mut self.cache).unwrap();
+        let destination = self.config.install_path.join(&link.get_parent());
+
+        // got a permission denied here? Interesting?
+        // I need to figure out why and how I can stop this from happening?
+        fs::create_dir_all(&destination).unwrap();
 
         let path = link
             .download_and_extract(&destination)
             .map_err(|e| ManagerError::IoError(e.to_string()))?;
 
         // I would expect this to always work?
-        let blender = Blender::from_executable(path).expect("Invalid Blender executable!"); //.map_err(|e| ManagerError::BlenderError { source: e })?;
+        let blender = Blender::from_executable(path).expect("Invalid Blender executable!");
         self.config.blenders.push(blender.clone());
         Ok(blender)
+    }
+
+    pub fn get_blender_link_by_version(&mut self, version: &Version) -> Option<DownloadLink> {
+        self.list
+            .iter()
+            .find(|c| c.version_match(version))
+            .map_or(None, |c| {
+                c.retrieve(version, &mut self.cache)
+                    .map_or(None, |l| Some(l))
+            })
+    }
+
+    // I may want to change this to see if I'm picking the one from locally installed or from remote
+    pub fn get_latest_version_patch(&mut self, major: u64, minor: u64) -> Option<Version> {
+        // Get the latest patch from blender home
+        self.list
+            .iter()
+            .find(|v| v.partial_version_match(major, minor))
+            .map_or(None, |c| {
+                c.fetch_latest(&mut self.cache)
+                    .map_or(None, |l| Some(l.get_version().clone()))
+            })
     }
 }
 
@@ -334,6 +400,12 @@ impl AsRef<PathBuf> for Manager {
         &self.config.install_path
     }
 }
+
+// impl AsRef<Vec<BlenderCategory>> for Manager {
+//     fn as_ref(&self) -> &Vec<BlenderCategory> {
+//         &self.list
+//     }
+// }
 
 impl Drop for Manager {
     fn drop(&mut self) {

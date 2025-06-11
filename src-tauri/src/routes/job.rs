@@ -1,17 +1,16 @@
+use super::remote_render::remote_render_page;
+use crate::models::{app_state::AppState, job::Job};
+use crate::services::tauri_app::UiCommand;
 use blender::models::mode::RenderMode;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 use maud::html;
 use semver::Version;
 use serde_json::json;
-use std::path::PathBuf;
-use std::{ops::Range, str::FromStr};
+use std::{ops::Range, path::PathBuf, str::FromStr};
 use tauri::{command, State};
 use tokio::sync::Mutex;
 use uuid::Uuid;
-use crate::models::{app_state::AppState, job::Job};
-use crate::services::tauri_app::UiCommand;
-use super::remote_render::remote_render_page;
 
 // input values are always string type. I need to validate input on backend instead of front end.
 // return invalidation if the value are not accepted.
@@ -26,31 +25,41 @@ pub async fn create_job(
 ) -> Result<String, String> {
     let start = start.parse::<i32>().map_err(|e| e.to_string())?;
     let end = end.parse::<i32>().map_err(|e| e.to_string())?;
-    // stop if the parse fail to parse.
+    // stop if the parser fail to parse.
 
     let mode = RenderMode::Animation(Range { start, end });
-    let job = Job::new(mode, path, version, output );
-
-    let mut app_state = state.lock().await;
-    let data = UiCommand::StartJob(job);        
-    if let Err(e) = app_state.invoke.send(data).await {
-        eprintln!("Failed to send job command!{e:?}");
+    let job = Job {
+        mode,
+        project_file: path,
+        blender_version: version,
+        output,
     };
-    
+
+    {
+        let mut app_state = state.lock().await;
+        let data = UiCommand::StartJob(job);
+        if let Err(e) = app_state.invoke.send(data).await {
+            eprintln!("Failed to send job command!{e:?}");
+        };
+    }
+
     remote_render_page().await
 }
 
 #[command(async)]
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, ()> {
-    let (sender, mut receiver) = mpsc::channel(0); 
+    let (sender, mut receiver) = mpsc::channel(0);
     let mut server = state.lock().await;
     let cmd = UiCommand::ListJobs(sender);
     if let Err(e) = server.invoke.send(cmd).await {
         eprintln!("Should not happen! {e:?}");
     }
 
+    println!("Now we wait for the list to return.");
+
     let content = match receiver.select_next_some().await {
         Some(list) => {
+            println!("Received successfully!");
             html! {
                 @for job in list {
                     div {
@@ -68,6 +77,7 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, ()> 
             }
         }
         None => {
+            println!("Reecived no data");
             html! {
                 div {}
             }
@@ -79,7 +89,7 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, ()> 
 #[command(async)]
 pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, ()> {
     // TODO: ask for the key to fetch the job details.
-    let (sender,mut receiver) = mpsc::channel(0);
+    let (sender, mut receiver) = mpsc::channel(0);
     let job_id = Uuid::from_str(job_id).map_err(|e| {
         eprintln!("Unable to parse uuid? \n{e:?}");
         ()

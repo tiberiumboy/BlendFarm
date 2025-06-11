@@ -17,22 +17,34 @@ use tokio::sync::Mutex;
 
 // todo break commands apart, find a way to get the list of versions without using appstate?
 async fn list_versions(app_state: &AppState) -> Vec<Version> {
-    let manager = app_state.manager.read().await;
+    // TODO: see if there's a better way to get around this problematic function
+    /*
+       Issues: I'm noticing a significant delay of behaviour event happening here when connected online.
+       When connected online, BlenderManager seems to hold up to approximately 2-3 seconds before the remaining content fills in.
+       Offline loads instant, which is exactly the kind of behaviour I wanted to use for this application.
+    */
+    let manager = app_state.manager.write().await;
     let mut versions = Vec::new();
 
-    let _ = manager.home.as_ref().iter().for_each(|b| {
-        let version = match b.fetch_latest() {
-            Ok(download_link) => download_link.get_version().clone(),
-            Err(_) => Version::new(b.major, b.minor, 0),
-        };
-        versions.push(version);
-    });
-
-    // let manager = server.manager.read().await;
-    let _ = manager
+    // fetch local installation first.
+    let mut local = manager
         .get_blenders()
         .iter()
-        .for_each(|b| versions.push(b.get_version().clone()));
+        .map(|b| b.get_version().clone())
+        .collect::<Vec<Version>>();
+
+    if !local.is_empty() {
+        versions.append(&mut local);
+    }
+
+    // then display the rest of the download list
+    if let Some(downloads) = manager.fetch_download_list() {
+        let mut item = downloads
+            .iter()
+            .map(|d| d.get_version().clone())
+            .collect::<Vec<Version>>();
+        versions.append(&mut item);
+    };
 
     versions
 }
@@ -63,16 +75,17 @@ pub async fn create_new_job(
     app: AppHandle,
 ) -> Result<String, String> {
     let path = match app
-            .dialog()
-            .file()
-            .add_filter("Blender", &["blend"])
-            .blocking_pick_file() {
-                Some(file_path) => match file_path {
-                    FilePath::Path(path) => path,
-                    FilePath::Url(uri) => uri.as_str().into(),
-                }
-                None => return Err("No file selected".into())
-            };
+        .dialog()
+        .file()
+        .add_filter("Blender", &["blend"])
+        .blocking_pick_file()
+    {
+        Some(file_path) => match file_path {
+            FilePath::Path(path) => path,
+            FilePath::Url(uri) => uri.as_str().into(),
+        },
+        None => return Err("No file selected".into()),
+    };
     import_blend(state, path).await
 }
 
@@ -93,6 +106,7 @@ pub async fn import_blend(
     path: PathBuf,
 ) -> Result<String, String> {
     let server = state.lock().await;
+    // for some reason this function takes longer online than it does offline?
     let versions = list_versions(&server).await;
 
     if path.file_name() == None {

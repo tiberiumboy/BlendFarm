@@ -48,7 +48,7 @@ pub enum UiCommand {
 }
 
 // TODO: make this user adjustable.
-const MAX_BLOCK_SIZE: i32 = 30;
+const MAX_FRAME_CHUNK_SIZE: i32 = 30;
 
 pub struct TauriApp{
     // I need the peer's address?
@@ -256,7 +256,7 @@ impl TauriApp {
                 let tasks = Self::generate_tasks(
                     &job,
                     PathBuf::from(file_name),
-                    MAX_BLOCK_SIZE,
+                    MAX_FRAME_CHUNK_SIZE,
                     &client.hostname
                 );
 
@@ -282,8 +282,13 @@ impl TauriApp {
                 client.send_job_message(None, JobEvent::Remove(id)).await;
             }
             UiCommand::ListJobs(mut sender) => {
-                let results = self.job_store.list_all().await;
-                let result = match results {
+                /*  
+                    There's something wrong with this datastructure. 
+                    On first call, this command works as expected,
+                    however additional call afterward does not let this function continue or invoke?
+                    I must be waiting for something here?
+                */
+                let result = match self.job_store.list_all().await {
                     Ok(jobs) => {
                         if jobs.is_empty() {
                             None

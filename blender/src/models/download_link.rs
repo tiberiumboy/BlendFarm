@@ -26,6 +26,10 @@ impl DownloadLink {
         &self.version
     }
 
+    pub fn get_parent(&self) -> String {
+        format!("Blender{}.{}", self.version.major, self.version.minor)
+    }
+
     // Currently being used for MacOS (I wonder if I need to do the same for windows?)
     #[cfg(target_os = "macos")]
     fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), Error> {

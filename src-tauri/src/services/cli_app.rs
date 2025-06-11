@@ -177,8 +177,7 @@ impl CliApp {
                 // TODO: It would be nice to broadcast everyone else "Hey! I'm download this version, could you wait until I'm done to distribute?"
                 let link_name = &self
                     .manager
-                    .home
-                    .get_version(version.major, version.minor)
+                    .get_blender_link_by_version(version)
                     .expect(&format!(
                         "Invalid Blender version used. Not found anywhere! Version {:?}",
                         &version

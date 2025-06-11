@@ -299,6 +299,7 @@ impl Blender {
     }
 
     /// Peek is a function design to read and fetch information about the blender file.
+    /// Issue - Depends on BlenderManager struct!
     pub async fn peek(blend_file: &PathBuf) -> Result<PeekResponse, BlenderError> {
         let blend = Blend::from_path(&blend_file)
             .map_err(|_| BlenderError::InvalidFile("Received BlenderParseError".to_owned()))?;
@@ -314,25 +315,20 @@ impl Blender {
 
         // using scope to drop manager usage.
         let blend_version = {
-            let manager = Manager::load();
+            // this seems expensive...
+            let mut manager = Manager::load();
+            // TODO: Refactor this script so we can ask the manager to fetch the information without accessing category at all.
             match manager.have_blender_partial(major, minor) {
                 Some(blend) => blend.version.clone(),
-                None => match manager.home.get_version(major, minor) {
-                    Some(category) => match category.fetch_latest() {
-                        Ok(link) => link.get_version().to_owned(),
-                        Err(e) => {
-                            eprintln!("Encounter a blender category error when searching for partial version online. Are you connected to the internet? : {e:?}");
-                            Version::new(major, minor, 0)
-                        }
-                    },
-                    None => {
-                        // TODO: Provide a better message to display to the client describing the problem here.
-                        eprintln!(
-                            r"Current user does not have version installed and is unable to connect to internet to fetch online version. Blender Manager cannot fetch exact version, but will insist on relying locally installed version instead."
-                        );
-                        Version::new(major, minor, 0)
-                    }
-                },
+                None => manager
+                    .get_latest_version_patch(major, minor)
+                    .unwrap_or(Version::new(major, minor, 0)),
+                //     None => {
+                //         eprintln!(
+                //             r"Current user does not have version installed and is unable to connect to internet to fetch online version. Blender Manager cannot fetch exact version, but will insist on relying locally installed version instead."
+                //         );
+                //         Version::new(major, minor, 0)
+                //     }
             }
         };
 

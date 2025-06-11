@@ -6,13 +6,10 @@ use std::env::consts;
 use thiserror::Error;
 use url::Url;
 
-// I'd like to relocate this to a different file. Possibly home?
-#[derive(Debug)]
-pub struct BlenderCategory {
-    pub name: String,
-    pub url: Url,
-    pub major: u64,
-    pub minor: u64,
+pub(crate) struct BlenderCategory {
+    url: Url,
+    major: u64,
+    minor: u64,
 }
 
 #[derive(Debug, Error)]
@@ -38,7 +35,7 @@ impl BlenderCategory {
     }
 
     /// Return extension matching to the current operating system (Only display Windows(.zip), Linux(.tar.xz), or macos(.dmg)).
-    pub fn get_extension() -> Result<String, String> {
+    pub(crate) fn get_extension() -> Result<String, String> {
         match consts::OS {
             "windows" => Ok(".zip".to_owned()),
             "macos" => Ok(".dmg".to_owned()),
@@ -47,21 +44,21 @@ impl BlenderCategory {
         }
     }
 
-    pub fn new(name: String, url: Url, major: u64, minor: u64) -> Self {
-        Self {
-            name,
-            url,
-            major,
-            minor,
-        }
+    pub fn partial_version_match(&self, major: u64, minor: u64) -> bool {
+        self.major.eq(&major) && self.minor.eq(&minor)
     }
 
-    // TODO - implement thiserror?
+    pub fn version_match(&self, version: &Version) -> bool {
+        self.partial_version_match(version.major, version.minor)
+    }
+
+    pub fn new(url: Url, major: u64, minor: u64) -> Self {
+        Self { url, major, minor }
+    }
+
     // for some reason I was fetching this multiple of times already. This seems expensive to call for some reason?
-    // also, strange enough, the pattern didn't pick up anything?
-    pub fn fetch(&self) -> Result<Vec<DownloadLink>, BlenderCategoryError> {
-        // TODO: Find a way to recycle PageCache from BlenderHome
-        let mut cache = PageCache::load()?; // I really hate the fact that I have to create a new instance for this.
+    pub fn fetch(&self, cache: &mut PageCache) -> Result<Vec<DownloadLink>, BlenderCategoryError> {
+        // this function is called everytime fetch is called. This seems to be slowing down the performance for this application usage.
         let content = cache.fetch(&self.url).map_err(BlenderCategoryError::Io)?;
         let arch = Self::get_valid_arch()?;
         let ext = Self::get_extension().map_err(BlenderCategoryError::UnsupportedOS)?;
@@ -78,7 +75,6 @@ impl BlenderCategory {
         );
 
         let regex = Regex::new(&pattern).unwrap();
-        // for (_, [url, name, patch]) in
         let vec = regex
             .captures_iter(&content)
             .filter_map(|c| {
@@ -93,15 +89,23 @@ impl BlenderCategory {
         Ok(vec)
     }
 
-    pub fn fetch_latest(&self) -> Result<DownloadLink, BlenderCategoryError> {
-        let mut list = self.fetch()?;
+    // internal function use - depends on PageCache
+    pub(crate) fn fetch_latest(
+        &self,
+        cache: &mut PageCache,
+    ) -> Result<DownloadLink, BlenderCategoryError> {
+        let mut list = self.fetch(cache)?;
         list.sort_by(|a, b| b.cmp(a));
         let entry = list.first().ok_or(BlenderCategoryError::NotFound)?;
         Ok(entry.clone())
     }
 
-    pub fn retrieve(&self, version: &Version) -> Result<DownloadLink, BlenderCategoryError> {
-        let list = self.fetch()?;
+    pub fn retrieve(
+        &self,
+        version: &Version,
+        cache: &mut PageCache,
+    ) -> Result<DownloadLink, BlenderCategoryError> {
+        let list = self.fetch(cache)?;
         let entry = list
             .iter()
             .find(|dl| dl.as_ref().eq(version))

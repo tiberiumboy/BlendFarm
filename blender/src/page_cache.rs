@@ -4,12 +4,13 @@ use std::io::{Error, Read, Result};
 use std::{collections::HashMap, fs, path::PathBuf, time::SystemTime};
 use url::Url;
 
+const MAX_VALID_DAYS: u64 = 30;
+
 // Hide this for now,
 #[doc(hidden)]
 // rely the cache creation date on file metadata.
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct PageCache {
-    // Url is not serialized?
     cache: HashMap<Url, PathBuf>,
     was_modified: bool,
 }
@@ -29,45 +30,44 @@ impl PageCache {
 
     // fetch path to cache file
     fn get_cache_path() -> Result<PathBuf> {
-        let path = Self::get_dir()?;
-        Ok(path.join("cache.json"))
+        Ok(Self::get_dir()?.join("cache.json"))
     }
 
     // private method, only used to save when cache has changed.
     fn save(&mut self) -> Result<()> {
         self.was_modified = false;
         let data = serde_json::to_string(&self).expect("Unable to deserialize data!");
-        let path = Self::get_cache_path()?;
-        fs::write(path, data)?;
+        fs::write(Self::get_cache_path()?, data)?;
         Ok(())
     }
 
     // TODO: Impl a way to verify cache is not old or out of date. What's a good refresh cache time? 2 weeks? server_settings config?
     pub fn load() -> Result<Self> {
-        let expiration = SystemTime::now();
+        let current = SystemTime::now();
         // use define path to cache file
         let path = Self::get_cache_path()?;
-        let created_date = match fs::metadata(&path) {
-            Ok(metadata) => {
-                if metadata.is_file() {
-                    metadata.created().unwrap_or(SystemTime::now())
-                } else {
-                    SystemTime::now()
-                }
-            }
-            Err(_) => SystemTime::now(),
+        let fallback = SystemTime::now();
+        let data = fs::metadata(&path);
+        let created_date = match data {
+            Ok(m) => m
+                .is_file()
+                .then(|| m.created().unwrap_or(fallback))
+                .unwrap_or_else(|| fallback),
+            _ => fallback,
         };
 
-        let data = match expiration.duration_since(created_date) {
-            Ok(_duration) => {
-                // let sec = duration.as_secs() / (60 * 60 * 24);
-                // println!("Cache file is {sec} day old!");
+        let data = match current.duration_since(created_date) {
+            Ok(duration) if duration.as_secs() < MAX_VALID_DAYS * 3600 * 24 => {
+                println!(
+                    "Time still valid: Remaining {}hrs",
+                    duration.as_secs() / 3600 - (MAX_VALID_DAYS * 24)
+                );
                 match fs::read_to_string(path) {
                     Ok(data) => serde_json::from_str(&data).unwrap_or(Self::default()),
-                    Err(_) => Self::default(),
+                    _ => Self::default(),
                 }
             }
-            Err(_) => Self::default(),
+            _ => Self::default(),
         };
 
         Ok(data)
@@ -78,12 +78,11 @@ impl PageCache {
         let mut file_name = url.to_string();
 
         // Rule: find any invalid file name characters
+        // TODO: Is there a way to make this shared statically? Doesn't seems like it's being used anywhere?
         let re = Regex::new(r#"[/\\?%*:|."<>]"#).unwrap();
 
         // remove trailing slash
-        if file_name.ends_with('/') {
-            file_name.pop();
-        }
+        file_name.ends_with('/').then(|| file_name.pop());
 
         // Replace any invalid characters with hyphens
         re.replace_all(&file_name, "-").to_string()

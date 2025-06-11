@@ -1,14 +1,15 @@
-use blender::models::home::BlenderHome;
+use blender::manager::Manager;
 
 fn test_download_blender_home_link() {
-    let home = BlenderHome::new().expect("Unable to get data");
-    let newest = home.as_ref().first().unwrap();
-    let link = newest.fetch_latest();
+    let mut manager = Manager::load();
+    let link = manager
+        .latest_local_avail()
+        .or(manager.download_latest_version().map_or(None, |l| Some(l)));
     match link {
-        Ok(link) => {
+        Some(link) => {
             dbg!(link);
         }
-        Err(e) => println!("Something wrong - {e}"),
+        None => println!("No blender found and unable to connect to internet! Skipping!"),
     }
 }
 
