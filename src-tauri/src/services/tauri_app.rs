@@ -2,6 +2,8 @@
 
     Issue: files provider are stored in memory, and do not recover after application restart. 
         - mitigate this by using a persistent storage solution instead of memory storage.
+
+    Issue: Cannot debug this application unless it is built completely. See if there's a way to run debug mode without building the app entirely.
 */
 
 use super::{blend_farm::BlendFarm, data_store::{sqlite_job_store::SqliteJobStore, sqlite_worker_store::SqliteWorkerStore}};
@@ -164,6 +166,7 @@ impl TauriApp {
                 remove_blender_installation,
                 fetch_blender_installation,
             ])
+            // contact tauri about this?
             .build(tauri::generate_context!())
     }
 
@@ -270,6 +273,7 @@ impl TauriApp {
                 }
             }
             UiCommand::UploadFile(path) => {
+                // this is design to notify the network controller to start advertise provided file path
                 let provider = ProviderRule::Default(path);
                 client.start_providing(&provider).await;
             }
@@ -279,6 +283,9 @@ impl TauriApp {
                 );
             }
             UiCommand::RemoveJob(id) => {
+                if let Err(e) = self.job_store.delete_job(&id).await {
+                    eprintln!("Receiver/sender should not be dropped! {e:?}");
+                }
                 client.send_job_message(None, JobEvent::Remove(id)).await;
             }
             UiCommand::ListJobs(mut sender) => {

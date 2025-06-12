@@ -23,6 +23,7 @@ pub async fn create_job(
     path: PathBuf,
     output: PathBuf,
 ) -> Result<String, String> {
+    // why are you not working?
     let start = start.parse::<i32>().map_err(|e| e.to_string())?;
     let end = end.parse::<i32>().map_err(|e| e.to_string())?;
     // stop if the parser fail to parse.
