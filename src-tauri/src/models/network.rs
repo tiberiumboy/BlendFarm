@@ -31,10 +31,9 @@ use futures::StreamExt;
 Network Service - Receive, handle, and process network request.
 */
 
-pub const STATUS: &str = "blendfarm/status";
+pub const STATUS: &str = "/blendfarm/status";
 pub const NODE: &[u8] = b"/blendfarm/node";
-pub const JOB: &str = "blendfarm/job"; // Ok well here we are again.
-pub const HEARTBEAT: &str = "blendfarm/heartbeat";
+pub const JOB: &str = "/blendfarm/job"; // Ok well here we are again.
 const TRANSFER: &str = "/file-transfer/1";
 
 pub enum ProviderRule {
@@ -98,6 +97,7 @@ pub async fn new(
             );
 
             let rr_config = libp2p_request_response::Config::default();
+            // Learn more about this and see if we need the transfer keyword of some sort?
             let protocol = [(StreamProtocol::new(TRANSFER), ProtocolSupport::Full)];
             let request_response = libp2p_request_response::Behaviour::new(protocol, rr_config);
 
@@ -173,12 +173,8 @@ pub enum StatusEvent {
     Signal(String),
 }
 
-pub type PeerIdString = String;
-
-// #[derive(Debug, Serialize, Deserialize, FromRow)]
-// pub struct PeerIdString {
-//     pub inner: String,
-// }
+// type is locally contained
+type PeerIdString = String;
 
 // Must be serializable to send data across network
 #[derive(Debug, Serialize, Deserialize)] // Clone,
@@ -203,7 +199,6 @@ impl NetworkController {
             .expect("sender should not be closed!");
     }
 
-    //
     pub async fn send_node_status(&mut self, status: NodeEvent) {
         if let Err(e) = self.sender.send(Command::NodeStatus(status)).await {
             eprintln!("Failed to send node status to network service: {e:?}");
@@ -351,7 +346,6 @@ pub struct NetworkService {
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<Option<HashSet<PeerId>>>>,
     pending_request_file:
         HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
-    
 }
 
 // network service will be used to handle and receive network signal. It will also transmit network package over lan
@@ -371,6 +365,22 @@ impl NetworkService {
             pending_request_file: Default::default(),
         }
     }
+
+    // TODO: See about implementing this feature into network. Moved from tauri_app because it doesn't seem to fit there.
+    // we will also create our own specific cli implementation for blender source distribution.
+    // async fn broadcast_file_availability(&mut self, client: &mut NetworkController) -> Result<(), NetworkError> {
+    //     // go through and check the jobs we have in our database.
+    //     if let Ok(jobs) = self.job_store.list_all().await {
+    //         for job in jobs {
+    //             // in each job, we have project path. This is used to help locate the current project file path.
+    //             let path = job.item.get_project_path();
+    //             let provider = ProviderRule::Default(path.to_owned());
+    //             client.start_providing(&provider).await;
+    //         }
+    //     }
+
+    //     Ok(())
+    // }
 
     pub fn get_host_name(&mut self) -> String {
         self.machine.system_info().hostname
@@ -500,11 +510,11 @@ impl NetworkService {
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to publish gossip message: {e:?}");
                 }
-                
+
                 // let key = RecordKey::new(&NODE.to_vec());
                 // let value = bincode::serialize(&status).unwrap();
                 // let record = Record::new(key, value);
-                
+
                 // match self.swarm.behaviour_mut().kad.put_record(record, Quorum::Majority) {
                 //     Ok(id) => {
                 //         // successful record, append to table?
@@ -637,18 +647,14 @@ impl NetworkService {
             _ => {}
         }
     }
-    
+
     // async fn process_outbound_query(&mut )
 
     // Handle kademila events (Used for file sharing)
     // can we use this same DHT to make node spec publicly available?
     async fn process_kademlia_event(&mut self, event: kad::Event) {
         match event {
-            kad::Event::OutboundQueryProgressed {
-                id,
-                result,
-                ..
-            } => {
+            kad::Event::OutboundQueryProgressed { id, result, .. } => {
                 match result {
                     kad::QueryResult::StartProviding(providers) => {
                         println!("List of providers: {providers:?}");
@@ -657,7 +663,6 @@ impl NetworkService {
                         providers,
                         ..
                     })) => {
-                        
                         // So, here's where we finally receive the invocation?
                         if let Some(sender) = self.pending_get_providers.remove(&id) {
                             sender
@@ -673,31 +678,27 @@ impl NetworkService {
                         kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
                     )) => {
                         if let Some(sender) = self.pending_get_providers.remove(&id) {
-                        sender.send(None).expect("Sender not to be dropped");
-                    }
-
-                    if let Some(mut node) = self.swarm.behaviour_mut().kad.query_mut(&id) {
-                        node.finish();
-                    }
-                    // This piece of code means that there's nobody advertising this on the network?
-                    // what was suppose to happen here?
-                    // TODO: I am once again stopped here. This message appeared from the CLI side. Not the host.
-
-                    // let outbound_request_id = id;
-                    // let event = Event::PendingRequestFiled(outbound_request_id, None);
-                    // self.sender.send(event).await;
-                    }
-                    kad::QueryResult::PutRecord(result) => {
-                        match result {
-                            Ok(value) => println!("Successfully append the record! {value:?}"),
-                            Err(e) => eprintln!("Error putting record in! {e:?}"),
-
+                            sender.send(None).expect("Sender not to be dropped");
                         }
-                    }
-                    // suppressed
-                    _=> {}
-                }
 
+                        if let Some(mut node) = self.swarm.behaviour_mut().kad.query_mut(&id) {
+                            node.finish();
+                        }
+                        // This piece of code means that there's nobody advertising this on the network?
+                        // what was suppose to happen here?
+                        // TODO: I am once again stopped here. This message appeared from the CLI side. Not the host.
+
+                        // let outbound_request_id = id;
+                        // let event = Event::PendingRequestFiled(outbound_request_id, None);
+                        // self.sender.send(event).await;
+                    }
+                    kad::QueryResult::PutRecord(result) => match result {
+                        Ok(value) => println!("Successfully append the record! {value:?}"),
+                        Err(e) => eprintln!("Error putting record in! {e:?}"),
+                    },
+                    // suppressed
+                    _ => {}
+                }
             }
 
             // suppressed

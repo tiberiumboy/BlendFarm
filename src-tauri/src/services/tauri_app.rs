@@ -14,10 +14,11 @@ use crate::{
         computer_spec::ComputerSpec,
         job::{CreatedJobDto, JobEvent, JobId, NewJobDto},
         message::{Event, NetworkError},
-        network::{NetworkController, NodeEvent, ProviderRule, HEARTBEAT, JOB},
+        network::{NetworkController, NodeEvent, ProviderRule},
         server_setting::ServerSetting,
         task::Task,
         worker::Worker,
+        constants::MAX_FRAME_CHUNK_SIZE
     },
     routes::{job::*, remote_render::*, settings::*, util::*, worker::*},
 };
@@ -49,8 +50,7 @@ pub enum UiCommand {
     GetWorker(String, Sender<Option<Worker>>)
 }
 
-// TODO: make this user adjustable.
-const MAX_FRAME_CHUNK_SIZE: i32 = 30;
+
 
 pub struct TauriApp{
     // I need the peer's address?
@@ -104,7 +104,6 @@ impl TauriApp {
 
         Self {
             peers: Default::default(),
-            // why?
             worker_store,
             job_store,
             settings: ServerSetting::load(),
@@ -183,20 +182,7 @@ impl TauriApp {
         }
     }
 
-    // we will also create our own specific cli implementation for blender source distribution.
-    async fn broadcast_file_availability(&mut self, client: &mut NetworkController) -> Result<(), NetworkError> {
-        // go through and check the jobs we have in our database.
-        if let Ok(jobs) = self.job_store.list_all().await {
-            for job in jobs {
-                // in each job, we have project path. This is used to help locate the current project file path.
-                let path = job.item.get_project_path();
-                let provider = ProviderRule::Default(path.to_owned());
-                client.start_providing(&provider).await;
-            }
-        }
-
-        Ok(())
-    }
+    
 
     fn generate_tasks(job: &CreatedJobDto, file_name: PathBuf, chunks: i32, hostname: &str) -> Vec<Task> {
         // mode may be removed soon, we'll see?
@@ -453,16 +439,6 @@ impl BlendFarm for TauriApp {
         mut client: NetworkController,
         mut event_receiver: futures::channel::mpsc::Receiver<Event>,
     ) -> Result<(), NetworkError> {
-        client.subscribe_to_topic(HEARTBEAT.to_owned()).await;
-        // This was used to check and see if any other manager have deleted the job/task. Treat it as job/task cancellation notice.
-        client.subscribe_to_topic(JOB.to_owned()).await; 
-        // soon to be deprecated. Use DHT somehow?
-        client.subscribe_to_topic(client.hostname.clone()).await;
-
-        // there needs to be a event where we need to setup our kademlia server based on job we created.
-        if let Err(e) = self.broadcast_file_availability(&mut client).await {
-            eprintln!("Unable to broadcast local files! {e:?}");
-        }
 
         // this channel is used to send command to the network, and receive network notification back.
         // ok where is this used?

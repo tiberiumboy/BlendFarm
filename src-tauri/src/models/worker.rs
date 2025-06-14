@@ -1,14 +1,10 @@
-use std::str::FromStr;
-use super::{computer_spec::ComputerSpec, network::PeerIdString};
+use super::computer_spec::ComputerSpec;
 use libp2p::PeerId;
-use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use thiserror::Error;
 
-#[derive(FromRow, Serialize, Deserialize, Debug)]
+#[derive(Debug)]
 pub struct Worker {
-    pub id: PeerIdString,
-    #[sqlx(json)]
+    pub id: PeerId,
     pub spec: ComputerSpec,
 }
 
@@ -19,15 +15,7 @@ pub enum WorkerError {
 }
 
 impl Worker {
-    pub fn new(id: PeerIdString, spec: ComputerSpec) -> Self {
-        Self {
-            id,
-            spec
-        }
-    }
-
-    // not in use?
-    pub fn peer_id(self) -> PeerId {
-        PeerId::from_str(&self.id).expect("Should not fail?")
+    pub fn new(id: PeerId, spec: ComputerSpec) -> Self {
+        Self { id, spec }
     }
 }

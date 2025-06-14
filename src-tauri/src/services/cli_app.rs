@@ -363,13 +363,6 @@ impl BlendFarm for CliApp {
         mut client: NetworkController,
         mut event_receiver: Receiver<Event>,
     ) -> Result<(), NetworkError> {
-        // TODO: Figure out why I need the JOB subscriber?
-        // Answer: In case manager removes/delete a job. All cli must stop working on task related to deleted job. Treat it as job/task cancelled.
-        //  this will be replaced with DHT instead.
-        let hostname = client.hostname.clone();
-        client.subscribe_to_topic(JOB.to_string()).await;
-        client.subscribe_to_topic(hostname).await;
-
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
         // we will have one thread to process blender and queue, but I must have access to database.
         let taskdb = self.task_store.clone();
