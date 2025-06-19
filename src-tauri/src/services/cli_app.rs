@@ -14,7 +14,7 @@ use crate::{
     models::{
         job::JobEvent,
         message::{self, Event, NetworkError},
-        network::{NetworkController, NodeEvent, ProviderRule, StatusEvent, JOB},
+        network::{NetworkController, NodeEvent, ProviderRule, StatusEvent},
         server_setting::ServerSetting,
         task::Task,
     },
@@ -37,10 +37,6 @@ enum CmdCommand {
     Render(Task),
     RequestTask, // calls to host for more task.
 }
-
-// enum CliEvent {
-
-// }
 
 #[derive(Debug, Error)]
 enum CliError {

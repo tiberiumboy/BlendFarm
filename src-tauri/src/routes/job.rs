@@ -50,13 +50,14 @@ pub async fn create_job(
 #[command(async)]
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, ()> {
     let (sender, mut receiver) = mpsc::channel(0);
-    let mut server = state.lock().await;
-    let cmd = UiCommand::ListJobs(sender);
-    if let Err(e) = server.invoke.send(cmd).await {
-        eprintln!("Should not happen! {e:?}");
+    // using scope to drop mutex sharable state. It must have been waiting for this to go out of scope.
+    {
+        let mut server = state.lock().await;
+        let cmd = UiCommand::ListJobs(sender);
+        if let Err(e) = server.invoke.send(cmd).await {
+            eprintln!("Fail to send command to server! {e:?}");
+        }
     }
-
-    println!("Now we wait for the list to return.");
 
     let content = match receiver.select_next_some().await {
         Some(list) => {

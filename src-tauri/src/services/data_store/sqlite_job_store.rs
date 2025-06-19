@@ -49,35 +49,39 @@ impl JobDAO {
 impl JobStore for SqliteJobStore {
     async fn add_job(&mut self, job: NewJobDto) -> Result<CreatedJobDto, JobError> {
         let id = Uuid::new_v4();
+        let id_str = id.to_string();
         let mode = serde_json::to_string(&job.mode).unwrap();
         let project_file = job.project_file.to_str().unwrap().to_owned();
         let blender_version = job.blender_version.to_string();
         let output = job.output.to_str().unwrap().to_owned();
 
-        sqlx::query(
+        sqlx::query!(
             r"
                 INSERT INTO jobs (id, mode, project_file, blender_version, output_path)
                 VALUES($1, $2, $3, $4, $5);
             ",
+            id_str,
+            mode,
+            project_file,
+            blender_version,
+            output
         )
-        .bind(id.to_string())
-        .bind(mode)
-        .bind(project_file)
-        .bind(blender_version)
-        .bind(output)
         .execute(&self.conn)
         .await
         .map_err(|e| JobError::DatabaseError(e.to_string()))?;
         Ok(CreatedJobDto { id, item: job })
     }
 
+    // TODO: Change the return type to include Optional in case no record is returned!
     async fn get_job(&self, job_id: &Uuid) -> Result<CreatedJobDto, JobError> {
-        let sql =
-            "SELECT id, mode, project_file, blender_version, output_path FROM Jobs WHERE id=$1";
-        match sqlx::query_as::<_, JobDAO>(sql)
-            .bind(job_id.to_string())
-            .fetch_one(&self.conn)
-            .await
+        let id_str = job_id.to_string();
+        match sqlx::query_as!(
+            JobDAO,
+            r"SELECT id, mode, project_file, blender_version, output_path FROM Jobs WHERE id=$1",
+            id_str
+        )
+        .fetch_one(&self.conn)
+        .await
         {
             Ok(r) => {
                 let id = Uuid::parse_str(&r.id).unwrap();
@@ -101,13 +105,8 @@ impl JobStore for SqliteJobStore {
     async fn list_all(&self) -> Result<Vec<CreatedJobDto>, JobError> {
         let query = query_as!(
             JobDAO,
-            r"
-            SELECT id, mode, project_file, blender_version, output_path
-            FROM jobs
-            LIMIT 10
-            "
+            r"SELECT id, mode, project_file, blender_version, output_path FROM jobs LIMIT 20"
         );
-        // let query = sqlx::query_as::<_, JobDAO>(sql);
 
         let result = query.fetch_all(&self.conn).await;
         match result {

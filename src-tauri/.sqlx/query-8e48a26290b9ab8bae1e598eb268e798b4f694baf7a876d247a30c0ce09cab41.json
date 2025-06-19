@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                INSERT INTO advertise (id, ad_name, file_path)\n                VALUES($1, $2, $3);\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "8e48a26290b9ab8bae1e598eb268e798b4f694baf7a876d247a30c0ce09cab41"
+}

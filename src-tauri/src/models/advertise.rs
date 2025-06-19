@@ -1,11 +1,11 @@
-use async_std::path::PathBuf;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct Advertise {
-    id: Uuid,
-    ad_name: String,
-    file_path: PathBuf,
+    pub id: Uuid,
+    pub ad_name: String,
+    pub file_path: PathBuf,
 }
 
 impl Advertise {

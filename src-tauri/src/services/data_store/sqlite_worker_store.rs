@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
-use sqlx::{query_as, FromRow, SqlitePool};
+use sqlx::{FromRow, SqlitePool};
 
 use crate::{
     domains::worker_store::WorkerStore,
@@ -19,7 +19,7 @@ pub struct SqliteWorkerStore {
 #[derive(FromRow, Serialize, Deserialize, Debug)]
 struct WorkerDTO {
     machine_id: String,
-    // Todo: find a way to use #[sqlx(json)]?
+    // TODO: find a way to use #[sqlx(json)]?
     spec: String, // deserialize/serialize as json
 }
 

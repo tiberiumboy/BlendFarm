@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT id, mode, project_file, blender_version, output_path\n            FROM jobs\n            LIMIT 10\n            ",
+  "query": "SELECT id, mode, project_file, blender_version, output_path FROM Jobs WHERE id=$1",
   "describe": {
     "columns": [
       {
@@ -30,7 +30,7 @@
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false,
@@ -40,5 +40,5 @@
       false
     ]
   },
-  "hash": "3611611777965777c95e09bb733623d5b3707f0799e2a6079af98ef779599251"
+  "hash": "060b7196a72932a326f876c9f12b138546be9acacc011c9e7ef2334199c04d09"
 }

@@ -1,5 +1,8 @@
+use std::str::FromStr;
+
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
+use libp2p::PeerId;
 use maud::html;
 use serde_json::json;
 use tauri::{command, State};
@@ -24,7 +27,7 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
                 _ => html! {
                     @for worker in data {
                         div {
-                            table tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.id })) hx-target=(format!("#{WORKPLACE}")) {
+                            table tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.id.to_base58() })) hx-target=(format!("#{WORKPLACE}")) {
                                 tbody {
                                     tr {
                                         td style="width:100%" {
@@ -69,12 +72,23 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
 #[command(async)]
 pub async fn get_worker(state: State<'_, Mutex<AppState>>, machine_id: &str) -> Result<String, ()> {
     let mut app_state = state.lock().await;
-    let (sender,mut receiver) = mpsc::channel(0);
-    let cmd = UiCommand::GetWorker(machine_id.into(), sender);
-    if let Err(e) = app_state.invoke.send(cmd).await {
-        eprintln!("{e:?}");
-    }
-    
+    let (mut sender, mut receiver) = mpsc::channel(0);
+    match PeerId::from_str(machine_id) {
+        Ok(peer_id) => {
+            let cmd = UiCommand::GetWorker(peer_id, sender);
+            if let Err(e) = app_state.invoke.send(cmd).await {
+                eprintln!("{e:?}");
+            }
+        }
+        Err(e) => {
+            eprintln!("Fail to parse machine id from input! {e:?}");
+            sender
+                .send(None)
+                .await
+                .expect("Sender/Receiver should not be closed");
+        }
+    };
+
     match receiver.select_next_some().await {
         Some(worker) => Ok(html! {
             div class="content" {

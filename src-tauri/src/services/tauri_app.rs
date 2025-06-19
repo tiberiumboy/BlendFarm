@@ -47,7 +47,7 @@ pub enum UiCommand {
     RemoveJob(JobId),
     ListJobs(Sender<Option<Vec<CreatedJobDto>>>),
     ListWorker(Sender<Option<Vec<Worker>>>),
-    GetWorker(String, Sender<Option<Worker>>)
+    GetWorker(PeerId, Sender<Option<Worker>>)
 }
 
 
@@ -77,7 +77,8 @@ pub fn index() -> String {
                 };
                 div {
                     h2 { "Computer Nodes" };
-                    div class="group" id="workers" tauri-invoke="list_workers" hx-trigger="every 2s" hx-target="this" {};
+                    // hx-trigger="every 10s" - omitting this as this was spamming console log
+                    div class="group" id="workers" tauri-invoke="list_workers" hx-target="this" {};
                 };
             };
             
@@ -229,6 +230,7 @@ impl TauriApp {
 
     // command received from UI
     async fn handle_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
+        println!("Received command from UI: {cmd:?}");
         match cmd {
             UiCommand::StartJob(job) => {
                 // create a new database entry
@@ -281,8 +283,11 @@ impl TauriApp {
                     however additional call afterward does not let this function continue or invoke?
                     I must be waiting for something here?
                 */
+
+                println!("we ask the job store to list all and wait...");
                 let result = match self.job_store.list_all().await {
                     Ok(jobs) => {
+                        println!("Job fetch successful! Result: {jobs:?}");
                         if jobs.is_empty() {
                             None
                         } else {
@@ -294,6 +299,7 @@ impl TauriApp {
                         None
                     }
                 };
+                            
                 if let Err(e) = sender.send(result).await {
                     eprintln!("Fail to send data back! {e:?}");
                 }
@@ -311,8 +317,11 @@ impl TauriApp {
                 }
             },
             UiCommand::GetJob(id, mut sender) => {
-                let result = sender.send(self.job_store.get_job(&id).await.ok()).await;
-                if let Err(e) = result {
+                let result = self.job_store.get_job(&id).await;
+                if let Err(e) = &result {
+                    eprintln!("Job store reported an error: {e:?}");
+                }
+                if let Err(e) = sender.send(result.ok()).await {
                     eprintln!("Unable to get a job!: {e:?}");
                 }
             }
@@ -329,7 +338,7 @@ impl TauriApp {
             Event::NodeStatus(node_status) => match node_status {
                 NodeEvent::Discovered(peer_id_string, spec) => {
                     let peer_id = PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
-                    let worker = Worker::new(peer_id_string.clone(), spec.clone());
+                    let worker = Worker::new(peer_id.clone(), spec.clone());
                     if let Err(e) = self.worker_store.add_worker(worker).await {
                         eprintln!("Error adding worker to database! {e:?}");
                     }
@@ -348,7 +357,8 @@ impl TauriApp {
                     }
                     
                     // So the main issue is that there's no way to identify by the machine id?
-                    if let Err(e) = self.worker_store.delete_worker(&peer_id_string).await {
+                    let peer_id = PeerId::from_str(&peer_id_string).expect("Received invalid peer_id string!");
+                    if let Err(e) = self.worker_store.delete_worker(&peer_id).await {
                         eprintln!("Error deleting worker from database! {e:?}");
                     }
 

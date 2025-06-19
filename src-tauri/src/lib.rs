@@ -2,7 +2,7 @@
 Developer blog:
 - Had a brain fart trying to figure out some ideas allowing me to run this application as either client or server
     Originally thought of using Clap library to parse in input, but when I run `cargo tauri dev -- test` the application fail to compile due to unknown arguments when running web framework?
-    This issue has been solved by alllowing certain argument to run. By default it will launch the manager version of this application.
+    This issue has been solved by allowing certain argument to run. By default it will launch the manager version of this application.
     9/2/24
 - Had an idea that allows user remotely to locally add blender installation without using GUI interface,
     This would serves two purposes - allow user to expressly select which blender version they can choose from the remote machine and
@@ -68,13 +68,15 @@ pub async fn run() {
         .expect("Must have database connection!");
 
     // must have working network services
-    let (controller, receiver, mut server) = network::new(None)
+    let (mut controller, receiver, mut server) = network::new(None)
         .await
         .expect("Fail to start network service");
 
     spawn(async move {
         server.run().await;
     });
+
+    controller.subscribe_to_topic("broadcast".to_owned()).await;
 
     let _ = match cli.command {
         // run as client mode.

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE advertise SET ad_name=$2, file_path=$3 WHERE id=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "bc165e0565533c29b26752eeccdc0a3582d7f483405574e63e751a6de65e2498"
+}
