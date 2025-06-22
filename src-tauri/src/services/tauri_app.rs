@@ -10,15 +10,7 @@ use super::{blend_farm::BlendFarm, data_store::{sqlite_job_store::SqliteJobStore
 use crate::{
     domains::{job_store::JobStore, worker_store::WorkerStore},
     models::{
-        app_state::AppState,
-        computer_spec::ComputerSpec,
-        job::{CreatedJobDto, JobEvent, JobId, NewJobDto},
-        message::{Event, NetworkError},
-        network::{NetworkController, NodeEvent, ProviderRule},
-        server_setting::ServerSetting,
-        task::Task,
-        worker::Worker,
-        constants::MAX_FRAME_CHUNK_SIZE
+        app_state::AppState, computer_spec::ComputerSpec, constants::MAX_FRAME_CHUNK_SIZE, job::{self, CreatedJobDto, JobEvent, JobId, NewJobDto}, message::{Event, NetworkError}, network::{NetworkController, NodeEvent, ProviderRule}, server_setting::ServerSetting, task::Task, worker::Worker
     },
     routes::{job::*, remote_render::*, settings::*, util::*, worker::*},
 };
@@ -40,7 +32,8 @@ pub const WORKPLACE: &str = "workplace";
 // Could we not just use message::Command?
 #[derive(Debug)]
 pub enum UiCommand {
-    StartJob(NewJobDto),
+    AddJobToNetwork(NewJobDto),
+    StartJob(JobId),
     StopJob(JobId),
     GetJob(JobId, Sender<Option<CreatedJobDto>>),
     UploadFile(PathBuf),
@@ -232,9 +225,22 @@ impl TauriApp {
     async fn handle_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
         println!("Received command from UI: {cmd:?}");
         match cmd {
-            UiCommand::StartJob(job) => {
-                // create a new database entry
-                let job = self.job_store.add_job(job).await.expect("Database shouldn't fail?");
+            UiCommand::AddJobToNetwork(job) => {
+                // Here we will simply add the job to the database, and let client poll them!
+                if let Err(e) = self.job_store.add_job(job).await {
+                    eprintln!("Unable to add job! Encounter database error: {e:}");
+                }
+
+            }
+            UiCommand::StartJob(job_id) => {
+                // first see if we have the job in the database?
+                let job = match self.job_store.get_job(&job_id).await {
+                    Ok(job) => job,
+                    Err(e) => {
+                        eprintln!("Unable to find job! Skipping! {e:?}");
+                        return ();
+                    }
+                };
 
                 // first make the file available on the network
                 let file_name = job.item.project_file.file_name().unwrap();// this is &OsStr
@@ -252,6 +258,7 @@ impl TauriApp {
                 );
 
                 // so here's the culprit. We're waiting for a peer to become idle and inactive waiting for the next job
+                // TODO how is this still pending?
                 for task in tasks {
                     // problem here - I'm getting one client to do all of the rendering jobs, not the inactive one.
                     // Perform a round-robin selection instead.
@@ -266,9 +273,8 @@ impl TauriApp {
                 client.start_providing(&provider).await;
             }
             UiCommand::StopJob(id) => {
-                println!(
-                    "Impl how to send a stop signal to stop the job and remove the job from queue {id:?}"
-                );
+                let signal = JobEvent::Remove(id);
+                client.send_job_message(None, signal).await;
             }
             UiCommand::RemoveJob(id) => {
                 if let Err(e) = self.job_store.delete_job(&id).await {

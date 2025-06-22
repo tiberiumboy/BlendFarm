@@ -36,13 +36,9 @@ pub async fn create_job(
         output,
     };
 
-    {
-        let mut app_state = state.lock().await;
-        let data = UiCommand::StartJob(job);
-        if let Err(e) = app_state.invoke.send(data).await {
-            eprintln!("Failed to send job command!{e:?}");
-        };
-    }
+    let mut app_state = state.lock().await;
+    let add = UiCommand::AddJobToNetwork(job);
+    app_state.invoke.send(add);
 
     remote_render_page().await
 }
