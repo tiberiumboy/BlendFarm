@@ -38,3 +38,6 @@ target/
 *ServerSettings.json
 Cargo.lock
 *.env
+
+# schemas always update and appear diff on every
+./src-tauri/gen/*

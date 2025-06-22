@@ -4,8 +4,9 @@
 
 This project is inspired by the original project - [LogicReinc](https://github.com/LogicReinc/LogicReinc.BlendFarm)
 
-# A Word from Developer:
-This is still a experimental program I'm working on. If you find bugs or problem with this tool, please do not heistate to create an issue, I will review them when I get to the next milestone step. 
+## A Word from Developer:
+
+This is still a experimental program I'm working on. If you find bugs or problem with this tool, please create an issue and I will review them when I can. Much of the codebase is experimental of what I've learned over my rust journey. 
 
 ### Why I created this application:
 
@@ -17,7 +18,7 @@ I humbly present you BlendFarm 2.0, a open-source software completely re-written
 
 [libp2p](https://docs.libp2p.io/) - Peer 2 Peer decenteralize network service that enables network discovery service (mDNS), communication (gossipsub), and file share (kad/DHT).
 
-[Blender](https://github.com/tiberiumboy/BlendFarm/tree/main/blender) - Custom library I wrote that acts as a blender CLI wrapper to install, invoke, and launch Blender application.
+[Blender](https://github.com/tiberiumboy/BlendFarm/tree/main/blender) - Custom library I authored that acts as a blender CLI wrapper to install, invoke, and launch Blender application.
 
 [Blend](https://docs.rs/blend/latest/blend/) - Used to read blender file without blender application to enable extracting information to the user with pre-configured setup (Eevee/Cycle, frame range, Cameras, resolution, last blender version used, etc).
 
@@ -52,14 +53,26 @@ Blender's limitation applies to this project's scope limitation. If a feature is
 
 There are several ways to start; the first and easiest would be to download the files and simply run the executable, the second way is to download the source code and compile on your computer to run and start.
 
-### TLDR:
-
-First and foremost - this commands may be subject to change in the future. (Need to find a better way to handle Clap subcommand with tauri's cli plugin - for now, I'm treating it as an argument)
+### To compile
 
 First - Install tauri-cli as this component is needed to run `cargo tauri` command. Run the following command:
 `cargo install tauri-cli --version ^2.0.0-rc --locked`
 
 *Note- For windows, you must encapsulate the version in double quotes!
+
+I'm using sqlx framework to help write sql code within the codebase. This will help
+with migrations to newer database version per application releases. Evidentably, the compiled application will create a new database in your user's config directory if it doesn't exist. However, opening this project without creating the database file will cause compiler errors. 
+
+To resolve this issue, run the following command.
+
+```bash
+cd ./src-tauri/         # navigate to Tauri's codebase
+cargo sqlx db create    # create the database file
+cargo sqlx mig run      # invoke all sql up table files inside ./migrations/ folder
+cargo sqlx prepare      # create cache sql result that satisfy cargo compiler
+```
+
+To launch the application in developer mode, navigate to `./src-tauri/` directory and run `cargo tauri dev`.
 
 To run Tauri app - run the following command under `/BlendFarm/` directory - `cargo tauri dev`
 
