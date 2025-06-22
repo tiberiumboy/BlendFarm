@@ -142,6 +142,8 @@ impl Manager {
         self
     }
 
+    /// Returns the directory where the configuration file is placed.
+    /// This is stored under 
     pub fn get_config_dir() -> PathBuf {
         let path = dirs::config_dir().unwrap().join("BlendFarm");
         fs::create_dir_all(&path).expect("Unable to create directory!");

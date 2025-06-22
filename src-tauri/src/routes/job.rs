@@ -38,8 +38,7 @@ pub async fn create_job(
 
     let mut app_state = state.lock().await;
     let add = UiCommand::AddJobToNetwork(job);
-    app_state.invoke.send(add);
-
+    app_state.invoke.send(add).await.expect("Must have active service!");
     remote_render_page().await
 }
 

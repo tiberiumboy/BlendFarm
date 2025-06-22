@@ -10,7 +10,20 @@ use super::{blend_farm::BlendFarm, data_store::{sqlite_job_store::SqliteJobStore
 use crate::{
     domains::{job_store::JobStore, worker_store::WorkerStore},
     models::{
-        app_state::AppState, computer_spec::ComputerSpec, constants::MAX_FRAME_CHUNK_SIZE, job::{self, CreatedJobDto, JobEvent, JobId, NewJobDto}, message::{Event, NetworkError}, network::{NetworkController, NodeEvent, ProviderRule}, server_setting::ServerSetting, task::Task, worker::Worker
+        app_state::AppState, 
+        computer_spec::ComputerSpec, 
+        constants::MAX_FRAME_CHUNK_SIZE, 
+        job::{
+            CreatedJobDto, 
+            JobEvent, 
+            JobId, 
+            NewJobDto
+        }, 
+        message::{Event, NetworkError}, 
+        network::{NetworkController, NodeEvent, ProviderRule}, 
+        server_setting::ServerSetting, 
+        task::Task, 
+        worker::Worker
     },
     routes::{job::*, remote_render::*, settings::*, util::*, worker::*},
 };
@@ -42,8 +55,6 @@ pub enum UiCommand {
     ListWorker(Sender<Option<Vec<Worker>>>),
     GetWorker(PeerId, Sender<Option<Worker>>)
 }
-
-
 
 pub struct TauriApp{
     // I need the peer's address?
