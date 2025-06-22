@@ -234,7 +234,7 @@ impl TauriApp {
 
     // command received from UI
     async fn handle_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
-        println!("Received command from UI: {cmd:?}");
+        // println!("Received command from UI: {cmd:?}");
         match cmd {
             UiCommand::AddJobToNetwork(job) => {
                 // Here we will simply add the job to the database, and let client poll them!
@@ -300,11 +300,8 @@ impl TauriApp {
                     however additional call afterward does not let this function continue or invoke?
                     I must be waiting for something here?
                 */
-
-                println!("we ask the job store to list all and wait...");
                 let result = match self.job_store.list_all().await {
                     Ok(jobs) => {
-                        println!("Job fetch successful! Result: {jobs:?}");
                         if jobs.is_empty() {
                             None
                         } else {

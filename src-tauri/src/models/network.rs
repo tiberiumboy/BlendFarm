@@ -742,11 +742,13 @@ impl NetworkService {
                 //     eprintln!("Fail to send event on connection established! {e:?}");
                 // }
             }
-            // how do we fetch the
+            // This was called when client starts while manager is running. "Connection error: I/O error: closed by peer: 0"
+            // TODO: Read what ConnectionClosed does?
             SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
                 let peer_id_string = peer_id.to_base58();
                 let reason = cause.and_then(|f| Some(f.to_string()));
-                let event = Event::NodeStatus(NodeEvent::Disconnected(peer_id_string, reason));
+                let node = NodeEvent::Disconnected(peer_id_string, reason);
+                let event = Event::NodeStatus(node);
                 if let Err(e) = self.sender.send(event).await {
                     eprintln!("Fail to send event on connection closed! {e:?}");
                 }

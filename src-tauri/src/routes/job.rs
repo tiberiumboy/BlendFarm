@@ -43,7 +43,7 @@ pub async fn create_job(
 }
 
 #[command(async)]
-pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, ()> {
+pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let (sender, mut receiver) = mpsc::channel(0);
     // using scope to drop mutex sharable state. It must have been waiting for this to go out of scope.
     {
@@ -56,7 +56,6 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, ()> 
 
     let content = match receiver.select_next_some().await {
         Some(list) => {
-            println!("Received successfully!");
             html! {
                 @for job in list {
                     div {
@@ -74,9 +73,11 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, ()> 
             }
         }
         None => {
-            println!("Reecived no data");
             html! {
-                div {}
+                div {
+                    // TODO: See about language locales?
+                    "No job found!"
+                }
             }
         }
     };
