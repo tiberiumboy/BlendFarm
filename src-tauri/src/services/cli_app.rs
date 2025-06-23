@@ -252,7 +252,7 @@ impl CliApp {
                             let provider = ProviderRule::Custom(file_name, result);
                             client.start_providing(&provider).await;
                             client
-                                .send_job_message(Some(task.requestor.clone()), event)
+                                .send_job_event(Some(task.requestor.clone()), event)
                                 .await;
                         }
 
@@ -261,7 +261,7 @@ impl CliApp {
                             // Check and see if we have any queue pending, otherwise ask hosts around for available job queue.
                             let event = JobEvent::TaskComplete;
                             client
-                                .send_job_message(Some(task.requestor.clone()), event)
+                                .send_job_event(Some(task.requestor.clone()), event)
                                 .await;
                             // sender.send(CmdCommand::TaskComplete(task.into())).await;
                             println!("Task complete, breaking loop!");
@@ -273,7 +273,7 @@ impl CliApp {
             Err(e) => {
                 let err = JobError::TaskError(e);
                 client
-                    .send_job_message(Some(task.requestor.clone()), JobEvent::Error(err))
+                    .send_job_event(Some(task.requestor.clone()), JobEvent::Error(err))
                     .await;
             }
         };
@@ -335,7 +335,7 @@ impl CliApp {
                 // proceed to render the task.
                 if let Err(e) = self.render_task(client, &mut task).await {
                     client
-                        .send_job_message(
+                        .send_job_event(
                             Some(task.requestor.clone()),
                             JobEvent::Failed(e.to_string()),
                         )

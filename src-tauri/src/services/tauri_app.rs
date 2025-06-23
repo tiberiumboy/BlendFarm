@@ -142,7 +142,6 @@ impl TauriApp {
         };
 
         let mut_app_state = Mutex::new(app_state);
-
         builder
             .manage(mut_app_state)
             .invoke_handler(tauri::generate_handler![
@@ -201,7 +200,6 @@ impl TauriApp {
         let max_step = step / chunks;
         let mut tasks = Vec::with_capacity(max_step as usize);
 
-        // Problem: If i ask to render from 1 to 40, the end range is exclusive. Please make the range inclusive.
         for i in 0..=max_step {
             // current start block location.
             let block = time_start + i * chunks;
@@ -275,7 +273,7 @@ impl TauriApp {
                     // Perform a round-robin selection instead.
                     let host = self.get_idle_peers().await; // this means I must wait for an active peers to become available?
                     println!("Sending task to {:?} \nJob Id: {:?} \nRange( {} - {} )\n", &host, &task.job_id, &task.range.start, &task.range.end);
-                    client.send_job_message(Some(host.clone()), JobEvent::Render(task)).await;
+                    client.send_job_event(Some(host.clone()), JobEvent::Render(task)).await;
                 }
             }
             UiCommand::UploadFile(path) => {
@@ -285,13 +283,13 @@ impl TauriApp {
             }
             UiCommand::StopJob(id) => {
                 let signal = JobEvent::Remove(id);
-                client.send_job_message(None, signal).await;
+                client.send_job_event(None, signal).await;
             }
             UiCommand::RemoveJob(id) => {
                 if let Err(e) = self.job_store.delete_job(&id).await {
                     eprintln!("Receiver/sender should not be dropped! {e:?}");
                 }
-                client.send_job_message(None, JobEvent::Remove(id)).await;
+                client.send_job_event(None, JobEvent::Remove(id)).await;
             }
             UiCommand::ListJobs(mut sender) => {
                 /*  
@@ -350,9 +348,10 @@ impl TauriApp {
     ) {
         match event {
             Event::NodeStatus(node_status) => match node_status {
-                NodeEvent::Discovered(peer_id_string, spec) => {
+                NodeEvent::Hello(peer_id_string, spec) => {
                     let peer_id = PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
                     let worker = Worker::new(peer_id.clone(), spec.clone());
+                    // append new worker to database store
                     if let Err(e) = self.worker_store.add_worker(worker).await {
                         eprintln!("Error adding worker to database! {e:?}");
                     }
@@ -365,21 +364,22 @@ impl TauriApp {
                 },
                 // concerning - this String could be anything?
                 // TODO: Find a better way to get around this.
-                NodeEvent::Disconnected(peer_id_string, reason) => {
+                NodeEvent::Disconnected{ peer_id, reason } => {
                     if let Some(msg) = reason {
                         eprintln!("Node disconnected with reason!\n {msg}");
                     }
                     
                     // So the main issue is that there's no way to identify by the machine id?
-                    let peer_id = PeerId::from_str(&peer_id_string).expect("Received invalid peer_id string!");
+                    let peer_id = PeerId::from_str(&peer_id).expect("Received invalid peer_id string!");
+                    
+                    // probably best to mark the node "inactive" instead?
                     if let Err(e) = self.worker_store.delete_worker(&peer_id).await {
                         eprintln!("Error deleting worker from database! {e:?}");
                     }
-
-                    let peer_id = PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
                     
                     self.peers.remove(&peer_id);
                 },
+                // this is the same as saying down in the garbage disposal. Anything goes here. Do not trust data source here!
                 NodeEvent::Status(status_event) => println!("Status Received: {status_event:?}"),
             },
             

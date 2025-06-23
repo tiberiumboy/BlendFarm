@@ -55,6 +55,7 @@ impl WorkerStore for SqliteWorkerStore {
     async fn add_worker(&mut self, worker: Worker) -> Result<(), WorkerError> {
         let id = worker.id.to_base58();
         let spec = serde_json::to_string(&worker.spec).expect("Fail to parse specs");
+        // TODO: Update the record if it exist by marking it status "Active", relearn SQL again?
         if let Err(e) = sqlx::query(
             r"
             INSERT INTO workers (machine_id, spec)
@@ -98,8 +99,12 @@ impl WorkerStore for SqliteWorkerStore {
     // Delete
     async fn delete_worker(&mut self, id: &PeerId) -> Result<(), WorkerError> {
         let peer_id = id.to_base58();
-        let _ = sqlx::query(r"DELETE FROM workers WHERE machine_id = $1")
-            .bind(peer_id)
+        // TODO: mark the worker inactive instead.
+        let _ = sqlx::query!(r"DELETE FROM workers WHERE machine_id = $1", peer_id)
+            // my mind goes on a brainfart moment overcomplicating simplification and data requirement.
+            // should status be a enum type, then should it be a string instead?
+            // let _ = sqlx::query!("UPDATE workers SET status=false,  ")
+            // .bind(peer_id)
             .execute(&self.conn)
             .await;
         Ok(())

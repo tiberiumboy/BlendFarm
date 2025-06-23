@@ -3,6 +3,7 @@ use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
 use super::message::{Command, Event, FileCommand, KeywordSearch, NetworkError, Target};
 use core::str;
+use futures::StreamExt;
 use futures::{
     channel::{
         mpsc::{self, Receiver, Sender},
@@ -10,7 +11,7 @@ use futures::{
     },
     prelude::*,
 };
-use libp2p::gossipsub::{self, IdentTopic, Message};
+use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::identity;
 use libp2p::kad::RecordKey; // QueryId was removed
 use libp2p::swarm::SwarmEvent;
@@ -25,15 +26,15 @@ use std::time::Duration;
 use std::u64;
 use tokio::{io, select};
 
-use futures::StreamExt;
-
 /*
 Network Service - Receive, handle, and process network request.
 */
 
-pub const STATUS: &str = "/blendfarm/status";
-pub const NODE: &[u8] = b"/blendfarm/node";
-pub const JOB: &str = "/blendfarm/job"; // Ok well here we are again.
+// what is status? If it's not job status nor node status?
+const STATUS: &str = "/blendfarm/status";
+const JOB: &str = "/blendfarm/job";
+const NODE: &str = "/blendfarm/node";
+// why does the transfer have number at the trail end? look more into this?
 const TRANSFER: &str = "/file-transfer/1";
 
 pub enum ProviderRule {
@@ -112,10 +113,12 @@ pub async fn new(
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
         .build();
 
+    //what are the reason behind this?
     let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
         .parse()
         .map_err(|_| NetworkError::BadInput)?;
 
+    //what are the reason behind this?
     let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
         .parse()
         .map_err(|_| NetworkError::BadInput)?;
@@ -179,8 +182,11 @@ type PeerIdString = String;
 // Must be serializable to send data across network
 #[derive(Debug, Serialize, Deserialize)] // Clone,
 pub enum NodeEvent {
-    Discovered(PeerIdString, ComputerSpec),
-    Disconnected(PeerIdString, Option<String>), // reason
+    Hello(PeerIdString, ComputerSpec),
+    Disconnected {
+        peer_id: PeerIdString,
+        reason: Option<String>,
+    },
     Status(StatusEvent),
 }
 
@@ -205,15 +211,15 @@ impl NetworkController {
         }
     }
 
+    // do we need this?
     pub async fn send_status(&mut self, status: String) {
         println!("[Status]: {}", &status);
         let status = NodeEvent::Status(StatusEvent::Signal(status));
         self.send_node_status(status).await;
     }
 
-    // How do I get the peers info I want to communicate with?
-    // Try to use DHT as chat post instead - Delete message if no longer providing over the network
-    pub async fn send_job_message(&mut self, target: Target, event: JobEvent) {
+    // send job event to all connected node
+    pub async fn send_job_event(&mut self, target: Target, event: JobEvent) {
         self.sender
             .send(Command::JobStatus(target, event))
             .await
@@ -339,9 +345,6 @@ pub struct NetworkService {
     // Send Network event to subscribers.
     sender: Sender<Event>,
 
-    // Used to collect computer basic hardware info to distribute
-    machine: Machine,
-
     providing_files: HashMap<String, PathBuf>,
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<Option<HashSet<PeerId>>>>,
     pending_request_file:
@@ -359,7 +362,6 @@ impl NetworkService {
             swarm,
             receiver,
             sender,
-            machine: Machine::new(),
             providing_files: Default::default(),
             pending_get_providers: Default::default(),
             pending_request_file: Default::default(),
@@ -381,10 +383,6 @@ impl NetworkService {
 
     //     Ok(())
     // }
-
-    pub fn get_host_name(&mut self) -> String {
-        self.machine.system_info().hostname
-    }
 
     // here we will deviate handling the file service command.
     async fn process_file_service(&mut self, cmd: FileCommand) {
@@ -607,41 +605,40 @@ impl NetworkService {
     //     }
     // }
 
-    async fn handle_job(&mut self, message: Message) {
-        let job_event =
-            bincode::deserialize::<JobEvent>(&message.data).expect("Fail to parse Job data!");
-
-        // I don't think this function is called?
-        println!("Is this function used?");
-        if let Err(e) = self.sender.send(Event::JobUpdate(job_event)).await {
-            eprintln!("Something failed? {e:?}");
-        }
-    }
-
     // TODO: Figure out how I can use the match operator for TopicHash. I'd like to use the TopicHash static variable above.
     async fn process_gossip_event(&mut self, event: gossipsub::Event) {
         match event {
+            // what is propagation source? can we use this somehow?
             gossipsub::Event::Message { message, .. } => match message.topic.as_str() {
-                JOB => {
-                    self.handle_job(message).await;
-                }
-                // I think this needs to be changed.
-                // TODO: This will be changed, this is being handled differently now.
+                // if the topic is JOB related, assume data as JobEvent
+                JOB => match bincode::deserialize::<JobEvent>(&message.data) {
+                    Ok(job_event) => {
+                        // I don't think this function is called?
+                        println!("Is this function used?");
+                        if let Err(e) = self.sender.send(Event::JobUpdate(job_event)).await {
+                            eprintln!("Something failed? {e:?}");
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Fail to parse Job topic data! {e:?}");
+                    }
+                },
+                // Node based event awareness
+                NODE => match bincode::deserialize::<NodeEvent>(&message.data) {
+                    Ok(node_event) => {
+                        if let Err(e) = self.sender.send(Event::NodeStatus(node_event)).await {
+                            eprintln!("Something failed? {e:?}");
+                        }
+                    }
+                    Err(e) => eprintln!("fail to parse Node topic data! {e:?}"),
+                },
+
+                // Garbage collector - Treat this as a grain of salt. Do not execute any data from this scope
+                // should only be used to display logs and info, things for us to identify unusual activity going on outside our domain specification.
                 _ => {
                     // I received Mac.lan from message.topic?
                     let topic = message.topic.as_str();
-                    if topic.eq(&self.machine.system_info().hostname) {
-                        let job_event = bincode::deserialize::<JobEvent>(&message.data)
-                            .expect("Fail to parse job data!");
-
-                        if let Err(e) = self.sender.send(Event::JobUpdate(job_event)).await {
-                            eprintln!("Fail to send job update!\n{e:?}");
-                        }
-                    } else {
-                        // let data = String::from_utf8(message.data).unwrap();
-                        eprintln!("Intercepted unhandled signal here: {topic}");
-                        // TODO: We may intercept signal for other purpose here, how can I do that?
-                    }
+                    eprintln!("Intercepted unhandled signal here: {topic}");
                 }
             },
             _ => {}
@@ -729,8 +726,10 @@ impl NetworkService {
                     self.process_kademlia_event(event).await;
                 }
             },
-            SwarmEvent::ConnectionEstablished { .. } => {
-                //
+            SwarmEvent::ConnectionEstablished {
+                peer_id, endpoint, ..
+            } => {
+                println!("Connection Established: {peer_id:?}\n{endpoint:?}");
                 // once we establish a connection, we should ping kademlia for all available nodes on the network.
                 // let key = NODE.to_vec();
                 // let _query_id = self.swarm.behaviour_mut().kad.get_providers(key.into());
@@ -745,9 +744,11 @@ impl NetworkService {
             // This was called when client starts while manager is running. "Connection error: I/O error: closed by peer: 0"
             // TODO: Read what ConnectionClosed does?
             SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
-                let peer_id_string = peer_id.to_base58();
                 let reason = cause.and_then(|f| Some(f.to_string()));
-                let node = NodeEvent::Disconnected(peer_id_string, reason);
+                let node = NodeEvent::Disconnected {
+                    peer_id: peer_id.to_base58(),
+                    reason,
+                };
                 let event = Event::NodeStatus(node);
                 if let Err(e) = self.sender.send(event).await {
                     eprintln!("Fail to send event on connection closed! {e:?}");
@@ -756,7 +757,7 @@ impl NetworkService {
             // TODO: Figure out what these events are, and see if they're any use for us to play with or delete them. Unnecessary comment codeblocks
             // SwarmEvent::ListenerClosed { .. } => todo!(),
             // SwarmEvent::ListenerError { listener_id, error } => todo!(),
-            // vvignorevv
+            // vv ignore events below vv
             SwarmEvent::NewListenAddr { address, .. } => {
                 // hmm.. I need to capture the address here?
                 // how do I save the address?
