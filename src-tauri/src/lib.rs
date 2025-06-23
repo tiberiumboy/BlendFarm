@@ -68,15 +68,13 @@ pub async fn run() {
         .expect("Must have database connection!");
 
     // must have working network services
-    let (mut controller, receiver, mut server) = network::new(None)
+    let (controller, receiver, mut server) = network::new(None)
         .await
         .expect("Fail to start network service");
 
     spawn(async move {
         server.run().await;
     });
-
-    controller.subscribe_to_topic("broadcast".to_owned()).await;
 
     let _ = match cli.command {
         // run as client mode.

@@ -143,11 +143,15 @@ pub async fn new(
 
     let public_id = swarm.local_peer_id().clone();
 
-    let controller = NetworkController {
+    let mut controller = NetworkController {
         sender,
         public_id,
         hostname: Machine::new().system_info().hostname,
     };
+
+    // all network interference must subscribe to these topics!
+    controller.subscribe_to_topic(JOB.to_owned()).await;
+    controller.subscribe_to_topic(NODE.to_owned()).await;
 
     let service = NetworkService::new(
         swarm,
@@ -380,7 +384,6 @@ impl NetworkService {
     //             client.start_providing(&provider).await;
     //         }
     //     }
-
     //     Ok(())
     // }
 
@@ -570,17 +573,19 @@ impl NetworkService {
     async fn process_mdns_event(&mut self, event: mdns::Event) {
         match event {
             mdns::Event::Discovered(peers) => {
+                // TODO What does it mean to discovered peers list?
                 for (peer_id, address) in peers {
-                    self.swarm
-                        .behaviour_mut()
-                        .gossipsub
-                        .add_explicit_peer(&peer_id);
+                    println!("Discovered [{peer_id:?}] {address:?}");
+                    // self.swarm
+                    //     .behaviour_mut()
+                    //     .gossipsub
+                    //     .add_explicit_peer(&peer_id);
 
-                    // add the discover node to kademlia list.
-                    self.swarm
-                        .behaviour_mut()
-                        .kad
-                        .add_address(&peer_id, address.clone());
+                    // // add the discover node to kademlia list.
+                    // self.swarm
+                    //     .behaviour_mut()
+                    //     .kad
+                    //     .add_address(&peer_id, address.clone());
                 }
             }
             mdns::Event::Expired(peers) => {
@@ -758,17 +763,12 @@ impl NetworkService {
             // SwarmEvent::ListenerClosed { .. } => todo!(),
             // SwarmEvent::ListenerError { listener_id, error } => todo!(),
             // vv ignore events below vv
-            SwarmEvent::NewListenAddr { address, .. } => {
-                // hmm.. I need to capture the address here?
-                // how do I save the address?
-                // this seems problematic?
-                // if address.protocol_stack().any(|f| f.contains("tcp")) {
-                println!("[New Listener Address]: {address}");
-                // }
+            SwarmEvent::NewListenAddr { .. } => {
+                // println!("[New Listener Address]: {address}");
             }
-            SwarmEvent::Dialing { .. } => {} // Suppressing logs
-            SwarmEvent::IncomingConnection { .. } => {} // Suppressing logs
-            SwarmEvent::NewExternalAddrOfPeer { .. } => {}
+            // SwarmEvent::Dialing { .. } => {} // Suppressing logs
+            // SwarmEvent::IncomingConnection { .. } => {} // Suppressing logs
+            // SwarmEvent::NewExternalAddrOfPeer { .. } => {}
             // SwarmEvent::OutgoingConnectionError { connection_id, peer_id, error } => {}  // I recognize this and do want to display result below.
             // SwarmEvent::IncomingConnectionError { .. } => {}                             // I recognize this and do want to display result below.
 
