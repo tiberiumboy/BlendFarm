@@ -14,7 +14,7 @@ use crate::{
     models::{
         job::JobEvent,
         message::{self, Event, NetworkError},
-        network::{NetworkController, NodeEvent, ProviderRule, StatusEvent},
+        network::{NetworkController, NodeEvent, ProviderRule},
         server_setting::ServerSetting,
         task::Task,
     },
@@ -216,28 +216,23 @@ impl CliApp {
         match task.clone().run(project_file, output, &blender).await {
             Ok(rx) => loop {
                 if let Ok(status) = rx.recv() {
-                    match status {
+                    match status.clone() {
                         BlenderEvent::Rendering { current, total } => {
-                            let percent = (current / total) * 100.0;
-                            client
-                                .send_status(format!(
-                                    "[ACT] Rendering {current} out of {total} - %{percent}"
-                                ))
-                                .await
+                            println!("[LOG] Rendering {current} out of {total}");
                         }
-
-                        BlenderEvent::Log(msg) => client.send_status(format!("[LOG] {msg}")).await,
-
+                        BlenderEvent::Log(msg) => {
+                            println!("[LOG] {msg}");
+                        }
                         BlenderEvent::Warning(msg) => {
-                            client.send_status(format!("[WARN] {msg}")).await
+                            println!("[WARN] {msg}");
                         }
 
                         BlenderEvent::Error(msg) => {
-                            client.send_status(format!("[ERR] {msg}")).await
+                            println!("[ERR] {msg}");
                         }
 
                         BlenderEvent::Unhandled(msg) => {
-                            client.send_status(format!("[UNK] {msg}")).await;
+                            println!("[UNK] {msg}");
                         }
 
                         BlenderEvent::Completed { frame, result } => {
@@ -268,6 +263,8 @@ impl CliApp {
                             break;
                         }
                     };
+                    let node_status = NodeEvent::BlenderStatus(status);
+                    client.send_node_status(node_status).await;
                 }
             },
             Err(e) => {
@@ -327,11 +324,8 @@ impl CliApp {
     async fn handle_command(&mut self, client: &mut NetworkController, cmd: CmdCommand) {
         match cmd {
             CmdCommand::Render(mut task) => {
-                // we received command to render, notify the world I'm busy.
-                client
-                    .send_node_status(NodeEvent::Status(StatusEvent::Busy))
-                    .await;
-
+                // TODO: We should find a way to mark this node currently busy so we should unsubscribe any pending new jobs if possible?
+                // mutate this struct to skip listening for any new jobs.
                 // proceed to render the task.
                 if let Err(e) = self.render_task(client, &mut task).await {
                     client
@@ -342,11 +336,11 @@ impl CliApp {
                         .await
                 }
             }
+
             CmdCommand::RequestTask => {
                 // Notify the world we're available.
-                client
-                    .send_node_status(NodeEvent::Status(StatusEvent::Online))
-                    .await;
+                // modify this struct to ping out availability and start listening for new job message.
+                // or at least have this node look into job history and start working on jobs that are not completed yet.
             }
         }
     }

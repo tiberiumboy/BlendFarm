@@ -2,6 +2,7 @@ use super::behaviour::{BlendFarmBehaviour, BlendFarmBehaviourEvent, FileRequest,
 use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
 use super::message::{Command, Event, FileCommand, KeywordSearch, NetworkError, Target};
+use blender::models::event::BlenderEvent;
 use core::str;
 use futures::StreamExt;
 use futures::{
@@ -191,7 +192,7 @@ pub enum NodeEvent {
         peer_id: PeerIdString,
         reason: Option<String>,
     },
-    Status(StatusEvent),
+    BlenderStatus(BlenderEvent),
 }
 
 impl NetworkController {
@@ -213,13 +214,6 @@ impl NetworkController {
         if let Err(e) = self.sender.send(Command::NodeStatus(status)).await {
             eprintln!("Failed to send node status to network service: {e:?}");
         }
-    }
-
-    // do we need this?
-    pub async fn send_status(&mut self, status: String) {
-        println!("[Status]: {}", &status);
-        let status = NodeEvent::Status(StatusEvent::Signal(status));
-        self.send_node_status(status).await;
     }
 
     // send job event to all connected node
@@ -503,7 +497,7 @@ impl NetworkService {
                 */
                 // self.pending_task.insert(peer_id);
             }
-            // TODO: need to figure out how this is called
+            // TODO: need to figure out where this is called
             Command::NodeStatus(status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
                 let data = bincode::serialize(&status).unwrap();
@@ -574,8 +568,23 @@ impl NetworkService {
         match event {
             mdns::Event::Discovered(peers) => {
                 // TODO What does it mean to discovered peers list?
+                let mut machine = Machine::new();
+                let spec = ComputerSpec::new(&mut machine);
+                let local_peer_id = self.swarm.local_peer_id();
+                let node_event = NodeEvent::Hello(local_peer_id.to_base58(), spec);
+                let data = bincode::serialize(&node_event)
+                    .expect("Should be able to serialize this data?");
+                let topic = IdentTopic::new(&NODE.to_string());
                 for (peer_id, address) in peers {
                     println!("Discovered [{peer_id:?}] {address:?}");
+                    if let Err(e) = self
+                        .swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .publish(topic.clone(), data.clone())
+                    {
+                        eprintln!("Fail to send hello message! {e:?}");
+                    }
                     // self.swarm
                     //     .behaviour_mut()
                     //     .gossipsub

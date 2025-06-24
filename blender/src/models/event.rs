@@ -1,7 +1,7 @@
-// use crate::blender::BlenderError;    // will use this for Error() enum variant.
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BlenderEvent {
     Log(String),
     Warning(String),

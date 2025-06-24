@@ -380,7 +380,7 @@ impl TauriApp {
                     self.peers.remove(&peer_id);
                 },
                 // this is the same as saying down in the garbage disposal. Anything goes here. Do not trust data source here!
-                NodeEvent::Status(status_event) => println!("Status Received: {status_event:?}"),
+                NodeEvent::BlenderStatus(blend_event) => println!("Blender Status Received: {blend_event:?}"),
             },
             
             // let me figure out what's going on here.
