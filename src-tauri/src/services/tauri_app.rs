@@ -147,6 +147,7 @@ impl TauriApp {
             .invoke_handler(tauri::generate_handler![
                 index,
                 open_path,
+                open_dir,
                 select_directory,
                 select_file,
                 create_job,

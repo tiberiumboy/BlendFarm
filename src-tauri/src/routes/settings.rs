@@ -22,6 +22,12 @@ const SETTING: &str= "settings";
 */
 
 #[command(async)]
+pub fn open_dir(path: &str) -> Result<(),()> {
+    todo!("Impl opening the file directory where the executable is located");
+    Ok(())
+}
+
+#[command(async)]
 pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result<String, ()> {
     let app_state = state.lock().await;
     let manager = app_state.manager.read().await;
@@ -31,11 +37,16 @@ pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result
         @for blend in localblenders {
             tr {
                 td {
+                    title {
+                        (blend.get_executable().to_str().unwrap())
+                    }
                     (blend.get_version().to_string())
                 };
                 td {
-                    (blend.get_executable().to_str().unwrap())
-                };
+                    button tauri-invoke="open_dir" hx-vals=(json!({"path":blend.get_executable().to_str().unwrap()})) {
+                        r"TODO: Folder icon"
+                    }
+                }
                 td {
                     button {
                         r"🗑︎"

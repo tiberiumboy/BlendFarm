@@ -52,6 +52,8 @@ pub struct CliApp {
     settings: ServerSetting,
     // The idea behind this is to let the network manager aware that the client side of the app is busy working on current task.
     // it would be nice to receive information and notification about this current client status somehow.
+    // Could I use PhantomData to hold Task Object type?
+    #[allow(dead_code)]
     task_handle: Option<Task>, // isntead of this, we should hold task_handler. That way, we can abort it when we receive the invocation to do so.
 }
 
