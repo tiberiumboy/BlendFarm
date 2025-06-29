@@ -40,10 +40,6 @@ enum CmdCommand {
 
 #[derive(Debug, Error)]
 enum CliError {
-    // #[error("Unknown error received: {0}")]
-    // Unknown(String),
-    // #[error("Unable to fetch project file from host! There may be an active firewall that's blocking file transfer. \n{0:?}")]
-    // UnableToRetrieveFile(async_std::io::Error),
     #[error("Encounter an network error! \n{0:}")]
     NetworkError(#[from] message::NetworkError),
     #[error("Encounter an IO error! \n{0}")]
@@ -54,8 +50,9 @@ pub struct CliApp {
     manager: BlenderManager,
     task_store: Arc<RwLock<(dyn TaskStore + Send + Sync + 'static)>>,
     settings: ServerSetting,
-    // Hmm not sure if I need this but we'll see!
-    // task_handle: Option<JoinHandle<()>>, // isntead of this, we should hold task_handler. That way, we can abort it when we receive the invocation to do so.
+    // The idea behind this is to let the network manager aware that the client side of the app is busy working on current task.
+    // it would be nice to receive information and notification about this current client status somehow.
+    task_handle: Option<Task>, // isntead of this, we should hold task_handler. That way, we can abort it when we receive the invocation to do so.
 }
 
 impl CliApp {
@@ -65,6 +62,7 @@ impl CliApp {
             settings: ServerSetting::load(),
             manager,
             task_store,
+            task_handle: None, // no task assigned yet
         }
     }
 }

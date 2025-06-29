@@ -577,6 +577,21 @@ impl NetworkService {
                 let topic = IdentTopic::new(&NODE.to_string());
                 for (peer_id, address) in peers {
                     println!("Discovered [{peer_id:?}] {address:?}");
+                    // if I have already discovered this address, then I need to skip it. Otherwise I will produce garbage log input for duplicated peer id already exist.
+
+                    // it seems that I do need to explicitly add the peers to the list.
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .add_explicit_peer(&peer_id);
+
+                    // add the discover node to kademlia list.
+                    self.swarm
+                        .behaviour_mut()
+                        .kad
+                        .add_address(&peer_id, address.clone());
+
+                    // send a hello message
                     if let Err(e) = self
                         .swarm
                         .behaviour_mut()
@@ -585,16 +600,6 @@ impl NetworkService {
                     {
                         eprintln!("Fail to send hello message! {e:?}");
                     }
-                    // self.swarm
-                    //     .behaviour_mut()
-                    //     .gossipsub
-                    //     .add_explicit_peer(&peer_id);
-
-                    // // add the discover node to kademlia list.
-                    // self.swarm
-                    //     .behaviour_mut()
-                    //     .kad
-                    //     .add_address(&peer_id, address.clone());
                 }
             }
             mdns::Event::Expired(peers) => {
