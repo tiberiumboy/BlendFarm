@@ -185,6 +185,26 @@ impl Blender {
         dirs::config_dir().unwrap().join("BlendFarm")
     }
 
+    // the difference between this function and getting executable are
+    // a) MacOs is special. Executable reference a path inside app bundle.
+    // b) This returns valid dir location to open to for user to look at from file POV
+    pub fn get_relative_path(&self) -> &Path {
+        if cfg!(target_os = "macos") {
+            &self
+                .executable
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+        } else {
+            &self.executable.parent().unwrap()
+        }
+    }
+
     /// Return the executable path to blender (Entry point for CLI)
     pub fn get_executable(&self) -> &Path {
         &self.executable

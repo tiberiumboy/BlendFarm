@@ -168,6 +168,7 @@ impl TauriApp {
                 add_blender_installation,
                 list_blender_installed,
                 remove_blender_installation,
+                delete_blender,
                 fetch_blender_installation,
             ])
             // contact tauri about this?
