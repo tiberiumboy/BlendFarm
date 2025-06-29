@@ -38,7 +38,11 @@ pub async fn create_job(
 
     let mut app_state = state.lock().await;
     let add = UiCommand::AddJobToNetwork(job);
-    app_state.invoke.send(add).await.expect("Must have active service!");
+    app_state
+        .invoke
+        .send(add)
+        .await
+        .expect("Must have active service!");
     remote_render_page().await
 }
 
@@ -100,16 +104,24 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
     };
 
     match receiver.select_next_some().await {
-        Some(job) => Ok(html!(
-        div {
-                p { "Job Detail" };
-                div { ( job.item.project_file.to_str().unwrap() ) };
-                div { ( job.item.output.to_str().unwrap() ) };
-                div { ( job.item.blender_version.to_string() ) };
-                button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job_id})) hx-target="#workplace" { "Delete Job" };
-            };
-        )
-        .0),
+        Some(job) => {
+            // TODO: it would be nice to provide ffmpeg gif result of the completed render image.
+            // Something to add for immediate preview and feedback from render result
+            let output_dir = job.item.output.read_dir().expect("Must be a directory!");
+            output_dir.
+            Ok(html!(
+            div {
+                    p { "Job Detail" };
+                    div { ( job.item.project_file.to_str().unwrap() ) };
+                    div { ( job.item.output.to_str().unwrap() ) };
+                    div { ( job.item.blender_version.to_string() ) };
+                    button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job_id})) hx-target="#workplace" { "Delete Job" };
+                    // TODO: Provide a list of completed rendering job image from the output directory.
+
+                };
+            )
+            .0)
+        }
         None => Ok(html!(
         div {
                 p { "Job do not exist.. How did you get here?" };

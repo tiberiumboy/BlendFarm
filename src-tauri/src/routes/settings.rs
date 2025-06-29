@@ -1,7 +1,5 @@
-use std::{path::PathBuf, sync::Arc};
-
-// this is the settings controller section that will handle input from the setting page.
 use crate::models::{app_state::AppState, server_setting::ServerSetting};
+use std::{env, path::PathBuf, str::FromStr, sync::Arc, process::Command};
 use blender::blender::Blender;
 use maud::html;
 use semver::Version;
@@ -16,14 +14,22 @@ use tokio::{
 
 const SETTING: &str= "settings";
 
-/*
-    Because blender installation path is not store in server setting, it is infact store under blender manager,
-    we will need to create a new custom response message to provide all of the information needed to display on screen properly
-*/
-
-#[command(async)]
+#[command]
 pub fn open_dir(path: &str) -> Result<(),()> {
-    todo!("Impl opening the file directory where the executable is located");
+    // macos is special, the path link inside app bundle, but cannot access via file explore/finder
+    let path = PathBuf::from_str(path).unwrap();
+    let result = match env::consts::OS {
+        "windows" => Ok("explorer"),
+        "macos" => Ok("open"),  
+        "linux" => Ok("xdg-open"),
+        _ => Err(())
+    };
+    if let Ok(program) = result {
+        Command::new(program)
+        .arg(path)
+        .spawn()
+        .unwrap();
+    }
     Ok(())
 }
 
@@ -37,18 +43,16 @@ pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result
         @for blend in localblenders {
             tr {
                 td {
-                    title {
-                        (blend.get_executable().to_str().unwrap())
+                    label title=(blend.get_executable().to_str().unwrap()) {
+                        (blend.get_version().to_string())
                     }
-                    (blend.get_version().to_string())
                 };
                 td {
-                    button tauri-invoke="open_dir" hx-vals=(json!({"path":blend.get_executable().to_str().unwrap()})) {
-                        r"TODO: Folder icon"
+                    button tauri-invoke="open_dir" hx-vals=(json!({"path":blend.get_relative_path().to_str().unwrap()})) {
+                        r"📁"
                     }
-                }
-                td {
-                    button {
+                    button tauri-invoke="delete_blender" hx-vals=(json!({"path":blend.get_relative_path().to_str().unwrap() })) 
+                    {
                         r"🗑︎"
                     }
                 }
@@ -122,9 +126,15 @@ pub async fn fetch_blender_installation(
     Ok(blender)
 }
 
+#[command]
+pub fn delete_blender(path: &str) -> Result<(), ()> {
+    todo!("Impl function to delete blender and its local contents");
+}
+
 // TODO: Ambiguous name - Change this so that we have two methods,
 // - Severe local path to blender from registry (Orphan on disk/not touched)
 // - Delete blender content completely (erasing from disk)
+// not in use?
 #[command(async)]
 pub async fn remove_blender_installation(
     state: State<'_, Mutex<AppState>>,
@@ -200,13 +210,22 @@ pub async fn get_settings(state: State<'_, Mutex<AppState>>) -> Result<String, S
     Ok(html!(
         div tauri-invoke="open_path" hx-target="this" hx-swap="outerHTML" {
             h3 { "Blender Installation Path:" };
-            label hx-info=(json!( { "path": install_path } )) { (install_path) };
+            button tauri-invoke="open_dir" hx-vals=(json!({"path":install_path})) {
+                r"📁"
+            }
+            label word-wrap="break-word" hx-info=(json!( { "path": install_path } )) { (install_path) };
             
             h3 { "Blender File Cache Path:" };
-            label hx-info=(json!( { "path": cache_path } )) { (cache_path) };
+            button tauri-invoke="open_dir" hx-vals=(json!({"path":cache_path})) {
+                r"📁"
+            }
+            label word-wrap="break-word" hx-info=(json!( { "path": cache_path } )) { (cache_path) };
             
             h3 { "Render cache directory:" };
-            label hx-info=(json!( { "path": render_path } )) { (render_path) };
+            button tauri-invoke="open_dir" hx-vals=(json!({"path":render_path})) {
+                r"📁"
+            }
+            label word-wrap="break-word" hx-info=(json!( { "path": render_path } )) { (render_path) };
             br;
             
             button tauri-invoke="edit_settings" { "Edit" };
