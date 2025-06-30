@@ -88,7 +88,7 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, Stri
     Ok(content.0)
 }
 
-fn fetch_img_result(path: &PathBuf) -> Option<Vec<_>> {
+fn fetch_img_result(path: &PathBuf) -> Option<Vec<PathBuf>> {
     match path.read_dir() { // read the directory content
         Ok(dir) => {    
             let mut list = dir
@@ -98,7 +98,7 @@ fn fetch_img_result(path: &PathBuf) -> Option<Vec<_>> {
                 path.extension()
                     .map_or(false, |ext| ext == "png")
                 )
-            .collect::<Vec<_>>();   // collect the result into array list
+            .collect::<Vec<PathBuf>>();   // collect the result into array list
             list.sort();
             Some(list)
         },
@@ -107,6 +107,19 @@ fn fetch_img_result(path: &PathBuf) -> Option<Vec<_>> {
             None
         }
     }
+}
+
+fn convert_file_src(path: &PathBuf) -> String {
+    #[cfg(any(windows, target_os = "android"))]
+    let base = "http://asset.localhost/";
+    #[cfg(not(any(windows, target_os = "android")))]
+    let base = "asset://localhost/";
+
+    let path = dunce::canonicalize(path).expect("Should be able to canonicalize path!");
+    let binding = path.to_string_lossy();
+    let encoded = urlencoding::encode(&binding);
+
+    format!("{base}{encoded}")
 }
 
 #[command(async)]
@@ -130,7 +143,7 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
             // TODO: it would be nice to provide ffmpeg gif result of the completed render image.
             // Something to add for immediate preview and feedback from render result
             // this is to fetch the render collection
-            let mut list = fetch_img_result(&job.item.output);
+            let result = fetch_img_result(&job.item.output);
 
             Ok(html!(
                 div {
@@ -140,10 +153,12 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
                         div { ( job.item.blender_version.to_string() ) };
                         button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job_id})) hx-target="#workplace" { "Delete Job" };
                         
-                        @for img in list {
-                            tr {
-                                td {
-                                    img src=(format!( "{}", convert_file_src(img)));
+                        @if let Some(list) = result {
+                            @for img in list {
+                                tr {
+                                    td {
+                                        img src=(convert_file_src(&img));
+                                    }
                                 }
                             }
                         }
