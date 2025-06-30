@@ -88,6 +88,27 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, Stri
     Ok(content.0)
 }
 
+fn fetch_img_result(path: &PathBuf) -> Option<Vec<_>> {
+    match path.read_dir() { // read the directory content
+        Ok(dir) => {    
+            let mut list = dir
+            .filter_map(|res| res.ok()) // collect valid result
+            .map(|ent| ent.path())  // collect path from Directory entry result
+            .filter(|path|  
+                path.extension()
+                    .map_or(false, |ext| ext == "png")
+                )
+            .collect::<Vec<_>>();   // collect the result into array list
+            list.sort();
+            Some(list)
+        },
+        Err(e) => {
+            eprintln!("Unable to find directory! {:?} | {e:?}", &path);
+            None
+        }
+    }
+}
+
 #[command(async)]
 pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, ()> {
     // TODO: ask for the key to fetch the job details.
@@ -105,22 +126,30 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
 
     match receiver.select_next_some().await {
         Some(job) => {
+            
             // TODO: it would be nice to provide ffmpeg gif result of the completed render image.
             // Something to add for immediate preview and feedback from render result
-            let output_dir = job.item.output.read_dir().expect("Must be a directory!");
-            output_dir.
-            Ok(html!(
-            div {
-                    p { "Job Detail" };
-                    div { ( job.item.project_file.to_str().unwrap() ) };
-                    div { ( job.item.output.to_str().unwrap() ) };
-                    div { ( job.item.blender_version.to_string() ) };
-                    button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job_id})) hx-target="#workplace" { "Delete Job" };
-                    // TODO: Provide a list of completed rendering job image from the output directory.
+            // this is to fetch the render collection
+            let mut list = fetch_img_result(&job.item.output);
 
-                };
-            )
-            .0)
+            Ok(html!(
+                div {
+                        p { "Job Detail" };
+                        button tauri-invoke="open_dir" hx-vals=(json!(job.item.project_file.to_str().unwrap())) { ( job.item.project_file.to_str().unwrap() ) };
+                        div { ( job.item.output.to_str().unwrap() ) };
+                        div { ( job.item.blender_version.to_string() ) };
+                        button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job_id})) hx-target="#workplace" { "Delete Job" };
+                        
+                        @for img in list {
+                            tr {
+                                td {
+                                    img src=(format!( "{}", convert_file_src(img)));
+                                }
+                            }
+                        }
+                    };
+                )
+                .0)
         }
         None => Ok(html!(
         div {

@@ -37,7 +37,7 @@ anyhow = "^1.0"
 async-trait = "^0.1"
 async-std = "^1.13"
 blend = "^0.8"
-blender = { path = "./../blender/" }
+blender = { path = "./../blender_rs/" }
 libp2p = { version = "^0.55", features = [
     "mdns",
     "macros",
