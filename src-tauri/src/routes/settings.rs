@@ -127,7 +127,7 @@ pub async fn fetch_blender_installation(
 }
 
 #[command]
-pub fn delete_blender(path: &str) -> Result<(), ()> {
+pub fn delete_blender(_path: &str) -> Result<(), ()> {
     todo!("Impl function to delete blender and its local contents");
 }
 

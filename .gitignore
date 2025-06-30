@@ -41,3 +41,4 @@ Cargo.lock
 
 # schemas always update and appear diff on every
 ./src-tauri/gen/*
+blender_rs/examples/assets/*.png

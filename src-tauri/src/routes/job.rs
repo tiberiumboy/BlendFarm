@@ -92,14 +92,14 @@ fn fetch_img_result(path: &PathBuf) -> Option<Vec<PathBuf>> {
     match path.read_dir() { // read the directory content
         Ok(dir) => {    
             let mut list = dir
-            .filter_map(|res| res.ok()) // collect valid result
-            .map(|ent| ent.path())  // collect path from Directory entry result
-            .filter(|path|  
-                path.extension()
-                    .map_or(false, |ext| ext == "png")
-                )
-            .collect::<Vec<PathBuf>>();   // collect the result into array list
-            list.sort();
+                .filter_map(|res| res.ok()) // collect valid result
+                .map(|ent| ent.path())  // collect path from Directory entry result
+                .filter(|path|  
+                    path.extension()
+                        .map_or(false, |ext| ext == "png")
+                    )
+                .collect::<Vec<PathBuf>>();   // collect the result into array list
+            list.sort();    // the list is not organzied, sort the list after collecting data
             Some(list)
         },
         Err(e) => {
@@ -144,7 +144,7 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
             // Something to add for immediate preview and feedback from render result
             // this is to fetch the render collection
             let result = fetch_img_result(&job.item.output);
-
+            
             Ok(html!(
                 div {
                         p { "Job Detail" };
@@ -157,7 +157,7 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
                             @for img in list {
                                 tr {
                                     td {
-                                        img src=(convert_file_src(&img));
+                                        img width="120px" src=(convert_file_src(&img));
                                     }
                                 }
                             }
