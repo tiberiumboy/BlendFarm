@@ -124,7 +124,6 @@ fn convert_file_src(path: &PathBuf) -> String {
 
 #[command(async)]
 pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, ()> {
-    // TODO: ask for the key to fetch the job details.
     let (sender, mut receiver) = mpsc::channel(0);
     let job_id = Uuid::from_str(job_id).map_err(|e| {
         eprintln!("Unable to parse uuid? \n{e:?}");
@@ -176,8 +175,10 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
 }
 
 // we'll need to figure out more about this? How exactly are we going to update the job?
-// #[command(async)]
-// pub fn update_job()
+#[command(async)]
+pub fn update_job() {
+    todo!("Figure out the implementation to update the job status for example?");
+}
 
 /// just delete the job from database. Notify peers to abandon task matches job_id
 #[command(async)]
