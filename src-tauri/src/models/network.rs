@@ -16,7 +16,7 @@ use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::identity;
 use libp2p::kad::RecordKey; // QueryId was removed
 use libp2p::swarm::SwarmEvent;
-use libp2p::{kad, mdns, swarm::Swarm, tcp, Multiaddr, PeerId, StreamProtocol, SwarmBuilder};
+use libp2p::{Multiaddr, PeerId, StreamProtocol, SwarmBuilder, kad, mdns, swarm::Swarm, tcp};
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
 use machine_info::Machine;
 use serde::{Deserialize, Serialize};
@@ -185,7 +185,8 @@ pub enum StatusEvent {
 type PeerIdString = String;
 
 // Must be serializable to send data across network
-#[derive(Debug, Serialize, Deserialize)] // Clone,
+// issue with this is that this cannot be convert into Encode,Decode by bincode. Instead we'll have to
+#[derive(Debug, Serialize, Deserialize)]
 pub enum NodeEvent {
     Hello(PeerIdString, ComputerSpec),
     Disconnected {
@@ -475,7 +476,7 @@ impl NetworkService {
             // See where this is being used?
             Command::JobStatus(host_name, event) => {
                 // convert data into json format.
-                let data = bincode::serialize(&event).unwrap();
+                let data = serde_json::to_string(&event).unwrap();
 
                 // currently using a hack by making the target machine subscribe to their hostname.
                 // the manager will send message to that specific hostname as target instead.
@@ -500,7 +501,9 @@ impl NetworkService {
             // TODO: need to figure out where this is called
             Command::NodeStatus(status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
-                let data = bincode::serialize(&status).unwrap();
+                // let config = Configuration::default();
+                // let data = bincode::encode_to_vec(&status, config).unwrap();
+                let data = serde_json::to_string(&status).unwrap();
                 let topic = IdentTopic::new(STATUS);
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to publish gossip message: {e:?}");
@@ -572,8 +575,7 @@ impl NetworkService {
                 let spec = ComputerSpec::new(&mut machine);
                 let local_peer_id = self.swarm.local_peer_id();
                 let node_event = NodeEvent::Hello(local_peer_id.to_base58(), spec);
-                let data = bincode::serialize(&node_event)
-                    .expect("Should be able to serialize this data?");
+                let data = serde_json::to_string(&node_event).unwrap();
                 let topic = IdentTopic::new(&NODE.to_string());
                 for (peer_id, address) in peers {
                     println!("Discovered [{peer_id:?}] {address:?}");
@@ -630,7 +632,7 @@ impl NetworkService {
             // what is propagation source? can we use this somehow?
             gossipsub::Event::Message { message, .. } => match message.topic.as_str() {
                 // if the topic is JOB related, assume data as JobEvent
-                JOB => match bincode::deserialize::<JobEvent>(&message.data) {
+                JOB => match serde_json::from_slice::<JobEvent>(&message.data) {
                     Ok(job_event) => {
                         // I don't think this function is called?
                         println!("Is this function used?");
@@ -643,7 +645,7 @@ impl NetworkService {
                     }
                 },
                 // Node based event awareness
-                NODE => match bincode::deserialize::<NodeEvent>(&message.data) {
+                NODE => match serde_json::from_slice::<NodeEvent>(&message.data) {
                     Ok(node_event) => {
                         if let Err(e) = self.sender.send(Event::NodeStatus(node_event)).await {
                             eprintln!("Something failed? {e:?}");

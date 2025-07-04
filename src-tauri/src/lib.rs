@@ -27,7 +27,7 @@ use dotenvy::dotenv;
 use models::network;
 use services::data_store::sqlite_task_store::SqliteTaskStore;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
-use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::sync::Arc;
 use tokio::spawn;
 use tokio::sync::RwLock;
@@ -97,4 +97,15 @@ pub async fn run() {
             .await
             .map_err(|e| eprintln!("Fail to run Tauri app! {e:?}")),
     };
+}
+
+#[cfg(test)]
+mod test {
+    use crate::config_sqlite_db;
+
+    #[tokio::test]
+    pub async fn validate_creating_database_structure() {
+        let conn = config_sqlite_db().await;
+        assert!(conn.is_ok());
+    }
 }

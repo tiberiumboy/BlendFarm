@@ -25,8 +25,8 @@ use blender::{
     models::download_link::DownloadLink,
 };
 use futures::{
-    channel::mpsc::{self, Receiver},
     SinkExt, StreamExt,
+    channel::mpsc::{self, Receiver},
 };
 use std::path::Path;
 use thiserror::Error;
@@ -48,7 +48,7 @@ enum CliError {
 
 pub struct CliApp {
     manager: BlenderManager,
-    task_store: Arc<RwLock<(dyn TaskStore + Send + Sync + 'static)>>,
+    task_store: Arc<RwLock<dyn TaskStore + Send + Sync + 'static>>,
     settings: ServerSetting,
     // The idea behind this is to let the network manager aware that the client side of the app is busy working on current task.
     // it would be nice to receive information and notification about this current client status somehow.
@@ -58,7 +58,7 @@ pub struct CliApp {
 }
 
 impl CliApp {
-    pub fn new(task_store: Arc<RwLock<(dyn TaskStore + Send + Sync + 'static)>>) -> Self {
+    pub fn new(task_store: Arc<RwLock<dyn TaskStore + Send + Sync + 'static>>) -> Self {
         let manager = BlenderManager::load();
         Self {
             settings: ServerSetting::load(),
@@ -196,7 +196,9 @@ impl CliApp {
                         &Blender::from_executable(exe).expect("Received invalid blender copy!")
                     }
                     Err(e) => {
-                        println!("No client on network is advertising target blender installation! {e:?}");
+                        println!(
+                            "No client on network is advertising target blender installation! {e:?}"
+                        );
                         &self
                             .manager
                             .fetch_blender(&version)
