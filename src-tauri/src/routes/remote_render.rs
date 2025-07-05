@@ -5,56 +5,69 @@ for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
 use super::util::select_directory;
-use crate::models::app_state::AppState;
+use crate::{models::app_state::AppState, services::tauri_app::UiCommand};
 use blender::blender::Blender;
+use futures::{SinkExt, StreamExt, channel::mpsc};
 use maud::html;
 use semver::Version;
 use std::path::PathBuf;
-use tauri::{command, ipc::Channel, AppHandle, State};
+use tauri::{AppHandle, State, command};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FilePath;
 use tokio::sync::Mutex;
 
 // todo break commands apart, find a way to get the list of versions without using appstate?
 // we're using appstate to access invoker commands. the invoker needs to send us info
-async fn list_versions(app_state: &AppState) -> Vec<Version> {
+async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
     // TODO: see if there's a better way to get around this problematic function
     /*
        Issues: I'm noticing a significant delay of behaviour event happening here when connected online.
        When connected online, BlenderManager seems to hold up to approximately 2-3 seconds before the remaining content fills in.
        Offline loads instant, which is exactly the kind of behaviour I expect to see from this application.
     */
-    let manager = app_state.manager.write().await;
-    let mut versions = Vec::new();
-
-    // fetch local installation first.
-    let mut local = manager
-        .get_blenders()
-        .iter()
-        .map(|b| b.get_version().clone())
-        .collect::<Vec<Version>>();
-
-    if !local.is_empty() {
-        versions.append(&mut local);
+    let (sender, mut receiver) = mpsc::channel(1);
+    let event = UiCommand::ListVersions(sender);
+    if let Err(e) = app_state.invoke.send(event).await {
+        eprintln!("Fail to send event! {e:?}");
+        return Vec::new();
     }
 
-    // then display the rest of the download list
-    if let Some(downloads) = manager.fetch_download_list() {
-        let mut item = downloads
-            .iter()
-            .map(|d| d.get_version().clone())
-            .collect::<Vec<Version>>();
-        versions.append(&mut item);
-    };
+    let res = receiver.select_next_some().await;
+    match res {
+        Some(list) => list,
+        None => Vec::new(),
+    }
 
-    versions
+    // let mut versions = Vec::new();
+
+    // // fetch local installation first.
+    // let mut local = manager
+    //     .get_blenders()
+    //     .iter()
+    //     .map(|b| b.get_version().clone())
+    //     .collect::<Vec<Version>>();
+
+    // if !local.is_empty() {
+    //     versions.append(&mut local);
+    // }
+
+    // // then display the rest of the download list
+    // if let Some(downloads) = manager.fetch_download_list() {
+    //     let mut item = downloads
+    //         .iter()
+    //         .map(|d| d.get_version().clone())
+    //         .collect::<Vec<Version>>();
+    //     versions.append(&mut item);
+    // };
+
+    // versions
 }
 
 /// List all of the available blender version.
 #[command(async)]
 pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let server = state.lock().await;
-    let versions = list_versions(&server).await;
+    let mut server = state.lock().await;
+    let versions = list_versions(&mut server).await;
 
     Ok(html!(
         div {
@@ -72,33 +85,31 @@ pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<Str
 /// This function will read the file and display another dialog prompt for additional detail before continue to display the result from import_blend()
 #[command]
 pub async fn create_new_job(
-    state: State<'_, Mutex<AppHandle>>,
-    // state: State<'_, Mutex<AppState>>,
-) -> 
-Result<String, ()>
-{
+    handle: State<'_, Mutex<AppHandle>>,
+    state: State<'_, Mutex<AppState>>,
+) -> Result<String, String> {
     let mut path: Option<PathBuf> = None;
     // scope to lock apphandle
     {
-        let app = state.lock().await; 
+        let app = handle.lock().await;
         path = match app
             .dialog()
             .file()
             .add_filter("Blender", &["blend"])
             .blocking_pick_file()
-            {
-                Some(file_path) => match file_path {
-                    FilePath::Path(path) => Some(path),
-                    FilePath::Url(uri) => Some(uri.as_str().into()),
-                },
-                None => return Err("No file selected".into()),
-            };
+        {
+            Some(file_path) => match file_path {
+                FilePath::Path(path) => Some(path),
+                FilePath::Url(uri) => Some(uri.as_str().into()),
+            },
+            None => return Err("No file selected".into()),
+        };
     }
-    
-    if let Some(path) =path {
-        return import_blend(state, path).await
+
+    if let Some(path) = path {
+        return import_blend(state, path).await;
     }
-    Err(())
+    Err("No path was provided!".to_owned())
 }
 
 #[command]
@@ -117,10 +128,10 @@ pub async fn import_blend(
     state: State<'_, Mutex<AppState>>,
     path: PathBuf,
 ) -> Result<String, String> {
-    let server = state.lock().await;
     // for some reason this function takes longer online than it does offline?
     // TODO: set unit test to make sure this function doesn't repetitively call blender.org everytime it's called.
-    let versions = list_versions(&server).await;
+    let mut app_state = state.lock().await;
+    let versions = list_versions(&mut app_state).await;
 
     if path.file_name() == None {
         return Err("Should be a valid file!".to_owned());

@@ -1,6 +1,7 @@
-use crate::models::{app_state::AppState, server_setting::ServerSetting};
+use crate::{models::{app_state::AppState, server_setting::ServerSetting}, services::tauri_app::{BlenderAction, UiCommand}};
 use std::{env, path::PathBuf, str::FromStr, sync::Arc, process::Command};
 use blender::blender::Blender;
+use futures::{channel::mpsc, SinkExt, StreamExt};
 use maud::html;
 use semver::Version;
 use serde_json::json;
@@ -35,12 +36,19 @@ pub fn open_dir(path: &str) -> Result<(),()> {
 
 #[command(async)]
 pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result<String, ()> {
-    let app_state = state.lock().await;
-    let manager = app_state.manager.read().await;
-    let localblenders = manager.get_blenders();
+    let (sender, mut receiver) = mpsc::channel(0);
+    let mut app_state = state.lock().await;
+    
+    let event = UiCommand::ListBlenderInstall(sender);
+    if let Err(e) = app_state.invoke.send(event).await {
+        eprintln!("fail to send mpsc to event! {e:?}");
+        return Err(())
+    }
+
+    let list = receiver.select_next_some().await.expect("Should expect data back!");
 
     Ok(html! {
-        @for blend in localblenders {
+        @for blend in list {
             tr {
                 td {
                     label title=(blend.get_executable().to_str().unwrap()) {
@@ -96,34 +104,39 @@ pub async fn fetch_blender_installation(
     state: State<'_, Mutex<AppState>>,
     version: &str,
 ) -> Result<Blender, String> {
-    let app_state = state.lock().await;
-    let mut manager = app_state.manager.write().await;
     let version = Version::parse(version).map_err(|e| e.to_string())?;
-    let blender = manager.fetch_blender(&version).map_err(|e| match e {
-        blender::manager::ManagerError::DownloadNotFound { arch, os, url } => {
-            format!("Download link not found! {arch} {os} {url}")
-        }
-        blender::manager::ManagerError::RequestError(request) => {
-            format!("Request error: {request}")
-        }
-        blender::manager::ManagerError::FetchError(fetch) => format!("Fetch error: {fetch}"),
-        blender::manager::ManagerError::IoError(io) => format!("IoError: {io}"),
-        blender::manager::ManagerError::UnsupportedOS(os) => format!("Unsupported OS {os}"),
-        blender::manager::ManagerError::UnsupportedArch(arch) => {
-            format!("Unsupported architecture! {arch}")
-        }
-        blender::manager::ManagerError::UnableToExtract(ctx) => {
-            format!("Unable to extract content! {ctx}")
-        }
-        blender::manager::ManagerError::UrlParseError(url) => format!("Url parse error: {url}"),
-        blender::manager::ManagerError::PageCacheError(cache) => {
-            format!("Page cache error! {cache}")
-        }
-        blender::manager::ManagerError::BlenderError { source } => {
-            format!("Blender error: {source}")
-        }
-    })?;
-    Ok(blender)
+    let app_state = state.lock().await;
+    let (sender, mut receiver) = mpsc::channel(1);
+    let event = UiCommand::Blender(BlenderAction::Get(version, sender));
+    app_state.invoke.send(event).await.unwrap();
+
+    let result = receiver.select_next_some().await;
+    
+    // let blender = manager.fetch_blender(&version).map_err(|e| match e {
+    //     blender::manager::ManagerError::DownloadNotFound { arch, os, url } => {
+    //         format!("Download link not found! {arch} {os} {url}")
+    //     }
+    //     blender::manager::ManagerError::RequestError(request) => {
+    //         format!("Request error: {request}")
+    //     }
+    //     blender::manager::ManagerError::FetchError(fetch) => format!("Fetch error: {fetch}"),
+    //     blender::manager::ManagerError::IoError(io) => format!("IoError: {io}"),
+    //     blender::manager::ManagerError::UnsupportedOS(os) => format!("Unsupported OS {os}"),
+    //     blender::manager::ManagerError::UnsupportedArch(arch) => {
+    //         format!("Unsupported architecture! {arch}")
+    //     }
+    //     blender::manager::ManagerError::UnableToExtract(ctx) => {
+    //         format!("Unable to extract content! {ctx}")
+    //     }
+    //     blender::manager::ManagerError::UrlParseError(url) => format!("Url parse error: {url}"),
+    //     blender::manager::ManagerError::PageCacheError(cache) => {
+    //         format!("Page cache error! {cache}")
+    //     }
+    //     blender::manager::ManagerError::BlenderError { source } => {
+    //         format!("Blender error: {source}")
+    //     }
+    // })?;
+    result.ok_or_else(|e| Err(e.to_string()))
 }
 
 #[command]
@@ -139,10 +152,15 @@ pub fn delete_blender(_path: &str) -> Result<(), ()> {
 pub async fn remove_blender_installation(
     state: State<'_, Mutex<AppState>>,
     blender: Blender,
-) -> Result<(), Error> {
+) -> Result<(), String> {
     let app_state = state.lock().await;
-    let mut manager = app_state.manager.write().await;
-    manager.remove_blender(&blender);
+    
+    let event = UiCommand::Blender(BlenderAction::Remove(blender));
+    if let Err(e) = app_state.invoke.send(event).await {
+        eprintln!("Fail to send blender action event! {e:?}");
+        return Err(e.to_string())
+    }
+    
     Ok(())
 }
 

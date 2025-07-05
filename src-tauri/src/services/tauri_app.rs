@@ -28,9 +28,10 @@ use crate::{
     routes::{job::*, remote_render::*, settings::*, util::*, worker::*},
 };
 use futures::{channel::mpsc::{self, Sender}, SinkExt, StreamExt};
-use blender::{manager::Manager as BlenderManager, models::mode::RenderMode};
+use blender::{blender::Blender, manager::Manager as BlenderManager, models::mode::RenderMode};
 use libp2p::PeerId;
 use maud::html;
+use semver::Version;
 use sqlx::{Pool, Sqlite};
 use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr, thread::sleep, time::Duration};
 use tauri::{self, command};
@@ -38,43 +39,100 @@ use tokio::{select, spawn, sync::Mutex};
 
 pub const WORKPLACE: &str = "workplace";
 
-#[derive(Debug)]
-pub enum SettingsEvent {
+#[derive(Debug, PartialEq)]
+pub enum SettingsAction {
     Update(ServerSetting),
 }
 
 #[derive(Debug)]
-pub enum UiCommand {
-    AddJobToNetwork(NewJobDto),
-    StartJob(JobId),
-    StopJob(JobId),
-    GetJob(JobId, Sender<Option<CreatedJobDto>>),
-    UploadFile(PathBuf),
-    RemoveJob(JobId),
-    ListJobs(Sender<Option<Vec<CreatedJobDto>>>),
-    ListWorker(Sender<Option<Vec<Worker>>>),
-    GetWorker(PeerId, Sender<Option<Worker>>),
-    SettingsEvent(SettingsEvent)
+pub enum BlenderAction {
+    Add(Blender),
+    List(Sender<Option<Vec<Blender>>>),
+    ListVersions(Sender<Option<Vec<Version>>>), // would it be ideal just to use List instead and let the user query the blender version here? What's the difference?
+    Get(Version, Sender<Option<Blender>>),
+    Disconnect(Blender),    // detach links associated with file path, but does not delete local installation!
+    Remove(Blender),    // deletes local installation of blender, use it as last resort option. (E.g. force cache clear/reinstall/ corrupted copy)
 }
 
-// custom implementation was required to omit Sender being viewed as foreign item type. (Sender from futures-channel does not impl PartialEq)
-// in this case of PartialEq, We do not care about comparing Sender, so Sender only variant returns true by default. (enum matches enum we're looking for)
-impl PartialEq for UiCommand {
+impl PartialEq for BlenderAction {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::AddJobToNetwork(l0), Self::AddJobToNetwork(r0)) => l0 == r0,
-            (Self::StartJob(l0), Self::StartJob(r0)) => l0 == r0,
-            (Self::StopJob(l0), Self::StopJob(r0)) => l0 == r0,
-            (Self::GetJob(l0, ..), Self::GetJob(r0, ..)) => l0.eq(r0),
-            (Self::UploadFile(l0), Self::UploadFile(r0)) => l0 == r0,
-            (Self::RemoveJob(l0), Self::RemoveJob(r0)) => l0 == r0,
-            (Self::ListJobs(..), Self::ListJobs(..)) => true,
-            (Self::ListWorker(..), Self::ListWorker(..)) => true,
-            (Self::GetWorker(l0, ..), Self::GetWorker(r0, ..)) => l0 == r0,
+            (Self::Add(l0), Self::Add(r0)) => l0 == r0,
+            (Self::List(..), Self::List(..)) => true,
+            (Self::ListVersions(..), Self::ListVersions(..)) => true,
+            (Self::Get(l0, ..), Self::Get(r0, ..)) => l0 == r0,
             _ => false,
         }
     }
 }
+
+#[derive(Debug)]
+pub enum JobAction {
+    StartJob(JobId),
+    StopJob(JobId),
+    GetJob(JobId, Sender<Option<CreatedJobDto>>),
+    RemoveJob(JobId),
+    ListJobs(Sender<Option<Vec<CreatedJobDto>>>),
+    AddJobToNetwork(NewJobDto)
+}
+
+impl PartialEq for JobAction {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::StartJob(l0), Self::StartJob(r0)) => l0 == r0,
+            (Self::StopJob(l0), Self::StopJob(r0)) => l0 == r0,
+            (Self::GetJob(l0, ..), Self::GetJob(r0, ..)) => l0 == r0,
+            (Self::RemoveJob(l0), Self::RemoveJob(r0)) => l0 == r0,
+            (Self::ListJobs(..), Self::ListJobs(..)) => true,
+            (Self::AddJobToNetwork(l0), Self::AddJobToNetwork(r0)) => l0 == r0,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum WorkerAction {
+    GetWorker(PeerId, Sender<Option<Worker>>),
+    ListWorker(Sender<Option<Vec<Worker>>>),
+}
+
+impl PartialEq for WorkerAction {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::GetWorker(l0, ..), Self::GetWorker(r0, ..)) => l0 == r0,
+            (Self::ListWorker(..), Self::ListWorker(..)) => true,
+            _ => false,
+        }
+    }
+}
+    
+    #[derive(Debug, PartialEq)]
+    pub enum UiCommand {
+        Job(JobAction),
+        UploadFile(PathBuf),
+        Worker(WorkerAction),
+        Settings(SettingsAction),
+    Blender(BlenderAction),
+}
+
+// custom implementation was required to omit Sender being viewed as foreign item type. (Sender from futures-channel does not impl PartialEq)
+// in this case of PartialEq, We do not care about comparing Sender, so Sender only variant returns true by default. (enum matches enum we're looking for)
+// impl PartialEq for UiCommand {
+//     fn eq(&self, other: &Self) -> bool {
+//         match (self, other) {
+//             (Self::AddJobToNetwork(l0), Self::AddJobToNetwork(r0)) => l0 == r0,
+//             (Self::StartJob(l0), Self::StartJob(r0)) => l0 == r0,
+//             (Self::StopJob(l0), Self::StopJob(r0)) => l0 == r0,
+//             (Self::GetJob(l0, ..), Self::GetJob(r0, ..)) => l0.eq(r0),
+//             (Self::UploadFile(l0), Self::UploadFile(r0)) => l0 == r0,
+//             (Self::RemoveJob(l0), Self::RemoveJob(r0)) => l0 == r0,
+//             (Self::ListJobs(..), Self::ListJobs(..)) => true,
+//             (Self::ListWorker(..), Self::ListWorker(..)) => true,
+//             (Self::GetWorker(l0, ..), Self::GetWorker(r0, ..)) => l0 == r0,
+//             _ => false,
+//         }
+//     }
+// }
 
 pub struct TauriApp{
     // I need the peer's address?
@@ -241,9 +299,40 @@ impl TauriApp {
     async fn handle_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
         // println!("Received command from UI: {cmd:?}");
         match cmd {
-            UiCommand::SettingsEvent(event) => {
+            UiCommand::ListBlenderInstall(mut sender) => {
+                let localblenders = self.manager.get_blenders().to_owned();
+                if let Err(e) = sender.send(Some(localblenders)).await {
+                    eprintln!("Fail to send back list of blenders to caller! {e:?}");
+                }            
+            }
+            UiCommand::ListVersions(mut sender) => {
+                let mut versions = Vec::new();
+
+                // fetch local installation first.
+                let mut local = self.manager
+                    .get_blenders()
+                    .iter()
+                    .map(|b| b.get_version().clone())
+                    .collect::<Vec<Version>>();
+
+                if !local.is_empty() {
+                    versions.append(&mut local);
+                }
+
+                // then display the rest of the download list
+                if let Some(downloads) = self.manager.fetch_download_list() {
+                    let mut item = downloads
+                        .iter()
+                        .map(|d| d.get_version().clone())
+                        .collect::<Vec<Version>>();
+                    versions.append(&mut item);
+                };
+
+                sender.send(Some(versions)).await;
+            }
+            UiCommand::Settings(event) => {
                 match event {
-                    SettingsEvent::Update(new_settings) => {
+                    SettingsAction::Update(new_settings) => {
                         self.settings = new_settings;
                         self.settings.save();
                     }
