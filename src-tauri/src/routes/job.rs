@@ -8,7 +8,7 @@ use maud::html;
 use semver::Version;
 use serde_json::json;
 use std::{ops::Range, path::PathBuf, str::FromStr};
-use tauri::{command, State};
+use tauri::{State, command};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -89,19 +89,17 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, Stri
 }
 
 fn fetch_img_result(path: &PathBuf) -> Option<Vec<PathBuf>> {
-    match path.read_dir() { // read the directory content
-        Ok(dir) => {    
+    match path.read_dir() {
+        // read the directory content
+        Ok(dir) => {
             let mut list = dir
                 .filter_map(|res| res.ok()) // collect valid result
-                .map(|ent| ent.path())  // collect path from Directory entry result
-                .filter(|path|  
-                    path.extension()
-                        .map_or(false, |ext| ext == "png")
-                    )
-                .collect::<Vec<PathBuf>>();   // collect the result into array list
-            list.sort();    // the list is not organzied, sort the list after collecting data
+                .map(|ent| ent.path()) // collect path from Directory entry result
+                .filter(|path| path.extension().map_or(false, |ext| ext == "png"))
+                .collect::<Vec<PathBuf>>(); // collect the result into array list
+            list.sort(); // the list is not organzied, sort the list after collecting data
             Some(list)
-        },
+        }
         Err(e) => {
             eprintln!("Unable to find directory! {:?} | {e:?}", &path);
             None
@@ -138,12 +136,11 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
 
     match receiver.select_next_some().await {
         Some(job) => {
-            
             // TODO: it would be nice to provide ffmpeg gif result of the completed render image.
             // Something to add for immediate preview and feedback from render result
             // this is to fetch the render collection
             let result = fetch_img_result(&job.item.output);
-            
+
             Ok(html!(
                 div {
                         p { "Job Detail" };
@@ -151,7 +148,7 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
                         div { ( job.item.output.to_str().unwrap() ) };
                         div { ( job.item.blender_version.to_string() ) };
                         button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job_id})) hx-target="#workplace" { "Delete Job" };
-                        
+                        p;
                         @if let Some(list) = result {
                             @for img in list {
                                 tr {
@@ -194,4 +191,15 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Resu
     }
 
     remote_render_page().await
+}
+
+#[cfg(test)]
+mod test {
+    /*
+        In this test suite, we are going to simply invoke all of the api function that are exposed to the UI.
+        Each API should have at least a minimum 1 passing test and 4 expect failures on certain edge cases
+        (malform input entry, wrong json syntax, incomplete form, etc)
+
+        TODO: See about how we can get test coverage that handle all possible cases
+    */
 }

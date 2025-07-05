@@ -188,8 +188,6 @@ impl TauriApp {
         }
     }
 
-    
-
     fn generate_tasks(job: &CreatedJobDto, file_name: PathBuf, chunks: i32, hostname: &str) -> Vec<Task> {
         // mode may be removed soon, we'll see?
         let (time_start, time_end) = match &job.item.mode {
@@ -488,4 +486,40 @@ impl BlendFarm for TauriApp {
         app.run(|_, _| {});
         Ok(())
     }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::config_sqlite_db;
+    use super::*;
+    
+    // just omitting this for now until I get back to this to correct some of the error message display here.
+    #[allow(dead_code)]
+    async fn get_sqlite_conn() -> Pool<Sqlite> {
+        let pool = config_sqlite_db().await;
+        assert!(pool.is_ok());
+        pool.expect("Assert above should force this to be ok()")
+    }
+
+    /*
+    #[tokio::test]
+    async fn clear_workers_success() {
+        let pool = get_sqlite_conn().await;
+
+        // create the app interface
+        let app = TauriApp::new(pool).await;
+        assert!(app.is_ok());
+        let app = app.clear_workers_collection().await;
+
+        assert_eq!(app.worker_store.list_workers().await, 0);
+    }
+
+    #[tokio::test]
+    async fn check_index_page() {
+        let pool = get_sqlite_conn().await;
+
+        let app = TauriApp::new(&pool).await;
+        
+    }
+     */
 }

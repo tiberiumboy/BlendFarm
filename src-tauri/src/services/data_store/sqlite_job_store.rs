@@ -9,7 +9,7 @@ use crate::{
 };
 use blender::models::mode::RenderMode;
 use semver::Version;
-use sqlx::{query_as, FromRow, SqlitePool};
+use sqlx::{FromRow, SqlitePool, query_as};
 use uuid::Uuid;
 
 pub struct SqliteJobStore {
@@ -22,7 +22,7 @@ impl SqliteJobStore {
     }
 }
 
-// this information is used to help transcribe the data into database acceptable format.
+// this information is used to help transpose data into database format.
 #[derive(Debug, Clone, FromRow)]
 struct JobDAO {
     id: String,
@@ -124,5 +124,49 @@ impl JobStore for SqliteJobStore {
             eprintln!("Fail to delete job! {e:?}");
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{config_sqlite_db, models::project_file};
+
+    use super::*;
+
+    async fn get_sqlite_pool() -> SqlitePool {
+        let pool = config_sqlite_db().await;
+        assert!(pool.is_ok());
+        pool.expect("Should be ok")
+    }
+
+    async fn scaffold_job_store() -> JobStore {
+        let conn = get_sqlite_pool().await;
+        SqliteJobStore::new(conn)
+    }
+
+    fn generate_fake_job() -> Job {
+        let mode = RenderMode::Frame(1);
+        let project_file =
+            PathBuf::from("./blender_rs/examples/assets/test.blend".to_owned()).unwrap();
+        let version = Version::new(4, 4, 0);
+        let output = PathBuf::from("./blender_rs/examples/assets/".to_owned()).unwrap();
+        Job::new(mode, project_file, version, output)
+    }
+
+    #[tokio::test]
+    async fn can_create_worker_success() {
+        let conn = get_sqlite_pool().await;
+        let job_store = SqliteJobStore::new(conn).await;
+
+        let fake_job = generate_fake_job();
+
+        let result = job_store.add_job(fake_job).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn fetch_job_success() {
+        let conn = get_sqlite_pool().await;
+        let job_store = SqliteJobStore::new(conn).await;
     }
 }
