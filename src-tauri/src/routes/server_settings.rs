@@ -1,8 +1,7 @@
+use futures::SinkExt;
 use tauri::{command, State};
-// TODO: Double verify that this is the correct Mutex usage throughout the application
 use tokio::sync::Mutex;
-
-use crate::models::{app_state::AppState, server_setting::ServerSetting};
+use crate::{models::{app_state::AppState, server_setting::ServerSetting}, services::tauri_app::{UiCommand, SettingsEvent}};
 
 
 #[command(async)]
@@ -15,11 +14,10 @@ pub async fn set_server_settings(
     state: State<'_, Mutex<AppState>>,
     new_settings: ServerSetting,
 ) -> Result<(), String> {
-    // maybe I'm a bit confused here?
-    let app_state = state.lock().await;
-    let mut old_setting = app_state.setting.write().await;
-    new_settings.save();
-    *old_setting = new_settings;
-
+    let mut app_state = state.lock().await;
+    let event = UiCommand::SettingsEvent(SettingsEvent::Update(new_settings));
+    if let Err(e) = app_state.invoke.send(event).await {
+        return Err(e.to_string())
+    }
     Ok(())
 }

@@ -2,12 +2,12 @@ use super::remote_render::remote_render_page;
 use crate::models::{app_state::AppState, job::Job};
 use crate::services::tauri_app::UiCommand;
 use blender::models::mode::RenderMode;
-use futures::channel::mpsc::{self, Sender};
+use futures::channel::mpsc::{self};
 use futures::{SinkExt, StreamExt};
 use maud::html;
 use semver::Version;
 use serde_json::json;
-use std::{ops::Range, path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr};
 use tauri::{State, command};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -23,46 +23,21 @@ pub async fn create_job(
     path: PathBuf,
     output: PathBuf,
 ) -> Result<String, String> {
-    let mut app_state = state.lock().await;
-    _create_job(&start, &end, version, path, output, &mut app_state.invoke).await
-}
-
-// Internal use of the function - useful to perform unit test. outside of public api
-// I would like to find a way to use validation for Range somehow?
-async fn _create_job(
-    start: &str,
-    end: &str,
-    blender_version: Version,
-    project_file: PathBuf,
-    output: PathBuf,
-    sender: &mut Sender<UiCommand>,
-) -> Result<String, String> {
-    let mut start = start.parse::<i32>().map_err(|e| e.to_string())?;
-    let mut end = end.parse::<i32>().map_err(|e| e.to_string())?;
-    // stop if the parser fail to parse.
-
-    // start needs to be the lowest number of all. If it's backward, flip it around.
-    if start > end {
-        (start, end) = (end, start);
-    }
-
-    let mode = if start + 1 == end {
-        RenderMode::Frame(start)
-    } else {
-        RenderMode::Animation(Range { start, end })
-    };
-
+    let mode = RenderMode::try_new(&start, &end).map_err(|e| e.to_string())?;
+    
     // create a container to hold job info
     let job = Job {
         mode,
-        project_file,
-        blender_version,
-        output,
+        project_file: path,
+        blender_version: version,
+        output, 
     };
-
+    
+    // maybe I was awaiting for the lock?
     let add = UiCommand::AddJobToNetwork(job);
-    sender.send(add).await.map_err(|e| e.to_string())?;
-    remote_render_page().await
+    let mut app_state = state.lock().await;
+    app_state.invoke.send(add).await.map_err(|e| e.to_string())?;
+    Ok(remote_render_page())
 }
 
 #[command(async)]
@@ -199,6 +174,8 @@ pub fn update_job() {
 /// just delete the job from database. Notify peers to abandon task matches job_id
 #[command(async)]
 pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, String> {
+    // question - why? Why are we encapsulating this? 
+    // TODO: first make the app works, then see if this does the same behaviour without this bracket encapsulation.
     {
         // here we're deleting it from the database
         let mut app_state = state.lock().await;
@@ -209,7 +186,7 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Resu
         }
     }
 
-    remote_render_page().await
+    Ok(remote_render_page())
 }
 
 #[cfg(test)]
@@ -222,49 +199,65 @@ mod test {
         TODO: See about how we can get test coverage that handle all possible cases
     */
 
+    use anyhow::Error;
     //#region create_jobs
-
-    use blender::manager::Manager;
     use futures::channel::mpsc::Receiver;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
-
+    use ntest::timeout;
     use super::*;
-    use crate::models::server_setting::ServerSetting;
+    use tauri::webview::InvokeRequest;
+    use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
+    use crate::{config_sqlite_db, services::tauri_app::TauriApp};
 
-    fn scaffold_app_state() -> (AppState, Receiver<UiCommand>) {
-        let manager = Arc::new(RwLock::new(Manager::load()));
-        let setting = Arc::new(RwLock::new(ServerSetting::load()));
+    async fn scaffold_app() -> Result<(tauri::App<MockRuntime>, Receiver<UiCommand>), Error> {
         let (invoke, receiver) = mpsc::channel(0);
-        (
-            AppState {
-                manager,
-                setting,
-                invoke,
-            },
-            receiver,
-        )
+        let conn = config_sqlite_db().await?;
+        let app = TauriApp::new(&conn).await;
+        
+        let app = app.config_tauri_builder(mock_builder(), invoke)?;
+        Ok((
+            app,
+            receiver
+        ))
     }
 
+    // this took over 60 seconds. not good.
     #[tokio::test]
+    #[timeout(1000)]
     async fn create_job_successfully() {
-        let (mut app_state, receiver) = scaffold_app_state();
-        let state = Mutex::new(app_state);
-        let start = "1";
-        let end = "2";
-        let version = Version::new(4, 1, 0);
-        let path = PathBuf::from("./blender_rs/examples/assets/test.blend".to_owned());
+        println!("Scaffolding app...");
+        let (app,mut receiver) = scaffold_app().await.unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+        let start = "1".to_owned();
+        let end = "2".to_owned();
+        let blender_version = Version::new(4, 1, 0);
+        let project_file = PathBuf::from("./blender_rs/examples/assets/test.blend".to_owned());
         let output = PathBuf::from("./blender_rs/examples/assets/".to_owned());
 
-        let result = _create_job(start, end, version, path, output, &mut app_state.invoke).await;
-        assert!(result.is_ok());
+        println!("create a job...");
+        let res = tauri::test::get_ipc_response(&webview, InvokeRequest {
+            cmd: "index".into(),
+            callback: tauri::ipc::CallbackFn(0),
+            error: tauri::ipc::CallbackFn(1),
+            url: "tauri://localhost".parse().unwrap(),
+            body: tauri::ipc::InvokeBody::default(),
+            headers: Default::default(),
+            invoke_key: tauri::test::INVOKE_KEY.to_string(),
+        }).map(|b| b.deserialize::<String>().unwrap());
+
+        println!("{res:?}");
+
+        let expected_mode = RenderMode::Frame(1);
+        let job = Job::new(expected_mode, project_file, blender_version, output);
 
         // make sure to receive AddJobToNetwork event. If this doesn't work then no job will be added across network distribution.
-        if let event = receiver.select_next_some().await {
-            // how do I compare the enum then?
-            assert_eq!(event, UiCommand::AddJobToNetwork(_));
-        }
+        println!("Wait to hear the reply back...");
+        // TODO: impl timeout here?
+        let event = receiver.select_next_some().await;
+        println!("comparing which should end this function I hope...");
+        assert_eq!(event, UiCommand::AddJobToNetwork(job));
+        println!("sanity check...");
     }
+
 
     //#endregion
 }

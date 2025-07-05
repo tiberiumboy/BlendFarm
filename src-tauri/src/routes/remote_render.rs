@@ -10,18 +10,19 @@ use blender::blender::Blender;
 use maud::html;
 use semver::Version;
 use std::path::PathBuf;
-use tauri::{command, AppHandle, State};
+use tauri::{command, ipc::Channel, AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FilePath;
 use tokio::sync::Mutex;
 
 // todo break commands apart, find a way to get the list of versions without using appstate?
+// we're using appstate to access invoker commands. the invoker needs to send us info
 async fn list_versions(app_state: &AppState) -> Vec<Version> {
     // TODO: see if there's a better way to get around this problematic function
     /*
        Issues: I'm noticing a significant delay of behaviour event happening here when connected online.
        When connected online, BlenderManager seems to hold up to approximately 2-3 seconds before the remaining content fills in.
-       Offline loads instant, which is exactly the kind of behaviour I wanted to use for this application.
+       Offline loads instant, which is exactly the kind of behaviour I expect to see from this application.
     */
     let manager = app_state.manager.write().await;
     let mut versions = Vec::new();
@@ -69,28 +70,39 @@ pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<Str
 
 /// Ask Tauri to display ui blocking dialog and return file path to blender.
 /// This function will read the file and display another dialog prompt for additional detail before continue to display the result from import_blend()
-#[command(async)]
+#[command]
 pub async fn create_new_job(
-    state: State<'_, Mutex<AppState>>,
-    app: AppHandle,
-) -> Result<String, String> {
-    let path = match app
-        .dialog()
-        .file()
-        .add_filter("Blender", &["blend"])
-        .blocking_pick_file()
+    state: State<'_, Mutex<AppHandle>>,
+    // state: State<'_, Mutex<AppState>>,
+) -> 
+Result<String, ()>
+{
+    let mut path: Option<PathBuf> = None;
+    // scope to lock apphandle
     {
-        Some(file_path) => match file_path {
-            FilePath::Path(path) => path,
-            FilePath::Url(uri) => uri.as_str().into(),
-        },
-        None => return Err("No file selected".into()),
-    };
-    import_blend(state, path).await
+        let app = state.lock().await; 
+        path = match app
+            .dialog()
+            .file()
+            .add_filter("Blender", &["blend"])
+            .blocking_pick_file()
+            {
+                Some(file_path) => match file_path {
+                    FilePath::Path(path) => Some(path),
+                    FilePath::Url(uri) => Some(uri.as_str().into()),
+                },
+                None => return Err("No file selected".into()),
+            };
+    }
+    
+    if let Some(path) =path {
+        return import_blend(state, path).await
+    }
+    Err(())
 }
 
-#[command(async)]
-pub async fn update_output_field(app: AppHandle) -> Result<String, ()> {
+#[command]
+pub async fn update_output_field(app: State<'_, Mutex<AppHandle>>) -> Result<String, ()> {
     match select_directory(app).await {
         Ok(path) => Ok(html!(
             input type="text" class="form-input" placeholder="Output Path" name="output" value=(path) readonly={true};
@@ -107,6 +119,7 @@ pub async fn import_blend(
 ) -> Result<String, String> {
     let server = state.lock().await;
     // for some reason this function takes longer online than it does offline?
+    // TODO: set unit test to make sure this function doesn't repetitively call blender.org everytime it's called.
     let versions = list_versions(&server).await;
 
     if path.file_name() == None {
@@ -177,9 +190,9 @@ pub async fn import_blend(
     Ok(content.into_string())
 }
 
-#[command(async)]
-pub async fn remote_render_page() -> Result<String, String> {
-    let content = html! {
+#[command]
+pub fn remote_render_page() -> String {
+    html! {
         div class="content" {
             h1 { "Remote Jobs" };
 
@@ -194,7 +207,5 @@ pub async fn remote_render_page() -> Result<String, String> {
 
             div id="detail";
         };
-    };
-
-    Ok(content.0)
+    }.0
 }

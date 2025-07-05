@@ -1,3 +1,8 @@
+use std::env::current_dir;
+
 fn main() {
-    println!("Please read the example to learn more about Blender crate - ${project_path}/blender/examples/render/README.md ");
+    if let Ok(path) = current_dir() {
+        let project_path = path.to_string_lossy();
+        println!("Please read the example to learn more about Blender crate - ${}/examples/render/README.md", project_path);
+    }
 }

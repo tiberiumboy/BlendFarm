@@ -32,15 +32,16 @@ use blender::{manager::Manager as BlenderManager, models::mode::RenderMode};
 use libp2p::PeerId;
 use maud::html;
 use sqlx::{Pool, Sqlite};
-use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr, sync::Arc, thread::sleep, time::Duration};
-use tauri::{self, command, App};
-use tokio::{
-    select, spawn, sync::{
-        Mutex, RwLock,
-    }
-};
+use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr, thread::sleep, time::Duration};
+use tauri::{self, command};
+use tokio::{select, spawn, sync::Mutex};
 
 pub const WORKPLACE: &str = "workplace";
+
+#[derive(Debug)]
+pub enum SettingsEvent {
+    Update(ServerSetting),
+}
 
 #[derive(Debug)]
 pub enum UiCommand {
@@ -52,21 +53,24 @@ pub enum UiCommand {
     RemoveJob(JobId),
     ListJobs(Sender<Option<Vec<CreatedJobDto>>>),
     ListWorker(Sender<Option<Vec<Worker>>>),
-    GetWorker(PeerId, Sender<Option<Worker>>)
+    GetWorker(PeerId, Sender<Option<Worker>>),
+    SettingsEvent(SettingsEvent)
 }
 
+// custom implementation was required to omit Sender being viewed as foreign item type. (Sender from futures-channel does not impl PartialEq)
+// in this case of PartialEq, We do not care about comparing Sender, so Sender only variant returns true by default. (enum matches enum we're looking for)
 impl PartialEq for UiCommand {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::AddJobToNetwork(l0), Self::AddJobToNetwork(r0)) => l0 == r0,
             (Self::StartJob(l0), Self::StartJob(r0)) => l0 == r0,
             (Self::StopJob(l0), Self::StopJob(r0)) => l0 == r0,
-            (Self::GetJob(l0, l1), Self::GetJob(r0, r1)) => l0.eq(r0),
+            (Self::GetJob(l0, ..), Self::GetJob(r0, ..)) => l0.eq(r0),
             (Self::UploadFile(l0), Self::UploadFile(r0)) => l0 == r0,
             (Self::RemoveJob(l0), Self::RemoveJob(r0)) => l0 == r0,
-            (Self::ListJobs(l0), Self::ListJobs(r0)) => true,
-            (Self::ListWorker(l0), Self::ListWorker(r0)) => true,
-            (Self::GetWorker(l0, l1), Self::GetWorker(r0, r1)) => l0 == r0 && l1 == r1,
+            (Self::ListJobs(..), Self::ListJobs(..)) => true,
+            (Self::ListWorker(..), Self::ListWorker(..)) => true,
+            (Self::GetWorker(l0, ..), Self::GetWorker(r0, ..)) => l0 == r0,
             _ => false,
         }
     }
@@ -78,6 +82,7 @@ pub struct TauriApp{
     worker_store: SqliteWorkerStore,
     job_store: SqliteJobStore,
     settings: ServerSetting,
+    manager: BlenderManager
 }
 
 #[command]
@@ -120,23 +125,24 @@ impl TauriApp {
     pub async fn new(
         pool: &Pool<Sqlite>,
     ) -> Self {
-        let worker_store = SqliteWorkerStore::new(pool.clone());
-        let job_store = SqliteJobStore::new(pool.clone());
 
         Self {
             peers: Default::default(),
-            worker_store,
-            job_store,
+            worker_store: SqliteWorkerStore::new(pool.clone()),
+            job_store: SqliteJobStore::new(pool.clone()),
             settings: ServerSetting::load(),
+            manager: BlenderManager::load()
         }
     }
 
     // Create a builder to make Tauri application
     // Let's just use the controller in here anyway.
-    fn config_tauri_builder(&self, invoke: Sender<UiCommand>) -> Result<App, tauri::Error> {
+    pub fn config_tauri_builder<R: tauri::Runtime>(&self, builder: tauri::Builder<R>, invoke: Sender<UiCommand>) -> Result<tauri::App<R>, tauri::Error> {
         // I would like to find a better way to update or append data to render_nodes,
         // "Do not communicate with shared memory"
-        let builder = tauri::Builder::default()
+        let app_state = AppState { invoke };
+        let mut_app_state = Mutex::new(app_state);
+        Ok(builder
             .plugin(tauri_plugin_cli::init())
             .plugin(tauri_plugin_os::init())
             .plugin(tauri_plugin_fs::init())
@@ -144,21 +150,7 @@ impl TauriApp {
             .plugin(tauri_plugin_persisted_scope::init())
             .plugin(tauri_plugin_shell::init())
             .plugin(tauri_plugin_dialog::init())
-            .setup(|_| Ok(()));
-
-        // Hmm debatable?
-        let manager = Arc::new(RwLock::new(BlenderManager::load()));
-        let setting = Arc::new(RwLock::new(ServerSetting::load()));
-
-        // here we're setting the sender command to app state before the builder.
-        let app_state = AppState {
-            manager,
-            setting,
-            invoke
-        };
-
-        let mut_app_state = Mutex::new(app_state);
-        builder
+            .setup(|_| Ok(()))
             .manage(mut_app_state)
             .invoke_handler(tauri::generate_handler![
                 index,
@@ -187,8 +179,7 @@ impl TauriApp {
                 delete_blender,
                 fetch_blender_installation,
             ])
-            // contact tauri about this?
-            .build(tauri::generate_context!())
+            .build(tauri::generate_context!("tauri.conf.json"))?)
     }
 
     // because this is async, we can make our function wait for a new peers available.
@@ -250,6 +241,14 @@ impl TauriApp {
     async fn handle_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
         // println!("Received command from UI: {cmd:?}");
         match cmd {
+            UiCommand::SettingsEvent(event) => {
+                match event {
+                    SettingsEvent::Update(new_settings) => {
+                        self.settings = new_settings;
+                        self.settings.save();
+                    }
+                }
+            }
             UiCommand::AddJobToNetwork(job) => {
                 // Here we will simply add the job to the database, and let client poll them!
                 if let Err(e) = self.job_store.add_job(job).await {
@@ -483,10 +482,10 @@ impl BlendFarm for TauriApp {
         // this channel is used to send command to the network, and receive network notification back.
         // ok where is this used?
         let (event, mut command) = mpsc::channel(32);
-
+        
         // we send the sender to the tauri builder - which will send commands to "from_ui".
         let app = self
-            .config_tauri_builder(event)
+            .config_tauri_builder(tauri::Builder::default(), event)
             .expect("Fail to build tauri app - Is there an active display session running?");
 
         // background thread to handle network process
