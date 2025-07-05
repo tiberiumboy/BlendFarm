@@ -42,7 +42,6 @@ use tokio::{
 
 pub const WORKPLACE: &str = "workplace";
 
-// Could we not just use message::Command?
 #[derive(Debug)]
 pub enum UiCommand {
     AddJobToNetwork(NewJobDto),
@@ -54,6 +53,23 @@ pub enum UiCommand {
     ListJobs(Sender<Option<Vec<CreatedJobDto>>>),
     ListWorker(Sender<Option<Vec<Worker>>>),
     GetWorker(PeerId, Sender<Option<Worker>>)
+}
+
+impl PartialEq for UiCommand {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::AddJobToNetwork(l0), Self::AddJobToNetwork(r0)) => l0 == r0,
+            (Self::StartJob(l0), Self::StartJob(r0)) => l0 == r0,
+            (Self::StopJob(l0), Self::StopJob(r0)) => l0 == r0,
+            (Self::GetJob(l0, l1), Self::GetJob(r0, r1)) => l0.eq(r0),
+            (Self::UploadFile(l0), Self::UploadFile(r0)) => l0 == r0,
+            (Self::RemoveJob(l0), Self::RemoveJob(r0)) => l0 == r0,
+            (Self::ListJobs(l0), Self::ListJobs(r0)) => true,
+            (Self::ListWorker(l0), Self::ListWorker(r0)) => true,
+            (Self::GetWorker(l0, l1), Self::GetWorker(r0, r1)) => l0 == r0 && l1 == r1,
+            _ => false,
+        }
+    }
 }
 
 pub struct TauriApp{

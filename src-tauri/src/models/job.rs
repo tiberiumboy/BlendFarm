@@ -37,7 +37,7 @@ pub type CreatedJobDto = WithId<Job, JobId>;
 
 // This job is created by the manager and will be used to help determine the individual task created for the workers
 // we will derive this job into separate task for individual workers to process based on chunk size.
-#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow, PartialEq)]
 pub struct Job {
     /// contains the information to specify the kind of job to render (We could auto fill this from blender peek function?)
     pub mode: RenderMode,
