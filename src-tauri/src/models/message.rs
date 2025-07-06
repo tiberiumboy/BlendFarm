@@ -1,5 +1,4 @@
 use super::{behaviour::FileResponse, network::NodeEvent};
-// use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
 use futures::channel::oneshot::{self};
 use libp2p::PeerId;

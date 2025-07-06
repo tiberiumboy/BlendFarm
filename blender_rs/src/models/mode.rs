@@ -1,4 +1,3 @@
-// use std::default;
 use serde::{Deserialize, Serialize};
 use std::{num::ParseIntError, ops::Range};
 
@@ -12,6 +11,7 @@ pub enum RenderMode {
     // JSON: "Animation": {"start":"i32", "end":"i32"}
     // contains the target start frame to the end target frame.
     Animation(Range<i32>),
+
     // future project - allow network node to only render section of the frame instead of whole to visualize realtime rendering view solution.
     // JSON: "Section": {"frame":"i32", "coord":{"i32", "i32"}, "size": {"i32", "i32"} }
     // Section {

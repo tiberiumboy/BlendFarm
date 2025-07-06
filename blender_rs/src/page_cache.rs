@@ -1,10 +1,9 @@
+use crate::constant::MAX_VALID_DAYS;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::io::{Error, Read, Result};
 use std::{collections::HashMap, fs, path::PathBuf, time::SystemTime};
 use url::Url;
-
-const MAX_VALID_DAYS: u64 = 30;
 
 // Hide this for now,
 #[doc(hidden)]

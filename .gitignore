@@ -39,7 +39,7 @@ target/
 Cargo.lock
 *.env
 
-# schemas always update and appear diff on every
+# schemas always update and appear diff on every git changes
 src-tauri/gen/*
 blender_rs/examples/assets/*.png
 src-tauri/.sqlx/

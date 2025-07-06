@@ -1,0 +1,1 @@
+pub const MAX_VALID_DAYS: u64 = 30;
