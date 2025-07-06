@@ -12,7 +12,6 @@ use crate::{
     models::{
         app_state::AppState, 
         computer_spec::ComputerSpec, 
-        constants::MAX_FRAME_CHUNK_SIZE, 
         job::{
             CreatedJobDto, 
             JobEvent, 
@@ -39,16 +38,26 @@ use tokio::{select, spawn, sync::Mutex};
 
 pub const WORKPLACE: &str = "workplace";
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum SettingsAction {
+    Get(Sender<ServerSetting>),
     Update(ServerSetting),
+}
+
+impl PartialEq for SettingsAction {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Get(..), Self::Get(..)) => true,
+            (Self::Update(l0), Self::Update(r0)) => l0 == r0,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub enum BlenderAction {
-    Add(Blender),
+    Add(PathBuf),
     List(Sender<Option<Vec<Blender>>>),
-    ListVersions(Sender<Option<Vec<Version>>>), // would it be ideal just to use List instead and let the user query the blender version here? What's the difference?
     Get(Version, Sender<Option<Blender>>),
     Disconnect(Blender),    // detach links associated with file path, but does not delete local installation!
     Remove(Blender),    // deletes local installation of blender, use it as last resort option. (E.g. force cache clear/reinstall/ corrupted copy)
@@ -59,8 +68,8 @@ impl PartialEq for BlenderAction {
         match (self, other) {
             (Self::Add(l0), Self::Add(r0)) => l0 == r0,
             (Self::List(..), Self::List(..)) => true,
-            (Self::ListVersions(..), Self::ListVersions(..)) => true,
             (Self::Get(l0, ..), Self::Get(r0, ..)) => l0 == r0,
+            (Self::Remove(l0), Self::Remove(r0)) => l0 == r0,
             _ => false,
         }
     }
@@ -68,23 +77,23 @@ impl PartialEq for BlenderAction {
 
 #[derive(Debug)]
 pub enum JobAction {
-    StartJob(JobId),
-    StopJob(JobId),
-    GetJob(JobId, Sender<Option<CreatedJobDto>>),
-    RemoveJob(JobId),
-    ListJobs(Sender<Option<Vec<CreatedJobDto>>>),
-    AddJobToNetwork(NewJobDto)
+    Start(JobId),
+    Stop(JobId),
+    Get(JobId, Sender<Option<CreatedJobDto>>),
+    Remove(JobId),
+    List(Sender<Option<Vec<CreatedJobDto>>>),
+    Advertise(NewJobDto)
 }
 
 impl PartialEq for JobAction {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::StartJob(l0), Self::StartJob(r0)) => l0 == r0,
-            (Self::StopJob(l0), Self::StopJob(r0)) => l0 == r0,
-            (Self::GetJob(l0, ..), Self::GetJob(r0, ..)) => l0 == r0,
-            (Self::RemoveJob(l0), Self::RemoveJob(r0)) => l0 == r0,
-            (Self::ListJobs(..), Self::ListJobs(..)) => true,
-            (Self::AddJobToNetwork(l0), Self::AddJobToNetwork(r0)) => l0 == r0,
+            (Self::Start(l0), Self::Start(r0)) => l0 == r0,
+            (Self::Stop(l0), Self::Stop(r0)) => l0 == r0,
+            (Self::Get(l0, ..), Self::Get(r0, ..)) => l0 == r0,
+            (Self::Remove(l0), Self::Remove(r0)) => l0 == r0,
+            (Self::List(..), Self::List(..)) => true,
+            (Self::Advertise(l0), Self::Advertise(r0)) => l0 == r0,
             _ => false,
         }
     }
@@ -92,15 +101,15 @@ impl PartialEq for JobAction {
 
 #[derive(Debug)]
 pub enum WorkerAction {
-    GetWorker(PeerId, Sender<Option<Worker>>),
-    ListWorker(Sender<Option<Vec<Worker>>>),
+    Get(PeerId, Sender<Option<Worker>>),
+    List(Sender<Option<Vec<Worker>>>),
 }
 
 impl PartialEq for WorkerAction {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::GetWorker(l0, ..), Self::GetWorker(r0, ..)) => l0 == r0,
-            (Self::ListWorker(..), Self::ListWorker(..)) => true,
+            (Self::Get(l0, ..), Self::Get(r0, ..)) => l0 == r0,
+            (Self::List(..), Self::List(..)) => true,
             _ => false,
         }
     }
@@ -295,72 +304,28 @@ impl TauriApp {
         tasks
     }
 
-    // command received from UI
-    async fn handle_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
-        // println!("Received command from UI: {cmd:?}");
-        match cmd {
-            UiCommand::ListBlenderInstall(mut sender) => {
-                let localblenders = self.manager.get_blenders().to_owned();
-                if let Err(e) = sender.send(Some(localblenders)).await {
-                    eprintln!("Fail to send back list of blenders to caller! {e:?}");
-                }            
-            }
-            UiCommand::ListVersions(mut sender) => {
-                let mut versions = Vec::new();
-
-                // fetch local installation first.
-                let mut local = self.manager
-                    .get_blenders()
-                    .iter()
-                    .map(|b| b.get_version().clone())
-                    .collect::<Vec<Version>>();
-
-                if !local.is_empty() {
-                    versions.append(&mut local);
-                }
-
-                // then display the rest of the download list
-                if let Some(downloads) = self.manager.fetch_download_list() {
-                    let mut item = downloads
-                        .iter()
-                        .map(|d| d.get_version().clone())
-                        .collect::<Vec<Version>>();
-                    versions.append(&mut item);
-                };
-
-                sender.send(Some(versions)).await;
-            }
-            UiCommand::Settings(event) => {
-                match event {
-                    SettingsAction::Update(new_settings) => {
-                        self.settings = new_settings;
-                        self.settings.save();
-                    }
-                }
-            }
-            UiCommand::AddJobToNetwork(job) => {
-                // Here we will simply add the job to the database, and let client poll them!
-                if let Err(e) = self.job_store.add_job(job).await {
-                    eprintln!("Unable to add job! Encounter database error: {e:}");
-                }
-
-            }
-            UiCommand::StartJob(job_id) => {
+    async fn handle_job_command(&mut self, job_action: JobAction, client: &mut NetworkController ) {
+            match job_action {
+            JobAction::Start(job_id) => {
                 // first see if we have the job in the database?
                 let job = match self.job_store.get_job(&job_id).await {
                     Ok(job) => job,
                     Err(e) => {
-                        eprintln!("Unable to find job! Skipping! {e:?}");
+                        eprintln!("No Job record found! Skipping! {e:?}");
                         return ();
                     }
                 };
 
                 // first make the file available on the network
-                let file_name = job.item.project_file.file_name().unwrap();// this is &OsStr
+                let _file_name = job.item.project_file.file_name().unwrap();// this is &OsStr
                 let path = job.item.project_file.clone();
 
                 // Once job is initiated, we need to be able to provide the files for network distribution.
-                let provider = ProviderRule::Default(path);
+                let _provider = ProviderRule::Default(path);
+
+                // where does the client come from?
+                // TODO: Figure out where the client is associated with and how can we access it from here?
+                /*
                 client.start_providing(&provider).await;
 
                 let tasks = Self::generate_tasks(
@@ -379,23 +344,28 @@ impl TauriApp {
                     println!("Sending task to {:?} \nJob Id: {:?} \nRange( {} - {} )\n", &host, &task.job_id, &task.range.start, &task.range.end);
                     client.send_job_event(Some(host.clone()), JobEvent::Render(task)).await;
                 }
-            }
-            UiCommand::UploadFile(path) => {
-                // this is design to notify the network controller to start advertise provided file path
-                let provider = ProviderRule::Default(path);
-                client.start_providing(&provider).await;
-            }
-            UiCommand::StopJob(id) => {
+                 */
+            },
+            JobAction::Stop(id) => {
                 let signal = JobEvent::Remove(id);
                 client.send_job_event(None, signal).await;
-            }
-            UiCommand::RemoveJob(id) => {
-                if let Err(e) = self.job_store.delete_job(&id).await {
+            },
+            JobAction::Get(job_id, mut sender) => {
+                let result = self.job_store.get_job(&job_id).await;
+                if let Err(e) = &result {
+                    eprintln!("Job store reported an error: {e:?}");
+                }
+                if let Err(e) = sender.send(result.ok()).await {
+                    eprintln!("Unable to get a job!: {e:?}");
+                }
+            },
+            JobAction::Remove(job_id) => {
+                if let Err(e) = self.job_store.delete_job(&job_id).await {
                     eprintln!("Receiver/sender should not be dropped! {e:?}");
                 }
-                client.send_job_event(None, JobEvent::Remove(id)).await;
-            }
-            UiCommand::ListJobs(mut sender) => {
+                client.send_job_event(None, JobEvent::Remove(job_id)).await;   
+            },
+            JobAction::List(mut sender) => {
                 /*  
                     There's something wrong with this datastructure. 
                     On first call, this command works as expected,
@@ -420,26 +390,102 @@ impl TauriApp {
                     eprintln!("Fail to send data back! {e:?}");
                 }
             },
-            UiCommand::ListWorker(mut sender) => {
+            JobAction::Advertise(job) => // Here we will simply add the job to the database, and let client poll them!
+                if let Err(e) = self.job_store.add_job(job).await {
+                    eprintln!("Unable to add job! Encounter database error: {e:}");
+                }
+        }
+    }
+
+    async fn handle_blender_command(&mut self, blender_action: BlenderAction ) {
+        match blender_action {
+            BlenderAction::Add(_blender) => {
+                todo!("impl adding blender?");
+            },
+            BlenderAction::List(mut sender) => {
+                let localblenders = self.manager.get_blenders().to_owned();
+                if let Err(e) = sender.send(Some(localblenders)).await {
+                    eprintln!("Fail to send back list of blenders to caller! {e:?}");
+                }
+
+                // TODO: What's the difference?
+                /* 
+                let mut versions = Vec::new();
+
+                // fetch local installation first.
+                let mut local = self.manager
+                    .get_blenders()
+                    .iter()
+                    .map(|b| b.get_version().clone())
+                    .collect::<Vec<Version>>();
+
+                if !local.is_empty() {
+                    versions.append(&mut local);
+                }
+
+                // then display the rest of the download list
+                if let Some(downloads) = self.manager.fetch_download_list() {
+                    let mut item = downloads
+                        .iter()
+                        .map(|d| d.get_version().clone())
+                        .collect::<Vec<Version>>();
+                    versions.append(&mut item);
+                };
+
+                sender.send(Some(versions)).await;
+
+                */
+            },
+            BlenderAction::Get(version, sender) => {
+
+            },
+            BlenderAction::Disconnect(blender) => todo!(),
+            BlenderAction::Remove(blender) => todo!(),
+        }
+    }
+
+    async fn handle_worker_command(&mut self, worker_action: WorkerAction) {
+        match worker_action {
+            WorkerAction::Get(peer_id,mut sender) => {
+                let result = sender.send(self.worker_store.get_worker(&peer_id).await).await;
+                if let Err(e) = result {
+                    eprintln!("Unable to get worker!: {e:?}");
+                }
+            },
+            WorkerAction::List(mut sender) => {
                 let result = sender.send(self.worker_store.list_worker().await.ok()).await;
                 if let Err(e) = result {
                     eprintln!("Unable to send list of workers: {e:?}");
                 }
             },
-            UiCommand::GetWorker(id,mut sender) => {
-                let result = sender.send(self.worker_store.get_worker(&id).await).await;
-                if let Err(e) = result {
-                    eprintln!("Unable to get worker!: {e:?}");
-                }
-            },
-            UiCommand::GetJob(id, mut sender) => {
-                let result = self.job_store.get_job(&id).await;
-                if let Err(e) = &result {
-                    eprintln!("Job store reported an error: {e:?}");
-                }
-                if let Err(e) = sender.send(result.ok()).await {
-                    eprintln!("Unable to get a job!: {e:?}");
-                }
+        }
+    }
+
+    async fn handle_setting_command(&mut self, setting_action: SettingsAction) {
+        match setting_action {
+            SettingsAction::Get(mut sender) => {
+                sender.send(self.settings.clone()).await;
+            }
+            SettingsAction::Update(new_settings) => {
+                self.settings = new_settings;
+                self.settings.save();
+            }
+        }
+    }
+
+    // command received from UI
+    async fn handle_command(&mut self, client: &mut NetworkController, cmd: UiCommand) {
+        // println!("Received command from UI: {cmd:?}");
+        match cmd {
+            // could this be used as a trait?
+            UiCommand::Blender(blender_action) => self.handle_blender_command(blender_action).await,
+            UiCommand::Settings(setting_action) => self.handle_setting_command(setting_action).await,
+            UiCommand::Job(job_action) => self.handle_job_command(job_action, client).await,
+            UiCommand::Worker(worker_action) => self.handle_worker_command(worker_action).await,
+            UiCommand::UploadFile(path) => {
+                // this is design to notify the network controller to start advertise provided file path
+                let provider = ProviderRule::Default(path);
+                client.start_providing(&provider).await;
             }
         }
     }

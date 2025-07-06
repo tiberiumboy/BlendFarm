@@ -9,13 +9,13 @@ use tauri::{command, State};
 use tokio::sync::Mutex;
 
 use crate::models::app_state::AppState;
-use crate::services::tauri_app::{UiCommand, WORKPLACE};
+use crate::services::tauri_app::{UiCommand, WorkerAction, WORKPLACE};
 
 #[command(async)]
 pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let mut server = state.lock().await;
     let (sender, mut receiver) = mpsc::channel(1);
-    let cmd = UiCommand::ListWorker(sender);
+    let cmd = UiCommand::Worker(WorkerAction::List(sender));
     if let Err(e) = server.invoke.send(cmd).await {
         eprintln!("Fail to send command to fetch workers{e:?}");
     }
@@ -75,7 +75,7 @@ pub async fn get_worker(state: State<'_, Mutex<AppState>>, machine_id: &str) -> 
     let (mut sender, mut receiver) = mpsc::channel(0);
     match PeerId::from_str(machine_id) {
         Ok(peer_id) => {
-            let cmd = UiCommand::GetWorker(peer_id, sender);
+            let cmd = UiCommand::Worker(WorkerAction::Get(peer_id, sender));
             if let Err(e) = app_state.invoke.send(cmd).await {
                 eprintln!("{e:?}");
             }

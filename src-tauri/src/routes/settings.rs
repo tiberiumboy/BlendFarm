@@ -1,17 +1,14 @@
-use crate::{models::{app_state::AppState, server_setting::ServerSetting}, services::tauri_app::{BlenderAction, UiCommand}};
-use std::{env, path::PathBuf, str::FromStr, sync::Arc, process::Command};
+use crate::{models::{app_state::AppState, server_setting::ServerSetting}, services::tauri_app::{BlenderAction, SettingsAction, UiCommand}};
+use std::{env, path::PathBuf, str::FromStr, process::Command};
 use blender::blender::Blender;
 use futures::{channel::mpsc, SinkExt, StreamExt};
 use maud::html;
 use semver::Version;
 use serde_json::json;
-use tauri::{command, AppHandle, Error, State};
+use tauri::{command, AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FilePath;
-use tokio::{
-    join,
-    sync::{Mutex, RwLock},
-};
+use tokio::sync::Mutex;
 
 const SETTING: &str= "settings";
 
@@ -39,7 +36,7 @@ pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result
     let (sender, mut receiver) = mpsc::channel(0);
     let mut app_state = state.lock().await;
     
-    let event = UiCommand::ListBlenderInstall(sender);
+    let event = UiCommand::Blender(BlenderAction::List(sender));
     if let Err(e) = app_state.invoke.send(event).await {
         eprintln!("fail to send mpsc to event! {e:?}");
         return Err(())
@@ -73,11 +70,12 @@ pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result
 /// Add a new blender entry to the system, but validate it first!
 #[command(async)]
 pub async fn add_blender_installation(
-    app: AppHandle,
+    handle: State<'_, Mutex<AppHandle>>,
     state: State<'_, Mutex<AppState>>, // TODO: Need to change this to string, string?
-) -> Result<String, ()> {
+) -> Result<(), ()> {
     // TODO: include behaviour to search for file that contains blender.
     // so here's where
+    let app = handle.lock().await;
     let path = match app.dialog().file().blocking_pick_file() {
         Some(file_path) => match file_path {
             FilePath::Path(path) => path,
@@ -86,15 +84,9 @@ pub async fn add_blender_installation(
         None => return Err(()),
     };
 
-    let app_state = state.lock().await;
-    let mut manager = app_state.manager.write().await;
-    match manager.add_blender_path(&path) {
-        Ok(_blender) => Ok(html! {
-           // HX-trigger="newBlender"
-        }
-        .0),
-        Err(_) => Err(()),
-    }
+    let mut app_state = state.lock().await;
+    app_state.invoke.send(UiCommand::Blender(BlenderAction::Add(path))).await;
+    Ok(())
 }
 
 // So this can no longer be a valid api call?
@@ -103,13 +95,12 @@ pub async fn add_blender_installation(
 pub async fn fetch_blender_installation(
     state: State<'_, Mutex<AppState>>,
     version: &str,
-) -> Result<Blender, String> {
-    let version = Version::parse(version).map_err(|e| e.to_string())?;
-    let app_state = state.lock().await;
+) -> Result<Blender, ()> {
+    let version = Version::parse(version).map_err(|_| ())?;
     let (sender, mut receiver) = mpsc::channel(1);
     let event = UiCommand::Blender(BlenderAction::Get(version, sender));
+    let mut app_state = state.lock().await;
     app_state.invoke.send(event).await.unwrap();
-
     let result = receiver.select_next_some().await;
     
     // let blender = manager.fetch_blender(&version).map_err(|e| match e {
@@ -136,7 +127,11 @@ pub async fn fetch_blender_installation(
     //         format!("Blender error: {source}")
     //     }
     // })?;
-    result.ok_or_else(|e| Err(e.to_string()))
+    
+    match result {
+        Some(blend) => Ok(blend),
+        None => Err(())
+    }
 }
 
 #[command]
@@ -153,7 +148,7 @@ pub async fn remove_blender_installation(
     state: State<'_, Mutex<AppState>>,
     blender: Blender,
 ) -> Result<(), String> {
-    let app_state = state.lock().await;
+    let mut app_state = state.lock().await;
     
     let event = UiCommand::Blender(BlenderAction::Remove(blender));
     if let Err(e) = app_state.invoke.send(event).await {
@@ -164,43 +159,46 @@ pub async fn remove_blender_installation(
     Ok(())
 }
 
+// I am a little confused about this function.
 #[command(async)]
 pub async fn update_settings(
     state: State<'_, Mutex<AppState>>,
     install_path: String,
     cache_path: String,
     render_path: String,
-) -> Result<String, String> {
-    let install_path = PathBuf::from(install_path);
+) -> Result<(), ()> {
+    let _install_path = PathBuf::from(install_path);
     let blend_dir = PathBuf::from(cache_path);
     let render_dir = PathBuf::from(render_path);
 
-    {
-        let mut server = state.lock().await;
-        server.setting = Arc::new(RwLock::new(ServerSetting {
-            blend_dir,
-            render_dir,
-        }));
-        let mut manager = server.manager.write().await;
-        manager.set_install_path(&install_path);
+    let mut state = state.lock().await;
+    let new_setting = ServerSetting {
+        blend_dir,
+        render_dir,
+    };
+
+    let command = UiCommand::Settings(SettingsAction::Update(new_setting));
+    if let Err(e) = state.invoke.send(command).await {
+        eprintln!("{e:?}");
     }
-    Ok(get_settings(state).await.unwrap())
+    Ok(())
 }
 
 // change this so that this is returning the html layout to let the client edit the settings.
 #[command(async)]
 pub async fn edit_settings(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let app_state = state.lock().await;
-    let (settings, manager) = join!(app_state.setting.read(), app_state.manager.read());
 
-    let install_path = manager.get_install_path();
+    let mut app_state = state.lock().await;
+    let settings = app_state.get_settings().await.map_err(|e| e.to_string())?;
+    
+    // let install_path = manager.get_install_path();
     let cache_path = &settings.blend_dir;
     let render_path = &settings.render_dir;
 
     Ok(html!(
         form tauri-invoke="update_settings" hx-target="this" hx-swap="outerHTML" {
-            h3 { "Blender Installation Path:" };
-            input name="installPath" class="form-input" readonly="true" tauri-invoke="select_directory" hx-trigger="click" hx-target="this" value=(install_path.to_str().unwrap() );
+            // h3 { "Blender Installation Path:" };
+            // input name="installPath" class="form-input" readonly="true" tauri-invoke="select_directory" hx-trigger="click" hx-target="this" value=(install_path.to_str().unwrap() );
 
             h3 { "Blender File Cache Path:" };
             input name="cachePath" class="form-input" readonly="true" tauri-invoke="select_directory" hx-trigger="click" hx-target="this" value=(cache_path.to_str().unwrap());
@@ -218,21 +216,15 @@ pub async fn edit_settings(state: State<'_, Mutex<AppState>>) -> Result<String, 
 
 #[command(async)]
 pub async fn get_settings(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let app_state = state.lock().await;
-    let (settings, manager) = join!(app_state.setting.read(), app_state.manager.read());
+    let mut app_state = state.lock().await;
+    let settings = app_state.get_settings().await.map_err(|e| e.to_string())?;
 
-    let install_path = manager.get_install_path().to_str().unwrap();
     let cache_path = &settings.blend_dir.to_str().unwrap();
     let render_path = &settings.render_dir.to_str().unwrap();
 
     Ok(html!(
         div tauri-invoke="open_path" hx-target="this" hx-swap="outerHTML" {
-            h3 { "Blender Installation Path:" };
-            button tauri-invoke="open_dir" hx-vals=(json!({"path":install_path})) {
-                r"📁"
-            }
-            label word-wrap="break-word" hx-info=(json!( { "path": install_path } )) { (install_path) };
-            
+            // TODO: Could we make a factory to build buttons for this?
             h3 { "Blender File Cache Path:" };
             button tauri-invoke="open_dir" hx-vals=(json!({"path":cache_path})) {
                 r"📁"

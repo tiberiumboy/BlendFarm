@@ -1,6 +1,6 @@
 use super::remote_render::remote_render_page;
 use crate::models::{app_state::AppState, job::Job};
-use crate::services::tauri_app::UiCommand;
+use crate::services::tauri_app::{JobAction, UiCommand};
 use blender::models::mode::RenderMode;
 use futures::channel::mpsc::{self};
 use futures::{SinkExt, StreamExt};
@@ -34,7 +34,7 @@ pub async fn create_job(
     };
     
     // maybe I was awaiting for the lock?
-    let add = UiCommand::AddJobToNetwork(job);
+    let add = UiCommand::Job(JobAction::Advertise(job));
     let mut app_state = state.lock().await;
     app_state.invoke.send(add).await.map_err(|e| e.to_string())?;
     Ok(remote_render_page())
@@ -46,7 +46,7 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, Stri
     // using scope to drop mutex sharable state. It must have been waiting for this to go out of scope.
     {
         let mut server = state.lock().await;
-        let cmd = UiCommand::ListJobs(sender);
+        let cmd = UiCommand::Job(JobAction::List(sender));
         if let Err(e) = server.invoke.send(cmd).await {
             eprintln!("Fail to send command to server! {e:?}");
         }
@@ -123,7 +123,7 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
     })?;
 
     let mut app_state = state.lock().await;
-    let cmd = UiCommand::GetJob(job_id.into(), sender);
+    let cmd = UiCommand::Job(JobAction::Get(job_id.into(), sender));
     if let Err(e) = app_state.invoke.send(cmd).await {
         eprintln!("{e:?}");
     };
@@ -180,7 +180,7 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Resu
         // here we're deleting it from the database
         let mut app_state = state.lock().await;
         let id = Uuid::from_str(job_id).map_err(|e| format!("{e:?}"))?;
-        let cmd = UiCommand::RemoveJob(id);
+        let cmd = UiCommand::Job(JobAction::Remove(id));
         if let Err(e) = app_state.invoke.send(cmd).await {
             eprintln!("{e:?}");
         }
@@ -254,7 +254,7 @@ mod test {
         // TODO: impl timeout here?
         let event = receiver.select_next_some().await;
         println!("comparing which should end this function I hope...");
-        assert_eq!(event, UiCommand::AddJobToNetwork(job));
+        assert_eq!(event, UiCommand::Job(JobAction::Advertise(job)));
         println!("sanity check...");
     }
 

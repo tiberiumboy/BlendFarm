@@ -5,7 +5,8 @@ for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
 use super::util::select_directory;
-use crate::{models::app_state::AppState, services::tauri_app::UiCommand};
+use crate::{models::app_state::AppState, services::tauri_app::{BlenderAction, UiCommand}};
+use anyhow::Error;
 use blender::blender::Blender;
 use futures::{SinkExt, StreamExt, channel::mpsc};
 use maud::html;
@@ -26,7 +27,7 @@ async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
        Offline loads instant, which is exactly the kind of behaviour I expect to see from this application.
     */
     let (sender, mut receiver) = mpsc::channel(1);
-    let event = UiCommand::ListVersions(sender);
+    let event = UiCommand::Blender(BlenderAction::List(sender));
     if let Err(e) = app_state.invoke.send(event).await {
         eprintln!("Fail to send event! {e:?}");
         return Vec::new();
@@ -34,7 +35,8 @@ async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
 
     let res = receiver.select_next_some().await;
     match res {
-        Some(list) => list,
+        // Clone operation used here. might be expensive? See if there's another way to get aorund this.
+        Some(list) => list.iter().map(|f| f.get_version().clone()).collect::<Vec<Version>>(),
         None => Vec::new(),
     }
 
@@ -83,33 +85,25 @@ pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<Str
 
 /// Ask Tauri to display ui blocking dialog and return file path to blender.
 /// This function will read the file and display another dialog prompt for additional detail before continue to display the result from import_blend()
-#[command]
+#[command(async)]
 pub async fn create_new_job(
     handle: State<'_, Mutex<AppHandle>>,
     state: State<'_, Mutex<AppState>>,
 ) -> Result<String, String> {
-    let mut path: Option<PathBuf> = None;
-    // scope to lock apphandle
-    {
-        let app = handle.lock().await;
-        path = match app
-            .dialog()
-            .file()
-            .add_filter("Blender", &["blend"])
-            .blocking_pick_file()
-        {
-            Some(file_path) => match file_path {
-                FilePath::Path(path) => Some(path),
-                FilePath::Url(uri) => Some(uri.as_str().into()),
-            },
-            None => return Err("No file selected".into()),
-        };
+    let app = handle.lock().await;
+    let given_path = app
+        .dialog()
+        .file()
+        .add_filter("Blender", &["blend"])
+        .blocking_pick_file().and_then(|f| match f {
+            FilePath::Path(f) => Some(f),
+            FilePath::Url(u) => Some(u.as_str().into()),
+        });
+    
+    if let Some(path) = given_path {
+        return import_blend(state, path).await
     }
-
-    if let Some(path) = path {
-        return import_blend(state, path).await;
-    }
-    Err("No path was provided!".to_owned())
+    Err("No file selected!".to_owned())
 }
 
 #[command]
