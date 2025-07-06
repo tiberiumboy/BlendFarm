@@ -32,7 +32,7 @@ use libp2p::PeerId;
 use maud::html;
 use semver::Version;
 use sqlx::{Pool, Sqlite};
-use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr, thread::sleep, time::Duration};
+use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr};
 use tauri::{self, command};
 use tokio::{select, spawn, sync::Mutex};
 
@@ -204,7 +204,7 @@ impl TauriApp {
 
     // Create a builder to make Tauri application
     // Let's just use the controller in here anyway.
-    pub fn config_tauri_builder<R: tauri::Runtime>(&self, builder: tauri::Builder<R>, invoke: Sender<UiCommand>) -> Result<tauri::App<R>, tauri::Error> {
+    pub async fn config_tauri_builder<R: tauri::Runtime>(&self, builder: tauri::Builder<R>, invoke: Sender<UiCommand>) -> Result<tauri::App<R>, tauri::Error> {
         // I would like to find a better way to update or append data to render_nodes,
         // "Do not communicate with shared memory"
         let app_state = AppState { invoke };
@@ -213,6 +213,8 @@ impl TauriApp {
             .plugin(tauri_plugin_cli::init())
             .plugin(tauri_plugin_os::init())
             .plugin(tauri_plugin_fs::init())
+            // for some reason my unit test is failing to create the app; can call blocking only when running on the multi-threaded runtime
+            // Does this mean i'm running on main thread or running async?
             .plugin(tauri_plugin_sql::Builder::default().build())
             .plugin(tauri_plugin_persisted_scope::init())
             .plugin(tauri_plugin_shell::init())
@@ -250,6 +252,7 @@ impl TauriApp {
     }
 
     // because this is async, we can make our function wait for a new peers available.
+    /* 
     async fn get_idle_peers(&self) -> String {
         // this will destroy the vector anyway.
         // TODO: Impl. Round Robin or pick first idle worker, whichever have the most common hardware first in query?
@@ -261,7 +264,11 @@ impl TauriApp {
             sleep(Duration::from_secs(1));
         }
     }
+    */
 
+    // The idea here is to generate new task based on job creation.
+    // TODO: Explain the expect behaviour for this method before reference it.
+    #[allow(dead_code)]
     fn generate_tasks(job: &CreatedJobDto, file_name: PathBuf, chunks: i32, hostname: &str) -> Vec<Task> {
         // mode may be removed soon, we'll see?
         let (time_start, time_end) = match &job.item.mode {
@@ -436,11 +443,25 @@ impl TauriApp {
 
                 */
             },
-            BlenderAction::Get(version, sender) => {
-
+            BlenderAction::Get(version, mut sender) => {
+                let result = self.manager.fetch_blender(&version);
+                match result {
+                    Ok(blender) => { 
+                        if let Err(e) = sender.send(Some(blender)).await {
+                            eprintln!("Fail to send result back to caller! {e:?}");
+                        } },
+                    Err(e) => {
+                        eprintln!("Fail to fetch blender! {e:?}");
+                        if let Err(e) = sender.send(None).await {
+                            eprintln!("Fail to send result back to caller! {e:?}");
+                        }
+                    }
+                };
             },
-            BlenderAction::Disconnect(blender) => todo!(),
-            BlenderAction::Remove(blender) => todo!(),
+            // I'm not really sure what this one is suppose to be?
+            BlenderAction::Disconnect(..) => todo!(),
+            // neither this one...
+            BlenderAction::Remove(..) => todo!(),
         }
     }
 
@@ -464,7 +485,9 @@ impl TauriApp {
     async fn handle_setting_command(&mut self, setting_action: SettingsAction) {
         match setting_action {
             SettingsAction::Get(mut sender) => {
-                sender.send(self.settings.clone()).await;
+                if let Err(e) = sender.send(self.settings.clone()).await {
+                    eprintln!("Fail to send to invoker! {e:?}");
+                }
             }
             SettingsAction::Update(new_settings) => {
                 self.settings = new_settings;
@@ -621,6 +644,7 @@ impl BlendFarm for TauriApp {
         // we send the sender to the tauri builder - which will send commands to "from_ui".
         let app = self
             .config_tauri_builder(tauri::Builder::default(), event)
+            .await
             .expect("Fail to build tauri app - Is there an active display session running?");
 
         // background thread to handle network process

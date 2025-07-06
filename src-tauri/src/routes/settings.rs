@@ -85,7 +85,9 @@ pub async fn add_blender_installation(
     };
 
     let mut app_state = state.lock().await;
-    app_state.invoke.send(UiCommand::Blender(BlenderAction::Add(path))).await;
+    if let Err(e) = app_state.invoke.send(UiCommand::Blender(BlenderAction::Add(path))).await {
+        eprintln!("Fail to send data back! {e:?}");
+    }
     Ok(())
 }
 
