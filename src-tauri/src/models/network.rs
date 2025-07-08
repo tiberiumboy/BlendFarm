@@ -312,7 +312,6 @@ impl NetworkController {
             .or_else(|e| Err(NetworkError::UnableToSave(e.to_string())))?;
 
         let file_path = destination.join(file_name);
-        // TODO: See if we can re-write this better? Should be able to map this?
         match async_std::fs::write(file_path.clone(), content).await {
             Ok(_) => Ok(file_path),
             Err(e) => Err(NetworkError::UnableToSave(e.to_string())),

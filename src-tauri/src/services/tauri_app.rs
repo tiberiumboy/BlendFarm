@@ -332,7 +332,7 @@ impl TauriApp {
 
                 // where does the client come from?
                 // TODO: Figure out where the client is associated with and how can we access it from here?
-                /*
+                /* 
                 client.start_providing(&provider).await;
 
                 let tasks = Self::generate_tasks(
@@ -351,7 +351,7 @@ impl TauriApp {
                     println!("Sending task to {:?} \nJob Id: {:?} \nRange( {} - {} )\n", &host, &task.job_id, &task.range.start, &task.range.end);
                     client.send_job_event(Some(host.clone()), JobEvent::Render(task)).await;
                 }
-                 */
+                */
             },
             JobAction::Stop(id) => {
                 let signal = JobEvent::Remove(id);
@@ -667,33 +667,18 @@ mod test {
     use crate::config_sqlite_db;
     use super::*;
     
-    // just omitting this for now until I get back to this to correct some of the error message display here.
-    #[allow(dead_code)]
     async fn get_sqlite_conn() -> Pool<Sqlite> {
         let pool = config_sqlite_db().await;
         assert!(pool.is_ok());
         pool.expect("Assert above should force this to be ok()")
     }
 
-    /*
     #[tokio::test]
     async fn clear_workers_success() {
         let pool = get_sqlite_conn().await;
-
-        // create the app interface
-        let app = TauriApp::new(pool).await;
-        assert!(app.is_ok());
-        let app = app.clear_workers_collection().await;
-
-        assert_eq!(app.worker_store.list_workers().await, 0);
-    }
-
-    #[tokio::test]
-    async fn check_index_page() {
-        let pool = get_sqlite_conn().await;
-
         let app = TauriApp::new(&pool).await;
-        
+    
+        let app = app.clear_workers_collection().await;
+        assert!(app.worker_store.list_worker().await.is_ok_and(|f| f.iter().count() == 0 ));
     }
-     */
 }

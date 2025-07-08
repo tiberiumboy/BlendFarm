@@ -72,9 +72,9 @@ impl Task {
     /// E.g. 102 (80%) of 120 remaining would return 96 end frames.
     /// TODO: Allow other node or host to fetch end frames from this task and distribute to other requesting workers.
     /// TODO: Test this
-    pub fn fetch_end_frames(&mut self, percentage: i8) -> Option<Range<i32>> {
+    pub fn fetch_end_frames(&mut self, percentage: u8) -> Option<Range<i32>> {
         // Here we'll determine how many franes left, and then pass out percentage of that frames back.
-        let perc = percentage as f32 / i8::MAX as f32;
+        let perc = percentage as f32 / u8::MAX as f32;
         let end = self.range.end;
         let delta = (end - self.range.start) as f32;
         let trunc = (perc * (delta.powf(2.0)).sqrt()).floor() as usize;
@@ -130,4 +130,9 @@ impl Task {
             .await;
         Ok(receiver)
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
 }
