@@ -74,7 +74,6 @@ sqlx = { version = "^0.8", features = [
     "uuid",
     "json",
 ] }
-tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 dotenvy = "^0.15"
 # TODO: Compile restriction: Test and deploy using stable version of Rust! Recommends development on Nightly releases
 maud = "^0.27"

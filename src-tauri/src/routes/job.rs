@@ -24,32 +24,33 @@ pub async fn create_job(
     output: PathBuf,
 ) -> Result<String, String> {
     let mode = RenderMode::try_new(&start, &end).map_err(|e| e.to_string())?;
-    
+
     // create a container to hold job info
     let job = Job {
         mode,
         project_file: path,
         blender_version: version,
-        output, 
+        output,
     };
-    
+
     // maybe I was awaiting for the lock?
     let add = UiCommand::Job(JobAction::Advertise(job));
     let mut app_state = state.lock().await;
-    app_state.invoke.send(add).await.map_err(|e| e.to_string())?;
+    app_state
+        .invoke
+        .send(add)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(remote_render_page())
 }
 
 #[command(async)]
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let (sender, mut receiver) = mpsc::channel(0);
-    // using scope to drop mutex sharable state. It must have been waiting for this to go out of scope.
-    {
-        let mut server = state.lock().await;
-        let cmd = UiCommand::Job(JobAction::List(sender));
-        if let Err(e) = server.invoke.send(cmd).await {
-            eprintln!("Fail to send command to server! {e:?}");
-        }
+    let mut server = state.lock().await;
+    let cmd = UiCommand::Job(JobAction::List(sender));
+    if let Err(e) = server.invoke.send(cmd).await {
+        eprintln!("Fail to send command to server! {e:?}");
     }
 
     let content = match receiver.select_next_some().await {
@@ -174,16 +175,12 @@ pub fn update_job() {
 /// just delete the job from database. Notify peers to abandon task matches job_id
 #[command(async)]
 pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, String> {
-    // question - why? Why are we encapsulating this? 
-    // TODO: first make the app works, then see if this does the same behaviour without this bracket encapsulation.
-    {
-        // here we're deleting it from the database
-        let mut app_state = state.lock().await;
-        let id = Uuid::from_str(job_id).map_err(|e| format!("{e:?}"))?;
-        let cmd = UiCommand::Job(JobAction::Remove(id));
-        if let Err(e) = app_state.invoke.send(cmd).await {
-            eprintln!("{e:?}");
-        }
+    // here we're deleting it from the database
+    let mut app_state = state.lock().await;
+    let id = Uuid::from_str(job_id).map_err(|e| format!("{e:?}"))?;
+    let cmd = UiCommand::Job(JobAction::Remove(id));
+    if let Err(e) = app_state.invoke.send(cmd).await {
+        eprintln!("{e:?}");
     }
 
     Ok(remote_render_page())
@@ -201,23 +198,20 @@ mod test {
 
     use anyhow::Error;
     //#region create_jobs
+    use super::*;
     use futures::channel::mpsc::Receiver;
     use ntest::timeout;
-    use super::*;
     // use tauri::webview::InvokeRequest;
-    use tauri::test::{mock_builder, MockRuntime};
     use crate::{config_sqlite_db, services::tauri_app::TauriApp};
+    use tauri::test::{MockRuntime, mock_builder};
 
     async fn scaffold_app() -> Result<(tauri::App<MockRuntime>, Receiver<UiCommand>), Error> {
-        let (invoke, receiver) = mpsc::channel(0);
+        let (invoke, receiver) = mpsc::channel(1);
         let conn = config_sqlite_db().await?;
         let app = TauriApp::new(&conn).await;
-        
+
         let app = app.config_tauri_builder(mock_builder(), invoke).await?;
-        Ok((
-            app,
-            receiver
-        ))
+        Ok((app, receiver))
     }
 
     // this took over 60 seconds. not good.
@@ -225,12 +219,10 @@ mod test {
     #[timeout(5000)]
     async fn create_job_successfully() {
         // For now I'm going to let this pass, until I figure out how/why mockup tauri app dead-lock on initialization.
-        
-        println!("Scaffolding app...");
-        let (_app,mut _receiver) = scaffold_app().await.unwrap();
+        let (_app, mut _receiver) = scaffold_app().await.unwrap();
         assert!(true);
-        
-        /* 
+
+        /*
         let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
         let _start = "1".to_owned();
         let _end = "2".to_owned();
@@ -263,7 +255,6 @@ mod test {
         println!("sanity check...");
         */
     }
-
 
     //#endregion
 }

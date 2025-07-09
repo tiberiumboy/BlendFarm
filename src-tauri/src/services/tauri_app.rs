@@ -213,9 +213,6 @@ impl TauriApp {
             .plugin(tauri_plugin_cli::init())
             .plugin(tauri_plugin_os::init())
             .plugin(tauri_plugin_fs::init())
-            // for some reason my unit test is failing to create the app; can call blocking only when running on the multi-threaded runtime
-            // Does this mean i'm running on main thread or running async?
-            .plugin(tauri_plugin_sql::Builder::default().build())
             .plugin(tauri_plugin_persisted_scope::init())
             .plugin(tauri_plugin_shell::init())
             .plugin(tauri_plugin_dialog::init())
