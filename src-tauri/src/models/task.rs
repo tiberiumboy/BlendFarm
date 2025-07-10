@@ -134,5 +134,24 @@ impl Task {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+
+    #[test]
+    fn create_new_success() {
+        todo!("Find a good unit test case here?");
+    }
+
+    #[test]
+    fn create_from_success() {
+        todo!("impl unit test behaviour for creating task from job dto.");
+    }
+
+    #[test]
+    fn fetch_end_frame_success() {
+        todo!("Impl. successful case to fetch end frames of task");
+    }
+
+    #[test]
+    fn get_next_frame_success() {
+        todo!("impl. next frame from task");
+    }
 }
