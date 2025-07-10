@@ -248,19 +248,15 @@ impl CliApp {
 
                             let provider = ProviderRule::Custom(file_name, result);
                             client.start_providing(&provider).await;
-                            client
-                                .send_job_event(Some(task.requestor.clone()), event)
-                                .await;
+                            // instead of advertising back to the requestor, we should just advertise the job_id + frame number. The host will reqest for the file once available.
+                            client.send_job_event(event).await;
                         }
 
                         BlenderEvent::Exit => {
                             // hmm is this technically job complete?
                             // Check and see if we have any queue pending, otherwise ask hosts around for available job queue.
                             let event = JobEvent::TaskComplete;
-                            client
-                                .send_job_event(Some(task.requestor.clone()), event)
-                                .await;
-                            // sender.send(CmdCommand::TaskComplete(task.into())).await;
+                            client.send_job_event(event).await;
                             println!("Task complete, breaking loop!");
                             break;
                         }
@@ -271,9 +267,7 @@ impl CliApp {
             },
             Err(e) => {
                 let err = JobError::TaskError(e);
-                client
-                    .send_job_event(Some(task.requestor.clone()), JobEvent::Error(err))
-                    .await;
+                client.send_job_event(JobEvent::Error(err)).await;
             }
         };
 
@@ -330,12 +324,8 @@ impl CliApp {
                 // mutate this struct to skip listening for any new jobs.
                 // proceed to render the task.
                 if let Err(e) = self.render_task(client, &mut task).await {
-                    client
-                        .send_job_event(
-                            Some(task.requestor.clone()),
-                            JobEvent::Failed(e.to_string()),
-                        )
-                        .await
+                    let event = JobEvent::Failed(e.to_string());
+                    client.send_job_event(event).await
                 }
             }
 

@@ -1,7 +1,7 @@
 use super::behaviour::{BlendFarmBehaviour, BlendFarmBehaviourEvent, FileRequest, FileResponse};
 use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
-use super::message::{Command, Event, FileCommand, KeywordSearch, NetworkError, Target};
+use super::message::{Command, Event, FileCommand, KeywordSearch, NetworkError};
 use blender::models::event::BlenderEvent;
 use core::str;
 use futures::StreamExt;
@@ -218,9 +218,9 @@ impl NetworkController {
     }
 
     // send job event to all connected node
-    pub async fn send_job_event(&mut self, target: Target, event: JobEvent) {
+    pub async fn send_job_event(&mut self, event: JobEvent) {
         self.sender
-            .send(Command::JobStatus(target, event))
+            .send(Command::JobStatus(event))
             .await
             .expect("Command should not be dropped");
     }
@@ -472,54 +472,22 @@ impl NetworkService {
                     .gossipsub
                     .unsubscribe(&ident_topic);
             }
-            // See where this is being used?
-            Command::JobStatus(host_name, event) => {
+            Command::JobStatus(event) => {
                 // convert data into json format.
                 let data = serde_json::to_string(&event).unwrap();
-
-                // currently using a hack by making the target machine subscribe to their hostname.
-                // the manager will send message to that specific hostname as target instead.
-                // TODO: Read more about libp2p and how I can just connect to one machine and send that machine job status information.
-                let name = match host_name {
-                    Some(name) => name,
-                    None => JOB.to_owned(),
-                };
-
-                let topic = IdentTopic::new(name);
+                let topic = IdentTopic::new(JOB.to_owned());
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Error sending job status! {e:?}");
                 }
-
-                /*
-                Let's break this down, we receive a worker with peer_id and peer_addr, both of which will be used to establish communication
-                Once we establish a communication, that target peer will need to receive the pending task we have assigned for them.
-                For now, we will try to dial the target peer, and append the task to our network service pool of pending task.
-                */
-                // self.pending_task.insert(peer_id);
             }
             // TODO: need to figure out where this is called
             Command::NodeStatus(status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
-                // let config = Configuration::default();
-                // let data = bincode::encode_to_vec(&status, config).unwrap();
                 let data = serde_json::to_string(&status).unwrap();
-                let topic = IdentTopic::new(STATUS);
+                let topic = IdentTopic::new(NODE);
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to publish gossip message: {e:?}");
                 }
-
-                // let key = RecordKey::new(&NODE.to_vec());
-                // let value = bincode::serialize(&status).unwrap();
-                // let record = Record::new(key, value);
-
-                // match self.swarm.behaviour_mut().kad.put_record(record, Quorum::Majority) {
-                //     Ok(id) => {
-                //         // successful record, append to table?
-                //         self.pending_get_providers.insert(id, v)
-                //     }
-                //     Err(e) =>
-                //     eprintln!("Fail to update kademlia node status! {e:?}");
-                // }
             }
         }
     }

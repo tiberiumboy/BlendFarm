@@ -93,7 +93,10 @@ fn fetch_img_result(path: &PathBuf) -> Option<Vec<PathBuf>> {
             list.sort(); // the list is not organzied, sort the list after collecting data
             Some(list)
         }
-        Err(e) => None,
+        Err(e) => {
+            eprintln!("{e:?}");
+            None
+        }
     }
 }
 

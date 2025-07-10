@@ -6,7 +6,7 @@ use crate::{
     },
 };
 use semver::Version;
-use sqlx::{types::Uuid, FromRow, SqlitePool};
+use sqlx::{FromRow, SqlitePool, types::Uuid};
 use std::{ops::Range, path::PathBuf, str::FromStr};
 
 pub struct SqliteTaskStore {
@@ -22,7 +22,6 @@ impl SqliteTaskStore {
 #[derive(Debug, Clone, FromRow)]
 struct TaskDAO {
     id: String,
-    requestor: String,
     job_id: String,
     blender_version: String,
     blend_file_name: String,
@@ -33,17 +32,14 @@ struct TaskDAO {
 impl TaskDAO {
     fn dto_to_task(self) -> WithId<Task, Uuid> {
         let id = Uuid::from_str(&self.id).expect("id was mutated");
-        let item = Task {
-            requestor: self.requestor,
-            job_id: Uuid::from_str(&self.job_id).expect("job_id was mutated"),
-            blender_version: Version::from_str(&self.blender_version).expect("version was mutated"),
-            blend_file_name: PathBuf::from_str(&self.blend_file_name)
-                .expect("file name was mutated"),
-            range: Range {
-                start: self.start as i32,
-                end: self.end as i32,
-            },
+        let job_id = Uuid::from_str(&self.job_id).expect("job_id was mutated");
+        let version = Version::from_str(&self.blender_version).expect("version was mutated");
+        let file_name = PathBuf::from_str(&self.blend_file_name).expect("file name was mutated");
+        let range = Range {
+            start: self.start as i32,
+            end: self.end as i32,
         };
+        let item = Task::new(job_id, file_name, version, range);
         WithId { id, item }
     }
 }
@@ -51,12 +47,11 @@ impl TaskDAO {
 #[async_trait::async_trait]
 impl TaskStore for SqliteTaskStore {
     async fn add_task(&self, task: Task) -> Result<CreatedTaskDto, TaskError> {
-        let sql = r"INSERT INTO tasks(id, requestor, job_id, blend_file_name, blender_version, start, end) 
-            VALUES($1, $2, $3, $4, $5, $6, $7)";
+        let sql = r"INSERT INTO tasks(id, job_id, blend_file_name, blender_version, start, end) 
+            VALUES($1, $2, $3, $4, $5, $6)";
         let id = Uuid::new_v4();
         let _ = sqlx::query(sql)
             .bind(&id.to_string())
-            .bind(&task.requestor)
             .bind(&task.job_id)
             .bind(&task.blend_file_name.to_str())
             .bind(&task.blender_version.to_string())
@@ -75,7 +70,7 @@ impl TaskStore for SqliteTaskStore {
         let query = sqlx::query_as!(
             TaskDAO,
             r"
-            SELECT id, requestor, job_id, blend_file_name, blender_version, start, end
+            SELECT id, job_id, blend_file_name, blender_version, start, end
             FROM tasks 
             LIMIT 1
         "
@@ -96,7 +91,7 @@ impl TaskStore for SqliteTaskStore {
         let result = sqlx::query_as!(
             TaskDAO,
             r"
-            SELECT id, requestor, job_id, blend_file_name, blender_version, start, end
+            SELECT id, job_id, blend_file_name, blender_version, start, end
             FROM tasks 
             LIMIT 10
         "

@@ -266,7 +266,7 @@ impl TauriApp {
     // The idea here is to generate new task based on job creation.
     // TODO: Explain the expect behaviour for this method before reference it.
     #[allow(dead_code)]
-    fn generate_tasks(job: &CreatedJobDto, file_name: PathBuf, chunks: i32, hostname: &str) -> Vec<Task> {
+    fn generate_tasks(job: &CreatedJobDto, file_name: PathBuf, chunks: i32) -> Vec<Task> {
         // mode may be removed soon, we'll see?
         let (time_start, time_end) = match &job.item.mode {
             RenderMode::Animation(anim) => (anim.start, anim.end),
@@ -296,11 +296,10 @@ impl TauriApp {
             let range = Range { start, end };
 
             let task = Task::new(
-                hostname.to_string(),
                 job.id,
                 file_name.clone(),
                 job.item.get_version().clone(),
-                range,
+                range
             );
             tasks.push(task);
         }
@@ -352,7 +351,7 @@ impl TauriApp {
             },
             JobAction::Stop(id) => {
                 let signal = JobEvent::Remove(id);
-                client.send_job_event(None, signal).await;
+                client.send_job_event(signal).await;
             },
             JobAction::Get(job_id, mut sender) => {
                 let result = self.job_store.get_job(&job_id).await;
@@ -367,7 +366,7 @@ impl TauriApp {
                 if let Err(e) = self.job_store.delete_job(&job_id).await {
                     eprintln!("Receiver/sender should not be dropped! {e:?}");
                 }
-                client.send_job_event(None, JobEvent::Remove(job_id)).await;   
+                client.send_job_event(JobEvent::Remove(job_id)).await;   
             },
             JobAction::List(mut sender) => {
                 /*  

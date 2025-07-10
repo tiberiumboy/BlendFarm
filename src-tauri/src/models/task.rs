@@ -23,9 +23,6 @@ pub type CreatedTaskDto = WithId<Task, Uuid>;
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
-    /// host machine name that assign us the task
-    pub requestor: String,
-
     /// reference to the job id
     pub job_id: Uuid,
 
@@ -43,7 +40,6 @@ pub struct Task {
 // This act as a pending work to fulfill when resources are available.
 impl Task {
     pub fn new(
-        requestor: String,
         job_id: Uuid,
         blend_file_name: PathBuf,
         blender_version: Version,
@@ -51,17 +47,15 @@ impl Task {
     ) -> Self {
         Self {
             job_id,
-            requestor,
             blend_file_name,
             blender_version,
             range,
         }
     }
 
-    pub fn from(requestor: String, job: CreatedJobDto, range: Range<i32>) -> Self {
+    pub fn from(job: CreatedJobDto, range: Range<i32>) -> Self {
         Self {
             job_id: job.id,
-            requestor,
             blend_file_name: PathBuf::from(job.item.project_file.file_name().unwrap()),
             blender_version: job.item.blender_version,
             range,
@@ -136,22 +130,21 @@ impl Task {
 mod test {
 
     #[test]
-    fn create_new_success() {
-        todo!("Find a good unit test case here?");
-    }
-
-    #[test]
-    fn create_from_success() {
-        todo!("impl unit test behaviour for creating task from job dto.");
-    }
-
-    #[test]
     fn fetch_end_frame_success() {
-        todo!("Impl. successful case to fetch end frames of task");
+        // we should run two scenario, one with actual frames, and another with limited or no frames left.
+        // if we tried to call with enough buffer pending, we should expect Some(value) back
+        // otherwise if the node is almost done and it was called, None should return.
+        todo!("Impl. code for unit test to fetch end frames here");
+        // let task = Task::new()
     }
 
     #[test]
     fn get_next_frame_success() {
+        // We should expect two successful result
+        // one result is that we should have remaining frames, so we should expect to get Some(value)
+        // otherwise None should return that we've completed the job.
         todo!("impl. next frame from task");
     }
+
+    // Is it possible to break this scope?
 }

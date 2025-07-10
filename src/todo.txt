@@ -8,7 +8,7 @@
 [issues]
     My client is not receiving network event from host.
 E.g. 
-%> Sending task Task { requestor: "udev", job_id: f5f3af8b-4a74-4729-84e1-d25c4da4f4dc, blender_version: Version { major: 4, minor: 1, patch: 0 }, blend_file_name: "test.blend", range: 1..10 } to "udev"
+%> Sending task Task { job_id: f5f3af8b-4a74-4729-84e1-d25c4da4f4dc, blender_version: Version { major: 4, minor: 1, patch: 0 }, blend_file_name: "test.blend", range: 1..10 } to the gossip channel
 
 client does not send message while the job is running, I thought this was done async? what's going on?
 - only at the end of the task does it ever notify host?

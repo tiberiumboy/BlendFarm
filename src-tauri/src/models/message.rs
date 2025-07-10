@@ -1,5 +1,5 @@
-use super::{behaviour::FileResponse, network::NodeEvent};
 use super::job::JobEvent;
+use super::{behaviour::FileResponse, network::NodeEvent};
 use futures::channel::oneshot::{self};
 use libp2p::PeerId;
 use libp2p_request_response::{OutboundRequestId, ResponseChannel};
@@ -27,7 +27,6 @@ pub enum NetworkError {
     Timeout,
 }
 
-pub type Target = Option<String>;
 pub type KeywordSearch = String;
 
 // to make things simple, we'll create a file service command to handle file service.
@@ -61,7 +60,7 @@ pub enum Command {
     SubscribeTopic(String),
     UnsubscribeTopic(String),
     NodeStatus(NodeEvent), // broadcast node activity changed
-    JobStatus(Target, JobEvent),
+    JobStatus(JobEvent),
     FileService(FileCommand),
 }
 

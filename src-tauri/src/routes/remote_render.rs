@@ -5,7 +5,10 @@ for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
 use super::util::select_directory;
-use crate::{models::app_state::AppState, services::tauri_app::{BlenderAction, UiCommand}};
+use crate::{
+    models::app_state::AppState,
+    services::tauri_app::{BlenderAction, UiCommand},
+};
 use blender::blender::Blender;
 use futures::{SinkExt, StreamExt, channel::mpsc};
 use maud::html;
@@ -35,7 +38,10 @@ async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
     let res = receiver.select_next_some().await;
     match res {
         // Clone operation used here. might be expensive? See if there's another way to get aorund this.
-        Some(list) => list.iter().map(|f| f.get_version().clone()).collect::<Vec<Version>>(),
+        Some(list) => list
+            .iter()
+            .map(|f| f.get_version().clone())
+            .collect::<Vec<Version>>(),
         None => Vec::new(),
     }
 
@@ -94,13 +100,14 @@ pub async fn create_new_job(
         .dialog()
         .file()
         .add_filter("Blender", &["blend"])
-        .blocking_pick_file().and_then(|f| match f {
+        .blocking_pick_file()
+        .and_then(|f| match f {
             FilePath::Path(f) => Some(f),
             FilePath::Url(u) => Some(u.as_str().into()),
         });
-    
+
     if let Some(path) = given_path {
-        return import_blend(state, path).await
+        return import_blend(state, path).await;
     }
     Err("No file selected!".to_owned())
 }
@@ -206,6 +213,7 @@ pub fn remote_render_page() -> String {
 
             img id="spinner" class="htmx-indicator" src="/assets/svg-loaders/tail-spin.svg";
 
+            // Is there a way to select the first item on the list by default?
             div class="group" id="joblist" tauri-invoke="list_jobs" hx-trigger="load" hx-target="this" {
             };
 
