@@ -25,7 +25,6 @@ pub async fn create_job(
 ) -> Result<String, String> {
     let mode = RenderMode::try_new(&start, &end).map_err(|e| e.to_string())?;
 
-    // create a container to hold job info
     let job = Job {
         mode,
         project_file: path,
@@ -33,7 +32,6 @@ pub async fn create_job(
         output,
     };
 
-    // maybe I was awaiting for the lock?
     let add = UiCommand::Job(JobAction::Advertise(job));
     let mut app_state = state.lock().await;
     app_state
@@ -196,14 +194,14 @@ mod test {
         TODO: See about how we can get test coverage that handle all possible cases
     */
 
+    use std::ops::Range;
+
     use anyhow::Error;
-    //#region create_jobs
     use super::*;
     use futures::channel::mpsc::Receiver;
     use ntest::timeout;
-    // use tauri::webview::InvokeRequest;
     use crate::{config_sqlite_db, services::tauri_app::TauriApp};
-    use tauri::test::{MockRuntime, mock_builder};
+    use tauri::{test::{mock_builder, MockRuntime}, webview::InvokeRequest};
 
     async fn scaffold_app() -> Result<(tauri::App<MockRuntime>, Receiver<UiCommand>), Error> {
         let (invoke, receiver) = mpsc::channel(1);
@@ -214,46 +212,75 @@ mod test {
         Ok((app, receiver))
     }
 
-    // this took over 60 seconds. not good.
     #[tokio::test]
     #[timeout(5000)]
     async fn create_job_successfully() {
         // For now I'm going to let this pass, until I figure out how/why mockup tauri app dead-lock on initialization.
-        let (_app, mut _receiver) = scaffold_app().await.unwrap();
-        assert!(true);
-
-        /*
+        let (app, mut receiver) = scaffold_app().await.unwrap();
         let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
-        let _start = "1".to_owned();
-        let _end = "2".to_owned();
+        let start = "1".to_owned();
+        let end = "2".to_owned();
         let blender_version = Version::new(4, 1, 0);
         let project_file = PathBuf::from("./blender_rs/examples/assets/test.blend".to_owned());
         let output = PathBuf::from("./blender_rs/examples/assets/".to_owned());
 
-        println!("create a job...");
+        let body = json!({
+            "start": start,
+            "end": end,
+            "version": blender_version,
+            "path": project_file,
+            "output": output,
+        });
+
         let res = tauri::test::get_ipc_response(&webview, InvokeRequest {
-            cmd: "index".into(),
+            cmd: "create_job".into(),
             callback: tauri::ipc::CallbackFn(0),
             error: tauri::ipc::CallbackFn(1),
             url: "tauri://localhost".parse().unwrap(),
-            body: tauri::ipc::InvokeBody::default(),
+            body: tauri::ipc::InvokeBody::Json(body),
             headers: Default::default(),
             invoke_key: tauri::test::INVOKE_KEY.to_string(),
         }).map(|b| b.deserialize::<String>().unwrap());
 
-        println!("{res:?}");
+        assert!(res.is_ok());
 
         let expected_mode = RenderMode::Frame(1);
         let job = Job::new(expected_mode, project_file, blender_version, output);
 
-        // make sure to receive AddJobToNetwork event. If this doesn't work then no job will be added across network distribution.
-        println!("Wait to hear the reply back...");
-        // TODO: impl timeout here?
         let event = receiver.select_next_some().await;
-        println!("comparing which should end this function I hope...");
         assert_eq!(event, UiCommand::Job(JobAction::Advertise(job)));
-        println!("sanity check...");
-        */
+    }
+
+    #[tokio::test]
+    #[timeout(5000)]
+    async fn create_job_malform_fail() {
+        // For now I'm going to let this pass, until I figure out how/why mockup tauri app dead-lock on initialization.
+        let (app, _) = scaffold_app().await.unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+        let start = "1".to_owned();
+        let end = "2".to_owned();
+        let project_file = PathBuf::from("./blender_rs/examples/assets/test.blend".to_owned());
+        let output = PathBuf::from("./blender_rs/examples/assets/".to_owned());
+
+        let body = json!({
+            "start": start,
+            "end": end,
+            "version": "1a2b3c",
+            "path": project_file,
+            "output": output,
+        });
+
+        let res = tauri::test::get_ipc_response(&webview, InvokeRequest {
+            cmd: "create_job".into(),
+            callback: tauri::ipc::CallbackFn(0),
+            error: tauri::ipc::CallbackFn(1),
+            url: "tauri://localhost".parse().unwrap(),
+            body: tauri::ipc::InvokeBody::Json(body),
+            headers: Default::default(),
+            invoke_key: tauri::test::INVOKE_KEY.to_string(),
+        }).map(|b| b.deserialize::<String>().unwrap());
+
+        assert!(res.is_err());
     }
 
     //#endregion
