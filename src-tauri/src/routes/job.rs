@@ -93,10 +93,7 @@ fn fetch_img_result(path: &PathBuf) -> Option<Vec<PathBuf>> {
             list.sort(); // the list is not organzied, sort the list after collecting data
             Some(list)
         }
-        Err(e) => {
-            eprintln!("Unable to find directory! {:?} | {e:?}", &path);
-            None
-        }
+        Err(e) => None,
     }
 }
 
