@@ -41,10 +41,13 @@ pub type CreatedJobDto = WithId<Job, JobId>;
 pub struct Job {
     /// contains the information to specify the kind of job to render (We could auto fill this from blender peek function?)
     pub mode: RenderMode,
+
     /// Path to blender files
     pub project_file: PathBuf,
+    
     // target blender version
     pub blender_version: Version,
+    
     // target output destination
     pub output: PathBuf,
 }

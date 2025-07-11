@@ -7,6 +7,7 @@ use futures::{SinkExt, StreamExt};
 use maud::html;
 use semver::Version;
 use serde_json::json;
+// use std::process::Command;
 use std::{path::PathBuf, str::FromStr};
 use tauri::{State, command};
 use tokio::sync::Mutex;
@@ -100,6 +101,18 @@ fn fetch_img_result(path: &PathBuf) -> Option<Vec<PathBuf>> {
     }
 }
 
+/* 
+fn fetch_img_preview(path: &PathBuf, imgs: &Vec<PathBuf>) -> PathBuf {
+    // ffmpeg command usage
+    // ffmpeg -y -framerate 10 -i <image>%02d.png -s 426x240 preview.gif
+    
+    let output = Command::new("ffmpeg").arg("-y -framerate 10 -i 02d.png -s 426x240 preview.gif").output();
+    
+    
+    PathBuf::new()
+}
+*/
+
 fn convert_file_src(path: &PathBuf) -> String {
     #[cfg(any(windows, target_os = "android"))]
     let base = "http://asset.localhost/";
@@ -114,11 +127,10 @@ fn convert_file_src(path: &PathBuf) -> String {
 }
 
 #[command(async)]
-pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, ()> {
+pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, String> {
     let (sender, mut receiver) = mpsc::channel(0);
     let job_id = Uuid::from_str(job_id).map_err(|e| {
-        eprintln!("Unable to parse uuid? \n{e:?}");
-        ()
+        format!("Unable to parse uuid? \n{e:?}")
     })?;
 
     let mut app_state = state.lock().await;
@@ -129,10 +141,15 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
 
     match receiver.select_next_some().await {
         Some(job) => {
+            let result = fetch_img_result(&job.item.output);
+            
             // TODO: it would be nice to provide ffmpeg gif result of the completed render image.
             // Something to add for immediate preview and feedback from render result
             // this is to fetch the render collection
-            let result = fetch_img_result(&job.item.output);
+            // if let Some(imgs) = result {
+            //     let preview = fetch_img_preview(&job.item.output, &imgs);
+            // }
+
 
             Ok(html!(
                 div {
@@ -155,7 +172,7 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
                 )
                 .0)
         }
-        None => Ok(html!(
+        None => Err(html!(
         div {
                 p { "Job do not exist.. How did you get here?" };
             };
