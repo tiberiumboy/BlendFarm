@@ -128,14 +128,29 @@ impl Task {
 
 #[cfg(test)]
 mod test {
+    use super::*;
+    use async_std::path::PathBuf;
+    use uuid::Uuid;
+
+    fn scaffold_task(start: i32, end: i32) -> Task {
+        let job_id = Uuid::new_v4();
+        let path= PathBuf::from(".");
+        let version = Version::new(1,1,1);
+        let range = Range { start, end };
+        Task::new(job_id, path.into(), version, range )
+    }
 
     #[test]
     fn fetch_end_frame_success() {
         // we should run two scenario, one with actual frames, and another with limited or no frames left.
         // if we tried to call with enough buffer pending, we should expect Some(value) back
         // otherwise if the node is almost done and it was called, None should return.
-        todo!("Impl. code for unit test to fetch end frames here");
-        // let task = Task::new()
+        let mut task =  scaffold_task(0, 50);
+        let data = task.fetch_end_frames(255);
+        assert!(data.is_some());
+
+        let data = task.fetch_end_frames(5);
+        assert!(data.is_none());
     }
 
     #[test]
@@ -143,8 +158,14 @@ mod test {
         // We should expect two successful result
         // one result is that we should have remaining frames, so we should expect to get Some(value)
         // otherwise None should return that we've completed the job.
-        todo!("impl. next frame from task");
-    }
+        let mut task = scaffold_task(0, 1);
+        let data = task.get_next_frame();
+        assert!(data.is_some());
 
-    // Is it possible to break this scope?
+        let data = task.get_next_frame();
+        assert!(data.is_some());
+
+        let data = task.get_next_frame();
+        assert!(data.is_none());
+    }
 }
