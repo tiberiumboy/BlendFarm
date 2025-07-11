@@ -1,33 +1,34 @@
 /* DEV Blog
 
-    Issue: files provider are stored in memory, and do not recover after application restart. 
+    Issue: files provider are stored in memory, and do not recover after application restart.
         - mitigate this by using a persistent storage solution instead of memory storage.
 
     Issue: Cannot debug this application unless it is built completely. See if there's a way to run debug mode without building the app entirely.
 */
 
-use super::{blend_farm::BlendFarm, data_store::{sqlite_job_store::SqliteJobStore, sqlite_worker_store::SqliteWorkerStore}};
+use super::{
+    blend_farm::BlendFarm,
+    data_store::{sqlite_job_store::SqliteJobStore, sqlite_worker_store::SqliteWorkerStore},
+};
 use crate::{
     domains::{job_store::JobStore, worker_store::WorkerStore},
     models::{
-        app_state::AppState, 
-        computer_spec::ComputerSpec, 
-        job::{
-            CreatedJobDto, 
-            JobEvent, 
-            JobId, 
-            NewJobDto
-        }, 
-        message::{Event, NetworkError}, 
-        network::{NetworkController, NodeEvent, ProviderRule}, 
-        server_setting::ServerSetting, 
-        task::Task, 
-        worker::Worker
+        app_state::AppState,
+        computer_spec::ComputerSpec,
+        job::{CreatedJobDto, JobEvent, JobId, NewJobDto},
+        message::{Event, NetworkError},
+        network::{NetworkController, NodeEvent, ProviderRule},
+        server_setting::ServerSetting,
+        task::Task,
+        worker::Worker,
     },
     routes::{job::*, remote_render::*, settings::*, util::*, worker::*},
 };
-use futures::{channel::mpsc::{self, Sender}, SinkExt, StreamExt};
 use blender::{blender::Blender, manager::Manager as BlenderManager, models::mode::RenderMode};
+use futures::{
+    SinkExt, StreamExt,
+    channel::mpsc::{self, Sender},
+};
 use libp2p::PeerId;
 use maud::html;
 use semver::Version;
@@ -59,8 +60,8 @@ pub enum BlenderAction {
     Add(PathBuf),
     List(Sender<Option<Vec<Blender>>>),
     Get(Version, Sender<Option<Blender>>),
-    Disconnect(Blender),    // detach links associated with file path, but does not delete local installation!
-    Remove(Blender),    // deletes local installation of blender, use it as last resort option. (E.g. force cache clear/reinstall/ corrupted copy)
+    Disconnect(Blender), // detach links associated with file path, but does not delete local installation!
+    Remove(Blender), // deletes local installation of blender, use it as last resort option. (E.g. force cache clear/reinstall/ corrupted copy)
 }
 
 impl PartialEq for BlenderAction {
@@ -82,7 +83,7 @@ pub enum JobAction {
     Get(JobId, Sender<Option<CreatedJobDto>>),
     Remove(JobId),
     List(Sender<Option<Vec<CreatedJobDto>>>),
-    Advertise(NewJobDto)
+    Advertise(NewJobDto),
 }
 
 impl PartialEq for JobAction {
@@ -114,42 +115,23 @@ impl PartialEq for WorkerAction {
         }
     }
 }
-    
-    #[derive(Debug, PartialEq)]
-    pub enum UiCommand {
-        Job(JobAction),
-        UploadFile(PathBuf),
-        Worker(WorkerAction),
-        Settings(SettingsAction),
+
+#[derive(Debug, PartialEq)]
+pub enum UiCommand {
+    Job(JobAction),
+    UploadFile(PathBuf),
+    Worker(WorkerAction),
+    Settings(SettingsAction),
     Blender(BlenderAction),
 }
 
-// custom implementation was required to omit Sender being viewed as foreign item type. (Sender from futures-channel does not impl PartialEq)
-// in this case of PartialEq, We do not care about comparing Sender, so Sender only variant returns true by default. (enum matches enum we're looking for)
-// impl PartialEq for UiCommand {
-//     fn eq(&self, other: &Self) -> bool {
-//         match (self, other) {
-//             (Self::AddJobToNetwork(l0), Self::AddJobToNetwork(r0)) => l0 == r0,
-//             (Self::StartJob(l0), Self::StartJob(r0)) => l0 == r0,
-//             (Self::StopJob(l0), Self::StopJob(r0)) => l0 == r0,
-//             (Self::GetJob(l0, ..), Self::GetJob(r0, ..)) => l0.eq(r0),
-//             (Self::UploadFile(l0), Self::UploadFile(r0)) => l0 == r0,
-//             (Self::RemoveJob(l0), Self::RemoveJob(r0)) => l0 == r0,
-//             (Self::ListJobs(..), Self::ListJobs(..)) => true,
-//             (Self::ListWorker(..), Self::ListWorker(..)) => true,
-//             (Self::GetWorker(l0, ..), Self::GetWorker(r0, ..)) => l0 == r0,
-//             _ => false,
-//         }
-//     }
-// }
-
-pub struct TauriApp{
+pub struct TauriApp {
     // I need the peer's address?
     peers: HashMap<PeerId, ComputerSpec>,
     worker_store: SqliteWorkerStore,
     job_store: SqliteJobStore,
     settings: ServerSetting,
-    manager: BlenderManager
+    manager: BlenderManager,
 }
 
 #[command]
@@ -159,52 +141,63 @@ pub fn index() -> String {
             div class="sidebar" {
                 nav {
                     ul class="nav-menu-items" {
-                        li key="manager" class="nav-bar" tauri-invoke="remote_render_page" hx-target=(format!("#{WORKPLACE}")) {
-                            span { "Remote Render" }
-                        };
+                        // li key="manager" class="nav-bar" tauri-invoke="remote_render_page" hx-target=(format!("#{WORKPLACE}")) {
+                        //     span { "Remote Render" }
+                        // };
                         li key="setting" class="nav-bar" tauri-invoke="setting_page" hx-target=(format!("#{WORKPLACE}")) {
                             span { "Setting" }
                         };
                     };
                 };
                 div {
-                    h2 { "Computer Nodes" };
-                    // hx-trigger="every 10s" - omitting this as this was spamming console log
-                    div class="group" id="workers" tauri-invoke="list_workers" hx-target="this" {};
-                };
+                    h3 { "Jobs" }
+
+                    button tauri-invoke="create_new_job" hx-target="body" hx-swap="beforeend" {
+                        "Import"
+                    };
+
+                    // Is there a way to select the first item on the list by default?
+                    div class="group" id="joblist" tauri-invoke="list_jobs" hx-trigger="load" hx-target="this";
+                }
+
+                // div {
+                //     h2 { "Computer Nodes" };
+                //     // hx-trigger="every 10s" - omitting this as this was spamming console log
+                //     div class="group" id="workers" tauri-invoke="list_workers" hx-target="this" {};
+                // };
             };
-            
-            main tauri-invoke="remote_render_page" hx-trigger="load" hx-target="this" id=(WORKPLACE) {};
+
         }
+        main id=(WORKPLACE);
     ).0
 }
 
 impl TauriApp {
-
     // Clear worker database before usage!
     pub async fn clear_workers_collection(mut self) -> Self {
-        if let Err(e) = self.worker_store.clear_worker().await{ 
+        if let Err(e) = self.worker_store.clear_worker().await {
             eprintln!("Error clearing worker database! {e:?}");
-        } 
+        }
         self
     }
 
-    pub async fn new(
-        pool: &Pool<Sqlite>,
-    ) -> Self {
-
+    pub async fn new(pool: &Pool<Sqlite>) -> Self {
         Self {
             peers: Default::default(),
             worker_store: SqliteWorkerStore::new(pool.clone()),
             job_store: SqliteJobStore::new(pool.clone()),
             settings: ServerSetting::load(),
-            manager: BlenderManager::load()
+            manager: BlenderManager::load(),
         }
     }
 
     // Create a builder to make Tauri application
     // Let's just use the controller in here anyway.
-    pub async fn config_tauri_builder<R: tauri::Runtime>(&self, builder: tauri::Builder<R>, invoke: Sender<UiCommand>) -> Result<tauri::App<R>, tauri::Error> {
+    pub async fn config_tauri_builder<R: tauri::Runtime>(
+        &self,
+        builder: tauri::Builder<R>,
+        invoke: Sender<UiCommand>,
+    ) -> Result<tauri::App<R>, tauri::Error> {
         // I would like to find a better way to update or append data to render_nodes,
         // "Do not communicate with shared memory"
         let app_state = AppState { invoke };
@@ -226,14 +219,13 @@ impl TauriApp {
                 select_file,
                 create_job,
                 delete_job,
-                get_job,
+                get_job_detail,
                 setting_page,
                 edit_settings,
                 get_settings,
                 update_settings,
                 create_new_job,
                 available_versions,
-                remote_render_page,
                 list_workers,
                 list_jobs,
                 get_worker,
@@ -249,7 +241,7 @@ impl TauriApp {
     }
 
     // because this is async, we can make our function wait for a new peers available.
-    /* 
+    /*
     async fn get_idle_peers(&self) -> String {
         // this will destroy the vector anyway.
         // TODO: Impl. Round Robin or pick first idle worker, whichever have the most common hardware first in query?
@@ -299,7 +291,7 @@ impl TauriApp {
                 job.id,
                 file_name.clone(),
                 job.item.get_version().clone(),
-                range
+                range,
             );
             tasks.push(task);
         }
@@ -307,8 +299,8 @@ impl TauriApp {
         tasks
     }
 
-    async fn handle_job_command(&mut self, job_action: JobAction, client: &mut NetworkController ) {
-            match job_action {
+    async fn handle_job_command(&mut self, job_action: JobAction, client: &mut NetworkController) {
+        match job_action {
             JobAction::Start(job_id) => {
                 // first see if we have the job in the database?
                 let job = match self.job_store.get_job(&job_id).await {
@@ -320,7 +312,7 @@ impl TauriApp {
                 };
 
                 // first make the file available on the network
-                let _file_name = job.item.project_file.file_name().unwrap();// this is &OsStr
+                let _file_name = job.item.project_file.file_name().unwrap(); // this is &OsStr
                 let path = job.item.project_file.clone();
 
                 // Once job is initiated, we need to be able to provide the files for network distribution.
@@ -328,7 +320,7 @@ impl TauriApp {
 
                 // where does the client come from?
                 // TODO: Figure out where the client is associated with and how can we access it from here?
-                /* 
+                /*
                 client.start_providing(&provider).await;
 
                 let tasks = Self::generate_tasks(
@@ -348,11 +340,11 @@ impl TauriApp {
                     client.send_job_event(Some(host.clone()), JobEvent::Render(task)).await;
                 }
                 */
-            },
+            }
             JobAction::Stop(id) => {
                 let signal = JobEvent::Remove(id);
                 client.send_job_event(signal).await;
-            },
+            }
             JobAction::Get(job_id, mut sender) => {
                 let result = self.job_store.get_job(&job_id).await;
                 if let Err(e) = &result {
@@ -361,16 +353,16 @@ impl TauriApp {
                 if let Err(e) = sender.send(result.ok()).await {
                     eprintln!("Unable to get a job!: {e:?}");
                 }
-            },
+            }
             JobAction::Remove(job_id) => {
                 if let Err(e) = self.job_store.delete_job(&job_id).await {
                     eprintln!("Receiver/sender should not be dropped! {e:?}");
                 }
-                client.send_job_event(JobEvent::Remove(job_id)).await;   
-            },
+                client.send_job_event(JobEvent::Remove(job_id)).await;
+            }
             JobAction::List(mut sender) => {
-                /*  
-                    There's something wrong with this datastructure. 
+                /*
+                    There's something wrong with this datastructure.
                     On first call, this command works as expected,
                     however additional call afterward does not let this function continue or invoke?
                     I must be waiting for something here?
@@ -382,29 +374,32 @@ impl TauriApp {
                         } else {
                             Some(jobs)
                         }
-                    },
+                    }
                     Err(e) => {
                         eprintln!("Unable to send list of jobs: {e:?}");
                         None
                     }
                 };
-                            
+
                 if let Err(e) = sender.send(result).await {
                     eprintln!("Fail to send data back! {e:?}");
                 }
-            },
-            JobAction::Advertise(job) => // Here we will simply add the job to the database, and let client poll them!
+            }
+            JobAction::Advertise(job) =>
+            // Here we will simply add the job to the database, and let client poll them!
+            {
                 if let Err(e) = self.job_store.add_job(job).await {
                     eprintln!("Unable to add job! Encounter database error: {e:}");
                 }
+            }
         }
     }
 
-    async fn handle_blender_command(&mut self, blender_action: BlenderAction ) {
+    async fn handle_blender_command(&mut self, blender_action: BlenderAction) {
         match blender_action {
             BlenderAction::Add(_blender) => {
                 todo!("impl adding blender?");
-            },
+            }
             BlenderAction::List(mut sender) => {
                 let localblenders = self.manager.get_blenders().to_owned();
                 if let Err(e) = sender.send(Some(localblenders)).await {
@@ -412,7 +407,7 @@ impl TauriApp {
                 }
 
                 // TODO: What's the difference?
-                /* 
+                /*
                 let mut versions = Vec::new();
 
                 // fetch local installation first.
@@ -438,14 +433,15 @@ impl TauriApp {
                 sender.send(Some(versions)).await;
 
                 */
-            },
+            }
             BlenderAction::Get(version, mut sender) => {
                 let result = self.manager.fetch_blender(&version);
                 match result {
-                    Ok(blender) => { 
+                    Ok(blender) => {
                         if let Err(e) = sender.send(Some(blender)).await {
                             eprintln!("Fail to send result back to caller! {e:?}");
-                        } },
+                        }
+                    }
                     Err(e) => {
                         eprintln!("Fail to fetch blender! {e:?}");
                         if let Err(e) = sender.send(None).await {
@@ -453,7 +449,7 @@ impl TauriApp {
                         }
                     }
                 };
-            },
+            }
             // I'm not really sure what this one is suppose to be?
             BlenderAction::Disconnect(..) => todo!(),
             // neither this one...
@@ -463,18 +459,22 @@ impl TauriApp {
 
     async fn handle_worker_command(&mut self, worker_action: WorkerAction) {
         match worker_action {
-            WorkerAction::Get(peer_id,mut sender) => {
-                let result = sender.send(self.worker_store.get_worker(&peer_id).await).await;
+            WorkerAction::Get(peer_id, mut sender) => {
+                let result = sender
+                    .send(self.worker_store.get_worker(&peer_id).await)
+                    .await;
                 if let Err(e) = result {
                     eprintln!("Unable to get worker!: {e:?}");
                 }
-            },
+            }
             WorkerAction::List(mut sender) => {
-                let result = sender.send(self.worker_store.list_worker().await.ok()).await;
+                let result = sender
+                    .send(self.worker_store.list_worker().await.ok())
+                    .await;
                 if let Err(e) = result {
                     eprintln!("Unable to send list of workers: {e:?}");
                 }
-            },
+            }
         }
     }
 
@@ -498,7 +498,9 @@ impl TauriApp {
         match cmd {
             // could this be used as a trait?
             UiCommand::Blender(blender_action) => self.handle_blender_command(blender_action).await,
-            UiCommand::Settings(setting_action) => self.handle_setting_command(setting_action).await,
+            UiCommand::Settings(setting_action) => {
+                self.handle_setting_command(setting_action).await
+            }
             UiCommand::Job(job_action) => self.handle_job_command(job_action, client).await,
             UiCommand::Worker(worker_action) => self.handle_worker_command(worker_action).await,
             UiCommand::UploadFile(path) => {
@@ -510,52 +512,52 @@ impl TauriApp {
     }
 
     // commands received from network
-    async fn handle_net_event(
-        &mut self,
-        client: &mut NetworkController,
-        event: Event,
-    ) {
+    async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
             Event::NodeStatus(node_status) => match node_status {
                 NodeEvent::Hello(peer_id_string, spec) => {
-                    let peer_id = PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
+                    let peer_id =
+                        PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
                     let worker = Worker::new(peer_id.clone(), spec.clone());
                     // append new worker to database store
                     if let Err(e) = self.worker_store.add_worker(worker).await {
                         eprintln!("Error adding worker to database! {e:?}");
                     }
-                    
+
                     self.peers.insert(peer_id, spec);
                     // let handle = app_handle.write().await;
-                    // emit a signal to query the data. 
+                    // emit a signal to query the data.
                     // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
                     // let _ = handle.emit("worker_update");
-                },
+                }
                 // concerning - this String could be anything?
                 // TODO: Find a better way to get around this.
-                NodeEvent::Disconnected{ peer_id, reason } => {
+                NodeEvent::Disconnected { peer_id, reason } => {
                     if let Some(msg) = reason {
                         eprintln!("Node disconnected with reason!\n {msg}");
                     }
-                    
+
                     // So the main issue is that there's no way to identify by the machine id?
-                    let peer_id = PeerId::from_str(&peer_id).expect("Received invalid peer_id string!");
-                    
+                    let peer_id =
+                        PeerId::from_str(&peer_id).expect("Received invalid peer_id string!");
+
                     // probably best to mark the node "inactive" instead?
                     if let Err(e) = self.worker_store.delete_worker(&peer_id).await {
                         eprintln!("Error deleting worker from database! {e:?}");
                     }
-                    
+
                     self.peers.remove(&peer_id);
-                },
+                }
                 // this is the same as saying down in the garbage disposal. Anything goes here. Do not trust data source here!
-                NodeEvent::BlenderStatus(blend_event) => println!("Blender Status Received: {blend_event:?}"),
+                NodeEvent::BlenderStatus(blend_event) => {
+                    println!("Blender Status Received: {blend_event:?}")
+                }
             },
-            
+
             // let me figure out what's going on here.
             // a network sent us a inbound request - reply back with the file data in channel.
             // yeah I wonder why we can't move this inside network class?
-            Event::InboundRequest { request, channel } => {    
+            Event::InboundRequest { request, channel } => {
                 self.handle_inbound_request(client, request, channel).await;
             }
 
@@ -571,7 +573,7 @@ impl TauriApp {
                     if let Err(e) = async_std::fs::create_dir_all(destination.clone()).await {
                         println!("Issue creating temp job directory! {e:?}");
                     }
-                    
+
                     // this is used to send update to the web app.
                     // let handle = app_handle.write().await;
                     // if let Err(e) = handle.emit(
@@ -610,7 +612,9 @@ impl TauriApp {
                 // this will soon go away - host should not receive request job.
                 JobEvent::RequestTask => {
                     // Node have exhaust all of queue. Check and see if we can create or distribute pending jobs.
-                    todo!("A node from the network request more task to work on. More likely it was recently created or added after job was initially created.");
+                    todo!(
+                        "A node from the network request more task to work on. More likely it was recently created or added after job was initially created."
+                    );
                 }
                 // this will soon go away
                 JobEvent::Failed(msg) => {
@@ -620,7 +624,7 @@ impl TauriApp {
                     // Should I do anything on the manager side? Shouldn't matter at this point?
                 }
             },
-            _ => {}, // println!("[TauriApp]: {:?}", event),
+            _ => {} // println!("[TauriApp]: {:?}", event),
         }
     }
 }
@@ -632,11 +636,10 @@ impl BlendFarm for TauriApp {
         mut client: NetworkController,
         mut event_receiver: futures::channel::mpsc::Receiver<Event>,
     ) -> Result<(), NetworkError> {
-
         // this channel is used to send command to the network, and receive network notification back.
         // ok where is this used?
         let (event, mut command) = mpsc::channel(32);
-        
+
         // we send the sender to the tauri builder - which will send commands to "from_ui".
         let app = self
             .config_tauri_builder(tauri::Builder::default(), event)
@@ -660,9 +663,9 @@ impl BlendFarm for TauriApp {
 
 #[cfg(test)]
 mod test {
-    use crate::config_sqlite_db;
     use super::*;
-    
+    use crate::config_sqlite_db;
+
     async fn get_sqlite_conn() -> Pool<Sqlite> {
         let pool = config_sqlite_db().await;
         assert!(pool.is_ok());
@@ -673,8 +676,13 @@ mod test {
     async fn clear_workers_success() {
         let pool = get_sqlite_conn().await;
         let app = TauriApp::new(&pool).await;
-    
+
         let app = app.clear_workers_collection().await;
-        assert!(app.worker_store.list_worker().await.is_ok_and(|f| f.iter().count() == 0 ));
+        assert!(
+            app.worker_store
+                .list_worker()
+                .await
+                .is_ok_and(|f| f.iter().count() == 0)
+        );
     }
 }

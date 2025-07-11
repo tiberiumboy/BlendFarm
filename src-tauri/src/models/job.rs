@@ -44,10 +44,10 @@ pub struct Job {
 
     /// Path to blender files
     pub project_file: PathBuf,
-    
+
     // target blender version
     pub blender_version: Version,
-    
+
     // target output destination
     pub output: PathBuf,
 }
@@ -83,6 +83,7 @@ impl Job {
         }
     }
 
+    // TODO: See if there's a better way to fetch for these information beside implementing a method here?
     pub fn get_file_name(&self) -> &str {
         self.project_file.file_name().unwrap().to_str().unwrap()
     }
@@ -95,3 +96,5 @@ impl Job {
         &self.blender_version
     }
 }
+
+// No Unit test required?

@@ -1,6 +1,5 @@
-use super::remote_render::remote_render_page;
 use crate::models::{app_state::AppState, job::Job};
-use crate::services::tauri_app::{JobAction, UiCommand};
+use crate::services::tauri_app::{JobAction, UiCommand, WORKPLACE};
 use blender::models::mode::RenderMode;
 use futures::channel::mpsc::{self};
 use futures::{SinkExt, StreamExt};
@@ -40,7 +39,12 @@ pub async fn create_job(
         .send(add)
         .await
         .map_err(|e| e.to_string())?;
-    Ok(remote_render_page())
+    Ok(html!(
+        div {
+            "TODO: Figure out what needs to get added here"
+        }
+    )
+    .0)
 }
 
 #[command(async)]
@@ -59,7 +63,7 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, Stri
                     div {
                         table {
                             tbody {
-                                tr tauri-invoke="get_job" hx-vals=(json!({"jobId":job.id.to_string()})) hx-target="#detail" {
+                                tr tauri-invoke="get_job_detail" hx-vals=(json!({"jobId":job.id.to_string()})) hx-target=(format!("#{WORKPLACE}")) {
                                     td style="width:100%" {
                                         (job.item.get_file_name())
                                     };
@@ -101,14 +105,14 @@ fn fetch_img_result(path: &PathBuf) -> Option<Vec<PathBuf>> {
     }
 }
 
-/* 
+/*
 fn fetch_img_preview(path: &PathBuf, imgs: &Vec<PathBuf>) -> PathBuf {
     // ffmpeg command usage
     // ffmpeg -y -framerate 10 -i <image>%02d.png -s 426x240 preview.gif
-    
+
     let output = Command::new("ffmpeg").arg("-y -framerate 10 -i 02d.png -s 426x240 preview.gif").output();
-    
-    
+
+
     PathBuf::new()
 }
 */
@@ -127,11 +131,12 @@ fn convert_file_src(path: &PathBuf) -> String {
 }
 
 #[command(async)]
-pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, String> {
+pub async fn get_job_detail(
+    state: State<'_, Mutex<AppState>>,
+    job_id: &str,
+) -> Result<String, String> {
     let (sender, mut receiver) = mpsc::channel(0);
-    let job_id = Uuid::from_str(job_id).map_err(|e| {
-        format!("Unable to parse uuid? \n{e:?}")
-    })?;
+    let job_id = Uuid::from_str(job_id).map_err(|e| format!("Unable to parse uuid? \n{e:?}"))?;
 
     let mut app_state = state.lock().await;
     let cmd = UiCommand::Job(JobAction::Get(job_id.into(), sender));
@@ -142,7 +147,7 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
     match receiver.select_next_some().await {
         Some(job) => {
             let result = fetch_img_result(&job.item.output);
-            
+
             // TODO: it would be nice to provide ffmpeg gif result of the completed render image.
             // Something to add for immediate preview and feedback from render result
             // this is to fetch the render collection
@@ -150,15 +155,20 @@ pub async fn get_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<
             //     let preview = fetch_img_preview(&job.item.output, &imgs);
             // }
 
-
             Ok(html!(
-                div {
-                        p { "Job Detail" };
+                div class="content" {
+                        h2 { "Job Detail" };
+
                         button tauri-invoke="open_dir" hx-vals=(json!(job.item.project_file.to_str().unwrap())) { ( job.item.project_file.to_str().unwrap() ) };
+                        
                         div { ( job.item.output.to_str().unwrap() ) };
+                        
                         div { ( job.item.blender_version.to_string() ) };
+                        
                         button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job_id})) hx-target="#workplace" { "Delete Job" };
+                        
                         p;
+                        
                         @if let Some(list) = result {
                             @for img in list {
                                 tr {
@@ -198,7 +208,12 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Resu
         eprintln!("{e:?}");
     }
 
-    Ok(remote_render_page())
+    Ok(html!(
+        div {
+            "TODO: Figure out what needs to be done here?"
+        }
+    )
+    .0)
 }
 
 #[cfg(test)]

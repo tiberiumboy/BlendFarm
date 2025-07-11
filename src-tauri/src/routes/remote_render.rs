@@ -92,8 +92,9 @@ pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<Str
 /// This function will read the file and display another dialog prompt for additional detail before continue to display the result from import_blend()
 #[command(async)]
 pub async fn create_new_job(
-    handle: State<'_, Mutex<AppHandle>>,
+    // hmm
     state: State<'_, Mutex<AppState>>,
+    handle: State<'_, Mutex<AppHandle>>,
 ) -> Result<String, String> {
     let app = handle.lock().await;
     let given_path = app
@@ -199,25 +200,4 @@ pub async fn import_blend(
     };
 
     Ok(content.into_string())
-}
-
-#[command]
-pub fn remote_render_page() -> String {
-    html! {
-        div class="content" {
-            h1 { "Remote Jobs" };
-
-            button tauri-invoke="create_new_job" hx-target="body" hx-indicator="#spinner" hx-swap="beforeend" {
-                "Import"
-            };
-
-            img id="spinner" class="htmx-indicator" src="/assets/svg-loaders/tail-spin.svg";
-
-            // Is there a way to select the first item on the list by default?
-            div class="group" id="joblist" tauri-invoke="list_jobs" hx-trigger="load" hx-target="this" {
-            };
-
-            div id="detail";
-        };
-    }.0
 }
