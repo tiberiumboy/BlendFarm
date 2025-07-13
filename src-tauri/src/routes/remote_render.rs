@@ -93,10 +93,9 @@ pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<Str
 #[command(async)]
 pub async fn create_new_job(
     // hmm
-    state: State<'_, Mutex<AppState>>,
-    handle: State<'_, Mutex<AppHandle>>,
+    state: State<'_, (Mutex<AppState>, Mutex<AppHandle>)>,
 ) -> Result<String, String> {
-    let app = handle.lock().await;
+    let app = state.1.lock().await;
     let given_path = app
         .dialog()
         .file()
@@ -108,7 +107,7 @@ pub async fn create_new_job(
         });
 
     if let Some(path) = given_path {
-        return import_blend(state, path).await;
+        return import_blend(&state.0, path).await;
     }
     Err("No file selected!".to_owned())
 }
@@ -124,11 +123,7 @@ pub async fn update_output_field(app: State<'_, Mutex<AppHandle>>) -> Result<Str
 }
 
 // change this to return HTML content of the info back.
-#[command(async)]
-pub async fn import_blend(
-    state: State<'_, Mutex<AppState>>,
-    path: PathBuf,
-) -> Result<String, String> {
+pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<String, String> {
     // for some reason this function takes longer online than it does offline?
     // TODO: set unit test to make sure this function doesn't repetitively call blender.org everytime it's called.
     let mut app_state = state.lock().await;

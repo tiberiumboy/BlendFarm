@@ -210,7 +210,6 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Resu
 
     Ok(html!(
         div {
-            "TODO: Figure out what needs to be done here?"
         }
     )
     .0)

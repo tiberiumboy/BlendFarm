@@ -229,7 +229,6 @@ impl TauriApp {
                 list_workers,
                 list_jobs,
                 get_worker,
-                import_blend,
                 update_output_field,
                 add_blender_installation,
                 list_blender_installed,
@@ -347,12 +346,14 @@ impl TauriApp {
             }
             JobAction::Get(job_id, mut sender) => {
                 let result = self.job_store.get_job(&job_id).await;
-                if let Err(e) = &result {
-                    eprintln!("Job store reported an error: {e:?}");
-                }
-                if let Err(e) = sender.send(result.ok()).await {
-                    eprintln!("Unable to get a job!: {e:?}");
-                }
+                match result {
+                    Ok(record) => {
+                        if let Err(e) = sender.send(record).await {
+                            eprintln!("Unable to get a job!: {e:?}");
+                        }
+                    }
+                    Err(e) => eprintln!("Job store reported an error: {e:?}"),
+                };
             }
             JobAction::Remove(job_id) => {
                 if let Err(e) = self.job_store.delete_job(&job_id).await {

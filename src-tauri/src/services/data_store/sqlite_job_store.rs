@@ -73,26 +73,25 @@ impl JobStore for SqliteJobStore {
     }
 
     // TODO: Change the return type to include Optional in case no record is returned!
-    async fn get_job(&self, job_id: &Uuid) -> Result<CreatedJobDto, JobError> {
+    async fn get_job(&self, job_id: &Uuid) -> Result<Option<CreatedJobDto>, JobError> {
         let id_str = job_id.to_string();
         match sqlx::query_as!(
             JobDAO,
             r"SELECT id, mode, project_file, blender_version, output_path FROM Jobs WHERE id=$1",
             id_str
         )
-        .fetch_one(&self.conn)
+        .fetch_optional(&self.conn)
         .await
         {
-            Ok(r) => {
+            Ok(record) => Ok(record.map(|r| {
                 let id = Uuid::parse_str(&r.id).unwrap();
                 let mode: RenderMode = serde_json::from_str(&r.mode).unwrap();
                 let project = PathBuf::from(r.project_file);
                 let version = Version::from_str(&r.blender_version).unwrap();
                 let output = PathBuf::from(r.output_path);
-                let item = Job::new(mode, project, version, output);
-
-                Ok(CreatedJobDto { id, item })
-            }
+                let job = Job::new(mode, project, version, output);
+                WithId { id, item: job }
+            })),
             Err(e) => Err(JobError::DatabaseError(e.to_string())),
         }
     }
