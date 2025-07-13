@@ -141,9 +141,11 @@ pub fn index() -> String {
             div class="sidebar" {
                 nav {
                     ul class="nav-menu-items" {
+                        
                         // li key="manager" class="nav-bar" tauri-invoke="remote_render_page" hx-target=(format!("#{WORKPLACE}")) {
                         //     span { "Remote Render" }
                         // };
+
                         li key="setting" class="nav-bar" tauri-invoke="setting_page" hx-target=(format!("#{WORKPLACE}")) {
                             span { "Setting" }
                         };
@@ -157,6 +159,7 @@ pub fn index() -> String {
                     };
 
                     // Is there a way to select the first item on the list by default?
+                    // TODO: Take a look into hx-swap-oob on how we can refresh when a record is deleted or added
                     div class="group" id="joblist" tauri-invoke="list_jobs" hx-trigger="load" hx-target="this";
                 }
 
@@ -665,7 +668,7 @@ impl BlendFarm for TauriApp {
 }
 
 #[cfg(test)]
-mod test {
+mod test {      
     use super::*;
     use crate::config_sqlite_db;
 

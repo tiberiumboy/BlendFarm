@@ -99,7 +99,7 @@ fn fetch_img_result(path: &PathBuf) -> Option<Vec<PathBuf>> {
             Some(list)
         }
         Err(e) => {
-            eprintln!("{e:?}");
+            eprintln!("Unable to find any image stored in the directory:\nPath:{path:?}\nError:{e:?}");
             None
         }
     }
@@ -141,7 +141,7 @@ pub async fn get_job_detail(
     let mut app_state = state.lock().await;
     let cmd = UiCommand::Job(JobAction::Get(job_id.into(), sender));
     if let Err(e) = app_state.invoke.send(cmd).await {
-        eprintln!("{e:?}");
+        eprintln!("Fail to send job action: {e:?}");
     };
 
     match receiver.select_next_some().await {
@@ -176,6 +176,11 @@ pub async fn get_job_detail(
                                         img width="120px" src=(convert_file_src(&img));
                                     }
                                 }
+                            }
+                        } 
+                        @else {
+                            div {
+                                "No image found in output directory..."
                             }
                         }
                     };
