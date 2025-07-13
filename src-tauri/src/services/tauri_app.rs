@@ -302,7 +302,7 @@ impl TauriApp {
         match job_action {
             JobAction::Start(job_id) => {
                 // first see if we have the job in the database?
-                let job = match self.job_store.get_job(&job_id).await {
+                let result = match self.job_store.get_job(&job_id).await {
                     Ok(job) => job,
                     Err(e) => {
                         eprintln!("No Job record found! Skipping! {e:?}");
@@ -311,11 +311,13 @@ impl TauriApp {
                 };
 
                 // first make the file available on the network
-                let _file_name = job.item.project_file.file_name().unwrap(); // this is &OsStr
-                let path = job.item.project_file.clone();
-
-                // Once job is initiated, we need to be able to provide the files for network distribution.
-                let _provider = ProviderRule::Default(path);
+                if let Some(job) = result {
+                    let _file_name = job.item.project_file.file_name().unwrap(); // this is &OsStr
+                    let path = job.item.project_file.clone();
+    
+                    // Once job is initiated, we need to be able to provide the files for network distribution.
+                    let _provider = ProviderRule::Default(path);
+                }
 
                 // where does the client come from?
                 // TODO: Figure out where the client is associated with and how can we access it from here?
@@ -686,4 +688,6 @@ mod test {
                 .is_ok_and(|f| f.iter().count() == 0)
         );
     }
+
+    // todo: identify other part of this code that I can run unit test and list out potential edge cases
 }

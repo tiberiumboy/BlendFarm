@@ -180,9 +180,14 @@ mod tests {
     #[tokio::test]
     async fn fetch_job_fail_no_record_found() {
         let job_store = scaffold_job_store().await;
-        let fake_id = Uuid::new_v4(); // I would expect this to be completely random.... I hope?
-
+        
+        // generate random uuid that doesn't exist in the databset yet
+        let fake_id = Uuid::new_v4(); 
+        
+        // query the result
         let result = job_store.get_job(&fake_id).await;
-        assert!(result.is_err()); // should error!
+        
+        // Query should be successful, but should return none
+        assert!(result.is_ok_and(|e| e.is_none())); 
     }
 }
