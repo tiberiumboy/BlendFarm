@@ -31,14 +31,19 @@ pub async fn create_job(
         blender_version: version,
         output,
     };
-
-    let add = UiCommand::Job(JobAction::Advertise(job));
+    let (sender, mut receiver) = mpsc::channel(1);
+    let add = UiCommand::Job(JobAction::Create(job, sender));
     let mut app_state = state.lock().await;
     app_state
         .invoke
         .send(add)
         .await
         .map_err(|e| e.to_string())?;
+
+    // TODO: Finish implementing handling job receiver here.
+    let result = receiver.select_next_some().await;
+    dbg!(result);
+
     Ok(html!(
         div {
             "TODO: Figure out what needs to get added here"
@@ -51,7 +56,7 @@ pub async fn create_job(
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let (sender, mut receiver) = mpsc::channel(0);
     let mut server = state.lock().await;
-    let cmd = UiCommand::Job(JobAction::List(sender));
+    let cmd = UiCommand::Job(JobAction::All(sender));
     if let Err(e) = server.invoke.send(cmd).await {
         eprintln!("Fail to send command to server! {e:?}");
     }
@@ -139,7 +144,7 @@ pub async fn get_job_detail(
     let job_id = Uuid::from_str(job_id).map_err(|e| format!("Unable to parse uuid? \n{e:?}"))?;
 
     let mut app_state = state.lock().await;
-    let cmd = UiCommand::Job(JobAction::Get(job_id.into(), sender));
+    let cmd = UiCommand::Job(JobAction::Find(job_id.into(), sender));
     if let Err(e) = app_state.invoke.send(cmd).await {
         eprintln!("Fail to send job action: {e:?}");
     };
@@ -208,7 +213,7 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Resu
     // here we're deleting it from the database
     let mut app_state = state.lock().await;
     let id = Uuid::from_str(job_id).map_err(|e| format!("{e:?}"))?;
-    let cmd = UiCommand::Job(JobAction::Remove(id));
+    let cmd = UiCommand::Job(JobAction::Kill(id));
     if let Err(e) = app_state.invoke.send(cmd).await {
         eprintln!("{e:?}");
     }
@@ -291,7 +296,8 @@ mod test {
         let job = Job::new(expected_mode, project_file, blender_version, output);
 
         let event = receiver.select_next_some().await;
-        assert_eq!(event, UiCommand::Job(JobAction::Advertise(job)));
+        // TODO: Fix this unit test so that we can handle sender properly
+        assert_eq!(event, UiCommand::Job(JobAction::Create(job, ..)));
     }
 
     #[tokio::test]

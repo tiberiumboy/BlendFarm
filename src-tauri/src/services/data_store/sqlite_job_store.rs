@@ -72,7 +72,6 @@ impl JobStore for SqliteJobStore {
         Ok(CreatedJobDto { id, item: job })
     }
 
-    // TODO: Change the return type to include Optional in case no record is returned!
     async fn get_job(&self, job_id: &Uuid) -> Result<Option<CreatedJobDto>, JobError> {
         let id_str = job_id.to_string();
         match sqlx::query_as!(
@@ -96,9 +95,38 @@ impl JobStore for SqliteJobStore {
         }
     }
 
-    async fn update_job(&mut self, job: Job) -> Result<(), JobError> {
-        dbg!(job);
-        todo!("Update job to database");
+    async fn update_job(&mut self, job: CreatedJobDto) -> Result<(), JobError> {
+        let id = job.id.to_string();
+        let item = &job.item;
+        let mode = serde_json::to_string(&item.mode).unwrap();
+        let project = item.project_file.to_str().expect("Must have valid path!");
+        let version = item.blender_version.to_string();
+        let output = item.output.to_str().expect("Must have valid path!");
+
+        match sqlx::query!(
+            r"UPDATE Jobs SET mode=$2, project_file=$3, blender_version=$4, output_path=$5
+            WHERE id=$1",
+            id,
+            mode,
+            project,
+            version,
+            output
+        )
+        .execute(&self.conn)
+        .await
+        {
+            Ok(record) => match record.rows_affected() {
+                0 => Err(JobError::DatabaseError(
+                    "Unable to find record! No record was affected!".into(),
+                )),
+                1 => Ok(()),
+                _ => Err(JobError::DatabaseError(format!(
+                    "More than one records was affected! {}",
+                    record.rows_affected()
+                ))),
+            },
+            Err(e) => Err(JobError::DatabaseError(e.to_string())),
+        }
     }
 
     async fn list_all(&self) -> Result<Vec<CreatedJobDto>, JobError> {
@@ -180,14 +208,14 @@ mod tests {
     #[tokio::test]
     async fn fetch_job_fail_no_record_found() {
         let job_store = scaffold_job_store().await;
-        
+
         // generate random uuid that doesn't exist in the databset yet
-        let fake_id = Uuid::new_v4(); 
-        
+        let fake_id = Uuid::new_v4();
+
         // query the result
         let result = job_store.get_job(&fake_id).await;
-        
+
         // Query should be successful, but should return none
-        assert!(result.is_ok_and(|e| e.is_none())); 
+        assert!(result.is_ok_and(|e| e.is_none()));
     }
 }

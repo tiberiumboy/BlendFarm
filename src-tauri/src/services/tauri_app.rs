@@ -11,7 +11,7 @@ use super::{
     data_store::{sqlite_job_store::SqliteJobStore, sqlite_worker_store::SqliteWorkerStore},
 };
 use crate::{
-    domains::{job_store::JobStore, worker_store::WorkerStore},
+    domains::{job_store::{JobError, JobStore}, worker_store::WorkerStore},
     models::{
         app_state::AppState,
         computer_spec::ComputerSpec,
@@ -78,22 +78,22 @@ impl PartialEq for BlenderAction {
 
 #[derive(Debug)]
 pub enum JobAction {
-    Start(JobId),
-    Stop(JobId),
-    Get(JobId, Sender<Option<CreatedJobDto>>),
-    Remove(JobId),
-    List(Sender<Option<Vec<CreatedJobDto>>>),
-    Advertise(NewJobDto),
+    Find(JobId, Sender<Option<CreatedJobDto>>),
+    Update(CreatedJobDto),
+    Create(NewJobDto, Sender<Result<Option<CreatedJobDto>, JobError>>),
+    Kill(JobId),
+    All(Sender<Option<Vec<CreatedJobDto>>>),
+    Advertise(JobId),
 }
 
 impl PartialEq for JobAction {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Start(l0), Self::Start(r0)) => l0 == r0,
-            (Self::Stop(l0), Self::Stop(r0)) => l0 == r0,
-            (Self::Get(l0, ..), Self::Get(r0, ..)) => l0 == r0,
-            (Self::Remove(l0), Self::Remove(r0)) => l0 == r0,
-            (Self::List(..), Self::List(..)) => true,
+            (Self::Find(l0, ..), Self::Find(r0, ..)) => l0 == r0,
+            (Self::Update(l0), Self::Update(r0)) => l0.id == r0.id,
+            (Self::Create(l0, ..), Self::Create(r0,.. )) => l0 == r0,
+            (Self::Kill(l0), Self::Kill(r0)) => l0 == r0,
+            (Self::All(..), Self::All(..)) => true,
             (Self::Advertise(l0), Self::Advertise(r0)) => l0 == r0,
             _ => false,
         }
@@ -126,7 +126,8 @@ pub enum UiCommand {
 }
 
 pub struct TauriApp {
-    // I need the peer's address?
+    // I need the peer's address? I don't think I need the PeerId, but will hold onto it just in case.
+    // we may ultimately change this to rely on the computer name instead of PeerId?
     peers: HashMap<PeerId, ComputerSpec>,
     worker_store: SqliteWorkerStore,
     job_store: SqliteJobStore,
@@ -242,18 +243,11 @@ impl TauriApp {
             .build(tauri::generate_context!("tauri.conf.json"))?)
     }
 
-    // because this is async, we can make our function wait for a new peers available.
+    // This design implement doesn't fit the concept of decentralized network situation setup.
+    // We shouldn't have to rely on finding node availability, instead other node should ping out to other node and offer help instead of relying the host to do the work.
     /*
     async fn get_idle_peers(&self) -> String {
-        // this will destroy the vector anyway.
-        // TODO: Impl. Round Robin or pick first idle worker, whichever have the most common hardware first in query?
-        // This code doesn't quite make sense, at least not yet?
-        loop {
-            if let Some((.., spec)) = self.peers.clone().into_iter().nth(0) {
-                return spec.host;
-            }
-            sleep(Duration::from_secs(1));
-        }
+        // see comment above, this method is no longer in use.
     }
     */
 
@@ -268,6 +262,7 @@ impl TauriApp {
         };
 
         // What if it's in the negative? e.g. [-200, 2 ] ? would this result to -180 and what happen to the equation?
+        // ^^^^ TODO: This is a good example for unit test!
         let step = time_end - time_start;
         let max_step = step / chunks;
         let mut tasks = Vec::with_capacity(max_step as usize);
@@ -303,8 +298,64 @@ impl TauriApp {
 
     async fn handle_job_command(&mut self, job_action: JobAction, client: &mut NetworkController) {
         match job_action {
-            JobAction::Start(job_id) => {
-                // first see if we have the job in the database?
+            JobAction::Find(job_id, mut sender) => {
+                let result = self.job_store.get_job(&job_id).await;
+                match result {
+                    Ok(record) => {
+                        if let Err(e) = sender.send(record).await {
+                            eprintln!("Unable to get a job!: {e:?}");
+                        }
+                    }
+                    Err(e) => eprintln!("Job store reported an error: {e:?}"),
+                };
+            }
+            JobAction::Update(job) => {
+                // as long as the uuid exist in the database, we should be fine to update the job entry.
+                let result = self.job_store.update_job(job).await;
+                if let Err(e) = result {
+                    eprintln!("Fail to update job! {e:?}");
+                }
+            }
+            JobAction::Create(job, sender) => {
+                let result = self.job_store.add_job(job).await;
+
+                // TODO: Finish implementing sender part here.
+            }
+            JobAction::Kill(job_id) => {
+                if let Err(e) = self.job_store.delete_job(&job_id).await {
+                    eprintln!("Receiver/sender should not be dropped! {e:?}");
+                }
+                client.send_job_event(JobEvent::Remove(job_id)).await;
+            }
+            JobAction::All(mut sender) => {
+                /*
+                    There's something wrong with this datastructure.
+                    On first call, this command works as expected,
+                    however additional call afterward does not let this function continue or invoke?
+                    I must be waiting for something here?
+                */
+                let result = match self.job_store.list_all().await {
+                    Ok(jobs) => {
+                        if jobs.is_empty() {
+                            None
+                        } else {
+                            Some(jobs)
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Unable to send list of jobs: {e:?}");
+                        None
+                    }
+                };
+
+                if let Err(e) = sender.send(result).await {
+                    eprintln!("Fail to send data back! {e:?}");
+                }
+            }
+            JobAction::Advertise(job_id) =>
+            // Here we will simply add the job to the database, and let client poll them!
+            {
+                // result returns: Result<Option<CreatedJobDTO>>
                 let result = match self.job_store.get_job(&job_id).await {
                     Ok(job) => job,
                     Err(e) => {
@@ -344,59 +395,6 @@ impl TauriApp {
                     client.send_job_event(Some(host.clone()), JobEvent::Render(task)).await;
                 }
                 */
-            }
-            JobAction::Stop(id) => {
-                let signal = JobEvent::Remove(id);
-                client.send_job_event(signal).await;
-            }
-            JobAction::Get(job_id, mut sender) => {
-                let result = self.job_store.get_job(&job_id).await;
-                match result {
-                    Ok(record) => {
-                        if let Err(e) = sender.send(record).await {
-                            eprintln!("Unable to get a job!: {e:?}");
-                        }
-                    }
-                    Err(e) => eprintln!("Job store reported an error: {e:?}"),
-                };
-            }
-            JobAction::Remove(job_id) => {
-                if let Err(e) = self.job_store.delete_job(&job_id).await {
-                    eprintln!("Receiver/sender should not be dropped! {e:?}");
-                }
-                client.send_job_event(JobEvent::Remove(job_id)).await;
-            }
-            JobAction::List(mut sender) => {
-                /*
-                    There's something wrong with this datastructure.
-                    On first call, this command works as expected,
-                    however additional call afterward does not let this function continue or invoke?
-                    I must be waiting for something here?
-                */
-                let result = match self.job_store.list_all().await {
-                    Ok(jobs) => {
-                        if jobs.is_empty() {
-                            None
-                        } else {
-                            Some(jobs)
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Unable to send list of jobs: {e:?}");
-                        None
-                    }
-                };
-
-                if let Err(e) = sender.send(result).await {
-                    eprintln!("Fail to send data back! {e:?}");
-                }
-            }
-            JobAction::Advertise(job) =>
-            // Here we will simply add the job to the database, and let client poll them!
-            {
-                if let Err(e) = self.job_store.add_job(job).await {
-                    eprintln!("Unable to add job! Encounter database error: {e:}");
-                }
             }
         }
     }
