@@ -83,6 +83,12 @@ pub enum JobAction {
     Create(NewJobDto, Sender<Result<Option<CreatedJobDto>, JobError>>),
     Kill(JobId),
     All(Sender<Option<Vec<CreatedJobDto>>>),
+    // we will ask all of the node on the network if there's any completed job list.
+    // The node will advertise their collection of completed job
+    // the host will be responsible to compare with the current output files and 
+    // see if there's any missing job. If there is missing frame then 
+    // we will ask to fetch for that completed image back
+    AskForCompletedList(JobId), 
     Advertise(JobId),
 }
 
@@ -94,6 +100,7 @@ impl PartialEq for JobAction {
             (Self::Create(l0, ..), Self::Create(r0,.. )) => l0 == r0,
             (Self::Kill(l0), Self::Kill(r0)) => l0 == r0,
             (Self::All(..), Self::All(..)) => true,
+            (Self::AskForCompletedList(l0), Self::AskForCompletedList(r0)) => l0 == r0,
             (Self::Advertise(l0), Self::Advertise(r0)) => l0 == r0,
             _ => false,
         }
@@ -318,7 +325,7 @@ impl TauriApp {
             }
             JobAction::Create(job, sender) => {
                 let result = self.job_store.add_job(job).await;
-
+                
                 // TODO: Finish implementing sender part here.
             }
             JobAction::Kill(job_id) => {
@@ -326,6 +333,10 @@ impl TauriApp {
                     eprintln!("Receiver/sender should not be dropped! {e:?}");
                 }
                 client.send_job_event(JobEvent::Remove(job_id)).await;
+            }
+            JobAction::AskForCompletedList(job_id) => {
+                // here we will try and send out network node asking for any available client for the list of completed frame images.
+                client.send_job_event(JobEvent::AskForCompletedJobFrameList(job_id)).await;
             }
             JobAction::All(mut sender) => {
                 /*
@@ -510,7 +521,9 @@ impl TauriApp {
             UiCommand::UploadFile(path) => {
                 // this is design to notify the network controller to start advertise provided file path
                 let provider = ProviderRule::Default(path);
-                client.start_providing(&provider).await;
+                if let Err(e) = client.start_providing(&provider).await {
+                    eprintln!("Network issue on providing file! {e:?}");
+                }
             }
         }
     }
@@ -567,6 +580,31 @@ impl TauriApp {
 
             Event::JobUpdate(job_event) => match job_event {
                 // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
+                JobEvent::AskForCompletedJobFrameList(_)  => {
+                    // this is reserved for the host side of the app to send out. We do not process this data here.
+                    // only client should receive this notification, host will ignore this.
+                }
+                JobEvent::ImageCompletedList { job_id, files } => {
+                    // first thing first, check and see if this job id matches what we have in our database.
+                    // if it doesn't then we ignore this request and move on.
+                    let result = self.job_store.get_job(&job_id).await;
+                    
+                    if result.is_err() {
+                        return; // stop here. do not proceed forward. We do not care.
+                    }
+                    
+                    // not that we have the job, we need to fetch for our existing files that we have completed
+                    // We received a list of files from the client. We will run and compare this list to our local machine
+                    // let local = 
+                    
+                    // if we do not have the file locally, we will ask for the image from the provided node.
+                    // In this case, we do not care who have the node, we will send out a signal stating I need this file.
+                    // the node that receive the signal will message back.
+                    
+                    for file in files {
+                      println!("file: {file}");  
+                    };
+                }
                 JobEvent::ImageCompleted {
                     job_id,
                     frame: _,

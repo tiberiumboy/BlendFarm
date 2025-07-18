@@ -3,6 +3,7 @@
     - Original idea behind this was to use PhantomData to mitigate the status of the job instead of reading from enum.
         Need to refresh materials about PhantomData, and how I can translate this data information for front end to update/reflect changes
         The idea is to change the struct to have state of the job.
+        I think the limitation for this is serialization/deserialization property.
     - I need to fetch the handles so that I can maintain and monitor all node activity.
     - TODO: See about migrating Sender code into this module?
 */
@@ -25,6 +26,11 @@ pub enum JobEvent {
         job_id: Uuid,
         frame: Frame,
         file_name: String,
+    },
+    AskForCompletedJobFrameList(JobId),
+    ImageCompletedList {
+        job_id: JobId,
+        files: Vec<String>,
     },
     TaskComplete, // what's the difference between JobComplete and TaskComplete?
     Error(JobError),
@@ -83,7 +89,7 @@ impl Job {
         }
     }
 
-    // TODO: See if there's a better way to fetch for these information beside implementing a method here?
+    // TODO: See if there's a better way to obtain file name, project path, and version
     pub fn get_file_name(&self) -> &str {
         self.project_file.file_name().unwrap().to_str().unwrap()
     }

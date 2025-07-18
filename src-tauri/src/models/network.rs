@@ -234,17 +234,20 @@ impl NetworkController {
 
     /// file_name are broadcasted with the extensions included, but not the directory it's located in. E.g. "test.blend"
     // I need to use some kind of enumeration to help make this process flexible with rules..
-    pub async fn start_providing(&mut self, provider: &ProviderRule) {
+    pub async fn start_providing(&mut self, provider: &ProviderRule) -> Result<(), NetworkError> {
         let cmd = match provider {
             ProviderRule::Default(path_buf) => {
                 // TODO: remove .expect(), .to_str(), and .to_owned()
-                let keyword = path_buf
-                    .file_name()
-                    .expect("Must have a valid file!")
-                    .to_str()
-                    .expect("Must be able to convert OsStr to Str!")
-                    .to_owned();
-                FileCommand::StartProviding(keyword, path_buf.to_owned())
+                match path_buf.file_name() {
+                    Some(file_name) => {
+                        let keyword = file_name
+                            .to_str()
+                            .expect("Must be able to convert OsStr to Str!");
+
+                        FileCommand::StartProviding(keyword.into(), path_buf.into())
+                    }
+                    None => return Err(NetworkError::BadInput),
+                }
             }
             ProviderRule::Custom(keyword, path_buf) => {
                 FileCommand::StartProviding(keyword.to_owned(), path_buf.to_owned())
@@ -254,6 +257,7 @@ impl NetworkController {
         if let Err(e) = self.sender.send(Command::FileService(cmd)).await {
             eprintln!("How did this happen? {e:?}");
         }
+        Ok(())
     }
 
     pub async fn get_providers(&mut self, file_name: &str) -> Option<HashSet<PeerId>> {
@@ -366,20 +370,31 @@ impl NetworkService {
         }
     }
 
-    // TODO: See about implementing this feature into network. Moved from tauri_app because it doesn't seem to fit there.
-    // we will also create our own specific cli implementation for blender source distribution.
-    // async fn broadcast_file_availability(&mut self, client: &mut NetworkController) -> Result<(), NetworkError> {
-    //     // go through and check the jobs we have in our database.
-    //     if let Ok(jobs) = self.job_store.list_all().await {
-    //         for job in jobs {
-    //             // in each job, we have project path. This is used to help locate the current project file path.
-    //             let path = job.item.get_project_path();
-    //             let provider = ProviderRule::Default(path.to_owned());
-    //             client.start_providing(&provider).await;
-    //         }
-    //     }
-    //     Ok(())
-    // }
+    /*
+       From my understanding about this method implementation is that we wanted to be able to broadcast
+       all of the potential files out there and sponsor what's available.
+       I think this methodology will change because we wanted the host to ask the client if there's any files available
+       or completed by this machine, and then reply back to the host.
+
+       I need to setup a network diagram to make this network layer protocol clear and understand,
+       as well as easy to debug, test, and identify potential issues.
+
+       From the host side. the host will broadcast asking for job updates.
+       This update will include job id.
+
+       On the client side, the client will receive the notification from the host,
+       and check the database to see if the job id exist.
+
+       if it does exist, then the client will broadcast list of completed images.
+       The host will receive this list and compare to the host machine to see if they have the image
+
+       If the host does not have the image, it will initiate a file transfer between the host and the client machine
+       In this case, we should not have to make all of the files available, but instead make the target image
+       available for the host to transfer over the network protocol.
+
+       This is recognized as a tcp handshake connection, asking for the image from the node
+       and the node will send the image via channel request.
+    */
 
     // here we will deviate handling the file service command.
     async fn process_file_service(&mut self, cmd: FileCommand) {
@@ -472,6 +487,7 @@ impl NetworkService {
                     .gossipsub
                     .unsubscribe(&ident_topic);
             }
+            // Send Job status to all network available.
             Command::JobStatus(event) => {
                 // convert data into json format.
                 let data = serde_json::to_string(&event).unwrap();
@@ -480,7 +496,6 @@ impl NetworkService {
                     eprintln!("Error sending job status! {e:?}");
                 }
             }
-            // TODO: need to figure out where this is called
             Command::NodeStatus(status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
                 let data = serde_json::to_string(&status).unwrap();

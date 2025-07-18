@@ -1,7 +1,7 @@
 use crate::models::{app_state::AppState, job::Job};
 use crate::services::tauri_app::{JobAction, UiCommand, WORKPLACE};
 use blender::models::mode::RenderMode;
-use futures::channel::mpsc::{self};
+use futures::channel::mpsc::{self, SendError};
 use futures::{SinkExt, StreamExt};
 use maud::html;
 use semver::Version;
@@ -203,8 +203,12 @@ pub async fn get_job_detail(
 
 // we'll need to figure out more about this? How exactly are we going to update the job?
 #[command(async)]
-pub fn update_job() {
-    todo!("Figure out the implementation to update the job status for example?");
+pub async fn update_job(state: State<'_, Mutex<AppState>>, job_id: Uuid) -> Result<(), String> {
+    let mut app_state = state.lock().await;
+    if let Err(e) = app_state.invoke.send(UiCommand::Job(JobAction::Kill(job_id))).await {
+        return Err(format!("Fail to send command to host! Are you sure this app is responsive? {e:?}").into());
+    }
+    Ok(())
 }
 
 /// just delete the job from database. Notify peers to abandon task matches job_id
@@ -297,7 +301,7 @@ mod test {
 
         let event = receiver.select_next_some().await;
         // TODO: Fix this unit test so that we can handle sender properly
-        assert_eq!(event, UiCommand::Job(JobAction::Create(job, ..)));
+        assert_eq!(event, UiCommand::Job(JobAction::Create(job, )));
     }
 
     #[tokio::test]
