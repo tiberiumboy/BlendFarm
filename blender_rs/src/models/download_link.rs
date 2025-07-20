@@ -30,6 +30,10 @@ impl DownloadLink {
         format!("Blender{}.{}", self.version.major, self.version.minor)
     }
 
+    pub fn get_url(&self) -> &Url {
+        &self.url
+    }
+
     // Currently being used for MacOS (I wonder if I need to do the same for windows?)
     #[cfg(target_os = "macos")]
     fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), Error> {
