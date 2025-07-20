@@ -143,7 +143,7 @@ impl Manager {
     }
 
     /// Returns the directory where the configuration file is placed.
-    /// This is stored under 
+    /// This is stored under
     pub fn get_config_dir() -> PathBuf {
         let path = dirs::config_dir().unwrap().join("BlendFarm");
         fs::create_dir_all(&path).expect("Unable to create directory!");
@@ -298,11 +298,10 @@ impl Manager {
 
     /// Deletes the parent directory that blender reside in. This might be a dangerous function as this involves removing the directory blender executable is in.
     /// TODO: verify that this doesn't break macos path executable... Why mac gotta be special with appbundle?
-    pub fn delete_blender(&mut self, _blender: &Blender) {
+    pub fn delete_blender(&mut self, blender: &Blender) {
         // this deletes blender from the system. You have been warn!
-        // todo!("Exercise with caution!");
-        // fs::remove_dir_all(_blender.get_executable().parent().unwrap()).unwrap();
-        self.remove_blender(_blender);
+        fs::remove_dir_all(blender.get_executable().parent().unwrap()).unwrap();
+        self.remove_blender(blender);
     }
 
     // TODO: Name ambiguous - clarify method name to be clear and explicit
