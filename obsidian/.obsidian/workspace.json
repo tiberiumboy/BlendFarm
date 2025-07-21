@@ -1,0 +1,171 @@
+{
+  "main": {
+    "id": "8feadfda19abf729",
+    "type": "split",
+    "children": [
+      {
+        "id": "dfe75fb2045cf2f3",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "e5451ce652880e78",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "blendfarm/Bugs/Unit test fail - cannot validate .blend file path.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Unit test fail - cannot validate .blend file path"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "9a6ebaaf46a183c1",
+    "type": "split",
+    "children": [
+      {
+        "id": "6773760fa693399a",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "4cd97139ec477c9a",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "7a0a8e5d4082139f",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "225092051244b87c",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "60591356ab10c700",
+    "type": "split",
+    "children": [
+      {
+        "id": "3c3953cdabdfb81d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "8b521025b8d5e6d8",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "blendfarm/Bugs/Unit test fail - cannot validate .blend file path.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for Unit test fail - cannot validate .blend file path"
+            }
+          },
+          {
+            "id": "d9ed51fe2faaa56c",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "blendfarm/Bugs/Unit test fail - cannot validate .blend file path.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from Unit test fail - cannot validate .blend file path"
+            }
+          },
+          {
+            "id": "7382b9f98d4a9384",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "acabdbc43090b872",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "blendfarm/Bugs/Unit test fail - cannot validate .blend file path.md"
+              },
+              "icon": "lucide-list",
+              "title": "Outline of Unit test fail - cannot validate .blend file path"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false
+    }
+  },
+  "active": "e5451ce652880e78",
+  "lastOpenFiles": [
+    "blendfarm/Bugs/Cannot open dialog.md",
+    "main/Untitled.md",
+    "main/Main Story.md"
+  ]
+}
