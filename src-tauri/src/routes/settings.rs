@@ -1,4 +1,4 @@
-use crate::{models::{app_state::AppState, server_setting::ServerSetting}, services::tauri_app::{BlenderAction, SettingsAction, UiCommand}};
+use crate::{models::{app_state::AppState, server_setting::ServerSetting}, services::tauri_app::{BlenderAction, QueryMode, SettingsAction, UiCommand}};
 use std::{env, path::PathBuf, str::FromStr, process::Command};
 use blender::blender::Blender;
 use futures::{channel::mpsc, SinkExt, StreamExt};
@@ -36,7 +36,7 @@ pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result
     let (sender, mut receiver) = mpsc::channel(0);
     let mut app_state = state.lock().await;
     
-    let event = UiCommand::Blender(BlenderAction::List(sender));
+    let event = UiCommand::Blender(BlenderAction::List(sender, QueryMode::LOCAL));
     if let Err(e) = app_state.invoke.send(event).await {
         eprintln!("fail to send mpsc to event! {e:?}");
         return Err(())
@@ -48,15 +48,15 @@ pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result
         @for blend in list {
             tr {
                 td {
-                    label title=(blend.get_executable().to_str().unwrap()) {
-                        (blend.get_version().to_string())
+                    label title=(blend.link()) {
+                        (blend.version.to_string())
                     }
                 };
                 td {
-                    button tauri-invoke="open_dir" hx-vals=(json!({"path":blend.get_relative_path().to_str().unwrap()})) {
+                    button tauri-invoke="open_dir" hx-vals=(json!({"path":blend.link()})) {
                         r"📁"
                     }
-                    button tauri-invoke="delete_blender" hx-vals=(json!({"path":blend.get_relative_path().to_str().unwrap() })) 
+                    button tauri-invoke="delete_blender" hx-vals=(json!({"path":blend.link() })) 
                     {
                         r"🗑︎"
                     }
@@ -71,10 +71,8 @@ pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result
 #[command(async)]
 pub async fn add_blender_installation(
     handle: State<'_, Mutex<AppHandle>>,
-    state: State<'_, Mutex<AppState>>, // TODO: Need to change this to string, string?
-) -> Result<(), ()> {
-    // TODO: include behaviour to search for file that contains blender.
-    // so here's where
+    state: State<'_, Mutex<AppState>>, 
+) -> Result<(), ()> { // TODO: Need to change this to string, string?
     let app = handle.lock().await;
     let path = match app.dialog().file().blocking_pick_file() {
         Some(file_path) => match file_path {
@@ -141,17 +139,32 @@ pub fn delete_blender(_path: &str) -> Result<(), ()> {
     todo!("Impl function to delete blender and its local contents");
 }
 
-// TODO: Ambiguous name - Change this so that we have two methods,
-// - Severe local path to blender from registry (Orphan on disk/not touched)
-// - Delete blender content completely (erasing from disk)
-// not in use?
+/// - Severe local path to blender from registry (Orphan on disk/not touched)
 #[command(async)]
-pub async fn remove_blender_installation(
+pub async fn disconnect_blender_installation(
     state: State<'_, Mutex<AppState>>,
     blender: Blender,
 ) -> Result<(), String> {
     let mut app_state = state.lock().await;
     
+    let event = UiCommand::Blender(BlenderAction::Disconnect(blender));
+    if let Err(e) = app_state.invoke.send(event).await {
+        eprintln!("Fail to send blender action event! {e:?}");
+        return Err(e.to_string())
+    }
+    
+    Ok(())
+}
+
+/// - Delete blender content completely (erasing from disk)
+#[command(async)]
+pub async fn uninstall_blender(
+    state: State<'_, Mutex<AppState>>,
+    blender: Blender
+) -> Result<(), String>{ 
+    // this is where we enter the danger territory of deleting local installation of blender and the file associated with.
+    let mut app_state = state.lock().await;
+
     let event = UiCommand::Blender(BlenderAction::Remove(blender));
     if let Err(e) = app_state.invoke.send(event).await {
         eprintln!("Fail to send blender action event! {e:?}");

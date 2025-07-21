@@ -34,8 +34,9 @@ use maud::html;
 use semver::Version;
 use sqlx::{Pool, Sqlite};
 use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr};
-use tauri::{self, command};
+use tauri::{self, command, Url};
 use tokio::{select, spawn, sync::Mutex};
+use bitflags;
 
 pub const WORKPLACE: &str = "workplace";
 
@@ -55,10 +56,47 @@ impl PartialEq for SettingsAction {
     }
 }
 
+bitflags::bitflags! {
+    #[derive(Debug, PartialEq)]
+    pub struct QueryMode: u8 {
+        const LOCAL = 0x1;
+        const ONLINE = 0x2;
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Origin {
+    Local(PathBuf),
+    Online(Url),
+}
+
+#[derive(Debug)]
+pub struct BlenderQuery {
+    pub version: Version,
+    pub origin: Origin,
+}
+
+impl BlenderQuery {
+    pub fn is_install_locally(&self) -> bool {
+        match self.origin {
+            Origin::Local(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn link(&self) -> String {
+        match &self.origin {
+            // TODO: Find a way to resolve expect()
+            Origin::Local(path) => path.to_str().expect("Should be valid").to_owned(),
+            Origin::Online(url) => url.to_string().to_owned()
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum BlenderAction {
     Add(PathBuf),
-    List(Sender<Option<Vec<Blender>>>),
+    List(Sender<Option<Vec<BlenderQuery>>>, QueryMode),
     Get(Version, Sender<Option<Blender>>),
     Disconnect(Blender), // detach links associated with file path, but does not delete local installation!
     Remove(Blender), // deletes local installation of blender, use it as last resort option. (E.g. force cache clear/reinstall/ corrupted copy)
@@ -68,8 +106,9 @@ impl PartialEq for BlenderAction {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Add(l0), Self::Add(r0)) => l0 == r0,
-            (Self::List(..), Self::List(..)) => true,
+            (Self::List(.., l0), Self::List(.., r0)) => l0 == r0,
             (Self::Get(l0, ..), Self::Get(r0, ..)) => l0 == r0,
+            (Self::Disconnect(l0), Self::Disconnect(r0)) => l0 == r0,
             (Self::Remove(l0), Self::Remove(r0)) => l0 == r0,
             _ => false,
         }
@@ -80,7 +119,7 @@ impl PartialEq for BlenderAction {
 pub enum JobAction {
     Find(JobId, Sender<Option<CreatedJobDto>>),
     Update(CreatedJobDto),
-    Create(NewJobDto, Sender<Result<Option<CreatedJobDto>, JobError>>),
+    Create(NewJobDto, Sender<Result<CreatedJobDto, JobError>>),
     Kill(JobId),
     All(Sender<Option<Vec<CreatedJobDto>>>),
     // we will ask all of the node on the network if there's any completed job list.
@@ -243,7 +282,8 @@ impl TauriApp {
                 update_output_field,
                 add_blender_installation,
                 list_blender_installed,
-                remove_blender_installation,
+                disconnect_blender_installation,
+                uninstall_blender,
                 delete_blender,
                 fetch_blender_installation,
             ])
@@ -261,9 +301,9 @@ impl TauriApp {
     // The idea here is to generate new task based on job creation.
     // TODO: Explain the expect behaviour for this method before reference it.
     #[allow(dead_code)]
-    fn generate_tasks(job: &CreatedJobDto, file_name: PathBuf, chunks: i32) -> Vec<Task> {
+    fn generate_tasks(job: &CreatedJobDto, chunks: i32) -> Vec<Task> {
         // mode may be removed soon, we'll see?
-        let (time_start, time_end) = match &job.item.mode {
+        let (time_start, time_end) = match job.item.get_mode() {
             RenderMode::Animation(anim) => (anim.start, anim.end),
             RenderMode::Frame(frame) => (frame.clone(), frame.clone()),
         };
@@ -291,12 +331,12 @@ impl TauriApp {
             };
             let range = Range { start, end };
 
-            let task = Task::new(
-                job.id,
-                file_name.clone(),
-                job.item.get_version().clone(),
+            // TODO: Find a way to handle this error. 
+            // It should only error if we don't have permission to temp cache storage location
+            let task = Task::from(
+                job.clone(),
                 range,
-            );
+            ).expect("Should be able to create task!");
             tasks.push(task);
         }
 
@@ -323,10 +363,17 @@ impl TauriApp {
                     eprintln!("Fail to update job! {e:?}");
                 }
             }
-            JobAction::Create(job, sender) => {
+            JobAction::Create(job, mut sender) => {
                 let result = self.job_store.add_job(job).await;
-                
-                // TODO: Finish implementing sender part here.
+
+                let res = match result {
+                    Ok(job) => sender.send(Ok(job)).await,
+                    Err(e) => sender.send(Err(JobError::DatabaseError(e.to_string()))).await
+                };
+
+                if let Err(e) = res {
+                    eprintln!("Fail to call sender from jobaction::create! {e:?}");
+                }
             }
             JobAction::Kill(job_id) => {
                 if let Err(e) = self.job_store.delete_job(&job_id).await {
@@ -366,7 +413,6 @@ impl TauriApp {
             JobAction::Advertise(job_id) =>
             // Here we will simply add the job to the database, and let client poll them!
             {
-                // result returns: Result<Option<CreatedJobDTO>>
                 let result = match self.job_store.get_job(&job_id).await {
                     Ok(job) => job,
                     Err(e) => {
@@ -377,11 +423,11 @@ impl TauriApp {
 
                 // first make the file available on the network
                 if let Some(job) = result {
-                    let _file_name = job.item.project_file.file_name().unwrap(); // this is &OsStr
-                    let path = job.item.project_file.clone();
+                    let _file_name = job.item.get_project_path().file_name().unwrap(); // this is &OsStr
+                    let path = job.item.get_project_path().clone();
     
                     // Once job is initiated, we need to be able to provide the files for network distribution.
-                    let _provider = ProviderRule::Default(path);
+                    let _provider = ProviderRule::Default(path.to_path_buf());
                 }
 
                 // where does the client come from?
@@ -415,39 +461,40 @@ impl TauriApp {
             BlenderAction::Add(_blender) => {
                 todo!("impl adding blender?");
             }
-            BlenderAction::List(mut sender) => {
-                let localblenders = self.manager.get_blenders().to_owned();
-                if let Err(e) = sender.send(Some(localblenders)).await {
+            BlenderAction::List(mut sender, flags) => {
+                let mut versions = Vec::new();
+                
+                if flags.contains(QueryMode::LOCAL) {
+
+                    let mut localblenders = self.manager.get_blenders().iter().map(|b| BlenderQuery {
+                        version: b.get_version().to_owned(), 
+                        origin: Origin::Local(b.get_executable().into())
+                    }).collect::<Vec<BlenderQuery>>(); 
+                    versions.append(&mut localblenders);
+                }
+            
+                // then display the rest of the download list
+                // TODO: Figure out why fetch_download_list() takes awhile to query the data. 
+                // I expect the cache should fetch the info and provide that information rather than querying the internet 
+                // everytime this function is called.
+                if flags.contains(QueryMode::ONLINE) {
+                    if let Some(downloads) = self.manager.fetch_download_list() {
+                        let mut item = downloads
+                        .iter()
+                        .map(|d| BlenderQuery { 
+                            version: d.get_version().clone(), 
+                            origin: Origin::Online(d.get_url().clone()) 
+                        })
+                        .collect::<Vec<BlenderQuery>>();
+                        versions.append(&mut item);
+                    }; 
+                }
+                
+            
+                // send the collective list result back
+                if let Err(e) = sender.send(Some(versions)).await {
                     eprintln!("Fail to send back list of blenders to caller! {e:?}");
                 }
-
-                // TODO: What's the difference?
-                /*
-                let mut versions = Vec::new();
-
-                // fetch local installation first.
-                let mut local = self.manager
-                    .get_blenders()
-                    .iter()
-                    .map(|b| b.get_version().clone())
-                    .collect::<Vec<Version>>();
-
-                if !local.is_empty() {
-                    versions.append(&mut local);
-                }
-
-                // then display the rest of the download list
-                if let Some(downloads) = self.manager.fetch_download_list() {
-                    let mut item = downloads
-                        .iter()
-                        .map(|d| d.get_version().clone())
-                        .collect::<Vec<Version>>();
-                    versions.append(&mut item);
-                };
-
-                sender.send(Some(versions)).await;
-
-                */
             }
             BlenderAction::Get(version, mut sender) => {
                 let result = self.manager.fetch_blender(&version);
@@ -465,10 +512,14 @@ impl TauriApp {
                     }
                 };
             }
-            // I'm not really sure what this one is suppose to be?
-            BlenderAction::Disconnect(..) => todo!(),
-            // neither this one...
-            BlenderAction::Remove(..) => todo!(),
+            // severe connection - remove the entry from database, but do not touch the installation
+            BlenderAction::Disconnect(blender) => {
+                self.manager.remove_blender(&blender);
+            },
+            // uninstall blender from local machine
+            BlenderAction::Remove(blender) => {
+                self.manager.delete_blender(&blender);
+            },
         }
     }
 

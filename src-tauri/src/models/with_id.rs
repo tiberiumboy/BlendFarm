@@ -2,7 +2,7 @@ use serde::Serialize;
 use sqlx::prelude::*;
 use uuid::Uuid;
 
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize, FromRow, Clone)]
 pub struct WithId<T: Serialize, ID: Serialize> {
     pub id: ID,
     pub item: T,

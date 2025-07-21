@@ -11,6 +11,8 @@ pub enum TaskError {
     DatabaseError(String),
     #[error("Something wring with blender: {0}")]
     BlenderError(String),
+    #[error("Unable to get temp storage location")]
+    CacheError,
 }
 
 #[async_trait::async_trait]

@@ -1,13 +1,13 @@
 use crate::{
     domains::task_store::{TaskError, TaskStore},
     models::{
+        job::Job,
         task::{CreatedTaskDto, Task},
         with_id::WithId,
     },
 };
-use semver::Version;
 use sqlx::{FromRow, SqlitePool, types::Uuid};
-use std::{ops::Range, path::PathBuf, str::FromStr};
+use std::{ops::Range, str::FromStr};
 
 pub struct SqliteTaskStore {
     conn: SqlitePool,
@@ -23,8 +23,7 @@ impl SqliteTaskStore {
 struct TaskDAO {
     id: String,
     job_id: String,
-    blender_version: String,
-    blend_file_name: String,
+    job: String,
     start: i64,
     end: i64,
 }
@@ -33,13 +32,19 @@ impl TaskDAO {
     fn dto_to_task(self) -> WithId<Task, Uuid> {
         let id = Uuid::from_str(&self.id).expect("id was mutated");
         let job_id = Uuid::from_str(&self.job_id).expect("job_id was mutated");
-        let version = Version::from_str(&self.blender_version).expect("version was mutated");
-        let file_name = PathBuf::from_str(&self.blend_file_name).expect("file name was mutated");
+        let job = serde_json::from_str::<Job>(&self.job).expect("job record was malformed!");
         let range = Range {
             start: self.start as i32,
             end: self.end as i32,
         };
-        let item = Task::new(job_id, file_name, version, range);
+
+        // at this point here, we shouldn't have to worry about Job's original rendering mode,
+        let job_record = WithId {
+            id: job_id,
+            item: job,
+        };
+        // TODO: Find a way to handle expect()
+        let item = Task::from(job_record, range).expect("Malformed data detected!");
         WithId { id, item }
     }
 }
@@ -47,14 +52,16 @@ impl TaskDAO {
 #[async_trait::async_trait]
 impl TaskStore for SqliteTaskStore {
     async fn add_task(&self, task: Task) -> Result<CreatedTaskDto, TaskError> {
-        let sql = r"INSERT INTO tasks(id, job_id, blend_file_name, blender_version, start, end) 
-            VALUES($1, $2, $3, $4, $5, $6)";
+        let sql = r"INSERT INTO tasks(id, job_id, job, start, end) 
+            VALUES($1, $2, $3, $4, $5)";
         let id = Uuid::new_v4();
+        let job =
+            serde_json::to_string(task.get_job()).expect("Should be able to convert job into json");
+
         let _ = sqlx::query(sql)
             .bind(&id.to_string())
-            .bind(&task.job_id)
-            .bind(&task.blend_file_name.to_str())
-            .bind(&task.blender_version.to_string())
+            .bind(task.get_id())
+            .bind(job)
             .bind(&task.range.start)
             .bind(&task.range.end)
             .execute(&self.conn)
@@ -70,10 +77,10 @@ impl TaskStore for SqliteTaskStore {
         let query = sqlx::query_as!(
             TaskDAO,
             r"
-            SELECT id, job_id, blend_file_name, blender_version, start, end
+            SELECT id, job_id, job, start, end
             FROM tasks 
             LIMIT 1
-        "
+            "
         );
 
         let result = query
@@ -91,7 +98,7 @@ impl TaskStore for SqliteTaskStore {
         let result = sqlx::query_as!(
             TaskDAO,
             r"
-            SELECT id, job_id, blend_file_name, blender_version, start, end
+            SELECT id, job_id, job, start, end
             FROM tasks 
             LIMIT 10
         "
@@ -106,7 +113,7 @@ impl TaskStore for SqliteTaskStore {
     }
 
     async fn delete_task(&self, id: &Uuid) -> Result<(), TaskError> {
-        let _ = sqlx::query(r"DELETE * FROM tasks WHERE id = $1")
+        let _ = sqlx::query(r"DELETE FROM tasks WHERE id = $1")
             .bind(id.to_string())
             .execute(&self.conn)
             .await;

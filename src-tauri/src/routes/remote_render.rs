@@ -7,7 +7,7 @@ Get a preview window that show the user current job progress - this includes las
 use super::util::select_directory;
 use crate::{
     models::app_state::AppState,
-    services::tauri_app::{BlenderAction, UiCommand},
+    services::tauri_app::{BlenderAction, QueryMode, UiCommand},
 };
 use blender::blender::Blender;
 use futures::{SinkExt, StreamExt, channel::mpsc};
@@ -19,8 +19,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FilePath;
 use tokio::sync::Mutex;
 
-// todo break commands apart, find a way to get the list of versions without using appstate?
-// we're using appstate to access invoker commands. the invoker needs to send us info
+// TODO: where is this function called?
 async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
     // TODO: see if there's a better way to get around this problematic function
     /*
@@ -29,7 +28,10 @@ async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
        Offline loads instant, which is exactly the kind of behaviour I expect to see from this application.
     */
     let (sender, mut receiver) = mpsc::channel(1);
-    let event = UiCommand::Blender(BlenderAction::List(sender));
+    let event = UiCommand::Blender(BlenderAction::List(
+        sender,
+        QueryMode::ONLINE | QueryMode::LOCAL,
+    ));
     if let Err(e) = app_state.invoke.send(event).await {
         eprintln!("Fail to send event! {e:?}");
         return Vec::new();
@@ -40,7 +42,7 @@ async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
         // Clone operation used here. might be expensive? See if there's another way to get aorund this.
         Some(list) => list
             .iter()
-            .map(|f| f.get_version().clone())
+            .map(|f| f.version.clone())
             .collect::<Vec<Version>>(),
         None => Vec::new(),
     }
@@ -71,6 +73,7 @@ async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
 }
 
 /// List all of the available blender version.
+// TODO: not used in the function yet?
 #[command(async)]
 pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let mut server = state.lock().await;

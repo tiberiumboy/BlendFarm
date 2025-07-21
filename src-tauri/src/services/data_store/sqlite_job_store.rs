@@ -33,15 +33,17 @@ struct JobDAO {
 }
 
 impl JobDAO {
-    pub fn dto_to_obj(self) -> WithId<Job, Uuid> {
+    pub fn dto_to_obj(self) -> Result<WithId<Job, Uuid>, JobError> {
         let id = Uuid::from_str(&self.id).expect("id malformed");
         let mode = serde_json::from_str(&self.mode).expect("mode malformed");
         let project_file = PathBuf::from_str(&self.project_file).expect("Project path malformed");
         let blender_version =
             Version::from_str(&self.blender_version).expect("Blender version malformed");
         let output = PathBuf::from_str(&self.output_path).expect("Output path malformed");
-        let item = Job::new(mode, project_file, blender_version, output);
-        WithId { id, item }
+        match Job::from(mode, project_file, blender_version, output) {
+            Ok(item) => Ok(WithId { id, item }),
+            Err(e) => Err(JobError::InvalidFile(e.to_string())),
+        }
     }
 }
 
@@ -50,10 +52,10 @@ impl JobStore for SqliteJobStore {
     async fn add_job(&mut self, job: NewJobDto) -> Result<CreatedJobDto, JobError> {
         let id = Uuid::new_v4();
         let id_str = id.to_string();
-        let mode = serde_json::to_string(&job.mode).unwrap();
-        let project_file = job.project_file.to_str().unwrap().to_owned();
-        let blender_version = job.blender_version.to_string();
-        let output = job.output.to_str().unwrap().to_owned();
+        let mode = serde_json::to_string(job.get_mode()).unwrap();
+        let project_file = job.get_project_path().to_str().unwrap().to_owned();
+        let blender_version = job.get_version().to_string();
+        let output = job.get_output().to_str().unwrap().to_owned();
 
         sqlx::query!(
             r"
@@ -82,15 +84,20 @@ impl JobStore for SqliteJobStore {
         .fetch_optional(&self.conn)
         .await
         {
-            Ok(record) => Ok(record.map(|r| {
-                let id = Uuid::parse_str(&r.id).unwrap();
-                let mode: RenderMode = serde_json::from_str(&r.mode).unwrap();
-                let project = PathBuf::from(r.project_file);
-                let version = Version::from_str(&r.blender_version).unwrap();
-                let output = PathBuf::from(r.output_path);
-                let job = Job::new(mode, project, version, output);
-                WithId { id, item: job }
-            })),
+            Ok(record) => match record {
+                Some(r) => {
+                    let id = Uuid::parse_str(&r.id).unwrap();
+                    let mode: RenderMode = serde_json::from_str(&r.mode).unwrap();
+                    let project = PathBuf::from(r.project_file);
+                    let version = Version::from_str(&r.blender_version).unwrap();
+                    let output = PathBuf::from(r.output_path);
+                    match Job::from(mode, project, version, output) {
+                        Ok(job) => Ok(Some(WithId { id, item: job })),
+                        Err(e) => Err(JobError::InvalidFile(e.to_string())),
+                    }
+                }
+                None => Ok(None),
+            },
             Err(e) => Err(JobError::DatabaseError(e.to_string())),
         }
     }
@@ -98,10 +105,13 @@ impl JobStore for SqliteJobStore {
     async fn update_job(&mut self, job: CreatedJobDto) -> Result<(), JobError> {
         let id = job.id.to_string();
         let item = &job.item;
-        let mode = serde_json::to_string(&item.mode).unwrap();
-        let project = item.project_file.to_str().expect("Must have valid path!");
-        let version = item.blender_version.to_string();
-        let output = item.output.to_str().expect("Must have valid path!");
+        let mode = serde_json::to_string(item.get_mode()).unwrap();
+        let project = item
+            .get_project_path()
+            .to_str()
+            .expect("Must have valid path!");
+        let version = item.get_version().to_string();
+        let output = item.get_output().to_str().expect("Must have valid path!");
 
         match sqlx::query!(
             r"UPDATE Jobs SET mode=$2, project_file=$3, blender_version=$4, output_path=$5
@@ -137,7 +147,10 @@ impl JobStore for SqliteJobStore {
 
         let result = query.fetch_all(&self.conn).await;
         match result {
-            Ok(records) => Ok(records.iter().map(|r| r.clone().dto_to_obj()).collect()),
+            Ok(records) => Ok(records
+                .iter()
+                .map(|r| r.clone().dto_to_obj().expect("Must have valid job"))
+                .collect()),
             Err(e) => Err(JobError::DatabaseError(e.to_string())),
         }
     }
@@ -156,7 +169,7 @@ impl JobStore for SqliteJobStore {
 
 #[cfg(test)]
 mod tests {
-    use crate::config_sqlite_db;
+    use crate::{config_sqlite_db, models::job::test::scaffold_job};
 
     use super::*;
 
@@ -171,30 +184,22 @@ mod tests {
         SqliteJobStore::new(conn)
     }
 
-    fn generate_fake_job() -> Job {
-        let mode = RenderMode::Frame(1);
-        let project_file = PathBuf::from("./blender_rs/examples/assets/test.blend".to_owned());
-        let version = Version::new(4, 4, 0);
-        let output = PathBuf::from("./blender_rs/examples/assets/".to_owned());
-        Job::new(mode, project_file, version, output)
-    }
-
     #[tokio::test]
     async fn can_create_worker_success() {
         let mut job_store = scaffold_job_store().await;
-        let fake_job = generate_fake_job();
+        let job = scaffold_job();
 
-        let result = job_store.add_job(fake_job).await;
+        let result = job_store.add_job(job).await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn fetch_job_success() {
         let mut job_store = scaffold_job_store().await;
-        let fake_job = generate_fake_job();
+        let job = scaffold_job();
 
         // append a job to the database first
-        let result = job_store.add_job(fake_job).await;
+        let result = job_store.add_job(job).await;
         assert!(result.is_ok());
 
         // retrieve the ID from the created job we inserted

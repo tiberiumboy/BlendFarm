@@ -1,9 +1,9 @@
 use crate::models::{app_state::AppState, job::Job};
 use crate::services::tauri_app::{JobAction, UiCommand, WORKPLACE};
 use blender::models::mode::RenderMode;
-use futures::channel::mpsc::{self, SendError};
+use futures::channel::mpsc::{self};
 use futures::{SinkExt, StreamExt};
-use maud::html;
+use maud::{html, PreEscaped};
 use semver::Version;
 use serde_json::json;
 // use std::process::Command;
@@ -24,13 +24,7 @@ pub async fn create_job(
     output: PathBuf,
 ) -> Result<String, String> {
     let mode = RenderMode::try_new(&start, &end).map_err(|e| e.to_string())?;
-
-    let job = Job {
-        mode,
-        project_file: path,
-        blender_version: version,
-        output,
-    };
+    let job = Job::from(mode, path, version, output).map_err(|e| e.to_string())?; 
     let (sender, mut receiver) = mpsc::channel(1);
     let add = UiCommand::Job(JobAction::Create(job, sender));
     let mut app_state = state.lock().await;
@@ -42,7 +36,8 @@ pub async fn create_job(
 
     // TODO: Finish implementing handling job receiver here.
     let result = receiver.select_next_some().await;
-    dbg!(result);
+    // TODO: Find a way to handle this error or not?
+    let _ = dbg!(result);
 
     Ok(html!(
         div {
@@ -68,9 +63,9 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, Stri
                     div {
                         table {
                             tbody {
-                                tr tauri-invoke="get_job_detail" hx-vals=(json!({"jobId":job.id.to_string()})) hx-target=(format!("#{WORKPLACE}")) {
+                                tr tauri-invoke="get_job_detail" hx-vals=(json!({"jobId":job.id.to_string()})) hx-target={"#" (WORKPLACE) } {
                                     td style="width:100%" {
-                                        (job.item.get_file_name())
+                                        (job.item.get_file_name_expected())
                                     };
                                 };
                             };
@@ -151,7 +146,7 @@ pub async fn get_job_detail(
 
     match receiver.select_next_some().await {
         Some(job) => {
-            let result = fetch_img_result(&job.item.output);
+            let result = fetch_img_result(&job.item.get_output());
 
             // TODO: it would be nice to provide ffmpeg gif result of the completed render image.
             // Something to add for immediate preview and feedback from render result
@@ -164,11 +159,11 @@ pub async fn get_job_detail(
                 div class="content" {
                         h2 { "Job Detail" };
 
-                        button tauri-invoke="open_dir" hx-vals=(json!(job.item.project_file.to_str().unwrap())) { ( job.item.project_file.to_str().unwrap() ) };
+                        button tauri-invoke="open_dir" hx-vals=(json!(job.item.get_project_path().to_str().unwrap())) { ( job.item.get_project_path().to_str().unwrap() ) };
                         
-                        div { ( job.item.output.to_str().unwrap() ) };
+                        div { ( job.item.get_output().to_str().unwrap() ) };
                         
-                        div { ( job.item.blender_version.to_string() ) };
+                        div { ( job.item.get_version().to_string() ) };
                         
                         button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job_id})) hx-target="#workplace" { "Delete Job" };
                         
@@ -208,6 +203,8 @@ pub async fn update_job(state: State<'_, Mutex<AppState>>, job_id: Uuid) -> Resu
     if let Err(e) = app_state.invoke.send(UiCommand::Job(JobAction::Kill(job_id))).await {
         return Err(format!("Fail to send command to host! Are you sure this app is responsive? {e:?}").into());
     }
+
+    // TODO: call list_jobs and perform hx-swap-oob here to trigger job list refresh.
     Ok(())
 }
 
@@ -215,15 +212,23 @@ pub async fn update_job(state: State<'_, Mutex<AppState>>, job_id: Uuid) -> Resu
 #[command(async)]
 pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, String> {
     // here we're deleting it from the database
-    let mut app_state = state.lock().await;
-    let id = Uuid::from_str(job_id).map_err(|e| format!("{e:?}"))?;
-    let cmd = UiCommand::Job(JobAction::Kill(id));
-    if let Err(e) = app_state.invoke.send(cmd).await {
-        eprintln!("{e:?}");
+    {
+        let mut app_state = state.lock().await;
+        let id = Uuid::from_str(job_id).map_err(|e| format!("{e:?}"))?;
+        let cmd = UiCommand::Job(JobAction::Kill(id));
+        if let Err(e) = app_state.invoke.send(cmd).await {
+            eprintln!("{e:?}");
+        }
     }
 
+    // now here we need to refresh the list
+    let list = list_jobs(state).await?;
+    
+    // TODO: do not send back Ok() response if there's an error, consider handling this separately.
+    // use a match condition to avoid sending error to the list
     Ok(html!(
-        div {
+        div class="group" id="joblist" hx-swap-oob="true" {
+            (PreEscaped(list));
         }
     )
     .0)
@@ -297,11 +302,11 @@ mod test {
         assert!(res.is_ok());
 
         let expected_mode = RenderMode::Frame(1);
-        let job = Job::new(expected_mode, project_file, blender_version, output);
+        let job = Job::from(expected_mode, project_file, blender_version, output).expect("Should not fail");
 
         let event = receiver.select_next_some().await;
-        // TODO: Fix this unit test so that we can handle sender properly
-        assert_eq!(event, UiCommand::Job(JobAction::Create(job, )));
+        let (mock_sender, _) = mpsc::channel(0);
+        assert_eq!(event, UiCommand::Job(JobAction::Create(job, mock_sender)));
     }
 
     #[tokio::test]

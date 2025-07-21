@@ -608,7 +608,6 @@ impl NetworkService {
     //     }
     // }
 
-    // TODO: Figure out how I can use the match operator for TopicHash. I'd like to use the TopicHash static variable above.
     async fn process_gossip_event(&mut self, event: gossipsub::Event) {
         match event {
             // what is propagation source? can we use this somehow?
@@ -644,6 +643,8 @@ impl NetworkService {
                     eprintln!("Intercepted unhandled signal here: {topic}");
                 }
             },
+            // I should be logging info from other event from gossip... wonder what they got to say?
+            // TODO: Log and verify if we need to handle other gossip events.
             _ => {}
         }
     }

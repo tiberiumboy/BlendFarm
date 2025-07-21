@@ -75,7 +75,8 @@ impl CliApp {
         task: &Task,
         search_directory: &Path,
     ) -> Result<PathBuf, CliError> {
-        let file_name = task.blend_file_name.to_str().unwrap();
+        let job = task.get_job();
+        let file_name = job.get_file_name_expected();
 
         // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
         client
@@ -92,10 +93,11 @@ impl CliApp {
         id: &str,
     ) -> Result<PathBuf, async_std::io::Error> {
         // create a path link where we think the file should be
+        let job = task.get_job();
         let project_path = settings
             .blend_dir
             .join(id.to_string())
-            .join(&task.blend_file_name);
+            .join(&job.get_file_name_expected());
 
         // we only want the parent directory to exist.
         match async_std::fs::create_dir_all(&project_path.parent().expect("I wouldn't think we'd be trying to check files in root? Please write a bug report and replicate step by step to reproduce the issue")).await {
@@ -111,7 +113,7 @@ impl CliApp {
         client: &mut NetworkController,
         task: &Task,
     ) -> Result<PathBuf, CliError> {
-        let id = task.job_id;
+        let id = task.get_id();
         let project_file_path =
             CliApp::generate_temp_project_task_directory(&self.settings, &task, &id.to_string())
                 .await
@@ -120,11 +122,12 @@ impl CliApp {
         // assume project file is located inside this directory.
         println!("Checking for {:?}", &project_file_path);
 
+        let job = task.get_job();
         // Fetch the project from peer if we don't have it.
         if !project_file_path.exists() {
             println!(
                 "calling network for project file, asking to download from DHT: {:?}",
-                &task.blend_file_name
+                &job.get_file_name_expected()
             );
 
             let search_directory = project_file_path
@@ -162,7 +165,8 @@ impl CliApp {
         println!("Ok we expect to have the project file available, now let's check for Blender");
 
         // am I'm introducing multiple behaviour in this single function?
-        let version = &task.blender_version;
+        let job = task.get_job();
+        let version = &job.get_version();
         let blender = match self.manager.have_blender(version) {
             Some(blend) => blend,
             None => {
@@ -209,7 +213,7 @@ impl CliApp {
         };
 
         let output = self
-            .verify_and_check_render_output_path(&task.job_id)
+            .verify_and_check_render_output_path(task.get_id())
             .await
             .map_err(|e| CliError::Io(e))?;
 
@@ -239,15 +243,17 @@ impl CliApp {
 
                         BlenderEvent::Completed { frame, result } => {
                             let file_name = result.file_name().unwrap().to_string_lossy();
-                            let file_name = format!("/{}/{}", task.job_id, file_name);
+                            let file_name = format!("/{}/{}", task.get_id(), file_name);
                             let event = JobEvent::ImageCompleted {
-                                job_id: task.job_id,
+                                job_id: task.get_id().clone(),
                                 frame,
                                 file_name: file_name.clone(),
                             };
 
                             let provider = ProviderRule::Custom(file_name, result);
-                            client.start_providing(&provider).await;
+                            if let Err(e) = client.start_providing(&provider).await {
+                                eprintln!("Fail to start providing! {e:?}");
+                            }
                             // instead of advertising back to the requestor, we should just advertise the job_id + frame number. The host will reqest for the file once available.
                             client.send_job_event(event).await;
                         }

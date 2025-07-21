@@ -1,10 +1,12 @@
 use super::job::CreatedJobDto;
-use crate::{domains::task_store::TaskError, models::with_id::WithId};
+use crate::{
+    domains::task_store::TaskError,
+    models::{job::Job, with_id::WithId},
+};
 use blender::{
     blender::{Args, Blender},
     models::{engine::Engine, event::BlenderEvent},
 };
-use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::{
@@ -19,18 +21,17 @@ pub type CreatedTaskDto = WithId<Task, Uuid>;
 /*
     Task is used to send Worker individual task to work on
     this can be customize to determine what and how many frames to render.
-    contains information about who requested the job in the first place so that the worker knows how to communicate back notification.
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
-    /// reference to the job id
-    pub job_id: Uuid,
+    /// Id used to identify the job
+    job_id: Uuid,
 
     /// target blender version to use
-    pub blender_version: Version,
+    job: Job,
 
-    /// generic blender file name from job's reference.
-    pub blend_file_name: PathBuf,
+    // temporary output destination - used to hold render image in temp on client machines
+    temp_output: PathBuf,
 
     /// Render range frame to perform the task
     pub range: Range<i32>,
@@ -39,33 +40,34 @@ pub struct Task {
 // To better understand Task, this is something that will be save to the database and maintain a record copy for data recovery
 // This act as a pending work to fulfill when resources are available.
 impl Task {
-    pub fn new(
-        job_id: Uuid,
-        blend_file_name: PathBuf,
-        blender_version: Version,
-        range: Range<i32>,
-    ) -> Self {
+    // private method, less validation.
+    fn new(job_id: Uuid, job: Job, temp_output: PathBuf, range: Range<i32>) -> Self {
         Self {
             job_id,
-            blend_file_name,
-            blender_version,
+            job,
+            temp_output,
             range,
         }
     }
 
-    pub fn from(job: CreatedJobDto, range: Range<i32>) -> Self {
-        Self {
-            job_id: job.id,
-            blend_file_name: PathBuf::from(job.item.project_file.file_name().unwrap()),
-            blender_version: job.item.blender_version,
-            range,
+    pub fn from(job: CreatedJobDto, range: Range<i32>) -> Result<Self, TaskError> {
+        match dirs::cache_dir() {
+            Some(tmp) => Ok(Task::new(job.id, job.item, tmp, range)),
+            None => Err(TaskError::CacheError),
         }
+    }
+
+    pub fn get_id(&self) -> &Uuid {
+        &self.job_id
+    }
+
+    pub fn get_job(&self) -> &Job {
+        &self.job
     }
 
     /// The behaviour of this function returns the percentage of the remaining jobs in poll.
-    /// E.g. 102 (80%) of 120 remaining would return 96 end frames.
+    /// E.g. 102 (out of 255- 80%) of 120 remaining would return 96 end frames.
     /// TODO: Allow other node or host to fetch end frames from this task and distribute to other requesting workers.
-    /// TODO: Test this
     pub fn fetch_end_frames(&mut self, percentage: u8) -> Option<Range<i32>> {
         // Here we'll determine how many franes left, and then pass out percentage of that frames back.
         let perc = percentage as f32 / u8::MAX as f32;
@@ -129,15 +131,16 @@ impl Task {
 #[cfg(test)]
 mod test {
     use super::*;
-    use async_std::path::PathBuf;
+    use crate::models::job::test::scaffold_job;
     use uuid::Uuid;
 
     fn scaffold_task(start: i32, end: i32) -> Task {
-        let job_id = Uuid::new_v4();
-        let path= PathBuf::from(".");
-        let version = Version::new(1,1,1);
+        let data = WithId {
+            id: Uuid::new_v4(),
+            item: scaffold_job(),
+        };
         let range = Range { start, end };
-        Task::new(job_id, path.into(), version, range )
+        Task::from(data, range).expect("Should have valid task")
     }
 
     #[test]
@@ -145,7 +148,7 @@ mod test {
         // we should run two scenario, one with actual frames, and another with limited or no frames left.
         // if we tried to call with enough buffer pending, we should expect Some(value) back
         // otherwise if the node is almost done and it was called, None should return.
-        let mut task =  scaffold_task(0, 50);
+        let mut task = scaffold_task(0, 50);
         let data = task.fetch_end_frames(255);
         assert!(data.is_some());
 

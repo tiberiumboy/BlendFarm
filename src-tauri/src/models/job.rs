@@ -9,7 +9,7 @@
 */
 use super::task::Task;
 use super::with_id::WithId;
-use crate::domains::job_store::JobError;
+use crate::{domains::job_store::JobError, models::project_file::ProjectFile};
 use blender::models::mode::RenderMode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -43,28 +43,30 @@ pub type CreatedJobDto = WithId<Job, JobId>;
 
 // This job is created by the manager and will be used to help determine the individual task created for the workers
 // we will derive this job into separate task for individual workers to process based on chunk size.
-#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow, PartialEq)]
+#[derive(
+    Debug, Serialize, Deserialize, Clone, sqlx::FromRow, sqlx::Encode, sqlx::Decode, PartialEq,
+)]
 pub struct Job {
     /// contains the information to specify the kind of job to render (We could auto fill this from blender peek function?)
-    pub mode: RenderMode,
+    mode: RenderMode,
 
     /// Path to blender files
-    pub project_file: PathBuf,
+    project_file: ProjectFile,
 
     // target blender version
-    pub blender_version: Version,
+    blender_version: Version,
 
     // target output destination
-    pub output: PathBuf,
+    output: PathBuf, // is there a way to say that this is exactly the directory path instead of pathbuf?
 }
 
 impl Job {
-    /// Create a new job entry with provided all information intact. Used for holding database records
-    pub fn new(
+    // private - no validation, we trust that the validation is done via public api.
+    fn new(
         mode: RenderMode,
-        project_file: PathBuf,
-        blender_version: Version,
-        output: PathBuf,
+        project_file: ProjectFile,
+        blender_version: Version, // TODO: see if we can validate if this job uses the correct blender version
+        output: PathBuf,          // must be a valid directory
     ) -> Self {
         Self {
             mode,
@@ -74,33 +76,94 @@ impl Job {
         }
     }
 
-    /// Create a new job entry from the following parameter inputs
+    /// Create a new job entry with provided all information intact. Used for holding database records
     pub fn from(
-        project_file: PathBuf,
-        output: PathBuf,
-        blender_version: Version,
         mode: RenderMode,
-    ) -> Self {
-        Self {
-            mode,
-            project_file,
-            blender_version,
-            output,
+        project_file: PathBuf,
+        version: Version,
+        output: PathBuf,
+    ) -> Result<Self, JobError> {
+        match ProjectFile::new(project_file) {
+            Ok(file) => Ok(Job::new(mode, file, version, output)),
+            Err(e) => Err(JobError::InvalidFile(e.to_string())),
         }
+    }
+
+    pub fn get_mode(&self) -> &RenderMode {
+        &self.mode
     }
 
     // TODO: See if there's a better way to obtain file name, project path, and version
-    pub fn get_file_name(&self) -> &str {
+    pub fn get_file_name_expected(&self) -> &str {
+        // this line could potentially break the application
+        // if the project file was malform or set to use directory instead.
         self.project_file.file_name().unwrap().to_str().unwrap()
     }
 
-    pub fn get_project_path(&self) -> &PathBuf {
+    pub fn get_project_path(&self) -> &ProjectFile {
         &self.project_file
     }
 
     pub fn get_version(&self) -> &Version {
         &self.blender_version
     }
+
+    /// return the job output destination (Should be used on the host machine)
+    pub fn get_output(&self) -> &PathBuf {
+        &self.output
+    }
 }
 
-// No Unit test required?
+#[cfg(test)]
+pub(crate) mod test {
+    use super::*;
+    use std::path::Path;
+
+    pub fn scaffold_job() -> Job {
+        let mode = RenderMode::Frame(1);
+        // getting build failure that I cannot open blend file
+        // TODO: how do I load path from project directory>
+        let project_file = Path::new("./blender_rs/examples/assets/test.blend").to_path_buf();
+        let project_file =
+            ProjectFile::new(project_file).expect("expect this to work without issue");
+        let version = Version::new(4, 4, 0);
+        let output = Path::new("./blender_rs/examples/assets/").to_path_buf();
+        Job::new(mode, project_file, version, output)
+    }
+
+    // we should at least try to test it against public api
+    #[test]
+    fn create_job_successful() {
+        let mode = RenderMode::Frame(1);
+        let file = Path::new("./test.blend");
+        let version = Version::new(1, 1, 1);
+        let output = Path::new("./test/");
+        let job = Job::from(
+            mode.clone(),
+            file.to_path_buf(),
+            version.clone(),
+            output.to_path_buf(),
+        );
+
+        let project_file =
+            ProjectFile::new(file.to_path_buf()).expect("Should be valid project file");
+
+        assert!(job.is_ok());
+        let job = job.unwrap();
+
+        assert_eq!(job.mode, mode);
+        assert_eq!(job.output, output);
+        assert_eq!(job.get_project_path(), &project_file);
+        assert_eq!(job.get_version(), &version);
+        assert_eq!(
+            job.get_file_name_expected(),
+            file.file_name()
+                .expect("Should have valid file name")
+                .to_str()
+                .expect("Shoudl have valid file name!")
+        );
+    }
+
+    #[test]
+    fn invalid_project_file_path_should_fail() {}
+}
