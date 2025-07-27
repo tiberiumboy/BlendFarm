@@ -1,9 +1,9 @@
 use super::behaviour::{BlendFarmBehaviour, BlendFarmBehaviourEvent, FileRequest, FileResponse};
-use super::computer_spec::ComputerSpec;
 use super::job::JobEvent;
 use super::message::{Command, Event, FileCommand, KeywordSearch, NetworkError};
 use blender::models::event::BlenderEvent;
 use core::str;
+use std::hash::{Hash, Hasher};
 use futures::StreamExt;
 use futures::{
     channel::{
@@ -12,15 +12,15 @@ use futures::{
     },
     prelude::*,
 };
+use libp2p::kad::RecordKey;
 use libp2p::gossipsub::{self, IdentTopic};
-use libp2p::identity;
-use libp2p::kad::RecordKey; // QueryId was removed
-use libp2p::swarm::SwarmEvent;
-use libp2p::{Multiaddr, PeerId, StreamProtocol, SwarmBuilder, kad, mdns, swarm::Swarm, tcp};
+use libp2p::swarm::{Swarm, SwarmEvent};
+use libp2p::{noise, yamux, Multiaddr, PeerId, StreamProtocol, SwarmBuilder, kad, mdns, tcp};
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
 use machine_info::Machine;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -49,34 +49,42 @@ pub enum ProviderRule {
 // Network Controller to interface network service
 // Receiver<NetCommand> receive network events
 pub async fn new(
-    secret_key_seed: Option<u8>,
+    // secret_key_seed: Option<u8>,
 ) -> Result<(NetworkController, Receiver<Event>, NetworkService), NetworkError> {
-    // wonder if this is a good idea?
-    let duration = Duration::from_secs(u64::MAX);
-    let id_keys = match secret_key_seed {
-        Some(seed) => {
-            let mut bytes = [0u8; 32];
-            bytes[0] = seed;
-            identity::Keypair::ed25519_from_bytes(bytes).unwrap()
-        }
-        None => identity::Keypair::generate_ed25519(),
-    };
-    let tcp_config: tcp::Config = tcp::Config::default();
+    // wonder why we have a connection timeout of 60 seconds? Why not uint::MAX?
+    let duration = Duration::from_secs(60);
+    // is there a reason for the secret key seed?
+    // let id_keys = match secret_key_seed {
+    //     Some(seed) => {
+    //         let mut bytes = [0u8; 32];
+    //         bytes[0] = seed;
+    //         identity::Keypair::ed25519_from_bytes(bytes).unwrap()
+    //     }
+    //     None => identity::Keypair::generate_ed25519(),
+    // };
 
-    let mut swarm = SwarmBuilder::with_existing_identity(id_keys)
+    // let mut swarm = SwarmBuilder::with_existing_identity(id_keys)
+    let mut swarm = SwarmBuilder::with_new_identity()
         .with_tokio()
         .with_tcp(
-            tcp_config,
-            libp2p::tls::Config::new,
-            libp2p::yamux::Config::default,
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
         )
         .expect("Should be able to build with tcp configuration?")
         .with_quic()
         .with_behaviour(|key| {
+            // seems like we need to content-address message. We'll use the hash of the message as the ID.
+            let message_id_fn = |message: &gossipsub::Message| {
+                let mut s = DefaultHasher::new();
+                message.data.hash(&mut s);
+                gossipsub::MessageId::from(s.finish().to_string())
+            };
+
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(Duration::from_secs(10))
-                // .validation_mode(gossipsub::ValidationMode::Strict)
-                // .message_id_fn(message_id_fn)
+                .validation_mode(gossipsub::ValidationMode::Strict)
+                .message_id_fn(message_id_fn)
                 .build()
                 .map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))?;
 
@@ -110,6 +118,7 @@ pub async fn new(
                 kad,
             })
         })
+        // TODO: Find a way to replace expect()
         .expect("Expect to build behaviour")
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
         .build();
@@ -144,15 +153,22 @@ pub async fn new(
 
     let public_id = swarm.local_peer_id().clone();
 
-    let mut controller = NetworkController {
+    let controller = NetworkController {
         sender,
         public_id,
         hostname: Machine::new().system_info().hostname,
     };
 
     // all network interference must subscribe to these topics!
-    controller.subscribe_to_topic(JOB.to_owned()).await;
-    controller.subscribe_to_topic(NODE.to_owned()).await;
+    let job_topic = gossipsub::IdentTopic::new(JOB);
+    if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&job_topic) {
+        eprintln!("Fail to subscribe job topic! {e:?}");
+    }
+    
+    let node_topic = gossipsub::IdentTopic::new(NODE);
+    if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&node_topic) {
+        eprintln!("Fail to subscribe node topic! {e:?}");
+    }
 
     let service = NetworkService::new(
         swarm,
@@ -188,7 +204,7 @@ type PeerIdString = String;
 // issue with this is that this cannot be convert into Encode,Decode by bincode. Instead we'll have to
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NodeEvent {
-    Hello(PeerIdString, ComputerSpec),
+    // Hello(PeerIdString, ComputerSpec),
     Disconnected {
         peer_id: PeerIdString,
         reason: Option<String>,
@@ -552,13 +568,6 @@ impl NetworkService {
     async fn process_mdns_event(&mut self, event: mdns::Event) {
         match event {
             mdns::Event::Discovered(peers) => {
-                // TODO What does it mean to discovered peers list?
-                let mut machine = Machine::new();
-                let spec = ComputerSpec::new(&mut machine);
-                let local_peer_id = self.swarm.local_peer_id();
-                let node_event = NodeEvent::Hello(local_peer_id.to_base58(), spec);
-                let data = serde_json::to_string(&node_event).unwrap();
-                let topic = IdentTopic::new(&NODE.to_string());
                 for (peer_id, address) in peers {
                     println!("Discovered [{peer_id:?}] {address:?}");
                     // if I have already discovered this address, then I need to skip it. Otherwise I will produce garbage log input for duplicated peer id already exist.
@@ -574,16 +583,6 @@ impl NetworkService {
                         .behaviour_mut()
                         .kad
                         .add_address(&peer_id, address.clone());
-
-                    // send a hello message
-                    if let Err(e) = self
-                        .swarm
-                        .behaviour_mut()
-                        .gossipsub
-                        .publish(topic.clone(), data.clone())
-                    {
-                        eprintln!("Fail to send hello message! {e:?}");
-                    }
                 }
             }
             mdns::Event::Expired(peers) => {

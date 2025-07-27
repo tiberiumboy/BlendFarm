@@ -6,14 +6,14 @@ Get a preview window that show the user current job progress - this includes las
 */
 use super::util::select_directory;
 use crate::{
-    models::app_state::AppState,
+    models::{app_state::AppState, project_file::ProjectFile},
     services::tauri_app::{BlenderAction, QueryMode, UiCommand},
 };
 use blender::blender::Blender;
 use futures::{SinkExt, StreamExt, channel::mpsc};
 use maud::html;
 use semver::Version;
-use std::path::PathBuf;
+use std::{path::PathBuf};
 use tauri::{AppHandle, State, command};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FilePath;
@@ -91,14 +91,14 @@ pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<Str
     .0)
 }
 
-/// Ask Tauri to display ui blocking dialog and return file path to blender.
+// This function must be async to avoid ui thread lock. Without async, no dialog will appear and app will freeze
+/// Display dialog and return file path to blender.
 /// This function will read the file and display another dialog prompt for additional detail before continue to display the result from import_blend()
-#[command(async)]
-pub async fn create_new_job(
-    // hmm
-    state: State<'_, (Mutex<AppState>, Mutex<AppHandle>)>,
+#[command]
+pub async fn open_dialog_for_blend_file(
+    app: AppHandle,
+    state: State<'_, Mutex<AppState>>
 ) -> Result<String, String> {
-    let app = state.1.lock().await;
     let given_path = app
         .dialog()
         .file()
@@ -110,13 +110,13 @@ pub async fn create_new_job(
         });
 
     if let Some(path) = given_path {
-        return import_blend(&state.0, path).await;
+        return import_blend(&state, path).await;
     }
     Err("No file selected!".to_owned())
 }
 
 #[command]
-pub async fn update_output_field(app: State<'_, Mutex<AppHandle>>) -> Result<String, ()> {
+pub async fn update_output_field(app: AppHandle) -> Result<String, ()> {
     match select_directory(app).await {
         Ok(path) => Ok(html!(
             input type="text" class="form-input" placeholder="Output Path" name="output" value=(path) readonly={true};
@@ -125,18 +125,17 @@ pub async fn update_output_field(app: State<'_, Mutex<AppHandle>>) -> Result<Str
     }
 }
 
-// change this to return HTML content of the info back.
+// TODO: Rename this function to "read_blend_file_content" - return info about this file.
+// we can multi-purpose this for drag and drop feature
 pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<String, String> {
     // for some reason this function takes longer online than it does offline?
     // TODO: set unit test to make sure this function doesn't repetitively call blender.org everytime it's called.
     let mut app_state = state.lock().await;
     let versions = list_versions(&mut app_state).await;
 
-    if path.file_name() == None {
-        return Err("Should be a valid file!".to_owned());
-    }
-
-    let data = match Blender::peek(&path).await {
+    // validate file path.
+    let project_file =  ProjectFile::from(path).map_err(|e| e.to_string())?;
+    let data = match Blender::peek(&project_file.to_path_buf()).await {
         Ok(data) => data,
         Err(e) => return Err(e.to_string()),
     };
@@ -148,7 +147,7 @@ pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<Stri
                 form method="dialog" tauri-invoke="create_job" hx-target="#workplace" _="on submit trigger closeModal" {
                     h1 { "Create new Render Job" };
                     label { "Project File Path:" };
-                    input type="text" class="form-input" name="path" value=(path.to_str().unwrap()) placeholder="Project path" readonly={true};
+                    input type="text" class="form-input" name="path" value=(project_file.to_str().unwrap()) placeholder="Project path" readonly={true};
                     br;
 
                     label { "Output destination:" };

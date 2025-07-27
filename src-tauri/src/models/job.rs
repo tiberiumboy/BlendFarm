@@ -83,7 +83,7 @@ impl Job {
         version: Version,
         output: PathBuf,
     ) -> Result<Self, JobError> {
-        match ProjectFile::new(project_file) {
+        match ProjectFile::from(project_file) {
             Ok(file) => Ok(Job::new(mode, file, version, output)),
             Err(e) => Err(JobError::InvalidFile(e.to_string())),
         }
@@ -125,7 +125,7 @@ pub(crate) mod test {
         // TODO: how do I load path from project directory>
         let project_file = Path::new("./blender_rs/examples/assets/test.blend").to_path_buf();
         let project_file =
-            ProjectFile::new(project_file).expect("expect this to work without issue");
+            ProjectFile::from(project_file).expect("expect this to work without issue");
         let version = Version::new(4, 4, 0);
         let output = Path::new("./blender_rs/examples/assets/").to_path_buf();
         Job::new(mode, project_file, version, output)
@@ -146,7 +146,7 @@ pub(crate) mod test {
         );
 
         let project_file =
-            ProjectFile::new(file.to_path_buf()).expect("Should be valid project file");
+            ProjectFile::from(file.to_path_buf()).expect("Should be valid project file");
 
         assert!(job.is_ok());
         let job = job.unwrap();

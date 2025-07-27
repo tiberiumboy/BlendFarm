@@ -201,7 +201,7 @@ pub fn index() -> String {
                 div {
                     h3 { "Jobs" }
 
-                    button tauri-invoke="create_new_job" hx-target="body" hx-swap="beforeend" {
+                    button tauri-invoke="open_dialog_for_blend_file" hx-target="body" hx-swap="beforeend" {
                         "Import"
                     };
 
@@ -243,51 +243,16 @@ impl TauriApp {
 
     // Create a builder to make Tauri application
     // Let's just use the controller in here anyway.
-    pub async fn config_tauri_builder<R: tauri::Runtime>(
-        &self,
-        builder: tauri::Builder<R>,
-        invoke: Sender<UiCommand>,
-    ) -> Result<tauri::App<R>, tauri::Error> {
-        // I would like to find a better way to update or append data to render_nodes,
-        // "Do not communicate with shared memory"
-        let app_state = AppState { invoke };
-        let mut_app_state = Mutex::new(app_state);
-        Ok(builder
+    pub fn init_tauri_plugins<R: tauri::Runtime>(
+        builder: tauri::Builder<R>
+    ) -> tauri::Builder<R> {
+        builder
             .plugin(tauri_plugin_cli::init())
             .plugin(tauri_plugin_os::init())
             .plugin(tauri_plugin_fs::init())
             .plugin(tauri_plugin_persisted_scope::init())
             .plugin(tauri_plugin_shell::init())
             .plugin(tauri_plugin_dialog::init())
-            .setup(|_| Ok(()))
-            .manage(mut_app_state)
-            .invoke_handler(tauri::generate_handler![
-                index,
-                open_path,
-                open_dir,
-                select_directory,
-                select_file,
-                create_job,
-                delete_job,
-                get_job_detail,
-                setting_page,
-                edit_settings,
-                get_settings,
-                update_settings,
-                create_new_job,
-                available_versions,
-                list_workers,
-                list_jobs,
-                get_worker,
-                update_output_field,
-                add_blender_installation,
-                list_blender_installed,
-                disconnect_blender_installation,
-                uninstall_blender,
-                delete_blender,
-                fetch_blender_installation,
-            ])
-            .build(tauri::generate_context!("tauri.conf.json"))?)
     }
 
     // This design implement doesn't fit the concept of decentralized network situation setup.
@@ -583,6 +548,7 @@ impl TauriApp {
     async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
             Event::NodeStatus(node_status) => match node_status {
+                /* 
                 NodeEvent::Hello(peer_id_string, spec) => {
                     let peer_id =
                         PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
@@ -598,6 +564,7 @@ impl TauriApp {
                     // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
                     // let _ = handle.emit("worker_update");
                 }
+                */
                 // concerning - this String could be anything?
                 // TODO: Find a better way to get around this.
                 NodeEvent::Disconnected { peer_id, reason } => {
@@ -733,10 +700,39 @@ impl BlendFarm for TauriApp {
         // ok where is this used?
         let (event, mut command) = mpsc::channel(32);
 
+        let app_state = AppState::new(event);
+        let mut_app_state = Mutex::new(app_state);
+
         // we send the sender to the tauri builder - which will send commands to "from_ui".
-        let app = self
-            .config_tauri_builder(tauri::Builder::default(), event)
-            .await
+        let app = Self::init_tauri_plugins(tauri::Builder::default())
+            .invoke_handler(tauri::generate_handler![
+                index,
+                open_path,
+                open_dir,
+                select_directory,
+                select_file,
+                create_job,
+                delete_job,
+                get_job_detail,
+                setting_page,
+                edit_settings,
+                get_settings,
+                update_settings,
+                open_dialog_for_blend_file,
+                available_versions,
+                list_workers,
+                list_jobs,
+                get_worker,
+                update_output_field,
+                add_blender_installation,
+                list_blender_installed,
+                disconnect_blender_installation,
+                uninstall_blender,
+                delete_blender,
+                fetch_blender_installation,
+            ])
+            .manage(mut_app_state)
+            .build(tauri::generate_context!("tauri.conf.json"))
             .expect("Fail to build tauri app - Is there an active display session running?");
 
         // background thread to handle network process

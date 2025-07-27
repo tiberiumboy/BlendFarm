@@ -21,9 +21,18 @@ pub struct ProjectFile {
 }
 
 impl ProjectFile {
-    pub fn new(src: PathBuf) -> Result<Self, ProjectFileError> {
+    // pathbuf must be validate, therefore method must be private
+    fn new(src: PathBuf) -> Self {
+        Self {
+            inner: src
+        }
+    }
+
+    /// Validate path integrity
+    pub fn from(src: PathBuf) -> Result<Self, ProjectFileError> {
+        // WARNING: Invalid file path will crash from .expect() usage in code, contact blend author and report this issue.
         match Blend::from_path(&src) {
-            Ok(_data) => Ok(Self { inner: src }),
+            Ok(_data) => Ok(Self::new(src)),
             Err(_) => Err(ProjectFileError::InvalidFileType),
         }
     }
@@ -58,21 +67,21 @@ mod test {
     #[test]
     fn create_project_file_successfully() {
         let file = Path::new("./test.blend");
-        let project_file = ProjectFile::new(file.to_path_buf());
+        let project_file = ProjectFile::from(file.to_path_buf());
         assert!(project_file.is_ok());
     }
 
     #[test]
     fn invalid_file_path_should_fail() {
         let file = Path::new("./dir");
-        let project_file = ProjectFile::new(file.to_path_buf());
+        let project_file = ProjectFile::from(file.to_path_buf());
         assert!(project_file.is_err());
     }
 
     #[test]
     fn invalid_file_extension_should_fail() {
         let file = Path::new("./bad_extension.txt");
-        let project_file = ProjectFile::new(file.to_path_buf());
+        let project_file = ProjectFile::from(file.to_path_buf());
         assert!(project_file.is_err());
     }
 }

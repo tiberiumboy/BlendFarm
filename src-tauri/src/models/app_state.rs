@@ -7,6 +7,13 @@ pub struct AppState {
 }
 
 impl AppState {
+
+    pub fn new( invoke: Sender<UiCommand> ) -> Self {
+        Self {
+            invoke
+        }
+    }
+    
     pub async fn get_settings(&mut self) -> Result<ServerSetting, mpsc::SendError> {
         let (sender, mut receiver) = mpsc::channel(1);
         let event = UiCommand::Settings(SettingsAction::Get(sender));

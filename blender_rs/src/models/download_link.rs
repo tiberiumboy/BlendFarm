@@ -16,8 +16,6 @@ pub struct DownloadLink {
 }
 
 impl DownloadLink {
-    /* private function impl */
-
     pub fn new(name: String, url: Url, version: Version) -> Self {
         Self { name, url, version }
     }

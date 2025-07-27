@@ -1,11 +1,9 @@
-use tauri::{command, AppHandle, State};
+use tauri::{command, AppHandle};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FilePath;
-use tokio::sync::Mutex;
 
 #[command(async)]
-pub async fn select_directory(state: State<'_, Mutex<AppHandle>>) -> Result<String, String> {
-    let app = state.lock().await;
+pub async fn select_directory(app: AppHandle) -> Result<String, String> {
     match app.dialog().file().blocking_pick_folder() {
         Some(file_path) => Ok(match file_path {
             FilePath::Path(path) => path.to_str().unwrap().to_string(),
@@ -16,8 +14,7 @@ pub async fn select_directory(state: State<'_, Mutex<AppHandle>>) -> Result<Stri
 }
 
 #[command(async)]
-pub async fn select_file(state: State<'_, Mutex<AppHandle>>) -> Result<String, ()> {
-    let app = state.lock().await;
+pub async fn select_file(app: AppHandle) -> Result<String, ()> {
     match app.dialog().file().blocking_pick_file() {
         Some(file_path) => Ok(match file_path {
             FilePath::Path(path) => path.to_str().unwrap().to_string(),

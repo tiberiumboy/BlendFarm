@@ -68,7 +68,7 @@ pub async fn run() {
         .expect("Must have database connection!");
 
     // must have working network services
-    let (controller, receiver, mut server) = network::new(None)
+    let (controller, receiver, mut server) = network::new() /* None */
         .await
         .expect("Fail to start network service");
 

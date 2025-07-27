@@ -256,10 +256,10 @@ mod test {
 
     async fn scaffold_app() -> Result<(tauri::App<MockRuntime>, Receiver<UiCommand>), Error> {
         let (invoke, receiver) = mpsc::channel(1);
-        let conn = config_sqlite_db().await?;
-        let app = TauriApp::new(&conn).await;
-
-        let app = app.config_tauri_builder(mock_builder(), invoke).await?;
+        // let conn = config_sqlite_db().await?;
+        // let app = TauriApp::new(&conn).await;
+        // TODO: Find a better way to get around this approach. Seems like I may not need to have an actual tauri app builder?
+        let app = TauriApp::init_tauri_plugins(mock_builder())?;
         Ok((app, receiver))
     }
 
