@@ -13,7 +13,7 @@ use blender::blender::Blender;
 use futures::{SinkExt, StreamExt, channel::mpsc};
 use maud::html;
 use semver::Version;
-use std::{path::PathBuf};
+use std::path::PathBuf;
 use tauri::{AppHandle, State, command};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FilePath;
@@ -97,7 +97,7 @@ pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<Str
 #[command]
 pub async fn open_dialog_for_blend_file(
     app: AppHandle,
-    state: State<'_, Mutex<AppState>>
+    state: State<'_, Mutex<AppState>>,
 ) -> Result<String, String> {
     let given_path = app
         .dialog()
@@ -105,6 +105,7 @@ pub async fn open_dialog_for_blend_file(
         .add_filter("Blender", &["blend"])
         .blocking_pick_file()
         .and_then(|f| match f {
+            // TODO - see about converting PathBuf into &str, to reduce .into() for Url
             FilePath::Path(f) => Some(f),
             FilePath::Url(u) => Some(u.as_str().into()),
         });
@@ -112,7 +113,7 @@ pub async fn open_dialog_for_blend_file(
     if let Some(path) = given_path {
         return import_blend(&state, path).await;
     }
-    Err("No file selected!".to_owned())
+    Err("No file selected!".into())
 }
 
 #[command]
@@ -134,7 +135,7 @@ pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<Stri
     let versions = list_versions(&mut app_state).await;
 
     // validate file path.
-    let project_file =  ProjectFile::from(path).map_err(|e| e.to_string())?;
+    let project_file = ProjectFile::from(path).map_err(|e| e.to_string())?;
     let data = match Blender::peek(&project_file.to_path_buf()).await {
         Ok(data) => data,
         Err(e) => return Err(e.to_string()),
@@ -197,4 +198,9 @@ pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<Stri
     };
 
     Ok(content.into_string())
+}
+
+#[cfg(test)]
+mod test {
+    // TODO: fill testing suite for this route
 }

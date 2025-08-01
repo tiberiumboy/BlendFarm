@@ -3,7 +3,6 @@ use super::job::JobEvent;
 use super::message::{Command, Event, FileCommand, KeywordSearch, NetworkError};
 use blender::models::event::BlenderEvent;
 use core::str;
-use std::hash::{Hash, Hasher};
 use futures::StreamExt;
 use futures::{
     channel::{
@@ -12,16 +11,17 @@ use futures::{
     },
     prelude::*,
 };
-use libp2p::kad::RecordKey;
 use libp2p::gossipsub::{self, IdentTopic};
+use libp2p::kad::RecordKey;
 use libp2p::swarm::{Swarm, SwarmEvent};
-use libp2p::{noise, yamux, Multiaddr, PeerId, StreamProtocol, SwarmBuilder, kad, mdns, tcp};
+use libp2p::{Multiaddr, PeerId, StreamProtocol, SwarmBuilder, kad, mdns, noise, tcp, yamux};
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
 use machine_info::Machine;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::u64;
@@ -48,9 +48,8 @@ pub enum ProviderRule {
 // the tuples return two objects
 // Network Controller to interface network service
 // Receiver<NetCommand> receive network events
-pub async fn new(
-    // secret_key_seed: Option<u8>,
-) -> Result<(NetworkController, Receiver<Event>, NetworkService), NetworkError> {
+pub async fn new(// secret_key_seed: Option<u8>,)
+ -> Result<(NetworkController, Receiver<Event>, NetworkService), NetworkError> {
     // wonder why we have a connection timeout of 60 seconds? Why not uint::MAX?
     let duration = Duration::from_secs(60);
     // is there a reason for the secret key seed?
@@ -96,6 +95,7 @@ pub async fn new(
             .expect("Fail to create gossipsub behaviour");
 
             // network discovery usage
+            // TODO: replace expect with error handling
             let mdns =
                 mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())
                     .expect("Fail to create mdns behaviour!");
@@ -118,17 +118,15 @@ pub async fn new(
                 kad,
             })
         })
-        // TODO: Find a way to replace expect()
+        // TODO remove/handle expect()
         .expect("Expect to build behaviour")
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
         .build();
 
-    //what are the reason behind this?
+    // Listen on all interfaces and whatever port OS assigns
     let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
         .parse()
         .map_err(|_| NetworkError::BadInput)?;
-
-    //what are the reason behind this?
     let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
         .parse()
         .map_err(|_| NetworkError::BadInput)?;
@@ -164,7 +162,7 @@ pub async fn new(
     if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&job_topic) {
         eprintln!("Fail to subscribe job topic! {e:?}");
     }
-    
+
     let node_topic = gossipsub::IdentTopic::new(NODE);
     if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&node_topic) {
         eprintln!("Fail to subscribe node topic! {e:?}");
@@ -571,7 +569,6 @@ impl NetworkService {
                 for (peer_id, address) in peers {
                     println!("Discovered [{peer_id:?}] {address:?}");
                     // if I have already discovered this address, then I need to skip it. Otherwise I will produce garbage log input for duplicated peer id already exist.
-
                     // it seems that I do need to explicitly add the peers to the list.
                     self.swarm
                         .behaviour_mut()
@@ -595,17 +592,6 @@ impl NetworkService {
             }
         };
     }
-
-    // async fn handle_spec(&mut self, peer_id: PeerId, data: &[u8]) {
-    //     // deserialize message into structure data. We expect this. Run unit test for null/invalid datastruct/malicious exploits.
-    //     if let Ok(specs) = bincode::deserialize(data) {
-    //         let peer_id_str = PeerIdString::new(&peer_id);
-    //         let node_event = NodeEvent::Discovered(peer_id_str, specs);
-    //         if let Err(e) = self.sender.send(Event::NodeStatus(node_event)).await {
-    //             eprintln!("Something failed? {e:?}");
-    //         }
-    //     }
-    // }
 
     async fn process_gossip_event(&mut self, event: gossipsub::Event) {
         match event {
