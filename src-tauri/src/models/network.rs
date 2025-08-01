@@ -48,8 +48,7 @@ pub enum ProviderRule {
 // the tuples return two objects
 // Network Controller to interface network service
 // Receiver<NetCommand> receive network events
-pub async fn new(// secret_key_seed: Option<u8>,)
- -> Result<(NetworkController, Receiver<Event>, NetworkService), NetworkError> {
+pub async fn new() -> Result<(NetworkController, Receiver<Event>, NetworkService), NetworkError> {
     // wonder why we have a connection timeout of 60 seconds? Why not uint::MAX?
     let duration = Duration::from_secs(60);
     // is there a reason for the secret key seed?

@@ -38,6 +38,7 @@ pub async fn create_job(
     let result = receiver.select_next_some().await;
     // TODO: Find a way to handle this error or not?
     let _ = dbg!(result);
+    // TODO: Utilize hx-swap-oob to update the list, then we'll update the portal to display selected job.
 
     Ok(html!(
         div {
