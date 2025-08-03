@@ -17,6 +17,8 @@ pub enum JobError {
     DatabaseError(String),
     #[error("Task error")]
     TaskError(#[from] TaskError),
+    #[error("Command error: {0}")]
+    Send(String),
 }
 
 #[async_trait::async_trait]

@@ -1,3 +1,5 @@
+use crate::domains::job_store::JobError;
+use crate::models::job::CreatedJobDto;
 use crate::models::{app_state::AppState, job::Job};
 use crate::services::tauri_app::{JobAction, UiCommand, WORKPLACE};
 use blender::models::mode::RenderMode;
@@ -6,58 +8,50 @@ use futures::{SinkExt, StreamExt};
 use maud::{html, PreEscaped};
 use semver::Version;
 use serde_json::json;
-// use std::process::Command;
 use std::{path::PathBuf, str::FromStr};
 use tauri::{State, command};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-// input values are always string type. I need to validate input on backend instead of front end.
-// return invalidation if the value are not accepted.
-#[command(async)]
-pub async fn create_job(
-    state: State<'_, Mutex<AppState>>,
-    start: String,
-    end: String,
-    version: Version,
-    path: PathBuf,
-    output: PathBuf,
-) -> Result<String, String> {
-    let mode = RenderMode::try_new(&start, &end).map_err(|e| e.to_string())?;
-    let job = Job::from(mode, path, version, output).map_err(|e| e.to_string())?; 
+/*
+    private method to call the function and return the objects, but not the actual renders.
+*/
+async fn cmd_create_job(state: &mut AppState, job: Job) -> Result<CreatedJobDto, JobError> {
     let (sender, mut receiver) = mpsc::channel(1);
     let add = UiCommand::Job(JobAction::Create(job, sender));
-    let mut app_state = state.lock().await;
-    app_state
+    state
         .invoke
         .send(add)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await.map_err(|e| JobError::Send(e.to_string()))?;
 
-    // TODO: Finish implementing handling job receiver here.
-    let result = receiver.select_next_some().await;
-    // TODO: Find a way to handle this error or not?
-    let _ = dbg!(result);
-    // TODO: Utilize hx-swap-oob to update the list, then we'll update the portal to display selected job.
-
-    Ok(html!(
-        div {
-            "TODO: Figure out what needs to get added here"
-        }
-    )
-    .0)
+    receiver.select_next_some().await
 }
 
-#[command(async)]
-pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
+/// used to send command to backend service to fetch for the job list.
+async fn cmd_list_jobs(state: &mut AppState) -> Option<Vec<CreatedJobDto>> {
     let (sender, mut receiver) = mpsc::channel(0);
-    let mut server = state.lock().await;
     let cmd = UiCommand::Job(JobAction::All(sender));
-    if let Err(e) = server.invoke.send(cmd).await {
-        eprintln!("Fail to send command to server! {e:?}");
+    if let Err(e) = state.invoke.send(cmd).await {
+        eprintln!("Fail to send command to server!");
+        return None;
     }
+    receiver.select_next_some().await
+}
 
-    let content = match receiver.select_next_some().await {
+/// command to fetch the job from backend service.
+async fn cmd_fetch_job(state: &mut AppState, job_id: Uuid) -> Option<CreatedJobDto> {
+    let (sender, mut receiver) = mpsc::channel(0);
+    let cmd = UiCommand::Job(JobAction::Find(job_id, sender));
+    if let Err(e) = state.invoke.send(cmd).await {
+        eprintln!("Fail to send job action: {e:?}");
+        return None
+    };
+    receiver.select_next_some().await
+}
+
+/// Used to render the job list on teh side of the app.
+fn render_list_job(collection: &Option<Vec<CreatedJobDto>>) -> String {
+    match collection { 
         Some(list) => {
             html! {
                 @for job in list {
@@ -78,13 +72,102 @@ pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, Stri
         None => {
             html! {
                 div {
-                    // TODO: See about language locales?
                     "No job found!"
                 }
             }
         }
-    };
-    Ok(content.0)
+    }.0
+}
+
+/// Render the full job description and detail page.
+fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
+    match job {
+        Some(job) => {
+            let result = fetch_img_result(&job.item.get_output());
+
+            // TODO: it would be nice to provide ffmpeg gif result of the completed render image.
+            // Something to add for immediate preview and feedback from render result
+            // this is to fetch the render collection
+            // if let Some(imgs) = result {
+            //     let preview = fetch_img_preview(&job.item.output, &imgs);
+            // }
+
+            html!(
+                div class="content" {
+                    h2 { "Job Detail" };
+
+                    button tauri-invoke="open_dir" hx-vals=(json!({"path":job.item.get_project_path()})) { ( job.item.get_project_path().to_str().unwrap() ) };
+                    
+                    div { ( job.item.get_output().to_str().unwrap() ) };
+                    
+                    div { ( job.item.get_version().to_string() ) };
+                    
+                    button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job.id})) hx-target="#workplace" { "Delete Job" };
+                    
+                    p;
+                    
+                    @if let Some(list) = result {
+                        @for img in list {
+                            tr {
+                                td {
+                                    img width="120px" src=(convert_file_src(&img));
+                                }
+                            }
+                        }
+                    } 
+                    @else {
+                        div {
+                            "No image found in output directory..."
+                        }
+                    }
+                };
+            )
+        }
+        None => html!(
+        div {
+                p { "Job do not exist.. How did you get here?" };
+            };
+        ),
+    }.0
+}
+
+// input values are always string type. I need to validate input on backend instead of front end.
+// return invalidation if the value are not accepted.
+#[command(async)]
+pub async fn create_job(
+    state: State<'_, Mutex<AppState>>,
+    start: String,
+    end: String,
+    version: Version,
+    path: PathBuf,
+    output: PathBuf,
+) -> Result<String, String> {
+    let mode = RenderMode::try_new(&start, &end).map_err(|e| e.to_string())?;
+    let job = Job::from(mode, path, version, output).map_err(|e| e.to_string())?; 
+    let mut app_state = state.lock().await;
+    let job_created = cmd_create_job(&mut app_state, job).await.map_err(|e| e.to_string())?;
+    let list = cmd_list_jobs(&mut app_state).await;
+
+    // TODO: Utilize hx-swap-oob to update the list, then we'll update the portal to display selected job.
+    let list = render_list_job(&list);
+    let detail = render_job_detail_page(&Some(job_created));
+    
+    Ok(html!(
+        div hx-target={ "#" (WORKPLACE) }{
+            (PreEscaped(detail))   
+        }
+        div id="joblist" hx-swap-oob="true" {
+            (PreEscaped(list))
+        }
+    )
+    .0)
+}
+
+#[command(async)]
+pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
+    let mut server = state.lock().await;
+    let content = cmd_list_jobs(&mut server).await;
+    Ok(render_list_job(&content))
 }
 
 fn fetch_img_result(path: &PathBuf) -> Option<Vec<PathBuf>> {
@@ -136,65 +219,10 @@ pub async fn get_job_detail(
     state: State<'_, Mutex<AppState>>,
     job_id: &str,
 ) -> Result<String, String> {
-    let (sender, mut receiver) = mpsc::channel(0);
     let job_id = Uuid::from_str(job_id).map_err(|e| format!("Unable to parse uuid? \n{e:?}"))?;
-
     let mut app_state = state.lock().await;
-    let cmd = UiCommand::Job(JobAction::Find(job_id.into(), sender));
-    if let Err(e) = app_state.invoke.send(cmd).await {
-        eprintln!("Fail to send job action: {e:?}");
-    };
-
-    match receiver.select_next_some().await {
-        Some(job) => {
-            let result = fetch_img_result(&job.item.get_output());
-
-            // TODO: it would be nice to provide ffmpeg gif result of the completed render image.
-            // Something to add for immediate preview and feedback from render result
-            // this is to fetch the render collection
-            // if let Some(imgs) = result {
-            //     let preview = fetch_img_preview(&job.item.output, &imgs);
-            // }
-
-            Ok(html!(
-                div class="content" {
-                        h2 { "Job Detail" };
-
-                        button tauri-invoke="open_dir" hx-vals=(json!(job.item.get_project_path().to_str().unwrap())) { ( job.item.get_project_path().to_str().unwrap() ) };
-                        
-                        div { ( job.item.get_output().to_str().unwrap() ) };
-                        
-                        div { ( job.item.get_version().to_string() ) };
-                        
-                        button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job_id})) hx-target="#workplace" { "Delete Job" };
-                        
-                        p;
-                        
-                        @if let Some(list) = result {
-                            @for img in list {
-                                tr {
-                                    td {
-                                        img width="120px" src=(convert_file_src(&img));
-                                    }
-                                }
-                            }
-                        } 
-                        @else {
-                            div {
-                                "No image found in output directory..."
-                            }
-                        }
-                    };
-                )
-                .0)
-        }
-        None => Err(html!(
-        div {
-                p { "Job do not exist.. How did you get here?" };
-            };
-        )
-        .0),
-    }
+    let result = cmd_fetch_job(&mut app_state, job_id).await;
+    Ok(render_job_detail_page(&result))
 }
 
 // we'll need to figure out more about this? How exactly are we going to update the job?
@@ -246,7 +274,7 @@ mod test {
     */
 
     use super::*;
-    use crate::{config_sqlite_db, services::tauri_app::TauriApp};
+    use crate::{services::tauri_app::TauriApp};
     use anyhow::Error;
     use futures::channel::mpsc::Receiver;
     use ntest::timeout;
@@ -255,12 +283,12 @@ mod test {
         webview::InvokeRequest,
     };
 
-    async fn scaffold_app() -> Result<(tauri::App<MockRuntime>, Receiver<UiCommand>), Error> {
+    async fn scaffold_app() -> Result<(tauri::Builder<R>, Receiver<UiCommand>), Error> {
         let (invoke, receiver) = mpsc::channel(1);
         // let conn = config_sqlite_db().await?;
         // let app = TauriApp::new(&conn).await;
         // TODO: Find a better way to get around this approach. Seems like I may not need to have an actual tauri app builder?
-        let app = TauriApp::init_tauri_plugins(mock_builder())?;
+        let app = TauriApp::init_tauri_plugins(mock_builder());
         Ok((app, receiver))
     }
 
