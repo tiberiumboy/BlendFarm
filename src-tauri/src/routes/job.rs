@@ -96,7 +96,7 @@ fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
                 div class="content" {
                     h2 { "Job Detail" };
 
-                    button tauri-invoke="open_dir" hx-vals=(json!({"path":job.item.get_project_path()})) { ( job.item.get_project_path().to_str().unwrap() ) };
+                    button tauri-invoke="open_dir" hx-vals=(json!({"path":job.item.get_project_path().to_str().unwrap()})) { ( job.item.get_project_path().to_str().unwrap() ) };
                     
                     div { ( job.item.get_output().to_str().unwrap() ) };
                     
@@ -279,16 +279,16 @@ mod test {
     use futures::channel::mpsc::Receiver;
     use ntest::timeout;
     use tauri::{
-        test::{MockRuntime, mock_builder},
-        webview::InvokeRequest,
+        test::{mock_builder, MockRuntime},
+        webview::InvokeRequest
     };
 
-    async fn scaffold_app() -> Result<(tauri::Builder<R>, Receiver<UiCommand>), Error> {
+    async fn scaffold_app() -> Result<(tauri::App<MockRuntime>, Receiver<UiCommand>), Error> {
         let (invoke, receiver) = mpsc::channel(1);
         // let conn = config_sqlite_db().await?;
         // let app = TauriApp::new(&conn).await;
         // TODO: Find a better way to get around this approach. Seems like I may not need to have an actual tauri app builder?
-        let app = TauriApp::init_tauri_plugins(mock_builder());
+        let app = TauriApp::init_tauri_plugins(mock_builder()).build(tauri::generate_context!("tauri.conf.json")).expect("Should be able to build");
         Ok((app, receiver))
     }
 
@@ -343,9 +343,7 @@ mod test {
     async fn create_job_malform_fail() {
         // For now I'm going to let this pass, until I figure out how/why mockup tauri app dead-lock on initialization.
         let (app, _) = scaffold_app().await.unwrap();
-        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default());
         let start = "1".to_owned();
         let end = "2".to_owned();
         let project_file = PathBuf::from("./blender_rs/examples/assets/test.blend".to_owned());

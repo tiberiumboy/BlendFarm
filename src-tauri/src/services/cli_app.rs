@@ -301,6 +301,7 @@ impl CliApp {
                 if let Err(e) = db.delete_job_task(&job_id).await {
                     eprintln!("Unable to remove all task with matching job id! {e:?}");
                 }
+                // Find a way to check and see if we are running any task that matches target job_id and stop the blender sequence immediately.
             }
             _ => println!("Unhandle Job Event: {event:?}"),
         }
@@ -309,8 +310,6 @@ impl CliApp {
     // Handle network event (From network as user to operate this)
     async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
-            // see if we can do something else beside this?
-            // whose peer id is this?
             // Event::OnConnected(peer_id) => {
 
             // }
@@ -384,7 +383,8 @@ impl BlendFarm for CliApp {
                         }
 
                         // may need to adjust the timer duration.
-                        sleep(Duration::from_secs(2u64));
+                        // What was the reason for this? Other than preventing to rapidly firing request.
+                        sleep(Duration::from_secs(2u64)); // sleep for 2 second
                     }
                 };
             }

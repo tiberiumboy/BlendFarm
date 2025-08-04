@@ -56,9 +56,6 @@ pub enum FileCommand {
 // Send commands to network.
 #[derive(Debug)]
 pub enum Command {
-    Status(String),
-    SubscribeTopic(String),
-    UnsubscribeTopic(String),
     NodeStatus(NodeEvent), // broadcast node activity changed
     JobStatus(JobEvent),
     FileService(FileCommand),
@@ -68,6 +65,7 @@ pub enum Command {
 #[derive(Debug)]
 pub enum Event {
     // Don't think I need this anymore, trying to rely on DHT for node availability somehow?
+    // TODO: See about utilizing DHT instead of this? How can I get event from DHT?
     NodeStatus(NodeEvent),
     InboundRequest {
         request: String,

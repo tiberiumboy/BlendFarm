@@ -73,7 +73,8 @@ impl TaskStore for SqliteTaskStore {
 
     // Poll next available task if there any.
     async fn poll_task(&self) -> Result<Option<CreatedTaskDto>, TaskError> {
-        // the idea behind this is to get any pending task.
+        // fetch next available task to work on
+        // TODO: Implement creation date to order by
         let query = sqlx::query_as!(
             TaskDAO,
             r"

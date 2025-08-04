@@ -210,20 +210,6 @@ pub enum NodeEvent {
 }
 
 impl NetworkController {
-    pub async fn subscribe_to_topic(&mut self, topic: String) {
-        self.sender
-            .send(Command::SubscribeTopic(topic))
-            .await
-            .expect("sender should not be closed!");
-    }
-
-    pub async fn unsubscribe_from_topic(&mut self, topic: String) {
-        self.sender
-            .send(Command::UnsubscribeTopic(topic))
-            .await
-            .expect("sender should not be closed!");
-    }
-
     pub async fn send_node_status(&mut self, status: NodeEvent) {
         if let Err(e) = self.sender.send(Command::NodeStatus(status)).await {
             eprintln!("Failed to send node status to network service: {e:?}");
@@ -473,33 +459,7 @@ impl NetworkService {
     // Receive commands from foreign invocation.
     pub async fn process_command(&mut self, cmd: Command) {
         match cmd {
-            Command::Status(msg) => {
-                let topic = IdentTopic::new(STATUS);
-                if let Err(e) = self
-                    .swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .publish(topic, msg.into_bytes())
-                {
-                    eprintln!("Fail to send status over network! {e:?}");
-                }
-            }
             Command::FileService(service) => self.process_file_service(service).await,
-            Command::SubscribeTopic(topic) => {
-                let ident_topic = IdentTopic::new(topic);
-                self.swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .subscribe(&ident_topic)
-                    .unwrap();
-            }
-            Command::UnsubscribeTopic(topic) => {
-                let ident_topic = IdentTopic::new(topic);
-                self.swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .unsubscribe(&ident_topic);
-            }
             // Send Job status to all network available.
             Command::JobStatus(event) => {
                 // convert data into json format.
