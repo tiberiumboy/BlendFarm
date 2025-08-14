@@ -1,5 +1,5 @@
-use std::{path::PathBuf, sync::Arc, thread::sleep, time::Duration};
-
+use async_std::task::sleep;
+use std::{path::PathBuf, sync::Arc, time::Duration};
 /*
 Have a look into TUI for CLI status display window to show user entertainment on screen
 https://docs.rs/tui/latest/tui/
@@ -14,7 +14,7 @@ use crate::{
     models::{
         job::JobEvent,
         message::{self, Event, NetworkError},
-        network::{NetworkController, NodeEvent, ProviderRule},
+        network::{NetworkController, NodeEvent},
         server_setting::ServerSetting,
         task::Task,
     },
@@ -26,7 +26,7 @@ use blender::{
 };
 use futures::{
     SinkExt, StreamExt,
-    channel::mpsc::{self, Receiver},
+    channel::mpsc::{self, Receiver, Sender},
 };
 use std::path::Path;
 use thiserror::Error;
@@ -34,7 +34,7 @@ use tokio::{select, spawn, sync::RwLock};
 use uuid::Uuid;
 
 enum CmdCommand {
-    Render(Task),
+    Render(Task, Sender<BlenderEvent>),
     RequestTask, // calls to host for more task.
 }
 
@@ -159,6 +159,7 @@ impl CliApp {
         &mut self,
         client: &mut NetworkController,
         task: &mut Task,
+        sender: &mut Sender<BlenderEvent>,
     ) -> Result<(), CliError> {
         let project_file = self.validate_project_file(client, &task).await?;
 
@@ -222,58 +223,24 @@ impl CliApp {
         match task.clone().run(project_file, output, &blender).await {
             Ok(rx) => loop {
                 if let Ok(status) = rx.recv() {
-                    match status.clone() {
-                        BlenderEvent::Rendering { current, total } => {
-                            println!("[LOG] Rendering {current} out of {total}");
-                        }
-                        BlenderEvent::Log(msg) => {
-                            println!("[LOG] {msg}");
-                        }
-                        BlenderEvent::Warning(msg) => {
-                            println!("[WARN] {msg}");
-                        }
-
-                        BlenderEvent::Error(msg) => {
-                            println!("[ERR] {msg}");
-                        }
-
-                        BlenderEvent::Unhandled(msg) => {
-                            println!("[UNK] {msg}");
-                        }
-
-                        BlenderEvent::Completed { frame, result } => {
-                            let file_name = result.file_name().unwrap().to_string_lossy();
-                            let file_name = format!("/{}/{}", task.get_id(), file_name);
-                            let event = JobEvent::ImageCompleted {
-                                job_id: task.get_id().clone(),
-                                frame,
-                                file_name: file_name.clone(),
-                            };
-
-                            let provider = ProviderRule::Custom(file_name, result);
-                            if let Err(e) = client.start_providing(&provider).await {
-                                eprintln!("Fail to start providing! {e:?}");
-                            }
-                            // instead of advertising back to the requestor, we should just advertise the job_id + frame number. The host will reqest for the file once available.
-                            client.send_job_event(event).await;
-                        }
-
-                        BlenderEvent::Exit => {
-                            // hmm is this technically job complete?
-                            // Check and see if we have any queue pending, otherwise ask hosts around for available job queue.
-                            let event = JobEvent::TaskComplete;
-                            client.send_job_event(event).await;
-                            println!("Task complete, breaking loop!");
-                            break;
-                        }
-                    };
-                    let node_status = NodeEvent::BlenderStatus(status);
-                    client.send_node_status(node_status).await;
+                    sender
+                        .send(status)
+                        .await
+                        .expect("Channel should not be closed");
+                    // not sure if I still need this?
+                    // let node_status = NodeEvent::BlenderStatus(status);
+                    // client.send_node_status(node_status).await;
                 }
             },
             Err(e) => {
+                let (sender, mut receiver) = mpsc::channel(1);
                 let err = JobError::TaskError(e);
-                client.send_job_event(JobEvent::Error(err)).await;
+                client.send_job_event(JobEvent::Error(err), sender).await;
+
+                if let Err(e) = receiver.select_next_some().await {
+                    eprintln!("fail to send job! {e:?}");
+                    sleep(Duration::from_secs(5u64)).await;
+                }
             }
         };
 
@@ -310,34 +277,62 @@ impl CliApp {
     // Handle network event (From network as user to operate this)
     async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
-            // Event::OnConnected(peer_id) => {
-
-            // }
             Event::JobUpdate(job_event) => self.handle_job_update(job_event).await,
             Event::InboundRequest { request, channel } => {
                 self.handle_inbound_request(client, request, channel).await
             }
-            Event::NodeStatus(event) => println!("{event:?}"),
+            Event::NodeStatus(event) => {
+                match event {
+                    NodeEvent::Connected(peer_id, spec) => {
+                        // peer connected with specs.
+                        println!("Peer connecte with specs provided : {peer_id:?}\n{spec:?}");
+                        // println!("Requesting task");
+                        // let event = JobEvent::RequestTask;
+                        // client.send_job_event(event).await;
+                    }
+                    NodeEvent::Disconnected { peer_id, reason } => match reason {
+                        Some(err) => {
+                            println!("Peer Disconnected with reason [{peer_id:?}] {err}");
+                        }
+                        None => println!("Peer Disconnected without reason! [{peer_id:?}]"),
+                    },
+                    NodeEvent::BlenderStatus(blender_event) => {
+                        println!("[Blender Status] {blender_event:?}");
+                    }
+                }
+            }
             _ => println!("[CLI] Unhandled event from network: {event:?}"),
         }
     }
 
     async fn handle_command(&mut self, client: &mut NetworkController, cmd: CmdCommand) {
         match cmd {
-            CmdCommand::Render(mut task) => {
+            CmdCommand::Render(mut task, mut sender) => {
                 // TODO: We should find a way to mark this node currently busy so we should unsubscribe any pending new jobs if possible?
                 // mutate this struct to skip listening for any new jobs.
                 // proceed to render the task.
-                if let Err(e) = self.render_task(client, &mut task).await {
+                if let Err(e) = self.render_task(client, &mut task, &mut sender).await {
+                    let (sender, mut receiver) = mpsc::channel(1);
                     let event = JobEvent::Failed(e.to_string());
-                    client.send_job_event(event).await
+                    client.send_job_event(event, sender).await;
+
+                    if let Err(e) = receiver.select_next_some().await {
+                        eprintln!("Fail top send job event! {e:?}");
+                        sleep(Duration::from_secs(5u64)).await;
+                    }
                 }
             }
 
             CmdCommand::RequestTask => {
-                // Notify the world we're available.
-                // modify this struct to ping out availability and start listening for new job message.
                 // or at least have this node look into job history and start working on jobs that are not completed yet.
+                let (sender, mut receiver) = mpsc::channel(1);
+                let event = JobEvent::RequestTask;
+                client.send_job_event(event, sender).await;
+
+                if let Err(e) = receiver.select_next_some().await {
+                    eprintln!("Fail to send job event! {e:?}");
+                    sleep(Duration::from_secs(5u64)).await;
+                }
             }
         }
     }
@@ -363,28 +358,64 @@ impl BlendFarm for CliApp {
 
                 match db.poll_task().await {
                     Ok(result) => {
-                        if let Some(task) = result {
-                            if let Err(e) = db.delete_task(&task.id).await {
-                                // if the task doesn't exist
-                                eprintln!(
-                                    "Fail to delete task entry from database! {task:?} \n{e:?}"
-                                );
-                            }
+                        match result {
+                            Some(task) => {
+                                println!("Got task to do! {task:?}");
+                                let (sender, mut receiver) = mpsc::channel(32);
+                                let cmd = CmdCommand::Render(task.item, sender);
+                                if let Err(e) = event.send(cmd).await {
+                                    eprintln!("Fail to send backend service render request! {e:?}");
+                                }
 
-                            if let Err(e) = event.send(CmdCommand::Render(task.item)).await {
-                                eprintln!("Fail to send render command! {e:?}");
+                                loop {
+                                    select! {
+                                        event = receiver.select_next_some() => {
+                                            match event {
+                                                BlenderEvent::Log(log) => println!("{log}"),
+                                                BlenderEvent::Warning(warn) => println!("{warn}"),
+                                                BlenderEvent::Rendering { current, total } => println!("Rendering {current} out of {total}"),
+                                                BlenderEvent::Completed { result, .. } => println!("Image completed! {result:?}"),
+                                                BlenderEvent::Unhandled(e) => {
+                                                    eprintln!("Unahandle blender event received! {e:?}");
+                                                    break;
+                                                },
+                                                BlenderEvent::Exit => {
+                                                    println!("Blender exit! This task should be completed?");
+                                                    if let Err(e) = db.delete_task(&task.id).await {
+                                                        // if the task doesn't exist
+                                                        eprintln!(
+                                                            "Fail to delete task entry from database! {e:?}"
+                                                        );
+                                                    }
+                                                    break;
+                                                },
+                                                BlenderEvent::Error(_) => break,
+                                            }
+                                        }
+                                    }
+                                }
                             }
+                            None => match event.send(CmdCommand::RequestTask).await {
+                                Ok(_) => {
+                                    sleep(Duration::from_secs(5u64)).await;
+                                }
+                                Err(e) => {
+                                    eprintln!("Error fail to send command to backend! {e:?}");
+                                    sleep(Duration::from_secs(5u64)).await;
+                                }
+                            },
                         }
                     }
                     Err(e) => {
                         eprintln!("Issue polling task from db: {e:?}");
-                        if let Err(e) = event.send(CmdCommand::RequestTask).await {
-                            eprintln!("Fail to send command to network! {e:?}");
+                        match event.send(CmdCommand::RequestTask).await {
+                            Ok(_) => {
+                                sleep(Duration::from_secs(5u64)).await;
+                            }
+                            Err(e) => {
+                                eprintln!("Fail to send command to network! {e:?}");
+                            }
                         }
-
-                        // may need to adjust the timer duration.
-                        // What was the reason for this? Other than preventing to rapidly firing request.
-                        sleep(Duration::from_secs(2u64)); // sleep for 2 second
                     }
                 };
             }

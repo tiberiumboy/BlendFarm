@@ -1,7 +1,9 @@
 use super::job::JobEvent;
 use super::{behaviour::FileResponse, network::NodeEvent};
+use futures::channel::mpsc::Sender;
 use futures::channel::oneshot::{self};
 use libp2p::PeerId;
+use libp2p::gossipsub::PublishError;
 use libp2p_request_response::{OutboundRequestId, ResponseChannel};
 use std::path::PathBuf;
 use std::{collections::HashSet, error::Error};
@@ -57,7 +59,7 @@ pub enum FileCommand {
 #[derive(Debug)]
 pub enum Command {
     NodeStatus(NodeEvent), // broadcast node activity changed
-    JobStatus(JobEvent),
+    JobStatus(JobEvent, Sender<Result<(), PublishError>>),
     FileService(FileCommand),
 }
 

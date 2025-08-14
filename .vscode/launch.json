@@ -10,11 +10,7 @@
             "request": "launch",
             "program": "${workspaceRoot}/src-tauri/target/debug/blendfarm",
             "args": [
-                // "build",
-                // "--manifest-path=./src-tauri/Cargo.toml",
-                // "--no-default-features"
-                "--client",
-                "true"
+                "client"
             ],
             "cwd": "${workspaceRoot}",
             // "preLaunchTask": "ui:dev"

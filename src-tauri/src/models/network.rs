@@ -1,3 +1,5 @@
+use crate::models::computer_spec::ComputerSpec;
+
 use super::behaviour::{BlendFarmBehaviour, BlendFarmBehaviourEvent, FileRequest, FileResponse};
 use super::job::JobEvent;
 use super::message::{Command, Event, FileCommand, KeywordSearch, NetworkError};
@@ -11,7 +13,7 @@ use futures::{
     },
     prelude::*,
 };
-use libp2p::gossipsub::{self, IdentTopic};
+use libp2p::gossipsub::{self, IdentTopic, PublishError};
 use libp2p::kad::RecordKey;
 use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::{Multiaddr, PeerId, StreamProtocol, SwarmBuilder, kad, mdns, noise, tcp, yamux};
@@ -31,8 +33,6 @@ use tokio::{io, select};
 Network Service - Receive, handle, and process network request.
 */
 
-// what is status? If it's not job status nor node status?
-const STATUS: &str = "/blendfarm/status";
 const JOB: &str = "/blendfarm/job";
 const NODE: &str = "/blendfarm/node";
 // why does the transfer have number at the trail end? look more into this?
@@ -201,7 +201,7 @@ type PeerIdString = String;
 // issue with this is that this cannot be convert into Encode,Decode by bincode. Instead we'll have to
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NodeEvent {
-    // Hello(PeerIdString, ComputerSpec),
+    Connected(PeerIdString, ComputerSpec),
     Disconnected {
         peer_id: PeerIdString,
         reason: Option<String>,
@@ -217,9 +217,13 @@ impl NetworkController {
     }
 
     // send job event to all connected node
-    pub async fn send_job_event(&mut self, event: JobEvent) {
+    pub async fn send_job_event(
+        &mut self,
+        event: JobEvent,
+        sender: Sender<Result<(), PublishError>>,
+    ) {
         self.sender
-            .send(Command::JobStatus(event))
+            .send(Command::JobStatus(event, sender))
             .await
             .expect("Command should not be dropped");
     }
@@ -461,13 +465,25 @@ impl NetworkService {
         match cmd {
             Command::FileService(service) => self.process_file_service(service).await,
             // Send Job status to all network available.
-            Command::JobStatus(event) => {
+            Command::JobStatus(event, mut sender) => {
                 // convert data into json format.
                 let data = serde_json::to_string(&event).unwrap();
                 let topic = IdentTopic::new(JOB.to_owned());
-                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                    eprintln!("Error sending job status! {e:?}");
-                }
+                match self
+                    .swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .publish(topic, data.clone())
+                {
+                    Ok(_) => sender
+                        .send(Ok(()))
+                        .await
+                        .expect("Channel should not be closed"),
+                    Err(e) => sender
+                        .send(Err(e))
+                        .await
+                        .expect("Channel should not be closed"),
+                };
             }
             Command::NodeStatus(status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.

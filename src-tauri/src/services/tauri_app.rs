@@ -24,6 +24,7 @@ use crate::{
     },
     routes::{job::*, remote_render::*, settings::*, util::*, worker::*},
 };
+use async_std::task::sleep;
 use blender::{blender::Blender, manager::Manager as BlenderManager, models::mode::RenderMode};
 use futures::{
     SinkExt, StreamExt,
@@ -33,7 +34,7 @@ use libp2p::PeerId;
 use maud::html;
 use semver::Version;
 use sqlx::{Pool, Sqlite};
-use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr, time::Duration};
 use tauri::{self, command, Url};
 use tokio::{select, spawn, sync::Mutex};
 use bitflags;
@@ -344,11 +345,23 @@ impl TauriApp {
                 if let Err(e) = self.job_store.delete_job(&job_id).await {
                     eprintln!("Receiver/sender should not be dropped! {e:?}");
                 }
-                client.send_job_event(JobEvent::Remove(job_id)).await;
+                let (sender, mut receiver) = mpsc::channel(1);
+                client.send_job_event(JobEvent::Remove(job_id), sender).await;
+
+                if let Err(e) = receiver.select_next_some().await {
+                    eprintln!("Fail to send job event! {e:?}");
+                    sleep(Duration::from_secs(5u64)).await;
+                }
             }
             JobAction::AskForCompletedList(job_id) => {
                 // here we will try and send out network node asking for any available client for the list of completed frame images.
-                client.send_job_event(JobEvent::AskForCompletedJobFrameList(job_id)).await;
+                let (sender, mut receiver ) = mpsc::channel(1);
+                let event = JobEvent::AskForCompletedJobFrameList(job_id);
+                client.send_job_event(event, sender).await;
+                if let Err(e) = receiver.select_next_some().await {
+                    eprintln!("Fail to send job event! {e:?}");
+                    sleep(Duration::from_secs(5u64)).await;
+                }
             }
             JobAction::All(mut sender) => {
                 /*
@@ -548,23 +561,22 @@ impl TauriApp {
     async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
             Event::NodeStatus(node_status) => match node_status {
-                /* 
-                NodeEvent::Hello(peer_id_string, spec) => {
-                    let peer_id =
-                        PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
-                    let worker = Worker::new(peer_id.clone(), spec.clone());
-                    // append new worker to database store
-                    if let Err(e) = self.worker_store.add_worker(worker).await {
-                        eprintln!("Error adding worker to database! {e:?}");
-                    }
-
-                    self.peers.insert(peer_id, spec);
-                    // let handle = app_handle.write().await;
-                    // emit a signal to query the data.
-                    // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
-                    // let _ = handle.emit("worker_update");
-                }
-                */
+                NodeEvent::Connected(peer_id_string, spec) => {
+                     
+                        let peer_id =
+                            PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
+                        let worker = Worker::new(peer_id.clone(), spec.clone());
+                        // append new worker to database store
+                        if let Err(e) = self.worker_store.add_worker(worker).await {
+                            eprintln!("Error adding worker to database! {e:?}");
+                        }
+    
+                        // self.peers.insert(peer_id, spec);
+                        // let handle = app_handle.write().await;
+                        // emit a signal to query the data.
+                        // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
+                        // let _ = handle.emit("worker_update");
+                    },
                 // concerning - this String could be anything?
                 // TODO: Find a better way to get around this.
                 NodeEvent::Disconnected { peer_id, reason } => {
@@ -672,9 +684,12 @@ impl TauriApp {
                 // this will soon go away - host should not receive request job.
                 JobEvent::RequestTask => {
                     // Node have exhaust all of queue. Check and see if we can create or distribute pending jobs.
-                    todo!(
-                        "A node from the network request more task to work on. More likely it was recently created or added after job was initially created."
-                    );
+                    // look into my jobs and see what jobs are available to send for remote renders
+                    // How do I fetch a new task for the workers to consume?
+                    let jobs = self.job_store.list_all().await.expect("Should have jobs?");
+                    let job = jobs.first().unwrap().clone();
+                    let task = job.item.generate_task(job.id);
+                    // how do I reply back for this task then?
                 }
                 // this will soon go away
                 JobEvent::Failed(msg) => {

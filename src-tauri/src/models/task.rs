@@ -27,10 +27,10 @@ pub struct Task {
     /// Id used to identify the job
     job_id: Uuid,
 
-    /// target blender version to use
+    /// job reference.
     job: Job,
 
-    // temporary output destination - used to hold render image in temp on client machines
+    // temp output destination - used to hold render image in temp on client machines
     temp_output: PathBuf,
 
     /// Render range frame to perform the task

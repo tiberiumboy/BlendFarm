@@ -13,7 +13,7 @@ use crate::{domains::job_store::JobError, models::project_file::ProjectFile};
 use blender::models::mode::RenderMode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{ops::Range, path::PathBuf};
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -86,6 +86,30 @@ impl Job {
         match ProjectFile::from(project_file) {
             Ok(file) => Ok(Job::new(mode, file, version, output)),
             Err(e) => Err(JobError::InvalidFile(e.to_string())),
+        }
+    }
+
+    pub fn generate_task(self, id: Uuid) -> Option<Task> {
+        // in this case, a job would have break up into pieces for worker client to receive and start a new job
+        // first thing first, how can I tell if the job is completed or not?
+        let range = self.get_range();
+        let job = WithId { id, item: self };
+        match Task::from(job, range) {
+            Ok(task) => Some(task),
+            Err(e) => {
+                println!("Unable to make task? {e:?}");
+                None
+            }
+        }
+    }
+
+    pub fn get_range(&self) -> Range<i32> {
+        match self.get_mode() {
+            RenderMode::Animation(range) => range.clone(),
+            RenderMode::Frame(frame) => Range {
+                start: frame.to_owned(),
+                end: frame.to_owned(),
+            },
         }
     }
 
