@@ -15,13 +15,14 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{ops::Range, path::PathBuf};
 use uuid::Uuid;
+use crate::network::PeerIdString;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum JobEvent {
-    Render(Task),
+    Render(PeerIdString, Task),
     Remove(Uuid),
     Failed(String),
-    RequestTask,
+    RequestTask(PeerIdString),
     ImageCompleted {
         job_id: Uuid,
         frame: Frame,

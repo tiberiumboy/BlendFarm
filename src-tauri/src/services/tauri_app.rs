@@ -17,7 +17,7 @@ use crate::{
         computer_spec::ComputerSpec,
         job::{CreatedJobDto, JobEvent, JobId, NewJobDto},
         message::{Event, NetworkError},
-        network::{NetworkController, NodeEvent, ProviderRule},
+        network::{NetworkController, NodeEvent, PeerIdString, ProviderRule},
         server_setting::ServerSetting,
         task::Task,
         worker::Worker,
@@ -465,7 +465,7 @@ impl TauriApp {
                         })
                         .collect::<Vec<BlenderQuery>>();
                         versions.append(&mut item);
-                    }; 
+                    };
                 }
                 
             
@@ -561,7 +561,7 @@ impl TauriApp {
     async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
             Event::NodeStatus(node_status) => match node_status {
-                NodeEvent::Connected(peer_id_string, spec) => {
+                NodeEvent::Hello(peer_id_string, spec) => {
                      
                         let peer_id =
                             PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
@@ -682,14 +682,27 @@ impl TauriApp {
                 // this will soon go away - host should not be receiving render jobs.
                 JobEvent::Render(..) => {}
                 // this will soon go away - host should not receive request job.
-                JobEvent::RequestTask => {
+                JobEvent::RequestTask(peer_id_str) => {
                     // Node have exhaust all of queue. Check and see if we can create or distribute pending jobs.
                     // look into my jobs and see what jobs are available to send for remote renders
                     // How do I fetch a new task for the workers to consume?
+                    
                     let jobs = self.job_store.list_all().await.expect("Should have jobs?");
                     let job = jobs.first().unwrap().clone();
-                    let task = job.item.generate_task(job.id);
                     // how do I reply back for this task then?
+                    // use the peer_id_string.
+                    match job.item.generate_task(job.id) {
+                        Some(task) => {
+                            let event = JobEvent::Render(peer_id_str, task);
+                            let (sender, mut receiver) = mpsc::channel(0);
+                            client.send_job_event(event, sender).await;
+
+                            if let Err(e) = receiver.select_next_some().await {
+                                eprintln!("Fail to send render info {e:?}");
+                            }
+                        }
+                        None => return
+                    }
                 }
                 // this will soon go away
                 JobEvent::Failed(msg) => {
@@ -717,6 +730,10 @@ impl BlendFarm for TauriApp {
 
         let app_state = AppState::new(event);
         let mut_app_state = Mutex::new(app_state);
+
+        // at the start of this program, I need to broadcast existing project file before the rest of the command hooks.
+        // This way, any job pending would have the file already available to distribute across the network.
+        
 
         // we send the sender to the tauri builder - which will send commands to "from_ui".
         let app = Self::init_tauri_plugins(tauri::Builder::default())

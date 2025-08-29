@@ -1,5 +1,7 @@
 use async_std::task::sleep;
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use libp2p::PeerId;
+use machine_info::Machine;
+use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 /*
 Have a look into TUI for CLI status display window to show user entertainment on screen
 https://docs.rs/tui/latest/tui/
@@ -12,23 +14,18 @@ use super::blend_farm::BlendFarm;
 use crate::{
     domains::{job_store::JobError, task_store::TaskStore},
     models::{
-        job::JobEvent,
-        message::{self, Event, NetworkError},
-        network::{NetworkController, NodeEvent},
-        server_setting::ServerSetting,
-        task::Task,
+        computer_spec::ComputerSpec, job::JobEvent, message::{self, Event, NetworkError}, network::{NetworkController, NodeEvent, ProviderRule}, server_setting::ServerSetting, task::Task
     },
 };
 use blender::models::event::BlenderEvent;
 use blender::{
-    blender::{Blender, Manager as BlenderManager},
-    models::download_link::DownloadLink,
+    blender::{Manager as BlenderManager, ManagerError},
+    // models::download_link::DownloadLink,
 };
 use futures::{
     SinkExt, StreamExt,
     channel::mpsc::{self, Receiver, Sender},
 };
-use std::path::Path;
 use thiserror::Error;
 use tokio::{select, spawn, sync::RwLock};
 use uuid::Uuid;
@@ -44,6 +41,8 @@ enum CliError {
     NetworkError(#[from] message::NetworkError),
     #[error("Encounter an IO error! \n{0}")]
     Io(#[from] async_std::io::Error),
+    #[error("Manager Error: {0}")]
+    ManagerError(#[from] ManagerError),
 }
 
 pub struct CliApp {
@@ -70,21 +69,6 @@ impl CliApp {
 }
 
 impl CliApp {
-    async fn check_project_file(
-        client: &mut NetworkController,
-        task: &Task,
-        search_directory: &Path,
-    ) -> Result<PathBuf, CliError> {
-        let job = task.get_job();
-        let file_name = job.get_file_name_expected();
-
-        // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
-        client
-            .get_file_from_peers(&file_name, search_directory)
-            .await
-            .map_err(CliError::NetworkError)
-    }
-
     // This function will ensure the directory will exist, and return the path to that given directory.
     // It will remain valid unless directory or parent above is removed during runtime.
     async fn generate_temp_project_task_directory(
@@ -136,7 +120,15 @@ impl CliApp {
 
             // so I need to figure out something about this...
             // TODO - find a way to break out of this if we can't fetch the project file.
-            CliApp::check_project_file(client, task, search_directory).await?;
+            let job = task.get_job();
+            let file_name = job.get_file_name_expected();
+
+            // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
+            let path = client
+                .get_file_from_peers(&file_name, search_directory)
+                .await
+                .map_err(CliError::NetworkError)?;
+            return Ok(path);
         }
 
         Ok(project_file_path)
@@ -163,61 +155,67 @@ impl CliApp {
     ) -> Result<(), CliError> {
         let project_file = self.validate_project_file(client, &task).await?;
 
-        println!("Ok we expect to have the project file available, now let's check for Blender");
-
         // am I'm introducing multiple behaviour in this single function?
         let job = task.get_job();
         let version = &job.get_version();
-        let blender = match self.manager.have_blender(version) {
-            Some(blend) => blend,
-            None => {
-                // when I do not have task blender version installed - two things will happen here before an error is thrown
-                // First, check our internal DHT services to see if any other client on the network have matching version - then fetch it. Install after completion
-                // Secondly, download the file online.
-                // If we reach here - it is because no other node have matching version, and unable to connect to download url (Internet connectivity most likely).
-                // TODO: It would be nice to broadcast everyone else "Hey! I'm download this version, could you wait until I'm done to distribute?"
-                let link_name = &self
-                    .manager
-                    .get_blender_link_by_version(version)
-                    .expect(&format!(
-                        "Invalid Blender version used. Not found anywhere! Version {:?}",
-                        &version
-                    ))
-                    .name;
-                let destination = self.manager.get_install_path();
+        // this script below was our internal implementation of handling DHT fallback mode
+        // save this for future feature updates
+        // let blender = match self.manager.have_blender(version) {
+        //     Some(blend) => blend,
+        //     None => {
+        //         // when I do not have task blender version installed - two things will happen here before an error is thrown
+        //         // First, check our internal DHT services to see if any other client on the network have matching version - then fetch it. Install after completion
+        //         // Secondly, download the file online.
+        //         // If we reach here - it is because no other node have matching version, and unable to connect to download url (Internet connectivity most likely).
+        //         // TODO: It would be nice to broadcast everyone else "Hey! I'm download this version, could you wait until I'm done to distribute?"
+        //         let link_name = &self
+        //             .manager
+        //             .get_blender_link_by_version(version)
+        //             .expect(&format!(
+        //                 "Invalid Blender version used. Not found anywhere! Version {:?}",
+        //                 &version
+        //             ))
+        //             .name;
+        //         let destination = self.manager.get_install_path();
 
-                // should also use this to send CmdCommands for network stuff.
-                let latest = client.get_file_from_peers(&link_name, destination).await;
+        //         // should also use this to send CmdCommands for network stuff.
+        //         let latest = client.get_file_from_peers(&link_name, destination).await;
 
-                match latest {
-                    Ok(path) => {
-                        // assumed the file I downloaded is already zipped, proceed with caution on installing.
-                        let folder_name = self.manager.get_install_path();
-                        let exe =
-                            DownloadLink::extract_content(path, folder_name.to_str().unwrap())
-                                .expect(
-                                    "Unable to extract content, More likely a permission issue?",
-                                );
-                        &Blender::from_executable(exe).expect("Received invalid blender copy!")
-                    }
-                    Err(e) => {
-                        println!(
-                            "No client on network is advertising target blender installation! {e:?}"
-                        );
-                        &self
-                            .manager
-                            .fetch_blender(&version)
-                            .expect("Fail to download blender")
-                    }
-                }
+        //         match latest {
+        //             Ok(path) => {
+        //                 // assumed the file I downloaded is already zipped, proceed with caution on installing.
+        //                 let folder_name = self.manager.get_install_path();
+        //                 let exe =
+        //                     DownloadLink::extract_content(path, folder_name.to_str().unwrap())
+        //                         .expect(
+        //                             "Unable to extract content, More likely a permission issue?",
+        //                         );
+        //                 &Blender::from_executable(exe).expect("Received invalid blender copy!")
+        //             }
+        //             Err(e) => {
+        //                 println!(
+        //                     "No client on network is advertising target blender installation! {e:?}"
+        //                 );
+        //                 &self
+        //                     .manager
+        //                     .fetch_blender(&version)
+        //                     .expect("Fail to download blender")
+        //             }
+        //         }
+        //     }
+        // };
+        let blender = match self.manager.fetch_blender(version) {
+            Ok(blender) => blender,
+            Err(e) => {
+                return Err(CliError::ManagerError(e));
             }
         };
 
         let output = self
-            .verify_and_check_render_output_path(task.get_id())
-            .await
-            .map_err(|e| CliError::Io(e))?;
-
+                    .verify_and_check_render_output_path(task.get_id())
+                    .await
+                    .map_err(|e| CliError::Io(e))?;
+        
         // run the job!
         // TODO: is there a better way to get around clone?
         match task.clone().run(project_file, output, &blender).await {
@@ -247,15 +245,106 @@ impl CliApp {
         Ok(())
     }
 
-    async fn handle_job_update(&mut self, event: JobEvent) {
+    async fn handle_job_from_network(&mut self, client: &mut NetworkController, event: JobEvent) {
         match event {
             // on render task received, we should store this in the database.
-            JobEvent::Render(task) => {
-                println!("Received new Render Task! Added to Queue!!");
+            JobEvent::Render(peer_id_str, mut task) => {
+                
+                let peer_id = match PeerId::from_str(&peer_id_str) {
+                    Ok(peer_id) => peer_id,
+                    Err(e) => {
+                        eprintln!("Not a valid peer id! {e:?}");
+                        return;
+                    }
+                };
 
-                let db = self.task_store.write().await;
-                if let Err(e) = db.add_task(task).await {
-                    println!("Unable to add task! {e:?}");
+                if client.public_id.ne(&peer_id) {
+                    return;
+                }
+                
+                let project_file = match self.validate_project_file(client, &task).await {
+                    Ok(path) => path,
+                    Err(e) => {
+                        eprintln!("Fail to validate project file! {e:?}");
+                        return;
+                    }                
+                };
+                
+                // scope containing using self. Need to close at the end of the scope for other method to use it as mutable state.
+                {    
+                    let db = self.task_store.write().await;
+                    // Need to make sure no other node work the same job here.
+                    if let Err(e) = db.add_task(task.clone()).await {
+                        println!("Unable to add task! {e:?}");
+                    }
+                }
+                
+                // println!("Begin printing task at this level!");
+                // let blend = match &self.manager.fetch_blender(&task.get_job().get_version()) {
+                //     Ok(result) => result,
+                //     Err(e) => {
+                //         eprintln!("problem downloading blender! {e:?}");
+                //         return;
+                //     }
+                // };
+
+                let (mut sender, mut receiver) = mpsc::channel(32);
+                let job_id = task.get_id().clone();
+                
+                match self.render_task(client, &mut task, &mut sender).await {
+                    Ok(()) => {
+                        println!("task completed!");
+                    },
+                    Err(e) => {
+                        eprintln!("Error rendering task! {e:?}");
+                    },
+                };
+
+                loop {
+                    match receiver.select_next_some().await {
+                        BlenderEvent::Log(log) => {
+                            println!("[LOG] {log}");
+                        },
+                        BlenderEvent::Warning(warn) => {
+                            eprintln!("[WARN] {warn}");
+                        },
+                        BlenderEvent::Rendering { current, total } => {
+                            println!("[LOG] Rendering {current} out of {total}...");
+                        },
+                        BlenderEvent::Completed { frame, result } => 
+                        {
+                            println!("Image completed!");
+                            let provider_rule = ProviderRule::Default(result);
+                            if let Err(e) = client.start_providing(&provider_rule).await {
+                                eprintln!("Unable to provide completed render image! {e:?}");
+                            }
+
+                            match provider_rule.get_file_name() {
+                                Some(file_name) => {
+                                    let job_event = JobEvent::ImageCompleted { job_id, frame, file_name: file_name.to_str().unwrap().to_string() };
+                                    let (sender, mut client_callback ) = mpsc::channel(0);
+                                    client.send_job_event(job_event, sender).await;
+
+                                    match client_callback.select_next_some().await {
+                                        Ok(()) => {
+                                            println!("Successfully sent job event!");
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Fail to send job event to client! {e:?}");
+                                        }
+                                    }
+                                },
+                                None => {
+                                    eprintln!("Fail to get file name from provider rule - Did we get the file name incorrectly somehow?");
+                                }
+                            };
+                        },
+                        BlenderEvent::Unhandled(unk) => eprintln!("An unhandled blender event received: {unk}"),
+                        BlenderEvent::Exit => break,
+                        BlenderEvent::Error(e) => {
+
+                        },
+                    }
                 }
             }
 
@@ -277,18 +366,25 @@ impl CliApp {
     // Handle network event (From network as user to operate this)
     async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
-            Event::JobUpdate(job_event) => self.handle_job_update(job_event).await,
+            Event::JobUpdate(job_event) => self.handle_job_from_network(client, job_event).await,
             Event::InboundRequest { request, channel } => {
                 self.handle_inbound_request(client, request, channel).await
             }
             Event::NodeStatus(event) => {
                 match event {
-                    NodeEvent::Connected(peer_id, spec) => {
+                    NodeEvent::Hello(peer_id, spec) => {
                         // peer connected with specs.
-                        println!("Peer connecte with specs provided : {peer_id:?}\n{spec:?}");
+                        println!("Peer connected with specs provided : {peer_id:?}\n{spec:?}");
                         // println!("Requesting task");
                         // let event = JobEvent::RequestTask;
                         // client.send_job_event(event).await;
+                        // I should reply hello?    
+                        let public_ip = client.public_id.to_base58();
+                        let mut machine = Machine::new();
+                        let computer_spec = ComputerSpec::new(&mut machine);
+                        let status = NodeEvent::Hello(public_ip, computer_spec);
+                        client.send_node_status(status).await;
+
                     }
                     NodeEvent::Disconnected { peer_id, reason } => match reason {
                         Some(err) => {
@@ -296,8 +392,9 @@ impl CliApp {
                         }
                         None => println!("Peer Disconnected without reason! [{peer_id:?}]"),
                     },
-                    NodeEvent::BlenderStatus(blender_event) => {
-                        println!("[Blender Status] {blender_event:?}");
+                    NodeEvent::BlenderStatus(_blender_event) => {
+                        // println!("[Blender Status] {blender_event:?}");
+                        // probably doesn't matter, but shouldn't spam the network with this info yet...
                     }
                 }
             }
@@ -305,7 +402,7 @@ impl CliApp {
         }
     }
 
-    async fn handle_command(&mut self, client: &mut NetworkController, cmd: CmdCommand) {
+    async fn handle_command(&mut self, client: &mut NetworkController, cmd: CmdCommand ) {
         match cmd {
             CmdCommand::Render(mut task, mut sender) => {
                 // TODO: We should find a way to mark this node currently busy so we should unsubscribe any pending new jobs if possible?
@@ -326,11 +423,28 @@ impl CliApp {
             CmdCommand::RequestTask => {
                 // or at least have this node look into job history and start working on jobs that are not completed yet.
                 let (sender, mut receiver) = mpsc::channel(1);
-                let event = JobEvent::RequestTask;
+                let peer_id = client.public_id.to_base58();
+                let event = JobEvent::RequestTask(peer_id);
                 client.send_job_event(event, sender).await;
 
                 if let Err(e) = receiver.select_next_some().await {
                     eprintln!("Fail to send job event! {e:?}");
+                    match e {
+                        libp2p::gossipsub::PublishError::Duplicate => {
+                            // we should stop asking for job request until we get a new computer to join the network.
+                            println!("I should stop asking for job request");
+                        },
+                        _ => {
+                            eprintln!("Fail to send job event! {e:?}");
+                        }
+                        // libp2p::gossipsub::PublishError::SigningError(signing_error) => todo!(),
+                        // libp2p::gossipsub::PublishError::NoPeersSubscribedToTopic => todo!(),
+                        // libp2p::gossipsub::PublishError::MessageTooLarge => {
+                        //     // this is interesting...
+                        // },
+                        // libp2p::gossipsub::PublishError::TransformFailed(error) => todo!(),
+                        // libp2p::gossipsub::PublishError::AllQueuesFull(_) => todo!(),
+                    };
                     sleep(Duration::from_secs(5u64)).await;
                 }
             }
@@ -347,84 +461,88 @@ impl BlendFarm for CliApp {
     ) -> Result<(), NetworkError> {
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
         // we will have one thread to process blender and queue, but I must have access to database.
-        let taskdb = self.task_store.clone();
+        // let taskdb = self.task_store.clone();
         let (mut event, mut command) = mpsc::channel(32);
 
+        let cmd = CmdCommand::RequestTask;
+        event.send(cmd).await;
+
         // background thread to handle blender invocation
-        spawn(async move {
-            loop {
-                // get the first task if exist.
-                let db = taskdb.write().await;
+        // spawn(async move {
+        //     loop {
+                
+        //         // get the first task if exist.
+        //         let db = taskdb.write().await;
 
-                match db.poll_task().await {
-                    Ok(result) => {
-                        match result {
-                            Some(task) => {
-                                println!("Got task to do! {task:?}");
-                                let (sender, mut receiver) = mpsc::channel(32);
-                                let cmd = CmdCommand::Render(task.item, sender);
-                                if let Err(e) = event.send(cmd).await {
-                                    eprintln!("Fail to send backend service render request! {e:?}");
-                                }
+        //         match db.poll_task().await {
+        //             Ok(result) => {
+        //                 match result {
+        //                     Some(task) => {
+        //                         println!("Got task to do! {task:?}");
+        //                         let (sender, mut receiver) = mpsc::channel(32);
+        //                         let cmd = CmdCommand::Render(task.item, sender);
+        //                         if let Err(e) = event.send(cmd).await {
+        //                             eprintln!("Fail to send backend service render request! {e:?}");
+        //                         }
 
-                                loop {
-                                    select! {
-                                        event = receiver.select_next_some() => {
-                                            match event {
-                                                BlenderEvent::Log(log) => println!("{log}"),
-                                                BlenderEvent::Warning(warn) => println!("{warn}"),
-                                                BlenderEvent::Rendering { current, total } => println!("Rendering {current} out of {total}"),
-                                                BlenderEvent::Completed { result, .. } => println!("Image completed! {result:?}"),
-                                                BlenderEvent::Unhandled(e) => {
-                                                    eprintln!("Unahandle blender event received! {e:?}");
-                                                    break;
-                                                },
-                                                BlenderEvent::Exit => {
-                                                    println!("Blender exit! This task should be completed?");
-                                                    if let Err(e) = db.delete_task(&task.id).await {
-                                                        // if the task doesn't exist
-                                                        eprintln!(
-                                                            "Fail to delete task entry from database! {e:?}"
-                                                        );
-                                                    }
-                                                    break;
-                                                },
-                                                BlenderEvent::Error(_) => break,
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            None => match event.send(CmdCommand::RequestTask).await {
-                                Ok(_) => {
-                                    sleep(Duration::from_secs(5u64)).await;
-                                }
-                                Err(e) => {
-                                    eprintln!("Error fail to send command to backend! {e:?}");
-                                    sleep(Duration::from_secs(5u64)).await;
-                                }
-                            },
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Issue polling task from db: {e:?}");
-                        match event.send(CmdCommand::RequestTask).await {
-                            Ok(_) => {
-                                sleep(Duration::from_secs(5u64)).await;
-                            }
-                            Err(e) => {
-                                eprintln!("Fail to send command to network! {e:?}");
-                            }
-                        }
-                    }
-                };
-            }
-        });
+        //                         loop {
+        //                             select! {
+        //                                 event = receiver.select_next_some() => {
+        //                                     match event {
+        //                                         BlenderEvent::Log(log) => println!("{log}"),
+        //                                         BlenderEvent::Warning(warn) => println!("{warn}"),
+        //                                         BlenderEvent::Rendering { current, total } => println!("Rendering {current} out of {total}"),
+        //                                         BlenderEvent::Completed { result, .. } => println!("Image completed! {result:?}"),
+        //                                         BlenderEvent::Unhandled(e) => {
+        //                                             eprintln!("Unahandle blender event received! {e:?}");
+        //                                             break;
+        //                                         },
+        //                                         BlenderEvent::Exit => {
+        //                                             println!("Blender exit! This task should be completed?");
+        //                                             if let Err(e) = db.delete_task(&task.id).await {
+        //                                                 // if the task doesn't exist
+        //                                                 eprintln!(
+        //                                                     "Fail to delete task entry from database! {e:?}"
+        //                                                 );
+        //                                             }
+        //                                             break;
+        //                                         },
+        //                                         BlenderEvent::Error(_) => break,
+        //                                     }
+        //                                 }
+        //                             }
+        //                         }
+        //                     }
+        //                     None => match event.send(CmdCommand::RequestTask).await {
+        //                         Ok(_) => {
+        //                             sleep(Duration::from_secs(5u64)).await;
+        //                         }
+        //                         Err(e) => {
+        //                             eprintln!("Error fail to send command to backend! {e:?}");
+        //                             sleep(Duration::from_secs(5u64)).await;
+        //                         }
+        //                     },
+        //                 }
+        //             }
+        //             Err(e) => {
+        //                 eprintln!("Issue polling task from db: {e:?}");
+        //                 match event.send(CmdCommand::RequestTask).await {
+        //                     Ok(_) => {
+        //                         sleep(Duration::from_secs(5u64)).await;
+        //                     }
+        //                     Err(e) => {
+        //                         eprintln!("Fail to send command to network! {e:?}");
+        //                     }
+        //                 }
+        //             }
+        //         };
+        //     }
+        // });
 
         // run cli mode in loop
         loop {
             select! {
-                event = event_receiver.select_next_some() => self.handle_net_event(&mut client, event).await,
+                net_event = event_receiver.select_next_some() => self.handle_net_event(&mut client, net_event).await,
                 msg = command.select_next_some() => self.handle_command(&mut client, msg).await,
             }
         }

@@ -5,6 +5,7 @@ use super::job::JobEvent;
 use super::message::{Command, Event, FileCommand, KeywordSearch, NetworkError};
 use blender::models::event::BlenderEvent;
 use core::str;
+use std::ffi::OsStr;
 use futures::StreamExt;
 use futures::{
     channel::{
@@ -43,6 +44,15 @@ pub enum ProviderRule {
     Default(PathBuf),
     // Custom keyword search for specific PathBuf.
     Custom(KeywordSearch, PathBuf),
+}
+
+impl ProviderRule {
+    pub fn get_file_name(&self) -> Option<&OsStr> {
+        match self {
+            ProviderRule::Default(path) => path.file_name(),
+            ProviderRule::Custom(_, path_buf) => path_buf.file_name(),
+        }
+    }
 }
 
 // the tuples return two objects
@@ -195,13 +205,13 @@ pub enum StatusEvent {
 }
 
 // type is locally contained
-type PeerIdString = String;
+pub type PeerIdString = String;
 
 // Must be serializable to send data across network
 // issue with this is that this cannot be convert into Encode,Decode by bincode. Instead we'll have to
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NodeEvent {
-    Connected(PeerIdString, ComputerSpec),
+    Hello(PeerIdString, ComputerSpec),
     Disconnected {
         peer_id: PeerIdString,
         reason: Option<String>,
@@ -461,10 +471,10 @@ impl NetworkService {
 
     // send command
     // Receive commands from foreign invocation.
-    pub async fn process_command(&mut self, cmd: Command) {
+    pub async fn process_incoming_command(&mut self, cmd: Command) {
         match cmd {
             Command::FileService(service) => self.process_file_service(service).await,
-            // Send Job status to all network available.
+            // received job status. invoke commands
             Command::JobStatus(event, mut sender) => {
                 // convert data into json format.
                 let data = serde_json::to_string(&event).unwrap();
@@ -575,8 +585,6 @@ impl NetworkService {
                 // if the topic is JOB related, assume data as JobEvent
                 JOB => match serde_json::from_slice::<JobEvent>(&message.data) {
                     Ok(job_event) => {
-                        // I don't think this function is called?
-                        println!("Is this function used?");
                         if let Err(e) = self.sender.send(Event::JobUpdate(job_event)).await {
                             eprintln!("Something failed? {e:?}");
                         }
@@ -743,7 +751,7 @@ impl NetworkService {
     pub async fn run(&mut self) {
         loop {
             select! {
-                msg = self.receiver.select_next_some() => self.process_command(msg).await,
+                msg = self.receiver.select_next_some() => self.process_incoming_command(msg).await,
                 event = self.swarm.select_next_some() => self.process_swarm_event(event).await,
             }
         }
