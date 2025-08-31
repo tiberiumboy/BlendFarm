@@ -39,6 +39,7 @@ pub enum JobEvent {
 
 pub type JobId = Uuid;
 pub type Frame = i32;
+pub type Output = PathBuf;
 pub type NewJobDto = Job;
 pub type CreatedJobDto = WithId<Job, JobId>;
 
@@ -58,16 +59,16 @@ pub struct Job {
     blender_version: Version,
 
     // target output destination
-    output: PathBuf, // is there a way to say that this is exactly the directory path instead of pathbuf?
+    output: Output,
 }
 
 impl Job {
-    // private - no validation, we trust that the validation is done via public api.
+    // private - no validation, we trust that the validation is done from public api.
     fn new(
         mode: RenderMode,
         project_file: ProjectFile,
         blender_version: Version, // TODO: see if we can validate if this job uses the correct blender version
-        output: PathBuf,          // must be a valid directory
+        output: Output,          // must be a valid directory
     ) -> Self {
         Self {
             mode,
@@ -93,9 +94,10 @@ impl Job {
     pub fn generate_task(self, id: Uuid) -> Option<Task> {
         // in this case, a job would have break up into pieces for worker client to receive and start a new job
         // first thing first, how can I tell if the job is completed or not?
-        let range = self.get_range();
-        let job = WithId { id, item: self };
-        match Task::from(job, range) {
+        let range = self.clone().into();
+        let job_id = WithId { id, item: self };
+        
+        match Task::from(job_id, range) {
             Ok(task) => Some(task),
             Err(e) => {
                 println!("Unable to make task? {e:?}");
@@ -104,38 +106,49 @@ impl Job {
         }
     }
 
-    pub fn get_range(&self) -> Range<i32> {
-        match self.get_mode() {
-            RenderMode::Animation(range) => range.clone(),
-            RenderMode::Frame(frame) => Range {
-                start: frame.to_owned(),
-                end: frame.to_owned(),
-            },
-        }
-    }
-
-    pub fn get_mode(&self) -> &RenderMode {
-        &self.mode
-    }
-
     // TODO: See if there's a better way to obtain file name, project path, and version
     pub fn get_file_name_expected(&self) -> &str {
         // this line could potentially break the application
         // if the project file was malform or set to use directory instead.
         self.project_file.file_name().unwrap().to_str().unwrap()
     }
+}
 
-    pub fn get_project_path(&self) -> &ProjectFile {
+impl AsRef<ProjectFile> for Job {
+    fn as_ref(&self) -> &ProjectFile {
         &self.project_file
     }
+}
 
-    pub fn get_version(&self) -> &Version {
+impl AsRef<Version> for Job {
+    fn as_ref(&self) -> &Version {
         &self.blender_version
     }
+}
 
-    /// return the job output destination (Should be used on the host machine)
-    pub fn get_output(&self) -> &PathBuf {
+/// return the job output destination (Should be used on the host machine)
+impl AsRef<Output> for Job {
+    fn as_ref(&self) -> &Output {
         &self.output
+    }
+}
+
+impl AsRef<RenderMode> for Job {
+    fn as_ref(&self) -> &RenderMode {
+        &self.mode
+    }
+}
+
+// TODO: Clone/to_owned() is used here.
+impl Into<Range<i32>> for Job {
+    fn into(self) -> Range<i32> {
+        match self.mode {
+            RenderMode::Animation(range) => range.clone(),
+            RenderMode::Frame(frame) => Range {
+                start: frame.to_owned(),
+                end: frame.to_owned(),
+            },
+        }
     }
 }
 
@@ -178,8 +191,8 @@ pub(crate) mod test {
 
         assert_eq!(job.mode, mode);
         assert_eq!(job.output, output);
-        assert_eq!(job.get_project_path(), &project_file);
-        assert_eq!(job.get_version(), &version);
+        assert_eq!(AsRef::<ProjectFile>::as_ref(&job), &project_file);
+        assert_eq!(AsRef::<Version>::as_ref(&job), &version);
         assert_eq!(
             job.get_file_name_expected(),
             file.file_name()

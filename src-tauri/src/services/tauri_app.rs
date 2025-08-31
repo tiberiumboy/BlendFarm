@@ -13,14 +13,7 @@ use super::{
 use crate::{
     domains::{job_store::{JobError, JobStore}, worker_store::WorkerStore},
     models::{
-        app_state::AppState,
-        computer_spec::ComputerSpec,
-        job::{CreatedJobDto, JobEvent, JobId, NewJobDto},
-        message::{Event, NetworkError},
-        network::{NetworkController, NodeEvent, PeerIdString, ProviderRule},
-        server_setting::ServerSetting,
-        task::Task,
-        worker::Worker,
+        app_state::AppState, computer_spec::ComputerSpec, job::{CreatedJobDto, JobEvent, JobId, NewJobDto}, message::{Event, NetworkError}, network::{NetworkController, NodeEvent, ProviderRule}, project_file::ProjectFile, server_setting::ServerSetting, task::Task, worker::Worker
     },
     routes::{job::*, remote_render::*, settings::*, util::*, worker::*},
 };
@@ -269,7 +262,7 @@ impl TauriApp {
     #[allow(dead_code)]
     fn generate_tasks(job: &CreatedJobDto, chunks: i32) -> Vec<Task> {
         // mode may be removed soon, we'll see?
-        let (time_start, time_end) = match job.item.get_mode() {
+        let (time_start, time_end) = match AsRef::<RenderMode>::as_ref(&job.item) {
             RenderMode::Animation(anim) => (anim.start, anim.end),
             RenderMode::Frame(frame) => (frame.clone(), frame.clone()),
         };
@@ -388,6 +381,8 @@ impl TauriApp {
                     eprintln!("Fail to send data back! {e:?}");
                 }
             }
+            
+            // Nothing is calling this yet???
             JobAction::Advertise(job_id) =>
             // Here we will simply add the job to the database, and let client poll them!
             {
@@ -401,35 +396,36 @@ impl TauriApp {
 
                 // first make the file available on the network
                 if let Some(job) = result {
-                    let _file_name = job.item.get_project_path().file_name().unwrap(); // this is &OsStr
-                    let path = job.item.get_project_path().clone();
-    
+                    let project_file: &ProjectFile = job.item.as_ref();
+                    let file_name = project_file.file_name().unwrap(); // this is &OsStr
+                    let path: &PathBuf = job.item.as_ref();
+                    
+                    println!("Reached to this point of code {file_name:?}");
+
                     // Once job is initiated, we need to be able to provide the files for network distribution.
                     let _provider = ProviderRule::Default(path.to_path_buf());
+                    // this is where I'm confused?
+                    // if let Err(e) = client.start_providing(&provider).await {
+                    //     eprintln!("Fail to provide file! {e:?}");
+                    //     return;
+                    // }
+                    
+                    // let tasks = Self::generate_tasks(
+                    //     &job,
+                    //     MAX_FRAME_CHUNK_SIZE
+                    //     );
+                        
+                    // // so here's the culprit. We're waiting for a peer to become idle and inactive waiting for the next job
+                    // for task in tasks {
+                    //     // problem here - I'm getting one client to do all of the rendering jobs, not the inactive one.
+                    //     // Perform a round-robin selection instead.
+                        
+                    //     println!("Sending task to {:?} \nRange( {} - {} )\n", &host, &task.range.start, &task.range.end);
+                    //     client.send_job_event(Some(host.clone()), JobEvent::Render(task)).await;
+                    // }
                 }
 
-                // where does the client come from?
-                // TODO: Figure out where the client is associated with and how can we access it from here?
-                /*
-                client.start_providing(&provider).await;
-
-                let tasks = Self::generate_tasks(
-                    &job,
-                    PathBuf::from(file_name),
-                    MAX_FRAME_CHUNK_SIZE,
-                    &client.hostname
-                );
-
-                // so here's the culprit. We're waiting for a peer to become idle and inactive waiting for the next job
-                // TODO how is this still pending?
-                for task in tasks {
-                    // problem here - I'm getting one client to do all of the rendering jobs, not the inactive one.
-                    // Perform a round-robin selection instead.
-                    let host = self.get_idle_peers().await; // this means I must wait for an active peers to become available?
-                    println!("Sending task to {:?} \nJob Id: {:?} \nRange( {} - {} )\n", &host, &task.job_id, &task.range.start, &task.range.end);
-                    client.send_job_event(Some(host.clone()), JobEvent::Render(task)).await;
-                }
-                */
+                
             }
         }
     }
@@ -566,12 +562,15 @@ impl TauriApp {
                         let peer_id =
                             PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
                         let worker = Worker::new(peer_id.clone(), spec.clone());
+
                         // append new worker to database store
                         if let Err(e) = self.worker_store.add_worker(worker).await {
                             eprintln!("Error adding worker to database! {e:?}");
                         }
-    
-                        // self.peers.insert(peer_id, spec);
+
+                        println!("New worker added!");
+                        self.peers.insert(peer_id, spec);
+
                         // let handle = app_handle.write().await;
                         // emit a signal to query the data.
                         // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
@@ -712,7 +711,9 @@ impl TauriApp {
                     // Should I do anything on the manager side? Shouldn't matter at this point?
                 }
             },
-            _ => {} // println!("[TauriApp]: {:?}", event),
+            _ => {
+                println!("[TauriApp]: {:?}", event);
+            } 
         }
     }
 }

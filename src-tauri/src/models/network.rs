@@ -34,8 +34,8 @@ use tokio::{io, select};
 Network Service - Receive, handle, and process network request.
 */
 
-const JOB: &str = "/blendfarm/job";
-const NODE: &str = "/blendfarm/node";
+const JOB: &str = "/job";
+const NODE: &str = "/node";
 // why does the transfer have number at the trail end? look more into this?
 const TRANSFER: &str = "/file-transfer/1";
 
@@ -97,11 +97,25 @@ pub async fn new() -> Result<(NetworkController, Receiver<Event>, NetworkService
                 .map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))?;
 
             // p2p communication
-            let gossipsub = gossipsub::Behaviour::new(
+            let mut gossipsub = gossipsub::Behaviour::new(
                 gossipsub::MessageAuthenticity::Signed(key.clone()),
                 gossipsub_config,
             )
             .expect("Fail to create gossipsub behaviour");
+
+            // let's automatically listen to the topics mention above.
+            // all network interference must subscribe to these topics!
+            let job_topic = IdentTopic::new(JOB);
+            match gossipsub.subscribe(&job_topic) {
+                Ok(_) => println!("Gossip subscribed {job_topic} successfully!"),
+                Err(e) => eprintln!("Fail to subscribe job topic! {e:?}"),
+            };
+
+            let node_topic = IdentTopic::new(NODE);
+            match gossipsub.subscribe(&node_topic) {
+                Ok(_) => println!("Gossip subscribed {node_topic} successfully!"),
+                Err(e) => eprintln!("Fail to subscribe node topic! {e:?}")
+            };
 
             // network discovery usage
             // TODO: replace expect with error handling
@@ -165,17 +179,6 @@ pub async fn new() -> Result<(NetworkController, Receiver<Event>, NetworkService
         public_id,
         hostname: Machine::new().system_info().hostname,
     };
-
-    // all network interference must subscribe to these topics!
-    let job_topic = gossipsub::IdentTopic::new(JOB);
-    if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&job_topic) {
-        eprintln!("Fail to subscribe job topic! {e:?}");
-    }
-
-    let node_topic = gossipsub::IdentTopic::new(NODE);
-    if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&node_topic) {
-        eprintln!("Fail to subscribe node topic! {e:?}");
-    }
 
     let service = NetworkService::new(
         swarm,
@@ -550,6 +553,8 @@ impl NetworkService {
 
     async fn process_mdns_event(&mut self, event: mdns::Event) {
         match event {
+
+            // somehow I'm unable to send this discovered peer a hello message back?
             mdns::Event::Discovered(peers) => {
                 for (peer_id, address) in peers {
                     println!("Discovered [{peer_id:?}] {address:?}");
@@ -702,6 +707,19 @@ impl NetworkService {
                 peer_id, endpoint, ..
             } => {
                 println!("Connection Established: {peer_id:?}\n{endpoint:?}");
+
+                // Reply back saying "Hello"
+                let mut machine = Machine::new(); 
+                let computer_spec = ComputerSpec::new(&mut machine);
+                let event = NodeEvent::Hello(self.swarm.local_peer_id().to_base58(), computer_spec);
+                let data = serde_json::to_string(&event).expect("Should be able to deserialize struct");
+                let topic = gossipsub::IdentTopic::new(NODE);
+
+                if let Err(e) = self.swarm.behaviour_mut()
+                    .gossipsub.publish(topic.clone(), data) {
+                    eprintln!("Oh noe something happen for publishing gossip {topic} message! {e:?}");
+                }
+
                 // once we establish a connection, we should ping kademlia for all available nodes on the network.
                 // let key = NODE.to_vec();
                 // let _query_id = self.swarm.behaviour_mut().kad.get_providers(key.into());
@@ -730,8 +748,8 @@ impl NetworkService {
             // SwarmEvent::ListenerClosed { .. } => todo!(),
             // SwarmEvent::ListenerError { listener_id, error } => todo!(),
             // vv ignore events below vv
-            SwarmEvent::NewListenAddr { .. } => {
-                // println!("[New Listener Address]: {address}");
+            SwarmEvent::NewListenAddr { address, .. } => {
+                println!("[New Listener Address]: {address}");
             }
             // SwarmEvent::Dialing { .. } => {} // Suppressing logs
             // SwarmEvent::IncomingConnection { .. } => {} // Suppressing logs

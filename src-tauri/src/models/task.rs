@@ -57,14 +57,6 @@ impl Task {
         }
     }
 
-    pub fn get_id(&self) -> &Uuid {
-        &self.job_id
-    }
-
-    pub fn get_job(&self) -> &Job {
-        &self.job
-    }
-
     /// The behaviour of this function returns the percentage of the remaining jobs in poll.
     /// E.g. 102 (out of 255- 80%) of 120 remaining would return 96 end frames.
     /// TODO: Allow other node or host to fetch end frames from this task and distribute to other requesting workers.
@@ -111,6 +103,7 @@ impl Task {
             output.as_ref().to_path_buf(),
             Engine::CYCLES,
         );
+
         let arc_task = Arc::new(RwLock::new(self)).clone();
 
         // TODO: How can I adjust blender jobs?
@@ -125,6 +118,18 @@ impl Task {
             })
             .await;
         Ok(receiver)
+    }
+}
+
+impl AsRef<Uuid> for Task {
+    fn as_ref(&self) -> &Uuid {
+        &self.job_id
+    }
+}
+
+impl AsRef<Job> for Task {
+    fn as_ref(&self) -> &Job {
+        &self.job
     }
 }
 

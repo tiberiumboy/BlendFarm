@@ -14,7 +14,7 @@ use super::blend_farm::BlendFarm;
 use crate::{
     domains::{job_store::JobError, task_store::TaskStore},
     models::{
-        computer_spec::ComputerSpec, job::JobEvent, message::{self, Event, NetworkError}, network::{NetworkController, NodeEvent, ProviderRule}, server_setting::ServerSetting, task::Task
+        computer_spec::ComputerSpec, job::{Job, JobEvent}, message::{self, Event, NetworkError}, network::{NetworkController, NodeEvent, ProviderRule}, project_file::ProjectFile, server_setting::ServerSetting, task::Task
     },
 };
 use blender::models::event::BlenderEvent;
@@ -27,10 +27,12 @@ use futures::{
     channel::mpsc::{self, Receiver, Sender},
 };
 use thiserror::Error;
-use tokio::{select, spawn, sync::RwLock};
+use tokio::{select, sync::RwLock};
 use uuid::Uuid;
 
 enum CmdCommand {
+    // TODO: See where this can be used?
+    #[allow(dead_code)]
     Render(Task, Sender<BlenderEvent>),
     RequestTask, // calls to host for more task.
 }
@@ -49,6 +51,10 @@ pub struct CliApp {
     manager: BlenderManager,
     task_store: Arc<RwLock<dyn TaskStore + Send + Sync + 'static>>,
     settings: ServerSetting,
+    
+    // Used to connect to available host. No other host can connect to this node.
+    host: Option<PeerId>,
+    
     // The idea behind this is to let the network manager aware that the client side of the app is busy working on current task.
     // it would be nice to receive information and notification about this current client status somehow.
     // Could I use PhantomData to hold Task Object type?
@@ -64,6 +70,7 @@ impl CliApp {
             manager,
             task_store,
             task_handle: None, // no task assigned yet
+            host: None,
         }
     }
 }
@@ -71,13 +78,14 @@ impl CliApp {
 impl CliApp {
     // This function will ensure the directory will exist, and return the path to that given directory.
     // It will remain valid unless directory or parent above is removed during runtime.
+    #[allow(dead_code)]
     async fn generate_temp_project_task_directory(
         settings: &ServerSetting,
         task: &Task,
         id: &str,
     ) -> Result<PathBuf, async_std::io::Error> {
         // create a path link where we think the file should be
-        let job = task.get_job();
+        let job = AsRef::<Job>::as_ref(&task);
         let project_path = settings
             .blend_dir
             .join(id.to_string())
@@ -92,12 +100,13 @@ impl CliApp {
         }
     }
 
+    #[allow(dead_code)]
     async fn validate_project_file(
         &self,
         client: &mut NetworkController,
         task: &Task,
     ) -> Result<PathBuf, CliError> {
-        let id = task.get_id();
+        let id = AsRef::<Uuid>::as_ref(&task);
         let project_file_path =
             CliApp::generate_temp_project_task_directory(&self.settings, &task, &id.to_string())
                 .await
@@ -106,7 +115,7 @@ impl CliApp {
         // assume project file is located inside this directory.
         println!("Checking for {:?}", &project_file_path);
 
-        let job = task.get_job();
+        let job = AsRef::<Job>::as_ref(&task);
         // Fetch the project from peer if we don't have it.
         if !project_file_path.exists() {
             println!(
@@ -120,7 +129,7 @@ impl CliApp {
 
             // so I need to figure out something about this...
             // TODO - find a way to break out of this if we can't fetch the project file.
-            let job = task.get_job();
+            let job = AsRef::<Job>::as_ref(&task);
             let file_name = job.get_file_name_expected();
 
             // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
@@ -153,57 +162,66 @@ impl CliApp {
         task: &mut Task,
         sender: &mut Sender<BlenderEvent>,
     ) -> Result<(), CliError> {
-        let project_file = self.validate_project_file(client, &task).await?;
+        
+        // for now, let's skip this part and continue on. We don't have DHT setup, but I want to make sure cli does actually render once we get the file share situation straighten out.
+        // let project_file = self.validate_project_file(client, &task).await?;
+        
+        
+        let job = AsRef::<Job>::as_ref(&task);
+        let project_file = AsRef::<ProjectFile>::as_ref(&job);
+        let version = job.as_ref();
+        
 
-        // am I'm introducing multiple behaviour in this single function?
-        let job = task.get_job();
-        let version = &job.get_version();
-        // this script below was our internal implementation of handling DHT fallback mode
-        // save this for future feature updates
-        // let blender = match self.manager.have_blender(version) {
-        //     Some(blend) => blend,
-        //     None => {
-        //         // when I do not have task blender version installed - two things will happen here before an error is thrown
-        //         // First, check our internal DHT services to see if any other client on the network have matching version - then fetch it. Install after completion
-        //         // Secondly, download the file online.
-        //         // If we reach here - it is because no other node have matching version, and unable to connect to download url (Internet connectivity most likely).
-        //         // TODO: It would be nice to broadcast everyone else "Hey! I'm download this version, could you wait until I'm done to distribute?"
-        //         let link_name = &self
-        //             .manager
-        //             .get_blender_link_by_version(version)
-        //             .expect(&format!(
-        //                 "Invalid Blender version used. Not found anywhere! Version {:?}",
-        //                 &version
-        //             ))
-        //             .name;
-        //         let destination = self.manager.get_install_path();
+        /* 
+        this script below was our internal implementation of handling DHT fallback mode
+        save this for future feature updates
+        let blender = match self.manager.have_blender(version) {
+            Some(blend) => blend,
+            None => {
+                // when I do not have task blender version installed - two things will happen here before an error is thrown
+                // First, check our internal DHT services to see if any other client on the network have matching version - then fetch it. Install after completion
+                // Secondly, download the file online.
+                // If we reach here - it is because no other node have matching version, and unable to connect to download url (Internet connectivity most likely).
+                // TODO: It would be nice to broadcast everyone else "Hey! I'm download this version, could you wait until I'm done to distribute?"
+                let link_name = &self
+                    .manager
+                    .get_blender_link_by_version(version)
+                    .expect(&format!(
+                        "Invalid Blender version used. Not found anywhere! Version {:?}",
+                        &version
+                    ))
+                    .name;
+                let destination = self.manager.get_install_path();
 
-        //         // should also use this to send CmdCommands for network stuff.
-        //         let latest = client.get_file_from_peers(&link_name, destination).await;
+                // should also use this to send CmdCommands for network stuff.
+                let latest = client.get_file_from_peers(&link_name, destination).await;
 
-        //         match latest {
-        //             Ok(path) => {
-        //                 // assumed the file I downloaded is already zipped, proceed with caution on installing.
-        //                 let folder_name = self.manager.get_install_path();
-        //                 let exe =
-        //                     DownloadLink::extract_content(path, folder_name.to_str().unwrap())
-        //                         .expect(
-        //                             "Unable to extract content, More likely a permission issue?",
-        //                         );
-        //                 &Blender::from_executable(exe).expect("Received invalid blender copy!")
-        //             }
-        //             Err(e) => {
-        //                 println!(
-        //                     "No client on network is advertising target blender installation! {e:?}"
-        //                 );
-        //                 &self
-        //                     .manager
-        //                     .fetch_blender(&version)
-        //                     .expect("Fail to download blender")
-        //             }
-        //         }
-        //     }
-        // };
+                match latest {
+                    Ok(path) => {
+                        // assumed the file I downloaded is already zipped, proceed with caution on installing.
+                        let folder_name = self.manager.get_install_path();
+                        let exe =
+                            DownloadLink::extract_content(path, folder_name.to_str().unwrap())
+                                .expect(
+                                    "Unable to extract content, More likely a permission issue?",
+                                );
+                        &Blender::from_executable(exe).expect("Received invalid blender copy!")
+                    }
+                    Err(e) => {
+                        println!(
+                            "No client on network is advertising target blender installation! {e:?}"
+                        );
+                        &self
+                            .manager
+                            .fetch_blender(&version)
+                            .expect("Fail to download blender")
+                    }
+                }
+            }
+        };
+        */
+
+
         let blender = match self.manager.fetch_blender(version) {
             Ok(blender) => blender,
             Err(e) => {
@@ -211,21 +229,22 @@ impl CliApp {
             }
         };
 
+        let id = AsRef::<Uuid>::as_ref(&task);
         let output = self
-                    .verify_and_check_render_output_path(task.get_id())
+                    .verify_and_check_render_output_path(id)
                     .await
                     .map_err(|e| CliError::Io(e))?;
         
         // run the job!
         // TODO: is there a better way to get around clone?
-        match task.clone().run(project_file, output, &blender).await {
+        match task.clone().run(project_file.to_path_buf(), output, &blender).await {
             Ok(rx) => loop {
                 if let Ok(status) = rx.recv() {
                     sender
                         .send(status)
                         .await
                         .expect("Channel should not be closed");
-                    // not sure if I still need this?
+                    // not sure if I still need this? 8/29/25
                     // let node_status = NodeEvent::BlenderStatus(status);
                     // client.send_node_status(node_status).await;
                 }
@@ -262,15 +281,18 @@ impl CliApp {
                     return;
                 }
                 
-                let project_file = match self.validate_project_file(client, &task).await {
-                    Ok(path) => path,
-                    Err(e) => {
-                        eprintln!("Fail to validate project file! {e:?}");
-                        return;
-                    }                
-                };
+                // Skip this for now. We'll work on DHT at another time.
+                // let project_file = match self.validate_project_file(client, &task).await {
+                //     Ok(path) => path,
+                //     Err(e) => {
+                //         eprintln!("Fail to validate project file! {e:?}");
+                //         return;
+                //     }                
+                // };
+                // let project_file = task.get_job().get_project_path();
                 
                 // scope containing using self. Need to close at the end of the scope for other method to use it as mutable state.
+                // do we need this right now?
                 {    
                     let db = self.task_store.write().await;
                     // Need to make sure no other node work the same job here.
@@ -289,7 +311,7 @@ impl CliApp {
                 // };
 
                 let (mut sender, mut receiver) = mpsc::channel(32);
-                let job_id = task.get_id().clone();
+                let job_id = AsRef::<Uuid>::as_ref(&task).clone();
                 
                 match self.render_task(client, &mut task, &mut sender).await {
                     Ok(()) => {
@@ -342,7 +364,7 @@ impl CliApp {
                         BlenderEvent::Unhandled(unk) => eprintln!("An unhandled blender event received: {unk}"),
                         BlenderEvent::Exit => break,
                         BlenderEvent::Error(e) => {
-
+                            eprintln!("Blender error event received {e}");
                         },
                     }
                 }
@@ -465,7 +487,7 @@ impl BlendFarm for CliApp {
         let (mut event, mut command) = mpsc::channel(32);
 
         let cmd = CmdCommand::RequestTask;
-        event.send(cmd).await;
+        event.send(cmd).await.expect("Should not be free?");
 
         // background thread to handle blender invocation
         // spawn(async move {

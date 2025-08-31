@@ -63,6 +63,7 @@ pub async fn run() {
     // to run custom behaviour
     let cli = Cli::parse();
 
+    // initialize database connection
     let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db()
         .await
         .expect("Must have database connection!");
@@ -72,9 +73,11 @@ pub async fn run() {
         .await
         .expect("Fail to start network service");
 
+    // Network service is spun up on separate thread.
     spawn(async move {
         server.run().await;
     });
+
 
     let _ = match cli.command {
         // run as client mode.

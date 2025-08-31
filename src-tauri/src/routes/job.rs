@@ -1,5 +1,6 @@
 use crate::domains::job_store::JobError;
-use crate::models::job::CreatedJobDto;
+use crate::models::job::{CreatedJobDto, Output};
+use crate::models::project_file::ProjectFile;
 use crate::models::{app_state::AppState, job::Job};
 use crate::services::tauri_app::{JobAction, UiCommand, WORKPLACE};
 use blender::models::mode::RenderMode;
@@ -83,7 +84,7 @@ fn render_list_job(collection: &Option<Vec<CreatedJobDto>>) -> String {
 fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
     match job {
         Some(job) => {
-            let result = fetch_img_result(&job.item.get_output());
+            let result = fetch_img_result(&job.item.as_ref());
 
             // TODO: it would be nice to provide ffmpeg gif result of the completed render image.
             // Something to add for immediate preview and feedback from render result
@@ -92,15 +93,19 @@ fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
             //     let preview = fetch_img_preview(&job.item.output, &imgs);
             // }
 
+            let project_file = AsRef::<ProjectFile>::as_ref(&job.item);
+            let output = AsRef::<Output>::as_ref(&job.item);
+            let version = AsRef::<Version>::as_ref(&job.item);
+
             html!(
                 div class="content" {
                     h2 { "Job Detail" };
 
-                    button tauri-invoke="open_dir" hx-vals=(json!({"path":job.item.get_project_path().to_str().unwrap()})) { ( job.item.get_project_path().to_str().unwrap() ) };
+                    button tauri-invoke="open_dir" hx-vals=(json!({"path": project_file.to_str().unwrap()})) { (  project_file.to_str().unwrap() ) };
                     
-                    div { ( job.item.get_output().to_str().unwrap() ) };
+                    div { ( output.to_str().unwrap() ) };
                     
-                    div { ( job.item.get_version().to_string() ) };
+                    div { ( version.to_string() ) };
                     
                     button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job.id})) hx-target="#workplace" { "Delete Job" };
                     

@@ -3,8 +3,7 @@ use std::{path::PathBuf, str::FromStr};
 use crate::{
     domains::job_store::{JobError, JobStore},
     models::{
-        job::{CreatedJobDto, Job, NewJobDto},
-        with_id::WithId,
+        job::{CreatedJobDto, Job, NewJobDto, Output}, project_file::ProjectFile, with_id::WithId
     },
 };
 use blender::models::mode::RenderMode;
@@ -52,10 +51,10 @@ impl JobStore for SqliteJobStore {
     async fn add_job(&mut self, job: NewJobDto) -> Result<CreatedJobDto, JobError> {
         let id = Uuid::new_v4();
         let id_str = id.to_string();
-        let mode = serde_json::to_string(job.get_mode()).unwrap();
-        let project_file = job.get_project_path().to_str().unwrap().to_owned();
-        let blender_version = job.get_version().to_string();
-        let output = job.get_output().to_str().unwrap().to_owned();
+        let mode = serde_json::to_string::<RenderMode>(job.as_ref()).unwrap();
+        let project_file = AsRef::<ProjectFile>::as_ref(&job).to_str().unwrap().to_owned();
+        let blender_version = AsRef::<Version>::as_ref(&job).to_string();
+        let output = AsRef::<Output>::as_ref(&job).to_str().unwrap().to_owned();
 
         sqlx::query!(
             r"
@@ -105,13 +104,12 @@ impl JobStore for SqliteJobStore {
     async fn update_job(&mut self, job: CreatedJobDto) -> Result<(), JobError> {
         let id = job.id.to_string();
         let item = &job.item;
-        let mode = serde_json::to_string(item.get_mode()).unwrap();
-        let project = item
-            .get_project_path()
+        let mode = serde_json::to_string(item.into()).unwrap();
+        let project = AsRef::<ProjectFile>::as_ref(&item)
             .to_str()
             .expect("Must have valid path!");
-        let version = item.get_version().to_string();
-        let output = item.get_output().to_str().expect("Must have valid path!");
+        let version = AsRef::<Version>::as_ref(&item).to_string();
+        let output = AsRef::<Output>::as_ref(&item).to_str().expect("Must have valid path!");
 
         match sqlx::query!(
             r"UPDATE Jobs SET mode=$2, project_file=$3, blender_version=$4, output_path=$5

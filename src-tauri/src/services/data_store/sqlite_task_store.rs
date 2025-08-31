@@ -56,11 +56,12 @@ impl TaskStore for SqliteTaskStore {
             VALUES($1, $2, $3, $4, $5)";
         let id = Uuid::new_v4();
         let job =
-            serde_json::to_string(task.get_job()).expect("Should be able to convert job into json");
+            serde_json::to_string::<Job>(task.as_ref()).expect("Should be able to convert job into json");
 
+        let job_id = AsRef::<Uuid>::as_ref(&task);
         let _ = sqlx::query(sql)
-            .bind(&id.to_string())
-            .bind(task.get_id())
+            .bind(id)
+            .bind(job_id)
             .bind(job)
             .bind(&task.range.start)
             .bind(&task.range.end)
