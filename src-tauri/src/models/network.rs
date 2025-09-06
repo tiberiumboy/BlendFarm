@@ -58,21 +58,22 @@ impl ProviderRule {
 // the tuples return two objects
 // Network Controller to interface network service
 // Receiver<NetCommand> receive network events
-pub async fn new() -> Result<(NetworkController, Receiver<Event>, NetworkService), NetworkError> {
+pub async fn new(secret_key_seed:Option<u8>) -> Result<(NetworkController, Receiver<Event>, NetworkService), NetworkError> {
     // wonder why we have a connection timeout of 60 seconds? Why not uint::MAX?
+
     let duration = Duration::from_secs(60);
     // is there a reason for the secret key seed?
-    // let id_keys = match secret_key_seed {
-    //     Some(seed) => {
-    //         let mut bytes = [0u8; 32];
-    //         bytes[0] = seed;
-    //         identity::Keypair::ed25519_from_bytes(bytes).unwrap()
-    //     }
-    //     None => identity::Keypair::generate_ed25519(),
-    // };
+    let id_keys = match secret_key_seed {
+        Some(seed) => {
+            let mut bytes = [0u8; 32];
+            bytes[0] = seed;
+            identity::Keypair::ed25519_from_bytes(bytes).unwrap()
+        }
+        None => identity::Keypair::generate_ed25519(),
+    };
 
-    // let mut swarm = SwarmBuilder::with_existing_identity(id_keys)
-    let mut swarm = SwarmBuilder::with_new_identity()
+    let mut swarm = SwarmBuilder::with_existing_identity(id_keys)
+    // let mut swarm = SwarmBuilder::with_new_identity()
         .with_tokio()
         .with_tcp(
             tcp::Config::default(),
@@ -106,15 +107,13 @@ pub async fn new() -> Result<(NetworkController, Receiver<Event>, NetworkService
             // let's automatically listen to the topics mention above.
             // all network interference must subscribe to these topics!
             let job_topic = IdentTopic::new(JOB);
-            match gossipsub.subscribe(&job_topic) {
-                Ok(_) => println!("Gossip subscribed {job_topic} successfully!"),
-                Err(e) => eprintln!("Fail to subscribe job topic! {e:?}"),
+            if let Err(e) = gossipsub.subscribe(&job_topic) {
+                eprintln!("Fail to subscribe job topic! {e:?}");
             };
 
             let node_topic = IdentTopic::new(NODE);
-            match gossipsub.subscribe(&node_topic) {
-                Ok(_) => println!("Gossip subscribed {node_topic} successfully!"),
-                Err(e) => eprintln!("Fail to subscribe node topic! {e:?}")
+            if let Err(e) = gossipsub.subscribe(&node_topic) {
+                eprintln!("Fail to subscribe node topic! {e:?}")
             };
 
             // network discovery usage
@@ -714,7 +713,8 @@ impl NetworkService {
                 let event = NodeEvent::Hello(self.swarm.local_peer_id().to_base58(), computer_spec);
                 let data = serde_json::to_string(&event).expect("Should be able to deserialize struct");
                 let topic = gossipsub::IdentTopic::new(NODE);
-
+                
+                // why can I not send a publish topic? Where are my peers connected and listening?
                 if let Err(e) = self.swarm.behaviour_mut()
                     .gossipsub.publish(topic.clone(), data) {
                     eprintln!("Oh noe something happen for publishing gossip {topic} message! {e:?}");
@@ -748,8 +748,8 @@ impl NetworkService {
             // SwarmEvent::ListenerClosed { .. } => todo!(),
             // SwarmEvent::ListenerError { listener_id, error } => todo!(),
             // vv ignore events below vv
-            SwarmEvent::NewListenAddr { address, .. } => {
-                println!("[New Listener Address]: {address}");
+            SwarmEvent::NewListenAddr { .. } => {
+                // println!("[New Listener Address]: {address}");
             }
             // SwarmEvent::Dialing { .. } => {} // Suppressing logs
             // SwarmEvent::IncomingConnection { .. } => {} // Suppressing logs
@@ -761,7 +761,7 @@ impl NetworkService {
             // we'll do nothing for this for now.
             // see what we're skipping? Anything we identify must have described behaviour, or add to ignore list.
             _ => {
-                println!("[Network]: {event:?}");
+                // println!("[Network]: {event:?}");
             }
         };
     }

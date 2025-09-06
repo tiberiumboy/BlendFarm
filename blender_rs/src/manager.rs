@@ -142,10 +142,16 @@ impl Manager {
         self
     }
 
-    /// Returns the directory where the configuration file is placed.
-    /// This is stored under
-    pub fn get_config_dir() -> PathBuf {
-        let path = dirs::config_dir().unwrap().join("BlendFarm");
+    /// Returns the directory path where the configuration file is stored.
+    /// This is stored under the library usage of dirs::config_dir() + "BlendFarm" - the application name by default.
+    /// This ensure directory must exist before returning PathBuf, else report back as permission issue. We must have a place to save the files to.
+    pub fn get_config_dir(user_pref: Option<PathBuf>) -> PathBuf {
+        let path = match user_pref {
+            Some(path) => path.join("BlendFarm"),
+            None => dirs::config_dir().unwrap().join("BlendFarm")
+        };
+
+        // ensure path location must exist - we guarantee permission access here.
         fs::create_dir_all(&path).expect("Unable to create directory!");
         path
     }

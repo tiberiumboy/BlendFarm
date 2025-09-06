@@ -63,6 +63,7 @@ pub struct CliApp {
 }
 
 impl CliApp {
+    // we could simplify this design by just asking for the database info?
     pub fn new(task_store: Arc<RwLock<dyn TaskStore + Send + Sync + 'static>>) -> Self {
         let manager = BlenderManager::load();
         Self {

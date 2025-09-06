@@ -32,6 +32,8 @@ use std::sync::Arc;
 use tokio::spawn;
 use tokio::sync::RwLock;
 
+use crate::models::server_setting::ServerSetting;
+
 pub mod domains;
 pub mod models;
 pub mod routes;
@@ -48,8 +50,11 @@ enum Commands {
     Client,
 }
 
-async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> {
-    let path = BlenderManager::get_config_dir().join("blendfarm.db");
+async fn config_sqlite_db(file_name: &str) -> Result<SqlitePool, sqlx::Error> {
+    // TODO: Ask for user preference.
+    let user_pref = None;
+
+    let path = BlenderManager::get_config_dir(user_pref).join(file_name);
     let options = SqliteConnectOptions::new()
         .filename(path)
         .create_if_missing(true);
@@ -60,16 +65,25 @@ async fn config_sqlite_db() -> Result<SqlitePool, sqlx::Error> {
 pub async fn run() {
     dotenv().ok();
 
-    // to run custom behaviour
+    // to collect user inputs for custom user preferences
     let cli = Cli::parse();
+    
+    // TODO: Ask Cli for the secret_key
+    let secret_key = None;
+    
+    // same here, ask Cli before using default options
+    let database_file_name = "blendfarm.db";
+    
+    // TODO: insist on loading user_pref here? if there's a custom cli command that insist user path for server settings, we would ask them there.
+    let user_pref = ServerSetting::load();
 
     // initialize database connection
-    let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db()
+    let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db(database_file_name)
         .await
         .expect("Must have database connection!");
 
     // must have working network services
-    let (controller, receiver, mut server) = network::new() /* None */
+    let (controller, receiver, mut server) = network::new(secret_key)
         .await
         .expect("Fail to start network service");
 
@@ -84,7 +98,11 @@ pub async fn run() {
         Some(Commands::Client) => {
             // eventually I'll move this code into it's own separate codeblock
             let task_store = SqliteTaskStore::new(db.clone());
+
+            // we're sharing this across threads?
             let task_store = Arc::new(RwLock::new(task_store));
+
+            // here the client wants database connection to task table. Why not provide database connection instead?
             CliApp::new(task_store)
                 .run(controller, receiver)
                 .await
@@ -94,6 +112,7 @@ pub async fn run() {
         // run as GUI mode.
         _ => TauriApp::new(&db)
             .await
+            // we're clearing workers?
             .clear_workers_collection()
             .await
             .run(controller, receiver)
@@ -108,7 +127,8 @@ mod test {
 
     #[tokio::test]
     pub async fn validate_creating_database_structure() {
-        let conn = config_sqlite_db().await;
+        let database_file_name = "blendfarm.db";
+        let conn = config_sqlite_db(database_file_name).await;
         assert!(conn.is_ok());
     }
 }
