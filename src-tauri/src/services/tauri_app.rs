@@ -786,10 +786,10 @@ impl BlendFarm for TauriApp {
 #[cfg(test)]
 mod test {      
     use super::*;
-    use crate::config_sqlite_db;
+    use crate::{config_sqlite_db, constant::DATABASE_FILE_NAME};
 
     async fn get_sqlite_conn() -> Pool<Sqlite> {
-        let pool = config_sqlite_db().await;
+        let pool = config_sqlite_db(DATABASE_FILE_NAME).await;
         assert!(pool.is_ok());
         pool.expect("Assert above should force this to be ok()")
     }

@@ -1,6 +1,4 @@
 
-Find a way to hold state data for job collection - May have to move this data higher up? Ref: [[Job list disappear after switching window]] 
-
 Get network iron out and established. - Need to make a flow diagram of network support and how this is suppose to be treated.
 
 Job - display job event

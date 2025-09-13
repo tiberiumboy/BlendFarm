@@ -8,6 +8,10 @@ This project is inspired by the original project - [LogicReinc](https://github.c
 
 This is still a experimental program I'm working on. If you find bugs or problem with this tool, please create an issue and I will review them when I can. Much of the codebase is experimental of what I've learned over my rust journey. 
 
+## TLDR
+
+Run `make` from makefile directory in terminal - This will install dependencies, compile, build, and run Blendfarm from the releases folder. For more info, please read below.
+
 ### Why I created this application:
 
 Learning 3D animation back in college, there exist a priorietary application used by Autodesk that allows network rendering possible on school computer called [Autodesk Backburner](https://apps.autodesk.com/en/Detail/Index?id=3481100546473279788&appLang=en&os=Linux) that came with Autodesk foundation that saved me many hours of rendering shots for my school projects. When Blender soar through popularity among the community and industry, I shifted my focus to use Blender 3D tool instead of using Autodesk 3ds Max and Maya. It wasn't until I realized that Blender, out of the box, does not have any network rendering solution similar to Autodesk backburner, I realize this was the piece that is still missing from this amazing open-source, industry leading, software tool. Digging through online, there are few tools out there that provides "good enough", but I felt like there's so much potential waiting to be tapped into that unlocks the powertrain to speed development all the way to production velocity by utilizing network resources.
@@ -51,36 +55,25 @@ Blender's limitation applies to this project's scope limitation. If a feature is
 
 ## Getting Started
 
-There are several ways to start; the first and easiest would be to download the files and simply run the executable, the second way is to download the source code and compile on your computer to run and start.
+Download the latest build from the [release](https://github.com/tiberiumboy/BlendFarm/releases) page. Verify the content using checksum. Then unpack, `chmod +x ./blendfarm` for UNIX users, and run `./blendfarm`. This launches BlendFarm's GUI Manager window. Passing the `client` argument will run the program as worker node. This mode consume your computer to install and run blender! There can only be one client instances per machine.
 
 ### To compile
 
-First - Install tauri-cli as this component is needed to run `cargo tauri` command. Run the following command:
-`cargo install tauri-cli --version ^2.0.0-rc --locked`
+Run `make` from `Blendfarm` directory. Instruction inside [Makefile](./Makefile) guides step by step instructions to navigate, run, and compile.
 
-*Note- For windows, you must encapsulate the version in double quotes!
+<!-- I'm using sqlx framework to help write sql code within the codebase. This will help
+with migrations to newer database version per application releases. Evidentably, the compiled application will create a new database in your user's config directory if it doesn't exist. However, opening this project without creating the database file will cause compiler errors.  -->
 
-I'm using sqlx framework to help write sql code within the codebase. This will help
-with migrations to newer database version per application releases. Evidentably, the compiled application will create a new database in your user's config directory if it doesn't exist. However, opening this project without creating the database file will cause compiler errors. 
-
-To resolve this issue, run the following command.
-
-```bash
-cd ./src-tauri/         # navigate to Tauri's codebase
-cargo sqlx db create    # create the database file
-cargo sqlx mig run      # invoke all sql up table files inside ./migrations/ folder
-cargo sqlx prepare      # create cache sql result that satisfy cargo compiler
-```
 
 To launch the application in developer mode, navigate to `./src-tauri/` directory and run `cargo tauri dev`.
 
 To run Tauri app - run the following command under `/BlendFarm/` directory - `cargo tauri dev`
 
-To run the client app - run the following command under `/BlendFarm/src-tauri/` directory - `cargo run -- client`
+To run the client app - run the following command under `/BlendFarm/src-tauri/` directory - `cargo tauri dev -- -- client`
 
 ### Network:
 
-Under the hood, this program uses libp2p with [QUIC transport](https://docs.libp2p.io/concepts/transports/quic/). This treat this computer as both a server and a client. Wrapped in a containerized struct, I am using [mdns](https://docs.libp2p.io/concepts/discovery-routing/mdns/) for network discovery service (to find other network farm node on the network so that you don't have to connect manually), [gossipsub]() for private message procedure call ( how node interacts with other nodes), and kad for file transfer protocol (how node distribute blend, image, and blender binary files across the network). With the power of trio combined, it is the perfect solution for making network farm accessible, easy to start up, and robost. Have a read into [libp2p](https://libp2p.io/) if this interest your project needs! 
+Under the hood, this program uses libp2p with [QUIC transport](https://docs.libp2p.io/concepts/transports/quic/). This treat this computer as both a server and a client. Wrapped in a containerized struct, I am using [mdns](https://docs.libp2p.io/concepts/discovery-routing/mdns/) for network discovery service (to find other network farm node on the network so that you don't have to connect manually), [gossipsub]() for private message procedure call (how computer talks to another computer), and kad for file transfer protocol (how node distribute blend, image, and blender binary files across the network). With the power of trio combined, it is the perfect solution for making network farm accessible, easy to start up, and robost. Have a read into [libp2p](https://libp2p.io/) if this interest your project needs! 
 
 ## Developer blogs
 I am using Obsidian to keep track of changes and blogs, which helps provide project clarity and goals. Please check out the [obsidian folder](./obsidian/blendfarm/Context.md) for all of the change logs.

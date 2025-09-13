@@ -32,12 +32,13 @@ use std::sync::Arc;
 use tokio::spawn;
 use tokio::sync::RwLock;
 
-use crate::models::server_setting::ServerSetting;
+// use crate::models::server_setting::ServerSetting;
 
 pub mod domains;
 pub mod models;
 pub mod routes;
 pub mod services;
+pub mod constant;
 
 #[derive(Parser)]
 struct Cli {
@@ -71,14 +72,11 @@ pub async fn run() {
     // TODO: Ask Cli for the secret_key
     let secret_key = None;
     
-    // same here, ask Cli before using default options
-    let database_file_name = "blendfarm.db";
-    
     // TODO: insist on loading user_pref here? if there's a custom cli command that insist user path for server settings, we would ask them there.
-    let user_pref = ServerSetting::load();
+    // let user_pref = ServerSetting::load();
 
     // initialize database connection
-    let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db(database_file_name)
+    let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db(constant::DATABASE_FILE_NAME)
         .await
         .expect("Must have database connection!");
 
