@@ -17,7 +17,7 @@ use futures::{
 use libp2p::gossipsub::{self, IdentTopic, PublishError};
 use libp2p::kad::RecordKey;
 use libp2p::swarm::{Swarm, SwarmEvent};
-use libp2p::{Multiaddr, PeerId, StreamProtocol, SwarmBuilder, kad, mdns, noise, tcp, yamux};
+use libp2p::{identity, kad, mdns, noise, tcp, yamux, Multiaddr, PeerId, StreamProtocol, SwarmBuilder};
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
 use machine_info::Machine;
 use serde::{Deserialize, Serialize};

@@ -159,7 +159,8 @@ impl Manager {
     // this path should always be fixed and stored under machine specific.
     // this path should not be shared across machines.
     fn get_config_path() -> PathBuf {
-        Self::get_config_dir().join("BlenderManager.json")
+        // TODO: see about getting user pref?
+        Self::get_config_dir(None).join("BlenderManager.json")
     }
 
     /// Download Blender of matching version, install on this machine, and returns blender struct.
