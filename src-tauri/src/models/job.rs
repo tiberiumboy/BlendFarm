@@ -155,25 +155,26 @@ impl Into<Range<i32>> for Job {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
+    use crate::models::constant::test::{EXAMPLE_FILE, EXAMPLE_OUTPUT};
     use std::path::Path;
 
     pub fn scaffold_job() -> Job {
         let mode = RenderMode::Frame(1);
-        // getting build failure that I cannot open blend file
-        // TODO: how do I load path from project directory>
-        let project_file = Path::new("./blender_rs/examples/assets/test.blend").to_path_buf();
+        let file = Path::new(EXAMPLE_FILE);
+        let project_file = file.to_path_buf();
         let project_file =
             ProjectFile::from(project_file).expect("expect this to work without issue");
         let version = Version::new(4, 4, 0);
-        let output = Path::new("./blender_rs/examples/assets/").to_path_buf();
+        let dir = Path::new(EXAMPLE_OUTPUT);
+        let output = dir.to_path_buf();
         Job::new(mode, project_file, version, output)
     }
 
     // we should at least try to test it against public api
     #[test]
     fn create_job_successful() {
+        let file = Path::new(EXAMPLE_FILE);
         let mode = RenderMode::Frame(1);
-        let file = Path::new("./test.blend");
         let version = Version::new(1, 1, 1);
         let output = Path::new("./test/");
         let job = Job::from(

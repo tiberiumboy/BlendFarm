@@ -21,6 +21,7 @@ pub struct ProjectFile {
 }
 
 impl ProjectFile {
+    
     // pathbuf must be validate, therefore method must be private
     fn new(src: PathBuf) -> Self {
         Self {
@@ -29,12 +30,28 @@ impl ProjectFile {
     }
 
     /// Validate path integrity
-    pub fn from(src: PathBuf) -> Result<Self, ProjectFileError> {
-        // WARNING: Invalid file path will crash from .expect() usage in code, contact blend author and report this issue.
-        match Blend::from_path(&src) {
-            Ok(_data) => Ok(Self::new(src)),
-            Err(_) => Err(ProjectFileError::InvalidFileType),
+    pub fn from<P>(src: P) -> Result<Self, ProjectFileError> 
+    where P: AsRef<Path> 
+    {
+        let path = src.as_ref();
+        
+        // Blend expects a file. Stop here if argument is a directory. Do not continue.
+        if path.is_dir() {
+            return Err(ProjectFileError::InvalidFileType)
         }
+
+        if !path.exists() {
+            return Err(ProjectFileError::InvalidFileType)
+        }
+        
+        // expects a file existing, do not pass in directory or this program will crash.
+        if let Err(e) = Blend::from_path(path) {
+            eprintln!("{e:?}");
+            return Err(ProjectFileError::InvalidFileType)
+        };
+
+        let buf = path.to_path_buf();
+        Ok(Self::new(buf))
     }
 }
 
@@ -60,13 +77,17 @@ impl Deref for ProjectFile {
     }
 }
 
+//#endregion
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::models::constant::test::EXAMPLE_FILE;
+    use std::path::Path;
 
     #[test]
     fn create_project_file_successfully() {
-        let file = Path::new("./test.blend");
+        let file = Path::new(EXAMPLE_FILE);
         let project_file = ProjectFile::from(file.to_path_buf());
         assert!(project_file.is_ok());
     }
@@ -80,8 +101,18 @@ mod test {
 
     #[test]
     fn invalid_file_extension_should_fail() {
-        let file = Path::new("./bad_extension.txt");
-        let project_file = ProjectFile::from(file.to_path_buf());
-        assert!(project_file.is_err());
+        // with invalid extension (e.g. .txt)
+        {
+            let file = Path::new("./bad_extension.txt");
+            let project_file = ProjectFile::from(file.to_path_buf());
+            assert!(project_file.is_err());
+        }
+
+        // with no extension (e.g. dir)
+        {
+            let dir = Path::new("./");
+            let project_file = ProjectFile::from(dir);
+            assert!(project_file.is_err());
+        }
     }
 }
