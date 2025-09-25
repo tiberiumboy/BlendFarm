@@ -1,9 +1,10 @@
+use crate::constant::{JOB_TOPIC, NODE_TOPIC};
 use crate::models::computer_spec::ComputerSpec;
-
 use super::behaviour::{BlendFarmBehaviour, BlendFarmBehaviourEvent, FileRequest, FileResponse};
 use super::job::JobEvent;
 use super::message::{Command, Event, FileCommand, KeywordSearch, NetworkError};
 use blender::models::event::BlenderEvent;
+use libp2p::multiaddr::Protocol;
 use core::str;
 use std::ffi::OsStr;
 use futures::StreamExt;
@@ -15,13 +16,13 @@ use futures::{
     prelude::*,
 };
 use libp2p::gossipsub::{self, IdentTopic, PublishError};
-use libp2p::kad::RecordKey;
+use libp2p::kad::{QueryId, RecordKey};
 use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::{identity, kad, mdns, noise, tcp, yamux, Multiaddr, PeerId, StreamProtocol, SwarmBuilder};
 use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
 use machine_info::Machine;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
+use std::collections::hash_map::{self, DefaultHasher};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::hash::{Hash, Hasher};
@@ -33,9 +34,6 @@ use tokio::{io, select};
 /*
 Network Service - Receive, handle, and process network request.
 */
-
-const JOB: &str = "/job";
-const NODE: &str = "/node";
 // why does the transfer have number at the trail end? look more into this?
 const TRANSFER: &str = "/file-transfer/1";
 
@@ -98,23 +96,11 @@ pub async fn new(secret_key_seed:Option<u8>) -> Result<(NetworkController, Recei
                 .map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))?;
 
             // p2p communication
-            let mut gossipsub = gossipsub::Behaviour::new(
+            let gossipsub = gossipsub::Behaviour::new(
                 gossipsub::MessageAuthenticity::Signed(key.clone()),
                 gossipsub_config,
             )
             .expect("Fail to create gossipsub behaviour");
-
-            // let's automatically listen to the topics mention above.
-            // all network interference must subscribe to these topics!
-            let job_topic = IdentTopic::new(JOB);
-            if let Err(e) = gossipsub.subscribe(&job_topic) {
-                eprintln!("Fail to subscribe job topic! {e:?}");
-            };
-
-            let node_topic = IdentTopic::new(NODE);
-            if let Err(e) = gossipsub.subscribe(&node_topic) {
-                eprintln!("Fail to subscribe node topic! {e:?}")
-            };
 
             // network discovery usage
             // TODO: replace expect with error handling
@@ -137,7 +123,7 @@ pub async fn new(secret_key_seed:Option<u8>) -> Result<(NetworkController, Recei
                 request_response,
                 gossipsub,
                 mdns,
-                kad,
+                kademlia: kad,
             })
         })
         // TODO remove/handle expect()
@@ -145,25 +131,8 @@ pub async fn new(secret_key_seed:Option<u8>) -> Result<(NetworkController, Recei
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
         .build();
 
-    // Listen on all interfaces and whatever port OS assigns
-    let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
-        .parse()
-        .map_err(|_| NetworkError::BadInput)?;
-    let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
-        .parse()
-        .map_err(|_| NetworkError::BadInput)?;
-
-    // Begin listening on tcp and udp as server
-    swarm
-        .listen_on(tcp)
-        .map_err(|e| NetworkError::UnableToListen(e.to_string()))?;
-
-    swarm
-        .listen_on(udp)
-        .map_err(|e| NetworkError::UnableToListen(e.to_string()))?;
-
     // set the kad as server mode
-    swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Server));
+    swarm.behaviour_mut().kademlia.set_mode(Some(kad::Mode::Server));
 
     // the command sender is used for outside method to send message commands to network queue
     let (sender, receiver) = mpsc::channel::<Command>(32);
@@ -222,6 +191,13 @@ pub enum NodeEvent {
 }
 
 impl NetworkController {
+
+    pub async fn start_listening(&mut self, addr: Multiaddr) -> Result<(), Box<dyn Error + Send>> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender.send(Command::StartListening { addr, sender }).await.expect("Command receiver should never be dropped");
+        receiver.await.expect("Sender shouldn't be dropped")
+    }
+
     pub async fn send_node_status(&mut self, status: NodeEvent) {
         if let Err(e) = self.sender.send(Command::NodeStatus(status)).await {
             eprintln!("Failed to send node status to network service: {e:?}");
@@ -275,7 +251,7 @@ impl NetworkController {
         Ok(())
     }
 
-    pub async fn get_providers(&mut self, file_name: &str) -> Option<HashSet<PeerId>> {
+    pub async fn get_providers(&mut self, file_name: &str) -> HashSet<PeerId> {
         let (sender, receiver) = oneshot::channel();
         let cmd = Command::FileService(FileCommand::GetProviders {
             file_name: file_name.to_string(),
@@ -285,8 +261,7 @@ impl NetworkController {
             .send(cmd)
             .await
             .expect("Command receiver should not be dropped");
-
-        receiver.await.unwrap_or(None)
+        receiver.await.unwrap_or(HashSet::new())
     }
 
     // client request file from peers.
@@ -298,8 +273,7 @@ impl NetworkController {
     ) -> Result<PathBuf, NetworkError> {
         let providers = self
             .get_providers(&file_name)
-            .await
-            .ok_or(NetworkError::NoPeerProviderFound)?;
+            .await;
         match providers.iter().next() {
             Some(peer_id) => {
                 self.request_file(peer_id, file_name, destination.as_ref())
@@ -350,6 +324,7 @@ impl NetworkController {
     }
 }
 
+
 // Network service module to handle invocation commands to send to network service,
 // as well as handling network event from other peers
 pub struct NetworkService {
@@ -362,8 +337,13 @@ pub struct NetworkService {
     // Send Network event to subscribers.
     sender: Sender<Event>,
 
+    // connection established
+    dialers: HashMap<PeerId, Multiaddr>,
+
+    pending_start_providing: HashMap<QueryId, oneshot::Sender<()>>,
+    pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
     providing_files: HashMap<String, PathBuf>,
-    pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<Option<HashSet<PeerId>>>>,
+    pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pending_request_file:
         HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
 }
@@ -379,6 +359,9 @@ impl NetworkService {
             swarm,
             receiver,
             sender,
+            dialers: Default::default(),
+            pending_start_providing: Default::default(),
+            pending_dial: Default::default(),
             providing_files: Default::default(),
             pending_get_providers: Default::default(),
             pending_request_file: Default::default(),
@@ -441,7 +424,7 @@ impl NetworkService {
             }
             FileCommand::GetProviders { file_name, sender } => {
                 let key = file_name.into_bytes().into();
-                let query_id = self.swarm.behaviour_mut().kad.get_providers(key);
+                let query_id = self.swarm.behaviour_mut().kademlia.get_providers(key);
                 self.pending_get_providers.insert(query_id, sender);
             }
             FileCommand::StartProviding(keyword, file_path) => {
@@ -450,14 +433,14 @@ impl NetworkService {
                 let _query_id = self
                     .swarm
                     .behaviour_mut()
-                    .kad
+                    .kademlia
                     .start_providing(key)
                     .expect("No store error.");
                 self.providing_files.insert(keyword, file_path);
             }
             FileCommand::StopProviding(keyword) => {
                 let key = RecordKey::new(&keyword.as_bytes());
-                self.swarm.behaviour_mut().kad.stop_providing(&key);
+                self.swarm.behaviour_mut().kademlia.stop_providing(&key);
                 self.providing_files.remove(&keyword);
             }
             FileCommand::RequestFilePath { keyword, sender } => {
@@ -473,14 +456,59 @@ impl NetworkService {
 
     // send command
     // Receive commands from foreign invocation.
-    pub async fn process_incoming_command(&mut self, cmd: Command) {
+    async fn handle_command(&mut self, cmd: Command) {
         match cmd {
+            Command::StartListening { addr, sender } => {
+                let _ = match self.swarm.listen_on(addr) {
+                    Ok(_) => sender.send(Ok(())),
+                    Err(e) => sender.send(Err(Box::new(e))),
+                };
+            }
+
+            Command::Dial { peer_id, peer_addr, sender } => {
+                if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
+                    self.swarm.behaviour_mut().kademlia.add_address(&peer_id, peer_addr.clone());
+                    match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
+                        Ok(()) => {
+                            e.insert(sender);
+                        },
+                        Err(e) => { 
+                            sender.send(Err(Box::new(e))).expect("Should not drop");
+                        },
+                    }
+                } else {
+                    eprintln!("Already dialing the peer!");
+                }
+            }
+
+            // use this to advertise files. On app startup we should broadcast blender apps as well.
+            Command::StartProviding { file_name, sender } => {
+                // TODO: Find a way to get around expect()!
+                let query_id = self.swarm.behaviour_mut().kademlia.start_providing(file_name.into_bytes().into()).expect("No store value");
+                self.pending_start_providing.insert(query_id, sender);
+            }
+            Command::GetProviders { file_name, sender } => {
+                let query_id = self.swarm.behaviour_mut().kademlia.get_providers(file_name.into_bytes().into());
+                self.pending_get_providers.insert(query_id, sender);
+            }
+            Command::RequestFile {
+                file_name,
+                peer,
+                sender
+            } => {
+                let request_id = self.swarm.behaviour_mut().request_response.send_request(&peer, FileRequest(file_name));
+                self.pending_request_file.insert(request_id, sender);
+            }
+            Command::RespondFile { file, channel } => {
+                self.swarm.behaviour_mut().request_response.send_response(channel, FileResponse(file)).expect("Connection to peer should be still open");
+            }
             Command::FileService(service) => self.process_file_service(service).await,
+            
             // received job status. invoke commands
             Command::JobStatus(event, mut sender) => {
                 // convert data into json format.
                 let data = serde_json::to_string(&event).unwrap();
-                let topic = IdentTopic::new(JOB.to_owned());
+                let topic = IdentTopic::new(JOB_TOPIC.to_owned());
                 match self
                     .swarm
                     .behaviour_mut()
@@ -500,7 +528,7 @@ impl NetworkService {
             Command::NodeStatus(status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
                 let data = serde_json::to_string(&status).unwrap();
-                let topic = IdentTopic::new(NODE);
+                let topic = IdentTopic::new(NODE_TOPIC);
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to publish gossip message: {e:?}");
                 }
@@ -508,6 +536,7 @@ impl NetworkService {
         }
     }
 
+    // TODO: Where is this method calling from?
     async fn process_response_event(
         &mut self,
         event: libp2p_request_response::Event<FileRequest, FileResponse>,
@@ -555,20 +584,24 @@ impl NetworkService {
 
             // somehow I'm unable to send this discovered peer a hello message back?
             mdns::Event::Discovered(peers) => {
+                
                 for (peer_id, address) in peers {
-                    println!("Discovered [{peer_id:?}] {address:?}");
+                    println!("Discovered [{peer_id:?}] {address:?}"); 
+                    // when I process this, how do I know where dialers is used?
+                    self.dialers.insert(peer_id.clone(), address.clone());  
+
                     // if I have already discovered this address, then I need to skip it. Otherwise I will produce garbage log input for duplicated peer id already exist.
                     // it seems that I do need to explicitly add the peers to the list.
-                    self.swarm
-                        .behaviour_mut()
-                        .gossipsub
-                        .add_explicit_peer(&peer_id);
+                    // self.swarm
+                    //     .behaviour_mut()
+                    //     .gossipsub
+                    //     .add_explicit_peer(&peer_id);
 
-                    // add the discover node to kademlia list.
-                    self.swarm
-                        .behaviour_mut()
-                        .kad
-                        .add_address(&peer_id, address.clone());
+                    // // add the discover node to kademlia list.
+                    // self.swarm
+                    //     .behaviour_mut()
+                    //     .kad
+                    //     .add_address(&peer_id, address.clone());
                 }
             }
             mdns::Event::Expired(peers) => {
@@ -587,7 +620,7 @@ impl NetworkService {
             // what is propagation source? can we use this somehow?
             gossipsub::Event::Message { message, .. } => match message.topic.as_str() {
                 // if the topic is JOB related, assume data as JobEvent
-                JOB => match serde_json::from_slice::<JobEvent>(&message.data) {
+                JOB_TOPIC => match serde_json::from_slice::<JobEvent>(&message.data) {
                     Ok(job_event) => {
                         if let Err(e) = self.sender.send(Event::JobUpdate(job_event)).await {
                             eprintln!("Something failed? {e:?}");
@@ -598,7 +631,7 @@ impl NetworkService {
                     }
                 },
                 // Node based event awareness
-                NODE => match serde_json::from_slice::<NodeEvent>(&message.data) {
+                NODE_TOPIC => match serde_json::from_slice::<NodeEvent>(&message.data) {
                     Ok(node_event) => {
                         if let Err(e) = self.sender.send(Event::NodeStatus(node_event)).await {
                             eprintln!("Something failed? {e:?}");
@@ -625,24 +658,23 @@ impl NetworkService {
 
     // Handle kademila events (Used for file sharing)
     // can we use this same DHT to make node spec publicly available?
-    async fn process_kademlia_event(&mut self, event: kad::Event) {
-        match event {
-            kad::Event::OutboundQueryProgressed { id, result, .. } => {
-                match result {
-                    kad::QueryResult::StartProviding(providers) => {
-                        println!("List of providers: {providers:?}");
+    async fn process_kademlia_event(&mut self, kad_event: kad::Event) {
+        match kad_event {
+            kad::Event::OutboundQueryProgressed { id: query_id, result: query_result, .. } => {
+                match query_result {
+                    kad::QueryResult::StartProviding(..) => {
+                        let sender: oneshot::Sender<()> = self.pending_start_providing.remove(&query_id).expect("Completed query to be previously pending.");
+                        let _ = sender.send(());
                     }
                     kad::QueryResult::GetProviders(Ok(kad::GetProvidersOk::FoundProviders {
-                        providers,
-                        ..
+                        providers, ..
                     })) => {
-                        // So, here's where we finally receive the invocation?
-                        if let Some(sender) = self.pending_get_providers.remove(&id) {
+                        if let Some(sender) = self.pending_get_providers.remove(&query_id) {
                             sender
-                                .send(Some(providers.clone()))
+                                .send(providers)
                                 .expect("Receiver not to be dropped");
 
-                            if let Some(mut node) = self.swarm.behaviour_mut().kad.query_mut(&id) {
+                            if let Some(mut node) = self.swarm.behaviour_mut().kademlia.query_mut(&query_id) {
                                 node.finish();
                             }
                         }
@@ -650,11 +682,12 @@ impl NetworkService {
                     kad::QueryResult::GetProviders(Ok(
                         kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
                     )) => {
-                        if let Some(sender) = self.pending_get_providers.remove(&id) {
-                            sender.send(None).expect("Sender not to be dropped");
+                        // yeah this looks wrong?
+                        if let Some(sender) = self.pending_get_providers.remove(&query_id) {
+                            sender.send(HashSet::new()).expect("Sender not to be dropped");
                         }
 
-                        if let Some(mut node) = self.swarm.behaviour_mut().kad.query_mut(&id) {
+                        if let Some(mut node) = self.swarm.behaviour_mut().kademlia.query_mut(&query_id) {
                             node.finish();
                         }
                         // This piece of code means that there's nobody advertising this on the network?
@@ -680,13 +713,13 @@ impl NetworkService {
             kad::Event::RoutingUpdated { .. } => {}
             _ => {
                 // oh mah gawd. What am I'm suppose to do here?
-                eprintln!("Unhandled Kademila event: {event:?}");
+                eprintln!("Unhandled Kademila event: {kad_event:?}");
             }
         }
     }
 
     // Process incoming network events - Treat this as receiving new orders.
-    async fn process_swarm_event(&mut self, event: SwarmEvent<BlendFarmBehaviourEvent>) {
+    async fn handle_event(&mut self, event: SwarmEvent<BlendFarmBehaviourEvent>) {
         match event {
             SwarmEvent::Behaviour(behaviour) => match behaviour {
                 BlendFarmBehaviourEvent::RequestResponse(event) => {
@@ -698,7 +731,7 @@ impl NetworkService {
                 BlendFarmBehaviourEvent::Mdns(event) => {
                     self.process_mdns_event(event).await;
                 }
-                BlendFarmBehaviourEvent::Kad(event) => {
+                BlendFarmBehaviourEvent::Kademlia(event) => {
                     self.process_kademlia_event(event).await;
                 }
             },
@@ -707,18 +740,26 @@ impl NetworkService {
             } => {
                 println!("Connection Established: {peer_id:?}\n{endpoint:?}");
 
-                // Reply back saying "Hello"
-                let mut machine = Machine::new(); 
-                let computer_spec = ComputerSpec::new(&mut machine);
-                let event = NodeEvent::Hello(self.swarm.local_peer_id().to_base58(), computer_spec);
-                let data = serde_json::to_string(&event).expect("Should be able to deserialize struct");
-                let topic = gossipsub::IdentTopic::new(NODE);
-                
-                // why can I not send a publish topic? Where are my peers connected and listening?
-                if let Err(e) = self.swarm.behaviour_mut()
-                    .gossipsub.publish(topic.clone(), data) {
-                    eprintln!("Oh noe something happen for publishing gossip {topic} message! {e:?}");
+                if endpoint.is_dialer() {
+                    if let Some(sender) = self.pending_dial.remove(&peer_id) {
+                        let _ = sender.send(Ok(()));
+                    }
                 }
+
+                // Reply back saying "Hello"
+                // let mut machine = Machine::new(); 
+                // let computer_spec = ComputerSpec::new(&mut machine);
+                // let event = NodeEvent::Hello(self.swarm.local_peer_id().to_base58(), computer_spec);
+                // let data = serde_json::to_string(&event).expect("Should be able to deserialize struct");
+                
+                // // Should we cache this?
+                // let topic = gossipsub::IdentTopic::new(NODE);
+                
+                // // why can I not send a publish topic? Where are my peers connected and listening?
+                // if let Err(e) = self.swarm.behaviour_mut()
+                //     .gossipsub.publish(topic.clone(), data) {
+                //     eprintln!("Oh noe something happen for publishing gossip {topic} message! {e:?}");
+                // }
 
                 // once we establish a connection, we should ping kademlia for all available nodes on the network.
                 // let key = NODE.to_vec();
@@ -744,33 +785,54 @@ impl NetworkService {
                     eprintln!("Fail to send event on connection closed! {e:?}");
                 }
             }
+            SwarmEvent::OutgoingConnectionError { peer_id: Some(peer_id), error, .. } => {
+                if let Some(sender) = self.pending_dial.remove(&peer_id) {
+                    let _ = sender.send(Err(Box::new(error)));
+                }
+            }
             // TODO: Figure out what these events are, and see if they're any use for us to play with or delete them. Unnecessary comment codeblocks
             // SwarmEvent::ListenerClosed { .. } => todo!(),
             // SwarmEvent::ListenerError { listener_id, error } => todo!(),
-            // vv ignore events below vv
-            SwarmEvent::NewListenAddr { .. } => {
+            
+            // FEATURE: Display verbose info using argument switch 
+            /* #region vv verbose events vv */
+            
+            SwarmEvent::OutgoingConnectionError { peer_id: None, .. } => {}
+
+            SwarmEvent::NewListenAddr { address, .. } => {
                 // println!("[New Listener Address]: {address}");
-            }
-            // SwarmEvent::Dialing { .. } => {} // Suppressing logs
+                let local_peer_id = *self.swarm.local_peer_id();
+                eprintln!("Local node is listening on {:?}", address.with(Protocol::P2p(local_peer_id)));
+            },
+            
+            SwarmEvent::Dialing { peer_id: Some(peer_id), .. } => {
+                // do I need to do anything about this? or is this just diagnostic only?
+                eprintln!("Dialing {peer_id}");
+            } 
+            
+            // Suppressing logs
             // SwarmEvent::IncomingConnection { .. } => {} // Suppressing logs
             // SwarmEvent::NewExternalAddrOfPeer { .. } => {}
-            // SwarmEvent::OutgoingConnectionError { connection_id, peer_id, error } => {}  // I recognize this and do want to display result below.
+            
             // SwarmEvent::IncomingConnectionError { .. } => {}                             // I recognize this and do want to display result below.
 
-            // ^^eof ignore^^
+            /* #endregion ^^eof ignore^^ */
+            
             // we'll do nothing for this for now.
             // see what we're skipping? Anything we identify must have described behaviour, or add to ignore list.
-            _ => {
-                // println!("[Network]: {event:?}");
-            }
+            // println!("[Network]: {event:?}");
+            e => panic!("{e:?}"),
         };
     }
 
-    pub async fn run(&mut self) {
+    pub(crate) async fn run(mut self) {
         loop {
             select! {
-                msg = self.receiver.select_next_some() => self.process_incoming_command(msg).await,
-                event = self.swarm.select_next_some() => self.process_swarm_event(event).await,
+                event = self.swarm.select_next_some() => self.handle_event(event).await,
+                command = self.receiver.next() => match command {
+                    Some(c) => self.handle_command(c).await,
+                    None => return,
+                },
             }
         }
     }

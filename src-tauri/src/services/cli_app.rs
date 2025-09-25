@@ -50,11 +50,7 @@ enum CliError {
 pub struct CliApp {
     manager: BlenderManager,
     task_store: Arc<RwLock<dyn TaskStore + Send + Sync + 'static>>,
-    settings: ServerSetting,
-    
-    // Used to connect to available host. No other host can connect to this node.
-    host: Option<PeerId>,
-    
+    settings: ServerSetting,    
     // The idea behind this is to let the network manager aware that the client side of the app is busy working on current task.
     // it would be nice to receive information and notification about this current client status somehow.
     // Could I use PhantomData to hold Task Object type?
@@ -71,7 +67,6 @@ impl CliApp {
             manager,
             task_store,
             task_handle: None, // no task assigned yet
-            host: None,
         }
     }
 }

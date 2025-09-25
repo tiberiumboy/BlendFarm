@@ -7,8 +7,9 @@ Get a preview window that show the user current job progress - this includes las
 use super::util::select_directory;
 use crate::{
     models::{app_state::AppState, project_file::ProjectFile},
-    services::tauri_app::{BlenderAction, QueryMode, UiCommand},
+    services::tauri_app::{QueryMode, UiCommand},
 };
+use crate::models::blender_action::BlenderAction;
 use blender::blender::Blender;
 use futures::{SinkExt, StreamExt, channel::mpsc};
 use maud::html;

@@ -24,6 +24,8 @@ Developer blog:
 use blender::manager::Manager as BlenderManager;
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
+// use libp2p::gossipsub::IdentTopic;
+use libp2p::Multiaddr;
 use models::network;
 use services::data_store::sqlite_task_store::SqliteTaskStore;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
@@ -32,7 +34,8 @@ use std::sync::Arc;
 use tokio::spawn;
 use tokio::sync::RwLock;
 
-// use crate::models::server_setting::ServerSetting;
+// use crate::constant::{JOB_TOPIC, NODE_TOPIC};
+// use crate::models::message::NetworkError;
 
 pub mod domains;
 pub mod models;
@@ -81,7 +84,7 @@ pub async fn run() {
         .expect("Must have database connection!");
 
     // must have working network services
-    let (controller, receiver, mut server) = network::new(secret_key)
+    let (mut controller, receiver, server) = network::new(secret_key)
         .await
         .expect("Fail to start network service");
 
@@ -90,6 +93,26 @@ pub async fn run() {
         server.run().await;
     });
 
+        // Listen on all interfaces and whatever port OS assigns
+    let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
+        .parse().expect("Shouldn't fail");
+    let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
+        .parse().expect("Shouldn't fail");
+
+    controller.start_listening(tcp).await.expect("Listening shouldn't fail");
+    controller.start_listening(udp).await.expect("Listening shouldn't fail");
+
+        // let's automatically listen to the topics mention above.
+    // all network interference must subscribe to these topics!
+    // let job_topic = IdentTopic::new(JOB_TOPIC);
+    // if let Err(e) = controller.subscribe(&job_topic) {
+    //     eprintln!("Fail to subscribe job topic! {e:?}");
+    // };
+
+    // let node_topic = IdentTopic::new(NODE_TOPIC);
+    // if let Err(e) = controller.subscribe(&node_topic) {
+    //     eprintln!("Fail to subscribe node topic! {e:?}")
+    // };
 
     let _ = match cli.command {
         // run as client mode.

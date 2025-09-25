@@ -26,6 +26,6 @@ pub struct BlendFarmBehaviour {
     pub mdns: mdns::tokio::Behaviour,
     
     // used to provide file availability
-    pub kad: kad::Behaviour<kad::store::MemoryStore>,
+    pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
 }
 

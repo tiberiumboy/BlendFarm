@@ -1,9 +1,10 @@
-use crate::models::{
+use crate::{models::{
         behaviour::FileResponse, message::{Event, FileCommand, NetworkError}, network::NetworkController
-    };
+    }};
 use async_trait::async_trait;
 use futures::channel::{mpsc::Receiver, oneshot};
 use libp2p_request_response::ResponseChannel;
+
 
 #[async_trait]
 pub trait BlendFarm {

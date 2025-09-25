@@ -1,10 +1,11 @@
+use crate::constant::WORKPLACE;
 use crate::domains::job_store::JobError;
 use crate::models::job::{CreatedJobDto, Output};
 use crate::models::project_file::ProjectFile;
-use crate::models::{app_state::AppState, job::Job};
-use crate::services::tauri_app::{JobAction, UiCommand, WORKPLACE};
+use crate::models::{app_state::AppState, job::{Job, JobAction}};
+use crate::services::tauri_app::UiCommand;
 use blender::models::mode::RenderMode;
-use futures::channel::mpsc::{self};
+use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 use maud::{html, PreEscaped};
 use semver::Version;
@@ -280,15 +281,16 @@ mod test {
 
     use super::*;
     use crate::{services::tauri_app::TauriApp};
-    use crate::models::constant::test::{EXAMPLE_FILE, EXAMPLE_OUTPUT};
+    // use crate::models::constant::test::{EXAMPLE_FILE, EXAMPLE_OUTPUT};
     use anyhow::Error;
     use futures::channel::mpsc::Receiver;
     use ntest::timeout;
     use tauri::{
         test::{mock_builder, MockRuntime},
-        webview::InvokeRequest
+        // webview::InvokeRequest
     };
 
+    #[allow(dead_code)]
     async fn scaffold_app() -> Result<(tauri::App<MockRuntime>, Receiver<UiCommand>), Error> {
         let (_invoke, receiver) = mpsc::channel(1);
         // let conn = config_sqlite_db().await?;

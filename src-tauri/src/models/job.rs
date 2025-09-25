@@ -11,6 +11,7 @@ use super::task::Task;
 use super::with_id::WithId;
 use crate::{domains::job_store::JobError, models::project_file::ProjectFile};
 use blender::models::mode::RenderMode;
+use futures::channel::mpsc::Sender;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{ops::Range, path::PathBuf};
@@ -35,6 +36,38 @@ pub enum JobEvent {
     },
     TaskComplete, // what's the difference between JobComplete and TaskComplete?
     Error(JobError),
+}
+
+#[derive(Debug)]
+pub enum JobAction {
+    Find(JobId, Sender<Option<CreatedJobDto>>),
+    Update(CreatedJobDto),
+    Create(NewJobDto, Sender<Result<CreatedJobDto, JobError>>),
+    Kill(JobId),
+    All(Sender<Option<Vec<CreatedJobDto>>>),
+    // we will ask all of the node on the network if there's any completed job list.
+    // The node will advertise their collection of completed job
+    // the host will be responsible to compare with the current output files and 
+    // see if there's any missing job. If there is missing frame then 
+    // we will ask to fetch for that completed image back
+    AskForCompletedList(JobId), 
+    Advertise(JobId),
+}
+
+// Used to ignore sender types comparsion. We do not care about sender equality. 
+impl PartialEq for JobAction {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Find(l0, ..), Self::Find(r0, ..)) => l0 == r0,
+            (Self::Update(l0), Self::Update(r0)) => l0.id == r0.id,
+            (Self::Create(l0, ..), Self::Create(r0,.. )) => l0 == r0,
+            (Self::Kill(l0), Self::Kill(r0)) => l0 == r0,
+            (Self::All(..), Self::All(..)) => true,
+            (Self::AskForCompletedList(l0), Self::AskForCompletedList(r0)) => l0 == r0,
+            (Self::Advertise(l0), Self::Advertise(r0)) => l0 == r0,
+            _ => false,
+        }
+    }
 }
 
 pub type JobId = Uuid;

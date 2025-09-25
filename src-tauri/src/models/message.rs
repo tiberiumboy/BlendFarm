@@ -2,7 +2,7 @@ use super::job::JobEvent;
 use super::{behaviour::FileResponse, network::NodeEvent};
 use futures::channel::mpsc::Sender;
 use futures::channel::oneshot::{self};
-use libp2p::PeerId;
+use libp2p::{Multiaddr, PeerId};
 use libp2p::gossipsub::PublishError;
 use libp2p_request_response::{OutboundRequestId, ResponseChannel};
 use std::path::PathBuf;
@@ -38,7 +38,7 @@ pub enum FileCommand {
     StopProviding(KeywordSearch),           // update kademlia service to stop providing the file.
     GetProviders {
         file_name: String,
-        sender: oneshot::Sender<Option<HashSet<PeerId>>>,
+        sender: oneshot::Sender<HashSet<PeerId>>,
     },
     RequestFile {
         peer_id: PeerId,
@@ -58,6 +58,19 @@ pub enum FileCommand {
 // Send commands to network.
 #[derive(Debug)]
 pub enum Command {
+    Dial { peer_id: PeerId, peer_addr: Multiaddr, sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>> },
+    // TODO: figure out a way to get around the Box<dyn Error + Send> traits!
+    StartListening { addr: Multiaddr, sender: oneshot::Sender<Result<(), Box<dyn Error + Send >>> },
+    // TODO: Find a way to get around the string type! This expects a copy!
+    StartProviding { file_name: String, sender: oneshot::Sender<()> },
+    GetProviders { file_name: String, sender: oneshot::Sender<HashSet<PeerId>> },
+    RequestFile {
+                file_name: String,
+                peer: PeerId,
+                sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
+            },
+    RespondFile { file: Vec<u8>, channel: ResponseChannel<FileResponse> },
+    // TODO: More documentation to explain below
     NodeStatus(NodeEvent), // broadcast node activity changed
     JobStatus(JobEvent, Sender<Result<(), PublishError>>),
     FileService(FileCommand),

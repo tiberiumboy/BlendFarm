@@ -13,42 +13,25 @@ use super::{
 use crate::{
     domains::{job_store::{JobError, JobStore}, worker_store::WorkerStore},
     models::{
-        app_state::AppState, computer_spec::ComputerSpec, job::{CreatedJobDto, JobEvent, JobId, NewJobDto}, message::{Event, NetworkError}, network::{NetworkController, NodeEvent, ProviderRule}, project_file::ProjectFile, server_setting::ServerSetting, task::Task, worker::Worker
+        app_state::AppState, blender_action::BlenderAction, computer_spec::ComputerSpec, job::{CreatedJobDto, JobAction, JobEvent}, message::{Event, NetworkError}, network::{NetworkController, NodeEvent, ProviderRule}, project_file::ProjectFile, server_setting::ServerSetting, setting_action::SettingsAction, task::Task, worker::Worker
     },
-    routes::{job::*, remote_render::*, settings::*, util::*, worker::*},
+    routes::{index::*, job::*, remote_render::*, settings::*, util::*, worker::*},
 };
 use async_std::task::sleep;
-use blender::{blender::Blender, manager::Manager as BlenderManager, models::mode::RenderMode};
+use blender::{manager::Manager as BlenderManager, models::mode::RenderMode};
 use futures::{
     SinkExt, StreamExt,
     channel::mpsc::{self, Sender},
 };
 use libp2p::PeerId;
-use maud::html;
 use semver::Version;
 use sqlx::{Pool, Sqlite};
 use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr, time::Duration};
-use tauri::{self, command, Url};
+use tauri::{self, Url};
 use tokio::{select, spawn, sync::Mutex};
 use bitflags;
 
-pub const WORKPLACE: &str = "workplace";
 
-#[derive(Debug)]
-pub enum SettingsAction {
-    Get(Sender<ServerSetting>),
-    Update(ServerSetting),
-}
-
-impl PartialEq for SettingsAction {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Get(..), Self::Get(..)) => true,
-            (Self::Update(l0), Self::Update(r0)) => l0 == r0,
-            _ => false,
-        }
-    }
-}
 
 bitflags::bitflags! {
     #[derive(Debug, PartialEq)]
@@ -88,59 +71,6 @@ impl BlenderQuery {
 }
 
 #[derive(Debug)]
-pub enum BlenderAction {
-    Add(PathBuf),
-    List(Sender<Option<Vec<BlenderQuery>>>, QueryMode),
-    Get(Version, Sender<Option<Blender>>),
-    Disconnect(Blender), // detach links associated with file path, but does not delete local installation!
-    Remove(Blender), // deletes local installation of blender, use it as last resort option. (E.g. force cache clear/reinstall/ corrupted copy)
-}
-
-impl PartialEq for BlenderAction {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Add(l0), Self::Add(r0)) => l0 == r0,
-            (Self::List(.., l0), Self::List(.., r0)) => l0 == r0,
-            (Self::Get(l0, ..), Self::Get(r0, ..)) => l0 == r0,
-            (Self::Disconnect(l0), Self::Disconnect(r0)) => l0 == r0,
-            (Self::Remove(l0), Self::Remove(r0)) => l0 == r0,
-            _ => false,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum JobAction {
-    Find(JobId, Sender<Option<CreatedJobDto>>),
-    Update(CreatedJobDto),
-    Create(NewJobDto, Sender<Result<CreatedJobDto, JobError>>),
-    Kill(JobId),
-    All(Sender<Option<Vec<CreatedJobDto>>>),
-    // we will ask all of the node on the network if there's any completed job list.
-    // The node will advertise their collection of completed job
-    // the host will be responsible to compare with the current output files and 
-    // see if there's any missing job. If there is missing frame then 
-    // we will ask to fetch for that completed image back
-    AskForCompletedList(JobId), 
-    Advertise(JobId),
-}
-
-impl PartialEq for JobAction {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Find(l0, ..), Self::Find(r0, ..)) => l0 == r0,
-            (Self::Update(l0), Self::Update(r0)) => l0.id == r0.id,
-            (Self::Create(l0, ..), Self::Create(r0,.. )) => l0 == r0,
-            (Self::Kill(l0), Self::Kill(r0)) => l0 == r0,
-            (Self::All(..), Self::All(..)) => true,
-            (Self::AskForCompletedList(l0), Self::AskForCompletedList(r0)) => l0 == r0,
-            (Self::Advertise(l0), Self::Advertise(r0)) => l0 == r0,
-            _ => false,
-        }
-    }
-}
-
-#[derive(Debug)]
 pub enum WorkerAction {
     Get(PeerId, Sender<Option<Worker>>),
     List(Sender<Option<Vec<Worker>>>),
@@ -175,46 +105,6 @@ pub struct TauriApp {
     manager: BlenderManager,
 }
 
-#[command]
-pub fn index() -> String {
-    html! (
-        div {
-            div class="sidebar" {
-                nav {
-                    ul class="nav-menu-items" {
-                        
-                        // li key="manager" class="nav-bar" tauri-invoke="remote_render_page" hx-target=(format!("#{WORKPLACE}")) {
-                        //     span { "Remote Render" }
-                        // };
-
-                        li key="setting" class="nav-bar" tauri-invoke="setting_page" hx-target=(format!("#{WORKPLACE}")) {
-                            span { "Setting" }
-                        };
-                    };
-                };
-                div {
-                    h3 { "Jobs" }
-
-                    button tauri-invoke="open_dialog_for_blend_file" hx-target="body" hx-swap="beforeend" {
-                        "Import"
-                    };
-
-                    // Is there a way to select the first item on the list by default?
-                    // TODO: Take a look into hx-swap-oob on how we can refresh when a record is deleted or added
-                    div class="group" id="joblist" tauri-invoke="list_jobs" hx-trigger="load" hx-target="this";
-                }
-
-                // div {
-                //     h2 { "Computer Nodes" };
-                //     // hx-trigger="every 10s" - omitting this as this was spamming console log
-                //     div class="group" id="workers" tauri-invoke="list_workers" hx-target="this" {};
-                // };
-            };
-
-        }
-        main id=(WORKPLACE);
-    ).0
-}
 
 impl TauriApp {
     // Clear worker database before usage!
@@ -309,7 +199,7 @@ impl TauriApp {
                 match result {
                     Ok(record) => {
                         if let Err(e) = sender.send(record).await {
-                            eprintln!("Unable to get a job!: {e:?}");
+                            eprintln!("unable to send record back! \n{e:?}");
                         }
                     }
                     Err(e) => eprintln!("Job store reported an error: {e:?}"),
@@ -325,14 +215,14 @@ impl TauriApp {
             JobAction::Create(job, mut sender) => {
                 let result = self.job_store.add_job(job).await;
 
-                let res = match result {
-                    Ok(job) => sender.send(Ok(job)).await,
-                    Err(e) => sender.send(Err(JobError::DatabaseError(e.to_string()))).await
+                match result {
+                    Ok(job) => {
+                        sender.send(Ok(job)).await.expect("Should not drop");
+                    },
+                    Err(e) => {
+                        sender.send(Err(JobError::DatabaseError(e.to_string()))).await.expect("Should not drop");
+                    }
                 };
-
-                if let Err(e) = res {
-                    eprintln!("Fail to call sender from jobaction::create! {e:?}");
-                }
             }
             JobAction::Kill(job_id) => {
                 if let Err(e) = self.job_store.delete_job(&job_id).await {
@@ -480,9 +370,7 @@ impl TauriApp {
                     }
                     Err(e) => {
                         eprintln!("Fail to fetch blender! {e:?}");
-                        if let Err(e) = sender.send(None).await {
-                            eprintln!("Fail to send result back to caller! {e:?}");
-                        }
+                        let _ = sender.send(None);
                     }
                 };
             }

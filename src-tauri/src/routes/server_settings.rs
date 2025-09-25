@@ -1,7 +1,5 @@
-use crate::{
-    models::{app_state::AppState, server_setting::ServerSetting},
-    services::tauri_app::{SettingsAction, UiCommand},
-};
+use crate::models::{app_state::AppState, server_setting::ServerSetting, setting_action::SettingsAction};
+use crate::services::tauri_app::UiCommand;
 use futures::SinkExt;
 use tauri::{State, command};
 use tokio::sync::Mutex;

@@ -55,6 +55,8 @@ impl ProjectFile {
     }
 }
 
+/* #region custom implementation */
+
 impl Into<PathBuf> for ProjectFile {
     fn into(self) -> PathBuf {
         self.inner
@@ -77,7 +79,7 @@ impl Deref for ProjectFile {
     }
 }
 
-//#endregion
+/* #endregion */
 
 #[cfg(test)]
 mod test {

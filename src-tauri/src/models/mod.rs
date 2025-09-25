@@ -15,3 +15,5 @@ pub(crate) mod task;
 pub(crate) mod server_setting;
 pub mod with_id;
 pub mod worker;
+pub(crate) mod blender_action;
+pub(crate) mod setting_action;

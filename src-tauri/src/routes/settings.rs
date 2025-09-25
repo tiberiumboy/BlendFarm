@@ -1,4 +1,7 @@
-use crate::{models::{app_state::AppState, server_setting::ServerSetting}, services::tauri_app::{BlenderAction, QueryMode, SettingsAction, UiCommand}};
+use crate::models::{app_state::AppState, server_setting::ServerSetting};
+use crate::models::blender_action::BlenderAction;
+use crate::models::setting_action::SettingsAction;
+use crate::services::tauri_app::{QueryMode, UiCommand};
 use std::{env, path::PathBuf, str::FromStr, process::Command};
 use blender::blender::Blender;
 use futures::{channel::mpsc, SinkExt, StreamExt};

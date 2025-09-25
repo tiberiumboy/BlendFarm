@@ -8,8 +8,9 @@ use serde_json::json;
 use tauri::{command, State};
 use tokio::sync::Mutex;
 
+use crate::constant::WORKPLACE;
 use crate::models::app_state::AppState;
-use crate::services::tauri_app::{UiCommand, WorkerAction, WORKPLACE};
+use crate::services::tauri_app::{UiCommand, WorkerAction};
 
 #[command(async)]
 pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
