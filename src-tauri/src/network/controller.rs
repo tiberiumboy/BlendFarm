@@ -1,14 +1,17 @@
-use std::{collections::HashSet, path::{Path, PathBuf}};
 use std::error::Error;
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
+use crate::models::{behaviour::FileResponse, job::JobEvent};
+use crate::network::message::{Command, FileCommand, NetworkError};
+use crate::network::network::NodeEvent;
+use crate::network::provider_rule::ProviderRule;
 use futures::channel::oneshot::{self};
 use libp2p::{Multiaddr, PeerId};
 use libp2p_request_response::ResponseChannel;
 use tokio::sync::mpsc;
-use crate::models::{behaviour::FileResponse, job::JobEvent};
-use crate::network::network::NodeEvent;
-use crate::network::message::{Command, FileCommand, NetworkError}; 
-use crate::network::provider_rule::ProviderRule;
 
 // Network Controller interfaces network service.
 #[derive(Clone)]
@@ -18,26 +21,29 @@ pub struct Controller {
     pub hostname: String,
 }
 
-
 impl Controller {
-
-    pub fn new ( sender: mpsc::Sender<Command>, peer_id: PeerId, hostname: String ) -> Self {
+    pub fn new(sender: mpsc::Sender<Command>, peer_id: PeerId, hostname: String) -> Self {
         Self {
             sender,
             public_id: peer_id,
-            hostname
+            hostname,
         }
     }
 
     pub(crate) async fn start_listening(&mut self, addr: Multiaddr) {
         let (sender, receiver) = oneshot::channel();
-        self.sender.send(Command::StartListening { addr, sender }).await.expect("Command receiver should never be dropped");
+        self.sender
+            .send(Command::StartListening { addr, sender })
+            .await
+            .expect("Command receiver should never be dropped");
         receiver.await.expect("Sender shouldn't be dropped");
     }
 
     pub async fn subscribe(&mut self, topic: &str) -> Result<(), Box<dyn Error + Send>> {
         // TODO: find a better way to get around to_owned(), but for now focus on getting this application to work.
-        let cmd = Command::Subscribe{ topic: topic.to_owned() };
+        let cmd = Command::Subscribe {
+            topic: topic.to_owned(),
+        };
         self.sender.send(cmd).await;
         Ok(())
     }
@@ -48,17 +54,25 @@ impl Controller {
         }
     }
 
-    pub(crate) async fn dial( &mut self, peer_id: PeerId, peer_addr: Multiaddr) -> Result<(), Box<dyn Error + Send>> {
+    pub(crate) async fn dial(
+        &mut self,
+        peer_id: PeerId,
+        peer_addr: Multiaddr,
+    ) -> Result<(), Box<dyn Error + Send>> {
         let (sender, receiver) = oneshot::channel();
-        self.sender.send(Command::Dial { peer_id, peer_addr, sender }).await.expect("Should not drop");
+        self.sender
+            .send(Command::Dial {
+                peer_id,
+                peer_addr,
+                sender,
+            })
+            .await
+            .expect("Should not drop");
         receiver.await.expect("Should not drop")
     }
 
     // send job event to all connected node
-    pub async fn send_job_event(
-        &mut self,
-        event: JobEvent
-    ) {
+    pub async fn send_job_event(&mut self, event: JobEvent) {
         self.sender
             .send(Command::JobStatus(event))
             .await
@@ -74,7 +88,10 @@ impl Controller {
 
     /// file_name are broadcasted with the extensions included, but not the directory it's located in. E.g. "test.blend"
     // I need to use some kind of enumeration to help make this process flexible with rules..
-    pub(crate) async fn start_providing(&mut self, provider: &ProviderRule) -> Result<(), NetworkError> {
+    pub(crate) async fn start_providing(
+        &mut self,
+        provider: &ProviderRule,
+    ) -> Result<(), NetworkError> {
         let cmd = match provider {
             ProviderRule::Default(path_buf) => {
                 // TODO: remove .expect(), .to_str(), and .to_owned()
@@ -120,9 +137,7 @@ impl Controller {
         file_name: &str,
         destination: T,
     ) -> Result<PathBuf, NetworkError> {
-        let providers = self
-            .get_providers(&file_name)
-            .await;
+        let providers = self.get_providers(&file_name).await;
         match providers.iter().next() {
             Some(peer_id) => {
                 self.request_file(peer_id, file_name, destination.as_ref())

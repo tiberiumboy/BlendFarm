@@ -31,17 +31,15 @@ use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::sync::Arc;
 use tokio::spawn;
 use tokio::sync::RwLock;
-use tokio::sync::mpsc::Receiver;
-use crate::network::message::Event;
 
 use crate::constant::{JOB_TOPIC, NODE_TOPIC};
 
+pub mod constant;
 pub mod domains;
 pub mod models;
+pub mod network;
 pub mod routes;
 pub mod services;
-pub mod constant;
-pub mod network;
 
 #[derive(Parser)]
 struct Cli {
@@ -71,10 +69,10 @@ pub async fn run() {
 
     // to collect user inputs for custom user preferences
     let cli = Cli::parse();
-    
+
     // TODO: Ask Cli for the secret_key
     let secret_key = None;
-    
+
     // TODO: insist on loading user_pref here? if there's a custom cli command that insist user path for server settings, we would ask them there.
     // let user_pref = ServerSetting::load();
 
@@ -93,11 +91,11 @@ pub async fn run() {
         server.run().await;
     });
 
-        // Listen on all interfaces and whatever port OS assigns
-    let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0"
-        .parse().expect("Shouldn't fail");
+    // Listen on all interfaces and whatever port OS assigns
+    let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().expect("Shouldn't fail");
     let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
-        .parse().expect("Shouldn't fail");
+        .parse()
+        .expect("Shouldn't fail");
 
     controller.start_listening(tcp).await;
     controller.start_listening(udp).await;

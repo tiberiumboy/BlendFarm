@@ -1,5 +1,5 @@
-use std::{ffi::OsStr, path::PathBuf};
 use crate::network::message::KeywordSearch;
+use std::{ffi::OsStr, path::PathBuf};
 
 pub enum ProviderRule {
     // Use "file name.ext", Extracted from PathBuf.

@@ -6,9 +6,6 @@ use serde::{Deserialize, Serialize};
 /*
 Network Service - Receive, handle, and process network request.
 */
-// why does the transfer have number at the trail end? look more into this?
-const TRANSFER: &str = "/file-transfer/1";
-
 
 // what is StatusEvent responsibility?
 #[derive(Debug, Clone, Serialize, Deserialize)]

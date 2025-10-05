@@ -58,23 +58,41 @@ pub enum FileCommand {
 // Send commands to network.
 #[derive(Debug)]
 pub enum Command {
-    Dial { peer_id: PeerId, peer_addr: Multiaddr, sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>> },
-    Subscribe{ topic: String },
+    Dial {
+        peer_id: PeerId,
+        peer_addr: Multiaddr,
+        sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
+    },
+    Subscribe {
+        topic: String,
+    },
     // TODO: figure out a way to get around the Box<dyn Error + Send> traits!
-    StartListening { addr: Multiaddr, sender: oneshot::Sender<Result<(), Box<dyn Error + Send >>> },
+    StartListening {
+        addr: Multiaddr,
+        sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
+    },
     // TODO: Find a way to get around the string type! This expects a copy!
-    StartProviding { file_name: String, sender: oneshot::Sender<()> },
-    
-    GetProviders { file_name: String, sender: oneshot::Sender<HashSet<PeerId>> },
+    StartProviding {
+        file_name: String,
+        sender: oneshot::Sender<()>,
+    },
+
+    GetProviders {
+        file_name: String,
+        sender: oneshot::Sender<HashSet<PeerId>>,
+    },
     RequestFile {
-                file_name: String,
-                peer: PeerId,
-                sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
-            },
-    RespondFile { file: Vec<u8>, channel: ResponseChannel<FileResponse> },
-    
+        file_name: String,
+        peer: PeerId,
+        sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
+    },
+    RespondFile {
+        file: Vec<u8>,
+        channel: ResponseChannel<FileResponse>,
+    },
+
     // TODO: More documentation to explain below
-    // These are signal to use to send out message and forget. 
+    // These are signal to use to send out message and forget.
     // May expect a respoonse back potentially requesting this node to work new jobs.
     NodeStatus(NodeEvent), // broadcast node activity changed
     JobStatus(JobEvent),
@@ -86,7 +104,6 @@ pub enum Command {
 pub enum Event {
     // Don't think I need this anymore, trying to rely on DHT for node availability somehow?
     // TODO: See about utilizing DHT instead of this? How can I get event from DHT?
-
     Discovered(PeerId, Multiaddr),
     NodeStatus(NodeEvent),
     InboundRequest {

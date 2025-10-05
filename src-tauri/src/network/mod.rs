@@ -1,13 +1,24 @@
-use std::{/*hash::DefaultHasher,*/ time::Duration};
-use crate::{constant::TRANSFER, models::behaviour::BlendFarmBehaviour, network::{controller::Controller, message::{Command, Event, NetworkError}, service::Service}};
-use libp2p::{gossipsub, identity, kad, mdns, noise, tcp, yamux, StreamProtocol, SwarmBuilder};
+use crate::{
+    constant::TRANSFER,
+    models::behaviour::BlendFarmBehaviour,
+    network::{
+        controller::Controller,
+        message::{Command, Event, NetworkError},
+        service::Service,
+    },
+};
+use libp2p::{StreamProtocol, SwarmBuilder, gossipsub, identity, kad, mdns, noise, tcp, yamux};
 use libp2p_request_response::ProtocolSupport;
 use machine_info::Machine;
-use tokio::{io, sync::mpsc::{self, Receiver}};
-pub(crate) mod provider_rule;
+use std::{/*hash::DefaultHasher,*/ time::Duration};
+use tokio::{
+    io,
+    sync::mpsc::{self, Receiver},
+};
+pub mod controller;
 pub mod message;
 pub mod network;
-pub mod controller;
+pub(crate) mod provider_rule;
 pub mod service;
 
 // type is locally contained
@@ -16,7 +27,9 @@ pub type PeerIdString = String;
 // the tuples return two objects
 // Network Controller to interface network service
 // Receiver<NetCommand> receive network events
-pub async fn new(secret_key_seed:Option<u8>) -> Result<(Controller, Receiver<Event>, Service), NetworkError> {
+pub async fn new(
+    secret_key_seed: Option<u8>,
+) -> Result<(Controller, Receiver<Event>, Service), NetworkError> {
     // wonder why we have a connection timeout of 60 seconds? Why not uint::MAX?
 
     let duration = Duration::from_secs(60);
@@ -31,7 +44,7 @@ pub async fn new(secret_key_seed:Option<u8>) -> Result<(Controller, Receiver<Eve
     };
 
     let mut swarm = SwarmBuilder::with_existing_identity(id_keys)
-    // let mut swarm = SwarmBuilder::with_new_identity()
+        // let mut swarm = SwarmBuilder::with_new_identity()
         .with_tokio()
         .with_tcp(
             tcp::Config::default(),
@@ -92,7 +105,10 @@ pub async fn new(secret_key_seed:Option<u8>) -> Result<(Controller, Receiver<Eve
         .build();
 
     // set the kad as server mode
-    swarm.behaviour_mut().kademlia.set_mode(Some(kad::Mode::Server));
+    swarm
+        .behaviour_mut()
+        .kademlia
+        .set_mode(Some(kad::Mode::Server));
 
     // the command sender is used for outside method to send message commands to network queue
     let (sender, receiver) = mpsc::channel::<Command>(32);
@@ -102,11 +118,7 @@ pub async fn new(secret_key_seed:Option<u8>) -> Result<(Controller, Receiver<Eve
 
     let public_id = swarm.local_peer_id().clone();
 
-    let controller = Controller::new(
-        sender,
-        public_id,
-        Machine::new().system_info().hostname,
-    );
+    let controller = Controller::new(sender, public_id, Machine::new().system_info().hostname);
 
     let service = Service::new(
         swarm,
@@ -116,4 +128,3 @@ pub async fn new(secret_key_seed:Option<u8>) -> Result<(Controller, Receiver<Eve
 
     Ok((controller, event_receiver, service))
 }
-
