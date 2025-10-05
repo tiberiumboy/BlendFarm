@@ -8,6 +8,7 @@ use crate::{
     network::message::{Command, Event},
 };
 use futures::channel::oneshot;
+use futures::StreamExt;
 use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::kad::RecordKey;
 use libp2p::mdns;
@@ -240,7 +241,7 @@ impl Service {
                     .swarm
                     .behaviour_mut()
                     .gossipsub
-                    .publish(topic, data.clone())
+                    .publish(topic.clone(), data.clone())
                 {
                     Ok(_) => println!("Successfully published data in {topic:?}!"),
                     Err(e) => eprintln!("Fail to send message! {e:?}"),

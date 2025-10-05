@@ -24,13 +24,13 @@ use blender::{
     blender::{Manager as BlenderManager, ManagerError},
     // models::download_link::DownloadLink,
 };
-// use futures::{
-//     SinkExt, StreamExt,
-//     channel::mpsc::{self, Receiver, Sender},
-// };
+use futures::{
+    SinkExt, StreamExt,
+    channel::mpsc::{self, Receiver, Sender},
+};
 use thiserror::Error;
 use tokio::{select, sync::RwLock};
-use tokio::sync::mpsc::{self, Receiver, Sender};
+// use tokio::sync::mpsc::{self, Receiver, Sender};
 use uuid::Uuid;
 
 enum CmdCommand {
@@ -250,21 +250,15 @@ impl CliApp {
                 }
             },
             Err(e) => {
-                let (sender, mut receiver) = mpsc::channel(1);
                 let err = JobError::TaskError(e);
-                client.send_job_event(JobEvent::Error(err), sender).await;
-
-                if let Err(e) = receiver.select_next_some().await {
-                    eprintln!("fail to send job! {e:?}");
-                    sleep(Duration::from_secs(5u64)).await;
-                }
+                client.send_job_event(JobEvent::Error(err)).await;
             }
         };
 
         Ok(())
     }
 
-    async fn handle_job_from_network(&mut self, client: &mut NetworkController, event: JobEvent) {
+    async fn handle_job_from_network(&mut self, client: &mut Controller, event: JobEvent) {
         match event {
             // on render task received, we should store this in the database.
             JobEvent::Render(peer_id_str, mut task) => {
@@ -439,44 +433,16 @@ impl CliApp {
                 // mutate this struct to skip listening for any new jobs.
                 // proceed to render the task.
                 if let Err(e) = self.render_task(client, &mut task, &mut sender).await {
-                    let (sender, mut receiver) = mpsc::channel(1);
                     let event = JobEvent::Failed(e.to_string());
-                    client.send_job_event(event, sender).await;
-
-                    if let Err(e) = receiver.select_next_some().await {
-                        eprintln!("Fail top send job event! {e:?}");
-                        sleep(Duration::from_secs(5u64)).await;
-                    }
+                    client.send_job_event(event).await;
                 }
             }
 
             CmdCommand::RequestTask => {
                 // or at least have this node look into job history and start working on jobs that are not completed yet.
-                let (sender, mut receiver) = mpsc::channel(1);
                 let peer_id = client.public_id.to_base58();
                 let event = JobEvent::RequestTask(peer_id);
-                client.send_job_event(event, sender).await;
-
-                if let Err(e) = receiver.select_next_some().await {
-                    eprintln!("Fail to send job event! {e:?}");
-                    match e {
-                        libp2p::gossipsub::PublishError::Duplicate => {
-                            // we should stop asking for job request until we get a new computer to join the network.
-                            println!("I should stop asking for job request");
-                        },
-                        _ => {
-                            eprintln!("Fail to send job event! {e:?}");
-                        }
-                        // libp2p::gossipsub::PublishError::SigningError(signing_error) => todo!(),
-                        // libp2p::gossipsub::PublishError::NoPeersSubscribedToTopic => todo!(),
-                        // libp2p::gossipsub::PublishError::MessageTooLarge => {
-                        //     // this is interesting...
-                        // },
-                        // libp2p::gossipsub::PublishError::TransformFailed(error) => todo!(),
-                        // libp2p::gossipsub::PublishError::AllQueuesFull(_) => todo!(),
-                    };
-                    sleep(Duration::from_secs(5u64)).await;
-                }
+                client.send_job_event(event).await;
             }
         }
     }
