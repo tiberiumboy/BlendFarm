@@ -24,24 +24,24 @@ Developer blog:
 use blender::manager::Manager as BlenderManager;
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
-// use libp2p::gossipsub::IdentTopic;
 use libp2p::Multiaddr;
-use models::network;
 use services::data_store::sqlite_task_store::SqliteTaskStore;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::sync::Arc;
 use tokio::spawn;
 use tokio::sync::RwLock;
+use tokio::sync::mpsc::Receiver;
+use crate::network::message::Event;
 
-// use crate::constant::{JOB_TOPIC, NODE_TOPIC};
-// use crate::models::message::NetworkError;
+use crate::constant::{JOB_TOPIC, NODE_TOPIC};
 
 pub mod domains;
 pub mod models;
 pub mod routes;
 pub mod services;
 pub mod constant;
+pub mod network;
 
 #[derive(Parser)]
 struct Cli {
@@ -99,20 +99,18 @@ pub async fn run() {
     let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
         .parse().expect("Shouldn't fail");
 
-    controller.start_listening(tcp).await.expect("Listening shouldn't fail");
-    controller.start_listening(udp).await.expect("Listening shouldn't fail");
+    controller.start_listening(tcp).await;
+    controller.start_listening(udp).await;
 
-        // let's automatically listen to the topics mention above.
+    // let's automatically listen to the topics mention above.
     // all network interference must subscribe to these topics!
-    // let job_topic = IdentTopic::new(JOB_TOPIC);
-    // if let Err(e) = controller.subscribe(&job_topic) {
-    //     eprintln!("Fail to subscribe job topic! {e:?}");
-    // };
+    if let Err(e) = controller.subscribe(JOB_TOPIC).await {
+        eprintln!("Fail to subscribe job topic! {e:?}");
+    };
 
-    // let node_topic = IdentTopic::new(NODE_TOPIC);
-    // if let Err(e) = controller.subscribe(&node_topic) {
-    //     eprintln!("Fail to subscribe node topic! {e:?}")
-    // };
+    if let Err(e) = controller.subscribe(NODE_TOPIC).await {
+        eprintln!("Fail to subscribe node topic! {e:?}")
+    };
 
     let _ = match cli.command {
         // run as client mode.

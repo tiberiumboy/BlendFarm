@@ -6,8 +6,6 @@ pub(crate) mod computer_spec;
 pub(crate) mod constant;
 pub mod error;
 pub(crate) mod job;
-pub mod message;
-pub mod network;
 pub(crate) mod project_file;
 pub(crate) mod render_info;
 pub(crate) mod task;

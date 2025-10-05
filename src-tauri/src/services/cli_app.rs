@@ -1,5 +1,5 @@
 use async_std::task::sleep;
-use libp2p::PeerId;
+use libp2p::{Multiaddr, PeerId};
 use machine_info::Machine;
 use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 /*
@@ -14,26 +14,30 @@ use super::blend_farm::BlendFarm;
 use crate::{
     domains::{job_store::JobError, task_store::TaskStore},
     models::{
-        computer_spec::ComputerSpec, job::{Job, JobEvent}, message::{self, Event, NetworkError}, network::{NetworkController, NodeEvent, ProviderRule}, project_file::ProjectFile, server_setting::ServerSetting, task::Task
-    },
+        computer_spec::ComputerSpec, job::{Job, JobEvent}, project_file::ProjectFile, server_setting::ServerSetting, task::Task
+    }, network::controller::Controller,
 };
+use crate::network::message::{self, Event, NetworkError}; 
+use crate::network::{network::NodeEvent, provider_rule::ProviderRule}; 
 use blender::models::event::BlenderEvent;
 use blender::{
     blender::{Manager as BlenderManager, ManagerError},
     // models::download_link::DownloadLink,
 };
-use futures::{
-    SinkExt, StreamExt,
-    channel::mpsc::{self, Receiver, Sender},
-};
+// use futures::{
+//     SinkExt, StreamExt,
+//     channel::mpsc::{self, Receiver, Sender},
+// };
 use thiserror::Error;
 use tokio::{select, sync::RwLock};
+use tokio::sync::mpsc::{self, Receiver, Sender};
 use uuid::Uuid;
 
 enum CmdCommand {
     // TODO: See where this can be used?
     #[allow(dead_code)]
     Render(Task, Sender<BlenderEvent>),
+    Dial(PeerId, Multiaddr),
     RequestTask, // calls to host for more task.
 }
 
@@ -99,7 +103,7 @@ impl CliApp {
     #[allow(dead_code)]
     async fn validate_project_file(
         &self,
-        client: &mut NetworkController,
+        client: &mut Controller,
         task: &Task,
     ) -> Result<PathBuf, CliError> {
         let id = AsRef::<Uuid>::as_ref(&task);
@@ -154,7 +158,7 @@ impl CliApp {
     /// Invokes the render job. The task needs to be mutable for frame deque.
     async fn render_task(
         &mut self,
-        client: &mut NetworkController,
+        client: &mut Controller,
         task: &mut Task,
         sender: &mut Sender<BlenderEvent>,
     ) -> Result<(), CliError> {
@@ -382,8 +386,12 @@ impl CliApp {
     }
 
     // Handle network event (From network as user to operate this)
-    async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
+    async fn handle_net_event(&mut self, client: &mut Controller, event: Event) {
         match event {
+            // once we discover a peer, let's dial that peer.
+            Event::Discovered(peer_id, multiaddr ) => {
+                client.dial(peer_id, multiaddr).await.expect("Dial to succeed");
+            }
             Event::JobUpdate(job_event) => self.handle_job_from_network(client, job_event).await,
             Event::InboundRequest { request, channel } => {
                 self.handle_inbound_request(client, request, channel).await
@@ -420,8 +428,12 @@ impl CliApp {
         }
     }
 
-    async fn handle_command(&mut self, client: &mut NetworkController, cmd: CmdCommand ) {
+    async fn handle_command(&mut self, client: &mut Controller, cmd: CmdCommand ) {
         match cmd {
+            CmdCommand::Dial(peer_id, addr) => {
+                client.dial(peer_id, addr).await;
+            }
+            
             CmdCommand::Render(mut task, mut sender) => {
                 // TODO: We should find a way to mark this node currently busy so we should unsubscribe any pending new jobs if possible?
                 // mutate this struct to skip listening for any new jobs.
@@ -474,7 +486,7 @@ impl CliApp {
 impl BlendFarm for CliApp {
     async fn run(
         mut self,
-        mut client: NetworkController,
+        mut client: Controller,
         mut event_receiver: Receiver<Event>,
     ) -> Result<(), NetworkError> {
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
@@ -482,8 +494,10 @@ impl BlendFarm for CliApp {
         // let taskdb = self.task_store.clone();
         let (mut event, mut command) = mpsc::channel(32);
 
-        let cmd = CmdCommand::RequestTask;
-        event.send(cmd).await.expect("Should not be free?");
+        // TODO: move this inside on discovery call
+        // let cmd = CmdCommand::RequestTask;
+        // event.send(cmd).await.expect("Should not be free?");
+
 
         // background thread to handle blender invocation
         // spawn(async move {

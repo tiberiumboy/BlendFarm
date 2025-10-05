@@ -1,333 +1,24 @@
-use crate::constant::{JOB_TOPIC, NODE_TOPIC};
-use crate::models::computer_spec::ComputerSpec;
-use super::behaviour::{BlendFarmBehaviour, BlendFarmBehaviourEvent, FileRequest, FileResponse};
-use super::job::JobEvent;
-use super::message::{Command, Event, FileCommand, KeywordSearch, NetworkError};
-use blender::models::event::BlenderEvent;
-use libp2p::multiaddr::Protocol;
-use core::str;
-use std::ffi::OsStr;
-use futures::StreamExt;
-use futures::{
-    channel::{
-        mpsc::{self, Receiver, Sender},
-        oneshot,
-    },
-    prelude::*,
-};
-use libp2p::gossipsub::{self, IdentTopic, PublishError};
-use libp2p::kad::{QueryId, RecordKey};
-use libp2p::swarm::{Swarm, SwarmEvent};
-use libp2p::{identity, kad, mdns, noise, tcp, yamux, Multiaddr, PeerId, StreamProtocol, SwarmBuilder};
-use libp2p_request_response::{OutboundRequestId, ProtocolSupport, ResponseChannel};
-use machine_info::Machine;
-use serde::{Deserialize, Serialize};
-use std::collections::hash_map::{self, DefaultHasher};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet, HashMap}; 
+use std::path::PathBuf;
 use std::error::Error;
-use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
-use std::time::Duration;
-use std::u64;
-use tokio::{io, select};
-
-/*
-Network Service - Receive, handle, and process network request.
-*/
-// why does the transfer have number at the trail end? look more into this?
-const TRANSFER: &str = "/file-transfer/1";
-
-pub enum ProviderRule {
-    // Use "file name.ext", Extracted from PathBuf.
-    Default(PathBuf),
-    // Custom keyword search for specific PathBuf.
-    Custom(KeywordSearch, PathBuf),
-}
-
-impl ProviderRule {
-    pub fn get_file_name(&self) -> Option<&OsStr> {
-        match self {
-            ProviderRule::Default(path) => path.file_name(),
-            ProviderRule::Custom(_, path_buf) => path_buf.file_name(),
-        }
-    }
-}
-
-// the tuples return two objects
-// Network Controller to interface network service
-// Receiver<NetCommand> receive network events
-pub async fn new(secret_key_seed:Option<u8>) -> Result<(NetworkController, Receiver<Event>, NetworkService), NetworkError> {
-    // wonder why we have a connection timeout of 60 seconds? Why not uint::MAX?
-
-    let duration = Duration::from_secs(60);
-    // is there a reason for the secret key seed?
-    let id_keys = match secret_key_seed {
-        Some(seed) => {
-            let mut bytes = [0u8; 32];
-            bytes[0] = seed;
-            identity::Keypair::ed25519_from_bytes(bytes).unwrap()
-        }
-        None => identity::Keypair::generate_ed25519(),
-    };
-
-    let mut swarm = SwarmBuilder::with_existing_identity(id_keys)
-    // let mut swarm = SwarmBuilder::with_new_identity()
-        .with_tokio()
-        .with_tcp(
-            tcp::Config::default(),
-            noise::Config::new,
-            yamux::Config::default,
-        )
-        .expect("Should be able to build with tcp configuration?")
-        .with_quic()
-        .with_behaviour(|key| {
-            // seems like we need to content-address message. We'll use the hash of the message as the ID.
-            let message_id_fn = |message: &gossipsub::Message| {
-                let mut s = DefaultHasher::new();
-                message.data.hash(&mut s);
-                gossipsub::MessageId::from(s.finish().to_string())
-            };
-
-            let gossipsub_config = gossipsub::ConfigBuilder::default()
-                .heartbeat_interval(Duration::from_secs(10))
-                .validation_mode(gossipsub::ValidationMode::Strict)
-                .message_id_fn(message_id_fn)
-                .build()
-                .map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))?;
-
-            // p2p communication
-            let gossipsub = gossipsub::Behaviour::new(
-                gossipsub::MessageAuthenticity::Signed(key.clone()),
-                gossipsub_config,
-            )
-            .expect("Fail to create gossipsub behaviour");
-
-            // network discovery usage
-            // TODO: replace expect with error handling
-            let mdns =
-                mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())
-                    .expect("Fail to create mdns behaviour!");
-
-            // Used to provide file provision list
-            let kad = kad::Behaviour::new(
-                key.public().to_peer_id(),
-                kad::store::MemoryStore::new(key.public().to_peer_id()),
-            );
-
-            let rr_config = libp2p_request_response::Config::default();
-            // Learn more about this and see if we need the transfer keyword of some sort?
-            let protocol = [(StreamProtocol::new(TRANSFER), ProtocolSupport::Full)];
-            let request_response = libp2p_request_response::Behaviour::new(protocol, rr_config);
-
-            Ok(BlendFarmBehaviour {
-                request_response,
-                gossipsub,
-                mdns,
-                kademlia: kad,
-            })
-        })
-        // TODO remove/handle expect()
-        .expect("Expect to build behaviour")
-        .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(duration))
-        .build();
-
-    // set the kad as server mode
-    swarm.behaviour_mut().kademlia.set_mode(Some(kad::Mode::Server));
-
-    // the command sender is used for outside method to send message commands to network queue
-    let (sender, receiver) = mpsc::channel::<Command>(32);
-
-    // the event sender is used to handle incoming network message. E.g. RunJob
-    let (event_sender, event_receiver) = mpsc::channel::<Event>(32);
-
-    let public_id = swarm.local_peer_id().clone();
-
-    let controller = NetworkController {
-        sender,
-        public_id,
-        hostname: Machine::new().system_info().hostname,
-    };
-
-    let service = NetworkService::new(
-        swarm,
-        receiver,
-        event_sender, // Here is where network service communicates out.
-    );
-
-    Ok((controller, event_receiver, service))
-}
-
-// Network Controller interfaces network service.
-#[derive(Clone)]
-pub struct NetworkController {
-    sender: mpsc::Sender<Command>, // send net commands
-    pub public_id: PeerId,
-    pub hostname: String,
-}
-
-// what is StatusEvent responsibility?
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum StatusEvent {
-    Offline,
-    Online,
-    Busy,
-    Error(String),
-    Signal(String),
-}
-
-// type is locally contained
-pub type PeerIdString = String;
-
-// Must be serializable to send data across network
-// issue with this is that this cannot be convert into Encode,Decode by bincode. Instead we'll have to
-#[derive(Debug, Serialize, Deserialize)]
-pub enum NodeEvent {
-    Hello(PeerIdString, ComputerSpec),
-    Disconnected {
-        peer_id: PeerIdString,
-        reason: Option<String>,
-    },
-    BlenderStatus(BlenderEvent),
-}
-
-impl NetworkController {
-
-    pub async fn start_listening(&mut self, addr: Multiaddr) -> Result<(), Box<dyn Error + Send>> {
-        let (sender, receiver) = oneshot::channel();
-        self.sender.send(Command::StartListening { addr, sender }).await.expect("Command receiver should never be dropped");
-        receiver.await.expect("Sender shouldn't be dropped")
-    }
-
-    pub async fn send_node_status(&mut self, status: NodeEvent) {
-        if let Err(e) = self.sender.send(Command::NodeStatus(status)).await {
-            eprintln!("Failed to send node status to network service: {e:?}");
-        }
-    }
-
-    // send job event to all connected node
-    pub async fn send_job_event(
-        &mut self,
-        event: JobEvent,
-        sender: Sender<Result<(), PublishError>>,
-    ) {
-        self.sender
-            .send(Command::JobStatus(event, sender))
-            .await
-            .expect("Command should not be dropped");
-    }
-
-    pub async fn file_service(&mut self, command: FileCommand) {
-        self.sender
-            .send(Command::FileService(command))
-            .await
-            .expect("Command should not have been dropped!");
-    }
-
-    /// file_name are broadcasted with the extensions included, but not the directory it's located in. E.g. "test.blend"
-    // I need to use some kind of enumeration to help make this process flexible with rules..
-    pub async fn start_providing(&mut self, provider: &ProviderRule) -> Result<(), NetworkError> {
-        let cmd = match provider {
-            ProviderRule::Default(path_buf) => {
-                // TODO: remove .expect(), .to_str(), and .to_owned()
-                match path_buf.file_name() {
-                    Some(file_name) => {
-                        let keyword = file_name
-                            .to_str()
-                            .expect("Must be able to convert OsStr to Str!");
-
-                        FileCommand::StartProviding(keyword.into(), path_buf.into())
-                    }
-                    None => return Err(NetworkError::BadInput),
-                }
-            }
-            ProviderRule::Custom(keyword, path_buf) => {
-                FileCommand::StartProviding(keyword.to_owned(), path_buf.to_owned())
-            }
-        };
-
-        if let Err(e) = self.sender.send(Command::FileService(cmd)).await {
-            eprintln!("How did this happen? {e:?}");
-        }
-        Ok(())
-    }
-
-    pub async fn get_providers(&mut self, file_name: &str) -> HashSet<PeerId> {
-        let (sender, receiver) = oneshot::channel();
-        let cmd = Command::FileService(FileCommand::GetProviders {
-            file_name: file_name.to_string(),
-            sender,
-        });
-        self.sender
-            .send(cmd)
-            .await
-            .expect("Command receiver should not be dropped");
-        receiver.await.unwrap_or(HashSet::new())
-    }
-
-    // client request file from peers.
-    // I feel like we should make this as fetching data from network? Some sort of stream?
-    pub async fn get_file_from_peers<T: AsRef<Path>>(
-        &mut self,
-        file_name: &str,
-        destination: T,
-    ) -> Result<PathBuf, NetworkError> {
-        let providers = self
-            .get_providers(&file_name)
-            .await;
-        match providers.iter().next() {
-            Some(peer_id) => {
-                self.request_file(peer_id, file_name, destination.as_ref())
-                    .await
-            }
-            None => Err(NetworkError::NoPeerProviderFound),
-        }
-    }
-
-    async fn request_file(
-        &mut self,
-        peer_id: &PeerId,
-        file_name: &str,
-        destination: &Path,
-    ) -> Result<PathBuf, NetworkError> {
-        let (sender, receiver) = oneshot::channel();
-        let cmd = Command::FileService(FileCommand::RequestFile {
-            peer_id: *peer_id,
-            file_name: file_name.into(),
-            sender,
-        });
-        self.sender
-            .send(cmd)
-            .await
-            .expect("Command should not be dropped");
-        let content = receiver
-            .await
-            .expect("Should not be closed?")
-            .or_else(|e| Err(NetworkError::UnableToSave(e.to_string())))?;
-
-        let file_path = destination.join(file_name);
-        match async_std::fs::write(file_path.clone(), content).await {
-            Ok(_) => Ok(file_path),
-            Err(e) => Err(NetworkError::UnableToSave(e.to_string())),
-        }
-    }
-
-    // TODO: Come back to this one and see how this one gets invoked.
-    pub(crate) async fn respond_file(
-        &mut self,
-        file: Vec<u8>,
-        channel: ResponseChannel<FileResponse>,
-    ) {
-        let cmd = Command::FileService(FileCommand::RespondFile { file, channel });
-        if let Err(e) = self.sender.send(cmd).await {
-            println!("Command should not be dropped: {e:?}");
-        }
-    }
-}
-
+use futures::channel::oneshot;
+use libp2p::gossipsub::{self, IdentTopic};
+use libp2p::mdns;
+use libp2p::multiaddr::Protocol;
+use libp2p::swarm::SwarmEvent;
+use libp2p::{kad::{self, QueryId}, Multiaddr, PeerId, Swarm};
+use libp2p_request_response::OutboundRequestId;
+use tokio::select;
+use tokio::sync::mpsc::{Receiver, Sender};
+use crate::constant::JOB_TOPIC;
+use crate::models::behaviour::{BlendFarmBehaviourEvent, FileRequest};
+use crate::network::message::FileCommand;
+use crate::network::network::NodeEvent;
+use crate::{models::behaviour::BlendFarmBehaviour, network::message::{Command, Event}};
 
 // Network service module to handle invocation commands to send to network service,
 // as well as handling network event from other peers
-pub struct NetworkService {
+pub struct Service {
     // swarm behaviour - interface to the network
     swarm: Swarm<BlendFarmBehaviour>,
 
@@ -349,12 +40,12 @@ pub struct NetworkService {
 }
 
 // network service will be used to handle and receive network signal. It will also transmit network package over lan
-impl NetworkService {
+impl Service {
     pub fn new(
         swarm: Swarm<BlendFarmBehaviour>,
         receiver: Receiver<Command>,
         sender: Sender<Event>,
-    ) -> NetworkService {
+    ) -> Self {
         Self {
             swarm,
             receiver,
@@ -458,6 +149,10 @@ impl NetworkService {
     // Receive commands from foreign invocation.
     async fn handle_command(&mut self, cmd: Command) {
         match cmd {
+            Command::Subscribe { topic } => {
+                let identity = IdentTopic::new( topic );
+                self.swarm.behaviour_mut().gossipsub.subscribe(&identity);
+            }
             Command::StartListening { addr, sender } => {
                 let _ = match self.swarm.listen_on(addr) {
                     Ok(_) => sender.send(Ok(())),
@@ -505,7 +200,7 @@ impl NetworkService {
             Command::FileService(service) => self.process_file_service(service).await,
             
             // received job status. invoke commands
-            Command::JobStatus(event, mut sender) => {
+            Command::JobStatus(event) => {
                 // convert data into json format.
                 let data = serde_json::to_string(&event).unwrap();
                 let topic = IdentTopic::new(JOB_TOPIC.to_owned());
@@ -515,14 +210,8 @@ impl NetworkService {
                     .gossipsub
                     .publish(topic, data.clone())
                 {
-                    Ok(_) => sender
-                        .send(Ok(()))
-                        .await
-                        .expect("Channel should not be closed"),
-                    Err(e) => sender
-                        .send(Err(e))
-                        .await
-                        .expect("Channel should not be closed"),
+                    Ok(_) => println!("Successfully published data in {topic:?}!"),
+                    Err(e) => eprintln!("Fail to send message! {e:?}"),
                 };
             }
             Command::NodeStatus(status) => {
@@ -581,14 +270,14 @@ impl NetworkService {
 
     async fn process_mdns_event(&mut self, event: mdns::Event) {
         match event {
-
-            // somehow I'm unable to send this discovered peer a hello message back?
             mdns::Event::Discovered(peers) => {
                 
                 for (peer_id, address) in peers {
                     println!("Discovered [{peer_id:?}] {address:?}"); 
+                    
                     // when I process this, how do I know where dialers is used?
-                    self.dialers.insert(peer_id.clone(), address.clone());  
+                    let event = Event::Discovered(peer_id, address);
+                    self.sender.send(event).await;
 
                     // if I have already discovered this address, then I need to skip it. Otherwise I will produce garbage log input for duplicated peer id already exist.
                     // it seems that I do need to explicitly add the peers to the list.
@@ -745,32 +434,6 @@ impl NetworkService {
                         let _ = sender.send(Ok(()));
                     }
                 }
-
-                // Reply back saying "Hello"
-                // let mut machine = Machine::new(); 
-                // let computer_spec = ComputerSpec::new(&mut machine);
-                // let event = NodeEvent::Hello(self.swarm.local_peer_id().to_base58(), computer_spec);
-                // let data = serde_json::to_string(&event).expect("Should be able to deserialize struct");
-                
-                // // Should we cache this?
-                // let topic = gossipsub::IdentTopic::new(NODE);
-                
-                // // why can I not send a publish topic? Where are my peers connected and listening?
-                // if let Err(e) = self.swarm.behaviour_mut()
-                //     .gossipsub.publish(topic.clone(), data) {
-                //     eprintln!("Oh noe something happen for publishing gossip {topic} message! {e:?}");
-                // }
-
-                // once we establish a connection, we should ping kademlia for all available nodes on the network.
-                // let key = NODE.to_vec();
-                // let _query_id = self.swarm.behaviour_mut().kad.get_providers(key.into());
-
-                // let mut machine = Machine::new();
-                // let spec = ComputerSpec::new(&mut machine);
-                // let event = Event::NodeStatus(NodeEvent::Discovered(spec));
-                // if let Err(e) = self.sender.send(event).await {
-                //     eprintln!("Fail to send event on connection established! {e:?}");
-                // }
             }
             // This was called when client starts while manager is running. "Connection error: I/O error: closed by peer: 0"
             // TODO: Read what ConnectionClosed does?
@@ -812,15 +475,14 @@ impl NetworkService {
             
             // Suppressing logs
             // SwarmEvent::IncomingConnection { .. } => {} // Suppressing logs
-            // SwarmEvent::NewExternalAddrOfPeer { .. } => {}
+            SwarmEvent::NewExternalAddrOfPeer { .. } => {}
             
             // SwarmEvent::IncomingConnectionError { .. } => {}                             // I recognize this and do want to display result below.
 
             /* #endregion ^^eof ignore^^ */
             
-            // we'll do nothing for this for now.
-            // see what we're skipping? Anything we identify must have described behaviour, or add to ignore list.
-            // println!("[Network]: {event:?}");
+            // Must fully exhaust all condition types as possible!
+            // Add to the ignore list with description why we're suppressing logs. They must be visible under verbose mode.
             e => panic!("{e:?}"),
         };
     }

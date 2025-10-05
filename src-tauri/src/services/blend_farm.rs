@@ -1,6 +1,8 @@
 use crate::{models::{
-        behaviour::FileResponse, message::{Event, FileCommand, NetworkError}, network::NetworkController
+        behaviour::FileResponse
     }};
+use crate::network::message::{Event, FileCommand, NetworkError};
+use crate::network::network::NetworkController;
 use async_trait::async_trait;
 use futures::channel::{mpsc::Receiver, oneshot};
 use libp2p_request_response::ResponseChannel;
