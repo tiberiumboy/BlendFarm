@@ -1,14 +1,13 @@
 use crate::constant::{JOB_TOPIC, NODE_TOPIC};
 use crate::models::behaviour::{BlendFarmBehaviourEvent, FileRequest, FileResponse};
 use crate::models::job::JobEvent;
-use crate::network::message::FileCommand;
-use crate::network::network::NodeEvent;
+use crate::network::message::{FileCommand, NodeEvent};
 use crate::{
     models::behaviour::BlendFarmBehaviour,
     network::message::{Command, Event},
 };
-use futures::channel::oneshot;
 use futures::StreamExt;
+use futures::channel::oneshot;
 use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::kad::RecordKey;
 use libp2p::mdns;
@@ -160,7 +159,9 @@ impl Service {
         match cmd {
             Command::Subscribe { topic } => {
                 let identity = IdentTopic::new(topic);
-                self.swarm.behaviour_mut().gossipsub.subscribe(&identity);
+                if let Err(e) = self.swarm.behaviour_mut().gossipsub.subscribe(&identity) {
+                    eprintln!("Fail to subscribe! {e:}");
+                }
             }
             Command::StartListening { addr, sender } => {
                 let _ = match self.swarm.listen_on(addr) {
@@ -179,6 +180,7 @@ impl Service {
                         .behaviour_mut()
                         .kademlia
                         .add_address(&peer_id, peer_addr.clone());
+
                     match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
                         Ok(()) => {
                             e.insert(sender);
@@ -203,6 +205,7 @@ impl Service {
                     .expect("No store value");
                 self.pending_start_providing.insert(query_id, sender);
             }
+
             Command::GetProviders { file_name, sender } => {
                 let query_id = self
                     .swarm
@@ -444,6 +447,9 @@ impl Service {
             kad::Event::InboundRequest { .. } => {}
             // suppressed
             kad::Event::RoutingUpdated { .. } => {}
+            kad::Event::UnroutablePeer { peer } => {
+                eprintln!("Unroutable Peer? {peer}");
+            }
             _ => {
                 // oh mah gawd. What am I'm suppose to do here?
                 eprintln!("Unhandled Kademila event: {kad_event:?}");
@@ -468,6 +474,7 @@ impl Service {
                     self.process_kademlia_event(event).await;
                 }
             },
+            // So how does the established works?
             SwarmEvent::ConnectionEstablished {
                 peer_id, endpoint, ..
             } => {
@@ -518,16 +525,22 @@ impl Service {
                 );
             }
 
-            SwarmEvent::Dialing {
-                peer_id: Some(peer_id),
-                ..
+            SwarmEvent::Dialing { .. } => {}
+
+            SwarmEvent::IncomingConnection {
+                connection_id,
+                local_addr,
+                send_back_addr,
             } => {
-                // do I need to do anything about this? or is this just diagnostic only?
-                eprintln!("Dialing {peer_id}");
-            }
+                // Incoming connection? How do I accept?
+                eprintln!("Incoming connection: {connection_id} | {local_addr} | {send_back_addr}");
+
+                // I'm assuming this is reply from dial?
+                // what does it mean to have incoming connection here?
+                // self.dialers.entry()
+            } // Suppressing logs
 
             // Suppressing logs
-            // SwarmEvent::IncomingConnection { .. } => {} // Suppressing logs
             SwarmEvent::NewExternalAddrOfPeer { .. } => {}
 
             // SwarmEvent::IncomingConnectionError { .. } => {}                             // I recognize this and do want to display result below.
@@ -543,7 +556,7 @@ impl Service {
         loop {
             select! {
                 event = self.swarm.select_next_some() => self.handle_event(event).await,
-                command = self.receiver.next() => match command {
+                command = self.receiver.recv() => match command {
                     Some(c) => self.handle_command(c).await,
                     None => return,
                 },

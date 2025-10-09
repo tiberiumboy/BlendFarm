@@ -1,3 +1,4 @@
+use libp2p::Multiaddr;
 use machine_info::Machine;
 use serde::{Deserialize, Serialize};
 use std::env::consts;
@@ -6,6 +7,7 @@ pub type Hostname = String;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ComputerSpec {
+    pub multiaddr: Multiaddr,
     pub host: Hostname,
     pub os: String,
     pub arch: String,
@@ -16,7 +18,7 @@ pub struct ComputerSpec {
 }
 
 impl ComputerSpec {
-    pub fn new(machine: &mut Machine) -> Self {
+    pub fn new(multiaddr: Multiaddr, machine: &mut Machine) -> Self {
         let sys_info = machine.system_info();
         let memory = &sys_info.memory;
         let host = &sys_info.hostname;
@@ -27,6 +29,7 @@ impl ComputerSpec {
         let cores = &sys_info.total_processors;
 
         Self {
+            multiaddr,
             host: host.to_owned(),
             os: consts::OS.to_owned(),
             arch: consts::ARCH.to_owned(),

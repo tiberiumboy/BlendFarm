@@ -1,13 +1,16 @@
+use blender::models::event::BlenderEvent;
 use futures::channel::oneshot::{self};
 use libp2p::{Multiaddr, PeerId};
 use libp2p_request_response::{OutboundRequestId, ResponseChannel};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::{collections::HashSet, error::Error};
 use thiserror::Error;
 
 use crate::models::behaviour::FileResponse;
+use crate::models::computer_spec::ComputerSpec;
 use crate::models::job::JobEvent;
-use crate::network::network::NodeEvent;
+use crate::network::PeerIdString;
 
 #[derive(Debug, Error)]
 pub enum NetworkError {
@@ -97,6 +100,27 @@ pub enum Command {
     NodeStatus(NodeEvent), // broadcast node activity changed
     JobStatus(JobEvent),
     FileService(FileCommand),
+}
+
+// Must be serializable to send data across network
+// issue with this is that this cannot be convert into Encode,Decode by bincode. Instead we'll have to
+#[derive(Debug, Serialize, Deserialize)]
+pub enum NodeEvent {
+    Hello(PeerIdString, ComputerSpec),
+    Disconnected {
+        peer_id: PeerIdString,
+        reason: Option<String>,
+    },
+    BlenderStatus(BlenderEvent),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StatusEvent {
+    Offline,
+    Online,
+    Busy,
+    Error(String),
+    Signal(String),
 }
 
 // Received network events.

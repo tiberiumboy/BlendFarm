@@ -11,13 +11,10 @@ use libp2p::{StreamProtocol, SwarmBuilder, gossipsub, identity, kad, mdns, noise
 use libp2p_request_response::ProtocolSupport;
 use machine_info::Machine;
 use std::{/*hash::DefaultHasher,*/ time::Duration};
-use tokio::{
-    io,
-    sync::mpsc::{self, Receiver},
-};
+use tokio::io;
+use tokio::sync::mpsc::{self, Receiver};
 pub mod controller;
 pub mod message;
-pub mod network;
 pub(crate) mod provider_rule;
 pub mod service;
 

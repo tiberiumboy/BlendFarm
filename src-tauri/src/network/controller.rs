@@ -5,24 +5,24 @@ use std::{
 };
 
 use crate::models::{behaviour::FileResponse, job::JobEvent};
+use crate::network::message::NodeEvent;
 use crate::network::message::{Command, FileCommand, NetworkError};
-use crate::network::network::NodeEvent;
 use crate::network::provider_rule::ProviderRule;
 use futures::channel::oneshot::{self};
 use libp2p::{Multiaddr, PeerId};
 use libp2p_request_response::ResponseChannel;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
 
 // Network Controller interfaces network service.
 #[derive(Clone)]
 pub struct Controller {
-    sender: mpsc::Sender<Command>, // send net commands
+    sender: Sender<Command>, // send net commands
     pub public_id: PeerId,
     pub hostname: String,
 }
 
 impl Controller {
-    pub fn new(sender: mpsc::Sender<Command>, peer_id: PeerId, hostname: String) -> Self {
+    pub(crate) fn new(sender: Sender<Command>, peer_id: PeerId, hostname: String) -> Self {
         Self {
             sender,
             public_id: peer_id,
@@ -36,15 +36,19 @@ impl Controller {
             .send(Command::StartListening { addr, sender })
             .await
             .expect("Command receiver should never be dropped");
-        receiver.await.expect("Sender shouldn't be dropped");
+        if let Err(e) = receiver.await {
+            eprintln!("Fail to listen? {e:?}");
+        }
     }
 
-    pub async fn subscribe(&mut self, topic: &str) -> Result<(), Box<dyn Error + Send>> {
+    pub(crate) async fn subscribe(&mut self, topic: &str) -> Result<(), Box<dyn Error + Send>> {
         // TODO: find a better way to get around to_owned(), but for now focus on getting this application to work.
         let cmd = Command::Subscribe {
             topic: topic.to_owned(),
         };
-        self.sender.send(cmd).await;
+        if let Err(e) = self.sender.send(cmd).await {
+            eprintln!("Fail to subscribe? {e:}");
+        }
         Ok(())
     }
 
@@ -68,7 +72,13 @@ impl Controller {
             })
             .await
             .expect("Should not drop");
-        receiver.await.expect("Should not drop")
+
+        // so at this point we're waiting for connection Established.
+        if let Err(e) = receiver.await {
+            eprintln!("Should not error? {e:?}");
+        }
+        println!("Successfully dial");
+        Ok(())
     }
 
     // send job event to all connected node

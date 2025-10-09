@@ -10,14 +10,28 @@ use super::{
     blend_farm::BlendFarm,
     data_store::{sqlite_job_store::SqliteJobStore, sqlite_worker_store::SqliteWorkerStore},
 };
+use crate::network::controller::Controller as NetworkController;
+use crate::network::message::{Event, NetworkError, NodeEvent};
+use crate::network::provider_rule::ProviderRule;
 use crate::{
-    domains::{job_store::{JobError, JobStore}, worker_store::WorkerStore},
+    domains::{
+        job_store::{JobError, JobStore},
+        worker_store::WorkerStore,
+    },
     models::{
-        app_state::AppState, blender_action::BlenderAction, computer_spec::ComputerSpec, job::{CreatedJobDto, JobAction, JobEvent}, message::{Event, NetworkError}, network::{NetworkController, NodeEvent, ProviderRule}, project_file::ProjectFile, server_setting::ServerSetting, setting_action::SettingsAction, task::Task, worker::Worker
+        app_state::AppState,
+        blender_action::BlenderAction,
+        computer_spec::ComputerSpec,
+        job::{CreatedJobDto, JobAction, JobEvent},
+        project_file::ProjectFile,
+        server_setting::ServerSetting,
+        setting_action::SettingsAction,
+        task::Task,
+        worker::Worker,
     },
     routes::{index::*, job::*, remote_render::*, settings::*, util::*, worker::*},
 };
-use async_std::task::sleep;
+use bitflags;
 use blender::{manager::Manager as BlenderManager, models::mode::RenderMode};
 use futures::{
     SinkExt, StreamExt,
@@ -28,10 +42,8 @@ use semver::Version;
 use sqlx::{Pool, Sqlite};
 use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr, time::Duration};
 use tauri::{self, Url};
+use tokio::sync::mpsc::Receiver;
 use tokio::{select, spawn, sync::Mutex};
-use bitflags;
-
-
 
 bitflags::bitflags! {
     #[derive(Debug, PartialEq)]
@@ -65,7 +77,7 @@ impl BlenderQuery {
         match &self.origin {
             // TODO: Find a way to resolve expect()
             Origin::Local(path) => path.to_str().expect("Should be valid").to_owned(),
-            Origin::Online(url) => url.to_string().to_owned()
+            Origin::Online(url) => url.to_string().to_owned(),
         }
     }
 }
@@ -105,7 +117,6 @@ pub struct TauriApp {
     manager: BlenderManager,
 }
 
-
 impl TauriApp {
     // Clear worker database before usage!
     pub async fn clear_workers_collection(mut self) -> Self {
@@ -127,9 +138,7 @@ impl TauriApp {
 
     // Create a builder to make Tauri application
     // Let's just use the controller in here anyway.
-    pub fn init_tauri_plugins<R: tauri::Runtime>(
-        builder: tauri::Builder<R>
-    ) -> tauri::Builder<R> {
+    pub fn init_tauri_plugins<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
         builder
             .plugin(tauri_plugin_cli::init())
             .plugin(tauri_plugin_os::init())
@@ -180,12 +189,9 @@ impl TauriApp {
             };
             let range = Range { start, end };
 
-            // TODO: Find a way to handle this error. 
+            // TODO: Find a way to handle this error.
             // It should only error if we don't have permission to temp cache storage location
-            let task = Task::from(
-                job.clone(),
-                range,
-            ).expect("Should be able to create task!");
+            let task = Task::from(job.clone(), range).expect("Should be able to create task!");
             tasks.push(task);
         }
 
@@ -218,9 +224,12 @@ impl TauriApp {
                 match result {
                     Ok(job) => {
                         sender.send(Ok(job)).await.expect("Should not drop");
-                    },
+                    }
                     Err(e) => {
-                        sender.send(Err(JobError::DatabaseError(e.to_string()))).await.expect("Should not drop");
+                        sender
+                            .send(Err(JobError::DatabaseError(e.to_string())))
+                            .await
+                            .expect("Should not drop");
                     }
                 };
             }
@@ -228,23 +237,12 @@ impl TauriApp {
                 if let Err(e) = self.job_store.delete_job(&job_id).await {
                     eprintln!("Receiver/sender should not be dropped! {e:?}");
                 }
-                let (sender, mut receiver) = mpsc::channel(1);
-                client.send_job_event(JobEvent::Remove(job_id), sender).await;
-
-                if let Err(e) = receiver.select_next_some().await {
-                    eprintln!("Fail to send job event! {e:?}");
-                    sleep(Duration::from_secs(5u64)).await;
-                }
+                client.send_job_event(JobEvent::Remove(job_id)).await;
             }
             JobAction::AskForCompletedList(job_id) => {
                 // here we will try and send out network node asking for any available client for the list of completed frame images.
-                let (sender, mut receiver ) = mpsc::channel(1);
                 let event = JobEvent::AskForCompletedJobFrameList(job_id);
-                client.send_job_event(event, sender).await;
-                if let Err(e) = receiver.select_next_some().await {
-                    eprintln!("Fail to send job event! {e:?}");
-                    sleep(Duration::from_secs(5u64)).await;
-                }
+                client.send_job_event(event).await;
             }
             JobAction::All(mut sender) => {
                 /*
@@ -271,7 +269,7 @@ impl TauriApp {
                     eprintln!("Fail to send data back! {e:?}");
                 }
             }
-            
+
             // Nothing is calling this yet???
             JobAction::Advertise(job_id) =>
             // Here we will simply add the job to the database, and let client poll them!
@@ -289,7 +287,7 @@ impl TauriApp {
                     let project_file: &ProjectFile = job.item.as_ref();
                     let file_name = project_file.file_name().unwrap(); // this is &OsStr
                     let path: &PathBuf = job.item.as_ref();
-                    
+
                     println!("Reached to this point of code {file_name:?}");
 
                     // Once job is initiated, we need to be able to provide the files for network distribution.
@@ -299,23 +297,21 @@ impl TauriApp {
                     //     eprintln!("Fail to provide file! {e:?}");
                     //     return;
                     // }
-                    
+
                     // let tasks = Self::generate_tasks(
                     //     &job,
                     //     MAX_FRAME_CHUNK_SIZE
                     //     );
-                        
+
                     // // so here's the culprit. We're waiting for a peer to become idle and inactive waiting for the next job
                     // for task in tasks {
                     //     // problem here - I'm getting one client to do all of the rendering jobs, not the inactive one.
                     //     // Perform a round-robin selection instead.
-                        
+
                     //     println!("Sending task to {:?} \nRange( {} - {} )\n", &host, &task.range.start, &task.range.end);
                     //     client.send_job_event(Some(host.clone()), JobEvent::Render(task)).await;
                     // }
                 }
-
-                
             }
         }
     }
@@ -327,34 +323,37 @@ impl TauriApp {
             }
             BlenderAction::List(mut sender, flags) => {
                 let mut versions = Vec::new();
-                
-                if flags.contains(QueryMode::LOCAL) {
 
-                    let mut localblenders = self.manager.get_blenders().iter().map(|b| BlenderQuery {
-                        version: b.get_version().to_owned(), 
-                        origin: Origin::Local(b.get_executable().into())
-                    }).collect::<Vec<BlenderQuery>>(); 
+                if flags.contains(QueryMode::LOCAL) {
+                    let mut localblenders = self
+                        .manager
+                        .get_blenders()
+                        .iter()
+                        .map(|b| BlenderQuery {
+                            version: b.get_version().to_owned(),
+                            origin: Origin::Local(b.get_executable().into()),
+                        })
+                        .collect::<Vec<BlenderQuery>>();
                     versions.append(&mut localblenders);
                 }
-            
+
                 // then display the rest of the download list
-                // TODO: Figure out why fetch_download_list() takes awhile to query the data. 
-                // I expect the cache should fetch the info and provide that information rather than querying the internet 
+                // TODO: Figure out why fetch_download_list() takes awhile to query the data.
+                // I expect the cache should fetch the info and provide that information rather than querying the internet
                 // everytime this function is called.
                 if flags.contains(QueryMode::ONLINE) {
                     if let Some(downloads) = self.manager.fetch_download_list() {
                         let mut item = downloads
-                        .iter()
-                        .map(|d| BlenderQuery { 
-                            version: d.get_version().clone(), 
-                            origin: Origin::Online(d.get_url().clone()) 
-                        })
-                        .collect::<Vec<BlenderQuery>>();
+                            .iter()
+                            .map(|d| BlenderQuery {
+                                version: d.get_version().clone(),
+                                origin: Origin::Online(d.get_url().clone()),
+                            })
+                            .collect::<Vec<BlenderQuery>>();
                         versions.append(&mut item);
                     };
                 }
-                
-            
+
                 // send the collective list result back
                 if let Err(e) = sender.send(Some(versions)).await {
                     eprintln!("Fail to send back list of blenders to caller! {e:?}");
@@ -377,11 +376,11 @@ impl TauriApp {
             // severe connection - remove the entry from database, but do not touch the installation
             BlenderAction::Disconnect(blender) => {
                 self.manager.remove_blender(&blender);
-            },
+            }
             // uninstall blender from local machine
             BlenderAction::Remove(blender) => {
                 self.manager.delete_blender(&blender);
-            },
+            }
         }
     }
 
@@ -446,24 +445,27 @@ impl TauriApp {
         match event {
             Event::NodeStatus(node_status) => match node_status {
                 NodeEvent::Hello(peer_id_string, spec) => {
-                     
-                        let peer_id =
-                            PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
-                        let worker = Worker::new(peer_id.clone(), spec.clone());
+                    // a new node acknowledge your greets.
+                    // this node now listens to you, and has provided info to communicate back
+                    let peer_id =
+                        PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
 
-                        // append new worker to database store
-                        if let Err(e) = self.worker_store.add_worker(worker).await {
-                            eprintln!("Error adding worker to database! {e:?}");
-                        }
+                    // We'll tag this node as a worker.
+                    let worker = Worker::new(peer_id.clone(), spec.clone());
 
-                        println!("New worker added!");
-                        self.peers.insert(peer_id, spec);
+                    // append new worker to database store
+                    if let Err(e) = self.worker_store.add_worker(worker).await {
+                        eprintln!("Error adding worker to database! {e:?}");
+                    }
 
-                        // let handle = app_handle.write().await;
-                        // emit a signal to query the data.
-                        // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
-                        // let _ = handle.emit("worker_update");
-                    },
+                    println!("New worker added!");
+                    self.peers.insert(peer_id, spec);
+
+                    // let handle = app_handle.write().await;
+                    // emit a signal to query the data.
+                    // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
+                    // let _ = handle.emit("worker_update");
+                }
                 // concerning - this String could be anything?
                 // TODO: Find a better way to get around this.
                 NodeEvent::Disconnected { peer_id, reason } => {
@@ -497,7 +499,7 @@ impl TauriApp {
 
             Event::JobUpdate(job_event) => match job_event {
                 // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
-                JobEvent::AskForCompletedJobFrameList(_)  => {
+                JobEvent::AskForCompletedJobFrameList(_) => {
                     // this is reserved for the host side of the app to send out. We do not process this data here.
                     // only client should receive this notification, host will ignore this.
                 }
@@ -505,22 +507,22 @@ impl TauriApp {
                     // first thing first, check and see if this job id matches what we have in our database.
                     // if it doesn't then we ignore this request and move on.
                     let result = self.job_store.get_job(&job_id).await;
-                    
+
                     if result.is_err() {
                         return; // stop here. do not proceed forward. We do not care.
                     }
-                    
+
                     // not that we have the job, we need to fetch for our existing files that we have completed
                     // We received a list of files from the client. We will run and compare this list to our local machine
-                    // let local = 
-                    
+                    // let local =
+
                     // if we do not have the file locally, we will ask for the image from the provided node.
                     // In this case, we do not care who have the node, we will send out a signal stating I need this file.
                     // the node that receive the signal will message back.
-                    
+
                     for file in files {
-                      println!("file: {file}");  
-                    };
+                        println!("file: {file}");
+                    }
                 }
                 JobEvent::ImageCompleted {
                     job_id,
@@ -573,7 +575,7 @@ impl TauriApp {
                     // Node have exhaust all of queue. Check and see if we can create or distribute pending jobs.
                     // look into my jobs and see what jobs are available to send for remote renders
                     // How do I fetch a new task for the workers to consume?
-                    
+
                     let jobs = self.job_store.list_all().await.expect("Should have jobs?");
                     let job = jobs.first().unwrap().clone();
                     // how do I reply back for this task then?
@@ -581,14 +583,9 @@ impl TauriApp {
                     match job.item.generate_task(job.id) {
                         Some(task) => {
                             let event = JobEvent::Render(peer_id_str, task);
-                            let (sender, mut receiver) = mpsc::channel(0);
-                            client.send_job_event(event, sender).await;
-
-                            if let Err(e) = receiver.select_next_some().await {
-                                eprintln!("Fail to send render info {e:?}");
-                            }
+                            client.send_job_event(event).await;
                         }
-                        None => return
+                        None => return,
                     }
                 }
                 // this will soon go away
@@ -599,9 +596,13 @@ impl TauriApp {
                     // Should I do anything on the manager side? Shouldn't matter at this point?
                 }
             },
+            Event::Discovered(..) => {
+                // from this level, we have discovered other potential client on the network.
+                // at this level, we do absolutely nothing. We only respond to client incoming request.
+            }
             _ => {
                 println!("[TauriApp]: {:?}", event);
-            } 
+            }
         }
     }
 }
@@ -611,7 +612,7 @@ impl BlendFarm for TauriApp {
     async fn run(
         mut self,
         mut client: NetworkController,
-        mut event_receiver: futures::channel::mpsc::Receiver<Event>,
+        mut event_receiver: Receiver<Event>,
     ) -> Result<(), NetworkError> {
         // this channel is used to send command to the network, and receive network notification back.
         // ok where is this used?
@@ -622,7 +623,6 @@ impl BlendFarm for TauriApp {
 
         // at the start of this program, I need to broadcast existing project file before the rest of the command hooks.
         // This way, any job pending would have the file already available to distribute across the network.
-        
 
         // we send the sender to the tauri builder - which will send commands to "from_ui".
         let app = Self::init_tauri_plugins(tauri::Builder::default())
@@ -661,7 +661,10 @@ impl BlendFarm for TauriApp {
             loop {
                 select! {
                     msg = command.select_next_some() => self.handle_command(&mut client, msg).await,
-                    event = event_receiver.select_next_some() => self.handle_net_event(&mut client, event).await,
+                    event = event_receiver.recv() => match event {
+                        Some(net_event) => self.handle_net_event(&mut client, net_event).await,
+                        _ => ()
+                    }
                 }
             }
         });
@@ -672,7 +675,7 @@ impl BlendFarm for TauriApp {
 }
 
 #[cfg(test)]
-mod test {      
+mod test {
     use super::*;
     use crate::{config_sqlite_db, constant::DATABASE_FILE_NAME};
 

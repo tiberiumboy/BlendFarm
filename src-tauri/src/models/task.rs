@@ -5,10 +5,12 @@ use crate::{
 };
 use blender::{
     blender::{Args, Blender},
+    constant::MIN_THRESHOLD_FETCH,
     models::{engine::Engine, event::BlenderEvent},
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::sync::mpsc::Receiver;
 use std::{
     ops::Range,
     path::PathBuf,
@@ -57,6 +59,7 @@ impl Task {
         }
     }
 
+    // TODO: Instead
     /// The behaviour of this function returns the percentage of the remaining jobs in poll.
     /// E.g. 102 (out of 255- 80%) of 120 remaining would return 96 end frames.
     /// TODO: Allow other node or host to fetch end frames from this task and distribute to other requesting workers.
@@ -67,7 +70,7 @@ impl Task {
         let delta = (end - self.range.start) as f32;
         let trunc = (perc * (delta.powf(2.0)).sqrt()).floor() as usize;
 
-        if trunc.le(&2) {
+        if trunc <= MIN_THRESHOLD_FETCH {
             return None;
         }
 
@@ -97,7 +100,7 @@ impl Task {
         output: T,
         // reference to the blender executable path to run this task.
         blender: &Blender,
-    ) -> Result<std::sync::mpsc::Receiver<BlenderEvent>, TaskError> {
+    ) -> Result<Receiver<BlenderEvent>, TaskError> {
         let args = Args::new(
             blend_file.as_ref().to_path_buf(),
             output.as_ref().to_path_buf(),

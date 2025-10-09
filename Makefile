@@ -11,8 +11,7 @@ build:
 
 rebuild_database: .sqlx
 	cd ./src-tauri/			# navigate to Tauri's codebase
-	cargo sqlx db create	# create the database file
-	cargo sqlx mig run		# invoke all sql up table files inside ./migrations/ folder
+	cargo sqlx db reset -y		# create the database file
 	cargo sqlx prepare		# create cache sql result that satisfy cargo compiler
 
 test:
