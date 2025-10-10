@@ -10,7 +10,9 @@ Developer blog:
 - Eventually, I will need to find a way to spin up a virtual machine and run blender farm on that machine to see about getting networking protocol working in place.
     This will allow me to do two things - I can continue to develop without needing to fire up a remote machine to test this and
     verify all packet works as intended while I can run the code in parallel to see if there's any issue I need to work overhead.
-
+- Ended up refactoring the program out. each struct have their respective files and folder associated with their group of services.
+    I still have problem using libp2p. Originally had it working but it was locking up main thread and program from executing in async.
+    Going to rely on example until I get this program working again.
 [F] - find a way to allow GUI interface to run as client mode for non cli users.
 [F] - consider using channel to stream data https://v2.tauri.app/develop/calling-frontend/#channels
 [F] - Before release - find a way to add updater  https://v2.tauri.app/plugin/updater/
