@@ -239,14 +239,9 @@ impl Service {
             Command::JobStatus(event) => {
                 // convert data into json format.
                 let data = serde_json::to_string(&event).unwrap();
-                let topic = IdentTopic::new(JOB_TOPIC.to_owned());
-                match self
-                    .swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .publish(topic.clone(), data.clone())
-                {
-                    Ok(_) => println!("Successfully published data in {topic:?}!"),
+                let topic = IdentTopic::new(JOB_TOPIC);
+                match self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+                    Ok(_) => println!("Job Status Sent!\n{event:?}"),
                     Err(e) => eprintln!("Fail to send message! {e:?}"),
                 };
             }
@@ -312,7 +307,9 @@ impl Service {
 
                     // when I process this, how do I know where dialers is used?
                     let event = Event::Discovered(peer_id, address);
-                    self.sender.send(event).await;
+                    if let Err(e) = self.sender.send(event).await {
+                        eprintln!("sender should not drop! {e:?}");
+                    }
 
                     // if I have already discovered this address, then I need to skip it. Otherwise I will produce garbage log input for duplicated peer id already exist.
                     // it seems that I do need to explicitly add the peers to the list.
@@ -322,19 +319,20 @@ impl Service {
                     //     .add_explicit_peer(&peer_id);
 
                     // // add the discover node to kademlia list.
+                    // why would I want to do this?
                     // self.swarm
                     //     .behaviour_mut()
                     //     .kad
                     //     .add_address(&peer_id, address.clone());
                 }
             }
-            mdns::Event::Expired(peers) => {
-                for (peer_id, ..) in peers {
-                    self.swarm
-                        .behaviour_mut()
-                        .gossipsub
-                        .remove_explicit_peer(&peer_id);
-                }
+            mdns::Event::Expired(..) => {
+                // for (peer_id, ..) in peers {
+                //     self.swarm
+                //         .behaviour_mut()
+                //         .gossipsub
+                //         .remove_explicit_peer(&peer_id);
+                // }
             }
         };
     }
@@ -482,6 +480,9 @@ impl Service {
 
                 if endpoint.is_dialer() {
                     if let Some(sender) = self.pending_dial.remove(&peer_id) {
+                        self.dialers
+                            .entry(peer_id)
+                            .and_modify(|f| *f = endpoint.get_remote_address().clone());
                         let _ = sender.send(Ok(()));
                     }
                 }
@@ -563,4 +564,9 @@ impl Service {
             }
         }
     }
+}
+
+#[cfg(test)]
+pub mod test {
+    // TODO: perform some service test. How can I get the service up and running for this?
 }

@@ -40,7 +40,7 @@ use futures::{
 use libp2p::PeerId;
 use semver::Version;
 use sqlx::{Pool, Sqlite};
-use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr, time::Duration};
+use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr};
 use tauri::{self, Url};
 use tokio::sync::mpsc::Receiver;
 use tokio::{select, spawn, sync::Mutex};
@@ -572,20 +572,19 @@ impl TauriApp {
                 JobEvent::Render(..) => {}
                 // this will soon go away - host should not receive request job.
                 JobEvent::RequestTask(peer_id_str) => {
-                    // Node have exhaust all of queue. Check and see if we can create or distribute pending jobs.
-                    // look into my jobs and see what jobs are available to send for remote renders
-                    // How do I fetch a new task for the workers to consume?
+                    // a node is requesting task.
 
                     let jobs = self.job_store.list_all().await.expect("Should have jobs?");
-                    let job = jobs.first().unwrap().clone();
-                    // how do I reply back for this task then?
-                    // use the peer_id_string.
-                    match job.item.generate_task(job.id) {
-                        Some(task) => {
-                            let event = JobEvent::Render(peer_id_str, task);
-                            client.send_job_event(event).await;
+                    if let Some(job) = jobs.first() {
+                        // how do I reply back for this task then?
+                        // use the peer_id_string.
+                        match job.item.clone().generate_task(job.id) {
+                            Some(task) => {
+                                let event = JobEvent::Render(peer_id_str, task);
+                                client.send_job_event(event).await;
+                            }
+                            None => return,
                         }
-                        None => return,
                     }
                 }
                 // this will soon go away

@@ -55,8 +55,8 @@ impl TaskStore for SqliteTaskStore {
         let sql = r"INSERT INTO tasks(id, job_id, job, start, end) 
             VALUES($1, $2, $3, $4, $5)";
         let id = Uuid::new_v4();
-        let job =
-            serde_json::to_string::<Job>(task.as_ref()).expect("Should be able to convert job into json");
+        let job = serde_json::to_string::<Job>(task.as_ref())
+            .expect("Should be able to convert job into json");
 
         let job_id = AsRef::<Uuid>::as_ref(&task);
         let _ = sqlx::query(sql)

@@ -4,9 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::models::{behaviour::FileResponse, job::JobEvent};
-use crate::network::message::NodeEvent;
-use crate::network::message::{Command, FileCommand, NetworkError};
+use crate::models::behaviour::FileResponse;
+use crate::models::job::JobEvent;
+use crate::network::message::{Command, FileCommand, NetworkError, NodeEvent};
 use crate::network::provider_rule::ProviderRule;
 use futures::channel::oneshot::{self};
 use libp2p::{Multiaddr, PeerId};
@@ -52,6 +52,7 @@ impl Controller {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(crate) async fn send_node_status(&mut self, status: NodeEvent) {
         if let Err(e) = self.sender.send(Command::NodeStatus(status)).await {
             eprintln!("Failed to send node status to network service: {e:?}");
@@ -60,24 +61,23 @@ impl Controller {
 
     pub(crate) async fn dial(
         &mut self,
-        peer_id: PeerId,
-        peer_addr: Multiaddr,
+        peer_id: &PeerId,
+        peer_addr: &Multiaddr,
     ) -> Result<(), Box<dyn Error + Send>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::Dial {
-                peer_id,
-                peer_addr,
+                peer_id: peer_id.clone(),
+                peer_addr: peer_addr.clone(),
                 sender,
             })
             .await
             .expect("Should not drop");
 
-        // so at this point we're waiting for connection Established.
+        // so at this point we're waiting for connection established.
         if let Err(e) = receiver.await {
             eprintln!("Should not error? {e:?}");
         }
-        println!("Successfully dial");
         Ok(())
     }
 

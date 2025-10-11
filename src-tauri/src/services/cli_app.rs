@@ -31,9 +31,10 @@ use tokio::time::sleep;
 use tokio::{select, sync::RwLock};
 use uuid::Uuid;
 
+// TODO: What was this for?
+#[allow(dead_code)]
 enum CmdCommand {
     // TODO: See where this can be used?
-    #[allow(dead_code)]
     Render(Task, Sender<BlenderEvent>),
     Dial(PeerId, Multiaddr),
     RequestTask, // calls to host for more task.
@@ -383,7 +384,7 @@ impl CliApp {
             // once we discover a peer, let's dial that peer.
             Event::Discovered(peer_id, multiaddr) => {
                 if self.host.is_none() {
-                    if let Err(e) = client.dial(peer_id, multiaddr.clone()).await {
+                    if let Err(e) = client.dial(&peer_id, &multiaddr).await {
                         eprintln!("Fail to dial! {e:?}");
                     }
 
@@ -429,11 +430,10 @@ impl CliApp {
     // Currently there is no event attached for command to receive, Therefore ignore this function for now.
     async fn handle_command(&mut self, client: &mut Controller, cmd: CmdCommand) {
         match cmd {
-            CmdCommand::Dial(peer_id, addr) => {
-                if let Err(e) = client.dial(peer_id, addr).await {
-                    eprintln!("{e:?}");
-                }
-            }
+            CmdCommand::Dial(peer_id, addr) => match client.dial(&peer_id, &addr).await {
+                Ok(_) => self.host = Some((peer_id, addr)),
+                Err(e) => eprintln!("{e:?}"),
+            },
 
             CmdCommand::Render(mut task, mut sender) => {
                 // TODO: We should find a way to mark this node currently busy so we should unsubscribe any pending new jobs if possible?
