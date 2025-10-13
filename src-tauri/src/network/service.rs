@@ -441,13 +441,12 @@ impl Service {
                 }
             }
 
-            // suppressed
-            kad::Event::InboundRequest { .. } => {}
-            // suppressed
-            kad::Event::RoutingUpdated { .. } => {}
+            kad::Event::InboundRequest { .. } => {} // suppressed
+            kad::Event::RoutingUpdated { .. } => {} // suppressed
+            // TODO: Find out what cause this to happen and see if we need to handle anything for this invocation exception
             kad::Event::UnroutablePeer { peer } => {
                 eprintln!("Unroutable Peer? {peer}");
-            }
+            } // suppressed
             _ => {
                 // oh mah gawd. What am I'm suppose to do here?
                 eprintln!("Unhandled Kademila event: {kad_event:?}");
@@ -521,7 +520,7 @@ impl Service {
                 // println!("[New Listener Address]: {address}");
                 let local_peer_id = *self.swarm.local_peer_id();
                 eprintln!(
-                    "Local node is listening on {:?}",
+                    "Listening @ {:?}",
                     address.with(Protocol::P2p(local_peer_id))
                 );
             }
@@ -543,8 +542,8 @@ impl Service {
 
             // Suppressing logs
             SwarmEvent::NewExternalAddrOfPeer { .. } => {}
-
-            // SwarmEvent::IncomingConnectionError { .. } => {}                             // I recognize this and do want to display result below.
+            SwarmEvent::IncomingConnectionError { .. } => {} // I recognize this and do want to display result below.
+            SwarmEvent::ExpiredListenAddr { .. } => {}
 
             /* #endregion ^^eof ignore^^ */
             // Must fully exhaust all condition types as possible!

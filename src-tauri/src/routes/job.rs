@@ -290,6 +290,7 @@ mod test {
         // webview::InvokeRequest
     };
 
+    // TODO: Fix this so that I can get unit test working again
     #[allow(dead_code)]
     async fn scaffold_app() -> Result<(tauri::App<MockRuntime>, Receiver<UiCommand>), Error> {
         let (_invoke, receiver) = mpsc::channel(1);

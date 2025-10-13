@@ -163,6 +163,7 @@ impl CliApp {
         sender: &mut Sender<BlenderEvent>,
     ) -> Result<(), CliError> {
         // for now, let's skip this part and continue on. We don't have DHT setup, but I want to make sure cli does actually render once we get the file share situation straighten out.
+        // TODO: Find a way to get the file share working across network.
         // let project_file = self.validate_project_file(client, &task).await?;
 
         let job = AsRef::<Job>::as_ref(&task);
@@ -240,6 +241,7 @@ impl CliApp {
         {
             Ok(rx) => loop {
                 if let Ok(status) = rx.recv() {
+                    // Somehow, receiver was closed?
                     sender
                         .send(status)
                         .await
@@ -427,7 +429,6 @@ impl CliApp {
         }
     }
 
-    // Currently there is no event attached for command to receive, Therefore ignore this function for now.
     async fn handle_command(&mut self, client: &mut Controller, cmd: CmdCommand) {
         match cmd {
             CmdCommand::Dial(peer_id, addr) => match client.dial(&peer_id, &addr).await {
@@ -439,9 +440,15 @@ impl CliApp {
                 // TODO: We should find a way to mark this node currently busy so we should unsubscribe any pending new jobs if possible?
                 // mutate this struct to skip listening for any new jobs.
                 // proceed to render the task.
-                if let Err(e) = self.render_task(client, &mut task, &mut sender).await {
-                    let event = JobEvent::Failed(e.to_string());
-                    client.send_job_event(event).await;
+                match self.render_task(client, &mut task, &mut sender).await {
+                    Ok(_) => {
+                        // here we should send successful result?
+                        eprintln!("Successfully rendered task!");
+                    }
+                    Err(e) => {
+                        let event = JobEvent::Failed(e.to_string());
+                        client.send_job_event(event).await;
+                    }
                 }
             }
 
@@ -491,27 +498,37 @@ impl BlendFarm for CliApp {
 
                                 loop {
                                     select! {
-                                        Some(event) = receiver.recv() => {
-                                            match event {
-                                                BlenderEvent::Log(log) => println!("{log}"),
-                                                BlenderEvent::Warning(warn) => println!("{warn}"),
-                                                BlenderEvent::Rendering { current, total } => println!("Rendering {current} out of {total}"),
-                                                BlenderEvent::Completed { result, .. } => println!("Image completed! {result:?}"),
-                                                BlenderEvent::Unhandled(e) => {
-                                                    eprintln!("Unahandle blender event received! {e:?}");
-                                                    break;
-                                                },
-                                                BlenderEvent::Exit => {
-                                                    println!("Blender exit! This task should be completed?");
-                                                    if let Err(e) = db.delete_task(&task.id).await {
-                                                        // if the task doesn't exist
-                                                        eprintln!(
-                                                            "Fail to delete task entry from database! {e:?}"
-                                                        );
-                                                    }
-                                                    break;
-                                                },
-                                                BlenderEvent::Error(_) => break,
+                                        event = receiver.recv() => match event {
+                                            Some(event) => {
+                                                match event {
+                                                    BlenderEvent::Log(log) => println!("{log}"),
+                                                    BlenderEvent::Warning(warn) => println!("{warn}"),
+                                                    BlenderEvent::Rendering { current, total } => println!("Rendering {current} out of {total}"),
+                                                    BlenderEvent::Completed { result, .. } => println!("Image completed! {result:?}"),
+                                                    // string indices must be integers, not 'str'"
+                                                    BlenderEvent::Unhandled(e) => {
+                                                        eprintln!("Unhandle blender event received! {e:?}");
+                                                        break;
+                                                    },
+                                                    BlenderEvent::Exit => {
+                                                        println!("Blender exit! This task should be completed?");
+                                                        if let Err(e) = db.delete_task(&task.id).await {
+                                                            // if the task doesn't exist
+                                                            eprintln!(
+                                                                "Fail to delete task entry from database! {e:?}"
+                                                            );
+                                                        }
+                                                        break;
+                                                    },
+                                                    BlenderEvent::Error(e) => {
+                                                        eprintln!("Received Blender Error: {e:?}");
+                                                        break
+                                                    },
+                                                }
+                                            },
+                                            None => {
+                                                eprintln!("Received None from Blender loop! Breaking");
+                                                break
                                             }
                                         }
                                     }

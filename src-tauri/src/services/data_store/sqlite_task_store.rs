@@ -58,9 +58,9 @@ impl TaskStore for SqliteTaskStore {
         let job = serde_json::to_string::<Job>(task.as_ref())
             .expect("Should be able to convert job into json");
 
-        let job_id = AsRef::<Uuid>::as_ref(&task);
+        let job_id = AsRef::<Uuid>::as_ref(&task).to_string();
         let _ = sqlx::query(sql)
-            .bind(id)
+            .bind(id.to_string())
             .bind(job_id)
             .bind(job)
             .bind(&task.range.start)
