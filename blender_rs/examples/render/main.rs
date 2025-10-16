@@ -17,10 +17,10 @@ async fn render_with_manager() {
     println!("Fetch latest available blender to use");
 
     let blender = manager.latest_local_avail().unwrap_or_else(|| {
-            println!("No local blender installation found! Downloading latest from internet...");
-            manager
-                .download_latest_version()
-                .expect("Should be able to download blender! Are you not connected to the internet?")
+        println!("No local blender installation found! Downloading latest from internet...");
+        manager
+            .download_latest_version()
+            .expect("Should be able to download blender! Are you not connected to the internet?")
     });
 
     println!("Prepare blender configuration...");
@@ -46,7 +46,7 @@ async fn render_with_manager() {
                 println!("[Completed] {frame} {result:?}");
             }
             BlenderEvent::Rendering { current, total } => {
-                let percent = ( current / total ) * 100.0;
+                let percent = (current / total) * 100.0;
                 println!("[Rendering] {current} out of {total} (%{percent})");
             }
             BlenderEvent::Error(e) => {

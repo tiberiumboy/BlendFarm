@@ -576,11 +576,15 @@ impl Blender {
                 rx.send(msg).unwrap();
             }
 
-            line if line.contains("Time:") => {
+            line if line.starts_with("Time:") => {
                 rx.send(BlenderEvent::Log(line)).unwrap();
             }
             // Python logs get injected to stdio
-            line if line.contains("SUCCESS:") => {
+            line if line.starts_with("SUCCESS:") => {
+                // somehow I received an error from sending?
+                rx.send(BlenderEvent::Log(line)).unwrap();
+            }
+            line if line.starts_with("LOG:") => {
                 rx.send(BlenderEvent::Log(line)).unwrap();
             }
             line if line.contains("Use:") => {
@@ -602,12 +606,12 @@ impl Blender {
             }
 
             // Strange how this was thrown, but doesn't report back to this program?
-            line if line.contains("EXCEPTION:") => {
+            line if line.starts_with("EXCEPTION:") => {
                 signal.send(BlenderEvent::Exit).unwrap();
                 rx.send(BlenderEvent::Error(line.to_owned())).unwrap();
             }
 
-            line if line.contains("COMPLETED") => {
+            line if line.starts_with("COMPLETED") => {
                 signal.send(BlenderEvent::Exit).unwrap();
                 rx.send(BlenderEvent::Exit).unwrap();
             }
@@ -624,10 +628,12 @@ impl Blender {
 
             line if line.contains("Blender quit") => {
                 // ignoring this...
+                println!("Blender quit! Should we handle something about this here at this point of time?");
             }
 
             // any unhandle handler is submitted raw in console output here.
             line if !line.is_empty() => {
+                // somehow it was able to pick up the blender version and commit hash value?
                 let msg = format!("[Unhandle Blender Event]:{line}");
                 let event = BlenderEvent::Unhandled(msg);
                 rx.send(event).unwrap();

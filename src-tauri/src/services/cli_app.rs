@@ -240,15 +240,42 @@ impl CliApp {
             .await
         {
             Ok(rx) => loop {
-                if let Ok(status) = rx.recv() {
-                    // Somehow, receiver was closed?
-                    sender
-                        .send(status)
-                        .await
-                        .expect("Channel should not be closed");
-                    // not sure if I still need this? 8/29/25
-                    // let node_status = NodeEvent::BlenderStatus(status);
-                    // client.send_node_status(node_status).await;
+                match rx.recv() {
+                    Ok(status) => {
+                        // SHould look into a better way to write this so that we can handle loop better for blender process....
+                        // Somehow, receiver was closed?
+                        match &status {
+                            BlenderEvent::Completed { .. } => {
+                                sender
+                                    .send(status)
+                                    .await
+                                    .expect("Channel should not be closed");
+                                // make sure to break out of this loop!
+                                break;
+                            }
+                            BlenderEvent::Error(..) => {
+                                sender
+                                    .send(status)
+                                    .await
+                                    .expect("Channel should not be closed");
+                                // make sure to break out of this loop!
+                                break;
+                            }
+                            _ => sender
+                                .send(status)
+                                .await
+                                .expect("Channel should not be closed"),
+                        }
+
+                        // not sure if I still need this? 8/29/25
+                        // let node_status = NodeEvent::BlenderStatus(status);
+                        // client.send_node_status(node_status).await;
+                    }
+                    Err(e) => {
+                        let event = BlenderEvent::Error(e.to_string());
+                        sender.send(event).await.expect("Channel should be closed");
+                        break;
+                    }
                 }
             },
             Err(e) => {
@@ -489,7 +516,8 @@ impl BlendFarm for CliApp {
                     Ok(result) => {
                         match result {
                             Some(task) => {
-                                println!("Got task to do! {task:?}");
+                                // why did this method get invoked twice?
+                                println!("Begin some task!");
                                 let (sender, mut receiver) = mpsc::channel(32);
                                 let cmd = CmdCommand::Render(task.item, sender);
                                 if let Err(e) = event.send(cmd).await {
@@ -504,11 +532,13 @@ impl BlendFarm for CliApp {
                                                     BlenderEvent::Log(log) => println!("{log}"),
                                                     BlenderEvent::Warning(warn) => println!("{warn}"),
                                                     BlenderEvent::Rendering { current, total } => println!("Rendering {current} out of {total}"),
-                                                    BlenderEvent::Completed { result, .. } => println!("Image completed! {result:?}"),
-                                                    // string indices must be integers, not 'str'"
+                                                    BlenderEvent::Completed { result, .. } => {
+                                                        println!("Image completed! {result:?}")
+                                                    },
+                                                    // receiving unhandled event for getting blender version and commit hash value?
                                                     BlenderEvent::Unhandled(e) => {
-                                                        eprintln!("Unhandle blender event received! {e:?}");
-                                                        break;
+                                                        // Blender 4.3.2 (hash 32f5fdce0a0a built 2024-12-17 02:14:25)
+                                                        eprintln!("{e:?}");
                                                     },
                                                     BlenderEvent::Exit => {
                                                         println!("Blender exit! This task should be completed?");

@@ -12,10 +12,13 @@ isPre3 = bpy.app.version < (3,0,0)
 def eprint(msg):
     print("EXCEPTION:" + str(msg) + "\n")
 
+def log(msg):
+    print("LOG:" + str(msg) + "\n")
+
 # hardware:[CPU,GPU,BOTH], kind: [NONE, CUDA, OPTIX, HIP, ONEAPI, (METAL?)]
 # Eventually in the future we could distribute to a point of using certain GPU for certain render?
 def configureSystemRenderDevices(kind, hardware):
-    print("Setting up Cycles Render Devices")
+    log("Setting up Cycles Render Devices")
     pref = bpy.context.preferences.addons["cycles"].preferences
     pref.compute_device_type = kind
 
@@ -42,7 +45,7 @@ def setRenderSettings(scn, renderSetting, hardware):
     scn.cycles.device = hardware
 
     #Set Samples
-    scn.cycles.samples = int(renderSetting["sample"])
+    scn.cycles.samples = renderSetting["sample"]
     scn.render.use_persistent_data = True
 
     # Set Frames Per Second
@@ -51,16 +54,16 @@ def setRenderSettings(scn, renderSetting, hardware):
         scn.render.fps = fps
 
     #Set Resolution
-    scn.render.resolution_x = int(renderSetting["width"])
-    scn.render.resolution_y = int(renderSetting["height"])
+    scn.render.resolution_x = renderSetting["width"]
+    scn.render.resolution_y = renderSetting["height"]
     scn.render.resolution_percentage = 100
 
     # Set borders
     border = renderSetting["border"]
-    scn.render.border_min_x = float(border["X"])
-    scn.render.border_max_x = float(border["X2"])
-    scn.render.border_min_y = float(border["Y"])
-    scn.render.border_max_y = float(border["Y2"])
+    scn.render.border_min_x = border["X"]
+    scn.render.border_max_x = border["X2"]
+    scn.render.border_min_y = border["Y"]
+    scn.render.border_max_y = border["Y2"]
 
 # Setup blender configs
 def setupBlenderSettings(scn, config):
@@ -81,14 +84,14 @@ def setupBlenderSettings(scn, config):
         scn.render.image_settings.file_format = file_format
         
     # Set threading
-    threads = int(config["Cores"])
+    threads = config["Cores"]
     scn.render.threads_mode = 'FIXED'
     scn.render.threads = max(cpu_count(), threads)
     
     # is this still possible? not sure if we still need this?
     if (isPre3):
-        scn.render.tile_x = int(config["TileWidth"])
-        scn.render.tile_y = int(config["TileHeight"])
+        scn.render.tile_x = config["TileWidth"]
+        scn.render.tile_y = config["TileHeight"]
     
     # Set constraints
     scn.render.use_border = True
@@ -132,7 +135,7 @@ def main():
     
     # set current scene
     if(scene is not None and scene != "" and scn.name != scene):
-        print("LOG: Overriding default scene - using target scene: " + scene + "\n")
+        log("Overriding default scene - using target scene: " + scene + "\n")
         scn = bpy.data.scenes[scene]
         if(scn is None):
             raise Exception("Scene name does not exist:" + scene)
