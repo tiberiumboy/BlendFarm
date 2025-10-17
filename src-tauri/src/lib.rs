@@ -35,6 +35,7 @@ use tokio::spawn;
 use tokio::sync::RwLock;
 
 use crate::constant::{JOB_TOPIC, NODE_TOPIC};
+use crate::services::data_store::sqlite_renders_store::SqliteRenderStore;
 
 pub mod constant;
 pub mod domains;
@@ -117,12 +118,14 @@ pub async fn run() {
         Some(Commands::Client) => {
             // eventually I'll move this code into it's own separate codeblock
             let task_store = SqliteTaskStore::new(db.clone());
+            let render_store = SqliteRenderStore::new(db.clone());
 
             // we're sharing this across threads?
             let task_store = Arc::new(RwLock::new(task_store));
+            let render_store = Arc::new(RwLock::new(render_store));
 
             // here the client wants database connection to task table. Why not provide database connection instead?
-            CliApp::new(task_store)
+            CliApp::new(task_store, render_store)
                 .run(controller, receiver)
                 .await
                 .map_err(|e| println!("Error running Cli app: {e:?}"))

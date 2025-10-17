@@ -7,6 +7,8 @@ Feature request:
     - receive command to properly reboot computer when possible?
 */
 use super::blend_farm::BlendFarm;
+use crate::domains::render_store::RenderStore;
+use crate::models::render_info::NewRenderInfoDto;
 use crate::network::message::{self, Event, NetworkError, NodeEvent};
 use crate::network::provider_rule::ProviderRule;
 use crate::{
@@ -55,6 +57,7 @@ pub struct CliApp {
 
     // database
     task_store: Arc<RwLock<dyn TaskStore + Send + Sync + 'static>>,
+    render_store: Arc<RwLock<dyn RenderStore + Send + Sync + 'static>>,
 
     // config
     settings: ServerSetting,
@@ -67,12 +70,16 @@ pub struct CliApp {
 
 impl CliApp {
     // we could simplify this design by just asking for the database info?
-    pub fn new(task_store: Arc<RwLock<dyn TaskStore + Send + Sync + 'static>>) -> Self {
+    pub fn new(
+        task_store: Arc<RwLock<dyn TaskStore + Send + Sync + 'static>>,
+        render_store: Arc<RwLock<dyn RenderStore + Send + Sync + 'static>>,
+    ) -> Self {
         let manager = BlenderManager::load();
         Self {
             settings: ServerSetting::load(),
             manager,
             task_store,
+            render_store,
             host: None, // no task assigned yet
         }
     }
@@ -153,6 +160,7 @@ impl CliApp {
         Ok(output)
     }
 
+    // TODO: Refactor this!
     // TODO: Rewrite this to meet Single responsibility principle.
     // How do I abort the job? -> That's the neat part! You don't! Delete the job+task entry from the database, and notify client to halt if running deleted jobs.
     /// Invokes the render job. The task needs to be mutable for frame deque.
@@ -245,14 +253,15 @@ impl CliApp {
                         // SHould look into a better way to write this so that we can handle loop better for blender process....
                         // Somehow, receiver was closed?
                         match &status {
-                            BlenderEvent::Completed { .. } => {
-                                sender
-                                    .send(status)
-                                    .await
-                                    .expect("Channel should not be closed");
-                                // make sure to break out of this loop!
-                                break;
-                            }
+                            // what is complete? Is this frame completed?
+                            // BlenderEvent::Completed { .. } => {
+                            //     sender
+                            //         .send(status)
+                            //         .await
+                            //         .expect("Channel should not be closed");
+                            //     // make sure to break out of this loop!
+                            //     break;
+                            // }
                             BlenderEvent::Error(..) => {
                                 sender
                                     .send(status)
@@ -506,12 +515,14 @@ impl BlendFarm for CliApp {
         // event.send(cmd).await.expect("Should not be free?");
 
         let taskdb = self.task_store.clone();
+        let render_db = self.render_store.clone();
 
         // background thread to handle blender invocation
         spawn(async move {
             loop {
                 let db = taskdb.write().await;
 
+                // think I have too many nested conditions here? Is it possible to break apart this component into smaller s
                 match db.poll_task().await {
                     Ok(result) => {
                         match result {
@@ -519,6 +530,8 @@ impl BlendFarm for CliApp {
                                 // why did this method get invoked twice?
                                 println!("Begin some task!");
                                 let (sender, mut receiver) = mpsc::channel(32);
+                                let job_id_ref: &Uuid = AsRef::as_ref(&task.item);
+                                let job_id = job_id_ref.to_owned();
                                 let cmd = CmdCommand::Render(task.item, sender);
                                 if let Err(e) = event.send(cmd).await {
                                     eprintln!("Fail to send backend service render request! {e:?}");
@@ -532,8 +545,12 @@ impl BlendFarm for CliApp {
                                                     BlenderEvent::Log(log) => println!("{log}"),
                                                     BlenderEvent::Warning(warn) => println!("{warn}"),
                                                     BlenderEvent::Rendering { current, total } => println!("Rendering {current} out of {total}"),
-                                                    BlenderEvent::Completed { result, .. } => {
-                                                        println!("Image completed! {result:?}")
+                                                    BlenderEvent::Completed { result, frame } => {
+                                                        let render_info = NewRenderInfoDto::new(job_id.clone(), frame, result );
+                                                        let render_db = render_db.write().await;
+                                                        if let Err(e) = render_db.create_renders(render_info).await {
+                                                            eprintln!("Fail to create a new render entry to the database! {e:?}");
+                                                        }
                                                     },
                                                     // receiving unhandled event for getting blender version and commit hash value?
                                                     BlenderEvent::Unhandled(e) => {
@@ -541,7 +558,9 @@ impl BlendFarm for CliApp {
                                                         eprintln!("{e:?}");
                                                     },
                                                     BlenderEvent::Exit => {
-                                                        println!("Blender exit! This task should be completed?");
+                                                        println!("Blender exit!");
+                                                        // so once the render is done, we somehow deleted the task afterward?
+                                                        // How do I store the final render image result?
                                                         if let Err(e) = db.delete_task(&task.id).await {
                                                             // if the task doesn't exist
                                                             eprintln!(
