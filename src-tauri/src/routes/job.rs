@@ -297,7 +297,9 @@ mod test {
         // let conn = config_sqlite_db().await?;
         // let app = TauriApp::new(&conn).await;
         // TODO: Find a better way to get around this approach. Seems like I may not need to have an actual tauri app builder?
-        let app = TauriApp::init_tauri_plugins(mock_builder()).build(tauri::generate_context!("tauri.conf.json")).expect("Should be able to build");
+        // error: symbol `_EMBED_INFO_PLIST` is already defined
+        let context = tauri::generate_context!("tauri.conf.json");
+        let app = TauriApp::init_tauri_plugins(mock_builder()).build(context).expect("Should be able to build");
         Ok((app, receiver))
     }
 

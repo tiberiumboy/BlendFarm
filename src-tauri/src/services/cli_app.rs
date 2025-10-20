@@ -253,15 +253,6 @@ impl CliApp {
                         // SHould look into a better way to write this so that we can handle loop better for blender process....
                         // Somehow, receiver was closed?
                         match &status {
-                            // what is complete? Is this frame completed?
-                            // BlenderEvent::Completed { .. } => {
-                            //     sender
-                            //         .send(status)
-                            //         .await
-                            //         .expect("Channel should not be closed");
-                            //     // make sure to break out of this loop!
-                            //     break;
-                            // }
                             BlenderEvent::Error(..) => {
                                 sender
                                     .send(status)
@@ -275,14 +266,14 @@ impl CliApp {
                                 .await
                                 .expect("Channel should not be closed"),
                         }
-
-                        // not sure if I still need this? 8/29/25
-                        // let node_status = NodeEvent::BlenderStatus(status);
-                        // client.send_node_status(node_status).await;
                     }
                     Err(e) => {
                         let event = BlenderEvent::Error(e.to_string());
-                        sender.send(event).await.expect("Channel should be closed");
+                        if let Err(c) = sender.send(event).await {
+                            eprintln!(
+                                "Unable to send error event over clseod channel: {c:?}\n{e:?}"
+                            );
+                        }
                         break;
                     }
                 }
@@ -479,7 +470,7 @@ impl CliApp {
                 match self.render_task(client, &mut task, &mut sender).await {
                     Ok(_) => {
                         // here we should send successful result?
-                        eprintln!("Successfully rendered task!");
+                        println!("Successfully rendered task!");
                     }
                     Err(e) => {
                         let event = JobEvent::Failed(e.to_string());
