@@ -482,7 +482,6 @@ impl Blender {
 
         server.register_simple("fetch_info", move |_i: i32| {
             let setting = serde_json::to_string(&*global_settings.clone()).unwrap();
-            println!("{:?}", &setting);
             Ok(setting)
         });
 
