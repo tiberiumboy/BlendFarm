@@ -3,4 +3,5 @@
 [ ] - Before release - find a way to add an auto updater? https://v2.tauri.app/plugin/updater/ 
 [ ] - Provide user feedback when download/installing blender from the web.
 [ ] - Implement FFmpeg usage so that we can generate preview gif images within our preview window.
-[ ] - Write a python plugin to display Blender Manager from blender. We could operate blendfarm as cli mode within blender?m
+[ ] - Write a python plugin to display Blender Manager from blender. We could operate blendfarm as cli mode within blender?
+[ ] - Allow FFI interface to blenderManager from blender using python as a add-on scripts.
