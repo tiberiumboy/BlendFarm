@@ -148,7 +148,7 @@ impl Manager {
     pub fn get_config_dir(user_pref: Option<PathBuf>) -> PathBuf {
         let path = match user_pref {
             Some(path) => path.join("BlendFarm"),
-            None => dirs::config_dir().unwrap().join("BlendFarm")
+            None => dirs::config_dir().unwrap().join("BlendFarm"),
         };
 
         // ensure path location must exist - we guarantee permission access here.
@@ -307,6 +307,14 @@ impl Manager {
     /// TODO: verify that this doesn't break macos path executable... Why mac gotta be special with appbundle?
     pub fn delete_blender(&mut self, blender: &Blender) {
         // this deletes blender from the system. You have been warn!
+        // BEWARE - MacOS is special that the executable path is referencing inside the bundle. I would need to get the app path instead of the bundle inside.
+        if std::env::consts::OS == "macos" {
+            panic!(
+                "Need to handle mac app path reference instead of path inside bundle! {:?}",
+                blender.get_executable()
+            );
+        }
+        // I'm still concern about this, why are we deleting the parent? Need to perform unit test for this to make sure it doesn't delete anything else.
         fs::remove_dir_all(blender.get_executable().parent().unwrap()).unwrap();
         self.remove_blender(blender);
     }
