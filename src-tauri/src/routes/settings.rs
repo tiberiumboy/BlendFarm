@@ -137,9 +137,22 @@ pub async fn fetch_blender_installation(
     }
 }
 
-#[command]
-pub fn delete_blender(_path: &str) -> Result<(), ()> {
-    todo!("Impl function to delete blender and its local contents");
+/// Permanently delete blender from the system using the file path given
+#[command(async)]
+pub async fn delete_blender(state: State<'_, Mutex<AppState>>, path: &str) -> Result<(), String> {
+    let mut app_state = state.lock().await;
+    let blender = match Blender::from_executable(path) {
+        Ok(blend) => blend,
+        Err(e) => return Err(e.to_string())
+    };
+    
+    let event = UiCommand::Blender(BlenderAction::Remove(blender));
+    if let Err(e) = app_state.invoke.send(event).await {
+        eprintln!("Fail to send blender action event! {e:?}");
+        return Err(e.to_string())
+    }
+    
+    Ok(())
 }
 
 /// - Severe local path to blender from registry (Orphan on disk/not touched)
@@ -151,24 +164,6 @@ pub async fn disconnect_blender_installation(
     let mut app_state = state.lock().await;
     
     let event = UiCommand::Blender(BlenderAction::Disconnect(blender));
-    if let Err(e) = app_state.invoke.send(event).await {
-        eprintln!("Fail to send blender action event! {e:?}");
-        return Err(e.to_string())
-    }
-    
-    Ok(())
-}
-
-/// - Delete blender content completely (erasing from disk)
-#[command(async)]
-pub async fn uninstall_blender(
-    state: State<'_, Mutex<AppState>>,
-    blender: Blender
-) -> Result<(), String>{ 
-    // this is where we enter the danger territory of deleting local installation of blender and the file associated with.
-    let mut app_state = state.lock().await;
-
-    let event = UiCommand::Blender(BlenderAction::Remove(blender));
     if let Err(e) = app_state.invoke.send(event).await {
         eprintln!("Fail to send blender action event! {e:?}");
         return Err(e.to_string())

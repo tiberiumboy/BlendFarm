@@ -658,7 +658,6 @@ impl BlendFarm for TauriApp {
                 add_blender_installation,
                 list_blender_installed,
                 disconnect_blender_installation,
-                uninstall_blender,
                 delete_blender,
                 fetch_blender_installation,
             ])
