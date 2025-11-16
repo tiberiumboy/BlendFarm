@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "ce0c803c5ab6be43",
+        "id": "851a88eb97dcae8a",
         "type": "tabs",
         "children": [
           {
-            "id": "8935825f019c7d8e",
+            "id": "1610ed8efcefe535",
             "type": "leaf",
             "state": {
               "type": "empty",
@@ -89,7 +89,6 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "blendfarm/Bugs/Unit test fail - cannot validate .blend file path.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -99,7 +98,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for Unit test fail - cannot validate .blend file path"
+              "title": "Backlinks"
             }
           },
           {
@@ -108,12 +107,11 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "blendfarm/Bugs/Unit test fail - cannot validate .blend file path.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from Unit test fail - cannot validate .blend file path"
+              "title": "Outgoing links"
             }
           },
           {
@@ -158,19 +156,27 @@
       "command-palette:Open command palette": false
     }
   },
-  "active": "8935825f019c7d8e",
+  "active": "1610ed8efcefe535",
   "lastOpenFiles": [
-    "blendfarm/Network code notes.md",
-    "blendfarm/Yamux.md",
-    "blendfarm/Context.md",
-    "blendfarm/Task/TODO.md",
-    "blendfarm/Task/Task.md",
+    "blendfarm/Bugs/Unable to discover localhost with no internet connection is established or provided..md",
+    "blendfarm/Bugs/Node identification not store in database.md",
+    "blendfarm/Bugs/Render not saved to database.md",
     "blendfarm/Task/Features.md",
+    "blendfarm/Bugs/Unit test fail - symbol _EMBED_INFO_PLIST already defined.md",
+    "blendfarm/Bugs/Deleting Blender from UI cause app to crash..md",
+    "blendfarm/Bugs/Program cannot discover itself on the same network.md",
+    "blendfarm/Task/Task.md",
+    "blendfarm/Images/RenderJobDialog.png",
+    "blendfarm/Images/RenderJobDialog.png",
+    "blendfarm/Images/SettingPage.png",
+    "blendfarm/Images/RemoteJobPage.png",
     "blendfarm/Pages/Settings.md",
     "blendfarm/Pages/Render Job window.md",
     "blendfarm/Pages/Remote Render.md",
-    "blendfarm/Bugs/Unit test fail - symbol _EMBED_INFO_PLIST already defined.md",
-    "blendfarm/Bugs/Deleting Blender from UI cause app to crash..md",
+    "blendfarm/Task/TODO.md",
+    "blendfarm/Context.md",
+    "blendfarm/Network code notes.md",
+    "blendfarm/Yamux.md",
     "blendfarm/Bugs/Import Job does nothing.md",
     "blendfarm/Bugs/Cannot open dialog.md",
     "main/Untitled.md",
