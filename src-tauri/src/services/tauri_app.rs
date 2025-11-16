@@ -524,6 +524,9 @@ impl TauriApp {
                         println!("file: {file}");
                     }
                 }
+                // we received a job event that a node have finish rendering an image.
+                // We now need to make sure our output destination exist and valid.
+                // Afterward, we should try to fetch the file from that caller.
                 JobEvent::ImageCompleted {
                     job_id,
                     frame: _,
@@ -535,26 +538,32 @@ impl TauriApp {
                         println!("Issue creating temp job directory! {e:?}");
                     }
 
-                    // this is used to send update to the web app.
-                    // let handle = app_handle.write().await;
-                    // if let Err(e) = handle.emit(
-                    //     "frame_update",
-                    //     FrameUpdatePayload {
-                    //         id,
-                    //         frame,
-                    //         file_name: file_name.clone(),
-                    //     },
-                    // ) {
-                    //     eprintln!("Unable to send emit to app handler\n{e:?}");
-                    // }
+                    /*  send update to ui
+                    let handle = app_handle.write().await;
+                    if let Err(e) = handle.emit(
+                        "frame_update",
+                        FrameUpdatePayload {
+                            id,
+                            frame,
+                            file_name: file_name.clone(),
+                        },
+                    ) {
+                        eprintln!("Unable to send emit to app handler\n{e:?}");
+                    }
+                    */
 
                     // Fetch the completed image file from the network
-                    if let Ok(file) = client.get_file_from_peers(&file_name, &destination).await {
-                        println!("File stored at {file:?}");
-                        // let handle = app_handle.write().await;
-                        // if let Err(e) = handle.emit("job_image_complete", (job_id, frame, file)) {
-                        //     eprintln!("Fail to publish image completion emit to front end! {e:?}");
-                        // }
+                    match client.get_file_from_peers(&file_name, &destination).await {
+                        Ok(file) => {
+                            println!("File stored at {file:?}");
+                            // let handle = app_handle.write().await;
+                            // if let Err(e) = handle.emit("job_image_complete", (job_id, frame, file)) {
+                            //     eprintln!("Fail to publish image completion emit to front end! {e:?}");
+                            // }
+                        },
+                        Err(e) => {
+                            eprintln!("Failed to fetch the file from peers!\n{:?}", e);
+                        }
                     }
                 }
                 // when a task is complete, check the poll for next available job queue?
@@ -568,9 +577,11 @@ impl TauriApp {
                 }
 
                 // send a render job
-                // this will soon go away - host should not be receiving render jobs.
-                JobEvent::Render(..) => {}
-                // this will soon go away - host should not receive request job.
+                JobEvent::Render(..) => {
+                    // if we have a local client up and running, we should just communicate it directly. This will help setup the output correctly.
+                    // TODO: Host should try to communicate local client
+                    println!("Host received a Render Job - Contact client and provide info about this job. Read on how Rust micromange services?");
+                }
                 JobEvent::RequestTask(peer_id_str) => {
                     // a node is requesting task.
 

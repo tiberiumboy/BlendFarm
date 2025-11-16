@@ -1,9 +1,7 @@
 default:
 	cd ./src-tauri/ 
 	cargo tauri dev
-	# what can we do afterward?
 
-# could be renamed to release?
 build:
 	cd ./src-tauri/
 	cargo tauri build
