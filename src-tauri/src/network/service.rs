@@ -164,10 +164,18 @@ impl Service {
                 }
             }
             Command::StartListening { addr, sender } => {
-                let _ = match self.swarm.listen_on(addr) {
-                    Ok(_) => sender.send(Ok(())),
-                    Err(e) => sender.send(Err(Box::new(e))),
+                let _result = match self.swarm.listen_on(addr) {
+                    Err(e) => match e.source() {
+                        Some(err) => Err(Box::new(err.to_string())),
+                        None => Ok(()),
+                    },
+                    _ => Ok(()),
                 };
+                // TODO, figure out how to get this situation straighten? Why
+                // sender.send(result);
+                if let Err(e) = sender.send(Ok(())) {
+                    eprintln!("Fail to send! {e:?}");
+                }
             }
 
             Command::Dial {
