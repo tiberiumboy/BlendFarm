@@ -19,8 +19,8 @@ uuid = { version = "^1.13.1", features = ["serde", "v4"] }
 ureq = { version = "^3.0" }
 blend = "0.8.0"
 tokio = { version = "1.42.0", features = ["full"] }
-# xml-rpc = { git = "https://github.com/tiberiumboy/xml-rpc-rs.git" }
-xml-rpc = { version = "*" }
+xml-rpc = { git = "https://github.com/tiberiumboy/xml-rpc-rs.git" }
+# xml-rpc = { version = "*" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 zip = "^2"

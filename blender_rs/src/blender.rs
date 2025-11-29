@@ -471,7 +471,7 @@ impl Blender {
         let global_settings = Arc::new(settings);
 
         let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8081);
-        let mut server = Server::new();
+        let mut server = Server::bind(self, socket);
 
         server.register_simple("next_render_queue", move |_i: i32| match get_next_frame() {
             Some(frame) => Ok(frame),
