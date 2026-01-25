@@ -12,7 +12,10 @@
     Do note that blender is open source - it's not impossible to create FFI that interfaces blender directly, but rather, there's no support to perform this kind of action.
 */
 // May Subject to change.
-use crate::models::{engine::Engine, format::Format};
+use crate::{
+    blend_file::BlendFile,
+    models::{engine::Engine, format::Format},
+};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -28,16 +31,16 @@ pub enum HardwareMode {
 // ref: https://docs.blender.org/manual/en/latest/advanced/command_line/render.html
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Args {
-    pub file: PathBuf,          // required
-    pub output: PathBuf,        // optional
-    pub engine: Engine,         // optional
+    pub file: BlendFile, // required
+    pub output: PathBuf, // optional
+    pub engine: Engine,  // optional
     pub processor: Processor,
-    pub mode: HardwareMode,     // optional
-    pub format: Format,         // optional - default to Png
+    pub mode: HardwareMode, // optional
+    pub format: Format,     // optional - default to Png
 }
 
 impl Args {
-    pub fn new(file: PathBuf, output: PathBuf, engine: Engine) -> Self {
+    pub fn new(file: BlendFile, output: PathBuf, engine: Engine) -> Self {
         Args {
             file: file,
             output: output,

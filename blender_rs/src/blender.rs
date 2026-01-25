@@ -1,6 +1,10 @@
 /*
 Developer blog:
 
+Spending time on replacing xml-rpc-rs due to maintainers not willing to replace rouille plugin that supports this implementations.
+I would instead incorporate the functionality of XML-RPC protocol myself instead of relying third party packages.
+Reading the wikipedia - https://en.wikipedia.org/wiki/XML-RPC#Usage - xml-rpc is done via simple http server.
+
 Currently, there is no error handling situation from blender side of things. If blender crash, we will resume the rest of the code in attempt to parse the data.
     This will eventually lead to a program crash because we couldn't parse the information we expect from stdout.
     Todo peek into stderr and see if
@@ -12,15 +16,12 @@ Currently, there is no error handling situation from blender side of things. If 
     - They mention to enforce compute methods, do not mix cpu and gpu. (Why?)
 
 Trial:
-- Try docker?
 - try loading .dll from blender? See if it's possible?
-- Learning Unsafe Rust and using FFI - going to try and find blender's library code that rust can bind to.
-    - todo: see about cbindgen/cxx?
 
 Advantage:
 - can support M-series ARM processor.
 - Original tool Doesn't composite video for you - We can make ffmpeg wrapper? - This will be a feature but not in this level of implementation.
-- LogicReinc uses JSON to load batch file - no way to adjust frame after job sent. This version we establish IPC for python to ask next frame. We have better control what to render next.
+- LogicReinc uses JSON to load batch file - difficult to adjust frame(s) after job sent. I'm creating an IPC between this program and python to ask next frame. To improve actions over blender.
 
 Disadvantage:
 - Currently rely on python script to do custom render within blender.
@@ -54,23 +55,21 @@ TODO:
         of just letting BlendFarm do all the work.
     */
 extern crate xml_rpc;
+use crate::blend_file::{BlendFile, SceneInfo};
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
-use crate::models::blender_scene::{BlenderScene, Camera, Sample, SceneName};
-use crate::models::engine::Engine;
+use crate::models::blender_scene::BlenderScene;
+use crate::models::config::BlenderConfiguration;
 use crate::models::event::BlenderEvent;
-use crate::models::format::Format;
-use crate::models::render_setting::{FrameRate, RenderSetting};
-use crate::models::window::Window;
-use crate::models::{config::BlenderConfiguration, peek_response::PeekResponse};
+use crate::models::peek_response::PeekResponse;
+use crate::models::render_setting::RenderSetting;
 
-use blend::Blend;
 #[cfg(test)]
 use blend::Instance;
 use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+// use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::{
@@ -81,12 +80,8 @@ use std::{
 };
 use thiserror::Error;
 use tokio::spawn;
-use xml_rpc::{Fault, Server};
-
-// TODO: this is ugly, and I want to get rid of this. How can I improve this?
-// Backstory: Win and linux can be invoked via their direct app link. However, MacOS .app is just a bundle, which contains the executable inside.
-// To run process::Command, I must properly reference the executable path inside the blender.app on MacOS, using the hardcoded path below.
-const MACOS_PATH: &str = "Contents/MacOS/Blender";
+use xml_rpc::Server;
+use xml_rpc::{Params, Value, XmlResponse};
 
 pub type Frame = i32;
 
@@ -229,6 +224,11 @@ impl Blender {
     /// let blender = Blender::from_executable(Pathbuf::from("path/to/blender")).unwrap();
     /// ```
     pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self, BlenderError> {
+        // TODO: this is ugly, and I want to get rid of this. How can I improve this?
+        // Backstory: Win and linux can be invoked via their direct app link. However, MacOS .app is just a bundle, which contains the executable inside.
+        // To run process::Command, I must properly reference the executable path inside the blender.app on MacOS, using the hardcoded path below.
+        const MACOS_PATH: &str = "Contents/MacOS/Blender";
+
         // check and verify that the executable exist.
         // first line for validating blender executable.
         let path = executable.as_ref();
@@ -318,113 +318,6 @@ impl Blender {
         }
     }
 
-    /// Peek is a function design to read and fetch information about the blender file.
-    /// Issue - Depends on BlenderManager struct!
-    pub async fn peek(blend_file: &PathBuf) -> Result<PeekResponse, BlenderError> {
-        let blend = Blend::from_path(&blend_file)
-            .map_err(|_| BlenderError::InvalidFile("Received BlenderParseError".to_owned()))?;
-
-        // blender version are display as three digits number, e.g. 404 is major: 4, minor: 4.
-        // treat this as a u16 major = u16 / 100, minor = u16 % 100;
-        let value: u64 = std::str::from_utf8(&blend.blend.header.version)
-            .expect("Fail to parse version into utf8")
-            .parse()
-            .expect("Fail to parse string to value");
-        let major = value / 100;
-        let minor = value % 100;
-
-        // using scope to drop manager usage.
-        let blend_version = {
-            // this seems expensive...
-            let mut manager = Manager::load();
-            // TODO: Refactor this script so we can ask the manager to fetch the information without accessing category at all.
-            match manager.have_blender_partial(major, minor) {
-                Some(blend) => blend.version.clone(),
-                None => manager
-                    .get_latest_version_patch(major, minor)
-                    .unwrap_or(Version::new(major, minor, 0)),
-                //     None => {
-                //         eprintln!(
-                //             r"Current user does not have version installed and is unable to connect to internet to fetch online version. Blender Manager cannot fetch exact version, but will insist on relying locally installed version instead."
-                //         );
-                //         Version::new(major, minor, 0)
-                //     }
-            }
-        };
-
-        let mut scenes: Vec<SceneName> = Vec::new();
-        let mut cameras: Vec<Camera> = Vec::new();
-        let mut frame_start: Frame = 0;
-        let mut frame_end: Frame = 0;
-        let mut render_width: i32 = 0;
-        let mut render_height: i32 = 0;
-        let mut fps: FrameRate = 0;
-        let mut sample: Sample = 0;
-        let mut output = PathBuf::new();
-        let mut engine = Engine::CYCLES;
-
-        // this denotes how many scene objects there are.
-        for obj in blend.instances_with_code(*b"SC") {
-            let scene = obj.get("id").get_string("name").replace("SC", ""); // not the correct name usage?
-            let render = &obj.get("r"); // get render data
-
-            engine = match render.get_string("engine") {
-                x if x.contains("NEXT") => Engine::BLENDER_EEVEE_NEXT,
-                x if x.contains("EEVEE") => Engine::BLENDER_EEVEE,
-                x if x.contains("OPTIX") => Engine::OPTIX,
-                _ => Engine::CYCLES,
-            };
-
-            sample = obj.get("eevee").get_i32("taa_render_samples");
-
-            // Issue, Cannot find cycles info! Blender show that it should be here under SCscene, just like eevee, but I'm looking it over and over and it's not there? Where is cycle?
-            // Use this for development only!
-            // Self::explore_value(&obj.get("eevee"));
-
-            render_width = render.get_i32("xsch");
-            render_height = render.get_i32("ysch");
-            frame_start = render.get_i32("sfra");
-            frame_end = render.get_i32("efra");
-            fps = render.get_u16("frs_sec");
-            output = render
-                .get_string("pic")
-                .parse::<PathBuf>()
-                .map_err(|e| BlenderError::PythonError(e.to_string()))?;
-
-            scenes.push(scene);
-        }
-
-        // interesting - I'm picking up the wrong camera here?
-        for obj in blend.instances_with_code(*b"CA") {
-            let camera = obj.get("id").get_string("name").replace("CA", "");
-            cameras.push(camera);
-        }
-
-        let selected_camera = cameras.get(0).unwrap_or(&"".to_owned()).to_owned();
-        let selected_scene = scenes.get(0).unwrap_or(&"".to_owned()).to_owned();
-        let render_setting = RenderSetting::new(
-            output,
-            render_width,
-            render_height,
-            sample,
-            fps,
-            engine,
-            Format::default(),
-            Window::default(),
-        );
-        let current = BlenderScene::new(selected_scene, selected_camera, render_setting);
-        let result = PeekResponse::new(
-            blend_version,
-            frame_start,
-            frame_end,
-            cameras,
-            scenes,
-            current,
-        );
-
-        Ok(result)
-    }
-
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
     /// # Examples
     /// ```
@@ -435,16 +328,13 @@ impl Blender {
     /// let final_output = blender.render(&args).unwrap();
     /// ```
     // so instead of just returning the string of render result or blender error, we'll simply use the single producer to produce result from this class.
+    // issue here is that we need to lock thread. If we are rendering, we need to be able to call abort.
     pub async fn render<F>(&self, args: Args, get_next_frame: F) -> Receiver<BlenderEvent>
     where
         F: Fn() -> Option<i32> + Send + Sync + 'static,
     {
         let (signal, listener) = mpsc::channel::<BlenderEvent>();
-
-        let blend_info = Self::peek(&args.file)
-            .await
-            .expect("Fail to parse blend file!"); // TODO: Need to clean this error up a bit.
-
+        let blend_info: PeekResponse = args.file.peek_response(&self.version);
         // this is the only place used for BlenderRenderSetting... thoughts?
         let settings = BlenderConfiguration::parse_from(&args, &blend_info, &self.version);
         self.setup_listening_server(settings, listener, get_next_frame)
@@ -454,10 +344,18 @@ impl Blender {
         let executable = self.executable.clone();
 
         spawn(async move {
-            Blender::setup_listening_blender(args, executable, rx, signal).await;
+            Blender::setup_listening_blender(&args, executable, rx, signal).await;
         });
 
+        // channel to invoke commands to blender while blender is running.
         tx
+    }
+
+    fn next_render_queue_callback(params: Params) -> XmlResponse {
+        // here, they're asking for next render queue callback.
+        // in this case here, we don't care about the params, ? Why is Params called?
+
+        XmlResponse::Ok(Params::new(vec![Value::Int(42)]))
     }
 
     async fn setup_listening_server<F>(
@@ -465,30 +363,59 @@ impl Blender {
         settings: BlenderConfiguration,
         listener: Receiver<BlenderEvent>,
         get_next_frame: F,
-    ) where
+    ) -> Result<(), BlenderError>
+    where
         F: Fn() -> Option<i32> + Send + Sync + 'static,
     {
+        // Read here - https://en.wikipedia.org/wiki/XML-RPC#Usage
+        /*
+        In XML-RPC, a client performs an RPC by sending an HTTP request
+        to a server that implements XML-RPC and receives the HTTP response.
+
+        A call can have multiple parameters and one result.
+        The protocol defines a few data types for the parameters and result.
+        Some of these data types are complex, i.e. nested. For example,
+            you can have a parameter that is an array of five integers.
+
+        The parameters/result structure and the set of data types are meant to
+        mirror those used in common programming languages.
+
+        Identification of clients for authorization purposes can be achieved
+        using popular HTTP security methods. Basic access authentication
+        can be used for identification and authentication.
+
+        In comparison to RESTful protocols, where resource representations (documents)
+        are transferred, XML-RPC is designed to call methods. The practical difference
+        is just that XML-RPC is much more structured, which means common library code
+        can be used to implement clients and servers and there is less design and
+        documentation work for a specific application protocol.
+
+        [citation needed] One salient technical difference between typical RESTful
+        protocols and XML-RPC is that many RESTful protocols use the HTTP URI
+        for parameter information, whereas with XML-RPC, the URI just identifies the server.
+        */
+
         let global_settings = Arc::new(settings);
+        let socket = 8081;
 
-        // let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8081);
-        let port = 8080;
-        let mut server = Server::new(port);
+        let mut server = Server::new(socket).expect("Unable to open socket for xml_rpc!");
 
-        server.register_simple("next_render_queue", move |_i: i32| match get_next_frame() {
-            Some(frame) => Ok(frame),
+        // while we're actively listening to the server, we can send response back.
 
-            // this is our only way to stop python script.
-            None => Err(Fault::new(1, "No more frames to render!")),
-        });
+        // subscribe mesages with invoker
+        server.register(
+            "next_render_queue".to_owned(),
+            move |params| match get_next_frame() {
+                Some(frame) => XmlResponse::Ok(Params::new(vec![Value::Int(frame)])),
+                // this is our only way to stop python script.
+                None => XmlResponse::Err(Fault::new(1, "No more frames to render!")),
+            },
+        );
 
-        server.register_simple("fetch_info", move |_i: i32| {
-            let setting = serde_json::to_string(&*global_settings.clone()).unwrap();
-            Ok(setting)
-        });
-
-        let bind_server = server
-            .bind(&socket)
-            .expect("Unable to open socket for xml_rpc!");
+        // server.register("fetch_info".to_owned(), move |_i: i32| {
+        //     let setting = serde_json::to_string(&*global_settings.clone()).unwrap();
+        //     Ok(setting)
+        // });
 
         // spin up XML-RPC server
         spawn(async move {
@@ -496,33 +423,41 @@ impl Blender {
                 // if the program shut down or if we've completed the render, then we should stop the server
                 match listener.try_recv() {
                     Ok(BlenderEvent::Exit) => break,
-                    _ => bind_server.poll(),
+                    e => println!("Listener received unconditionally: {e:?}"),
+                    // _ => server.poll(),
                 }
             }
         });
+
+        Ok(())
     }
 
-    async fn setup_listening_blender<T: AsRef<Path>>(
-        args: Args,
-        executable: T,
-        rx: Sender<BlenderEvent>,
-        signal: Sender<BlenderEvent>,
-    ) {
+    fn setup_args(blend_file: &BlendFile) -> Result<Vec<String>, BlenderError> {
         let script_path = Blender::get_config_path().join("render.py");
         if !script_path.exists() {
             let data = include_bytes!("./render.py");
-            // TODO: Find a way to remove unwrap()
-            fs::write(&script_path, data).unwrap();
+            fs::write(&script_path, data).map_err(|e| BlenderError::PythonError(e.to_string()))?;
         }
 
-        let col = vec![
+        let path = blend_file.to_path().as_os_str();
+
+        Ok(vec![
             "--factory-startup".to_owned(),
             "-noaudio".into(),
             "-b".into(),
-            args.file.to_str().unwrap().into(),
+            path.to_str().unwrap().to_owned(),
             "-P".into(),
             script_path.to_str().unwrap().into(),
-        ];
+        ])
+    }
+
+    async fn setup_listening_blender<T: AsRef<Path>>(
+        args: &Args,
+        executable: T,
+        rx: Sender<BlenderEvent>,
+        signal: Sender<BlenderEvent>,
+    ) -> Result<(), BlenderError> {
+        let col = Self::setup_args(&args.file)?;
 
         // TODO: Find a way to remove unwrap()
         let stdout = Command::new(executable.as_ref())
@@ -543,6 +478,8 @@ impl Blender {
                 Self::handle_blender_stdio(line, &mut frame, &rx, &signal);
             };
         });
+
+        Ok(())
     }
 
     // TODO: This function updates a value above this scope -> See if we can just return the value instead?
@@ -596,6 +533,7 @@ impl Blender {
 
             // it would be nice if we can somehow make this as a struct or enum of types?
             line if line.contains("Saved:") => {
+                // TODO: Test this for OSX compatibility
                 let location = line.split('\'').collect::<Vec<&str>>();
                 let result = PathBuf::from(location[1]);
                 rx.send(BlenderEvent::Completed {

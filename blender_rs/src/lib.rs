@@ -1,6 +1,7 @@
 #![crate_type = "lib"]
 #![crate_name = "blender"]
 
+pub mod blend_file;
 pub mod blender;
 pub mod constant;
 pub mod manager;

@@ -35,6 +35,7 @@ use tokio::spawn;
 use tokio::sync::RwLock;
 
 use crate::constant::{JOB_TOPIC, NODE_TOPIC};
+use crate::network::controller::Controller;
 use crate::services::data_store::sqlite_renders_store::SqliteRenderStore;
 
 pub mod constant;
@@ -66,6 +67,27 @@ async fn config_sqlite_db(file_name: &str) -> Result<SqlitePool, sqlx::Error> {
     SqlitePool::connect_with(options).await
 }
 
+async fn setup_connection(controller: &mut Controller) {
+    // Listen on all interfaces and whatever port OS assigns
+    let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().expect("Shouldn't fail");
+    let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
+        .parse()
+        .expect("Shouldn't fail");
+
+    controller.start_listening(tcp).await;
+    controller.start_listening(udp).await;
+
+    // let's automatically listen to the topics mention above.
+    // all network interference must subscribe to these topics!
+    if let Err(e) = controller.subscribe(JOB_TOPIC).await {
+        eprintln!("Fail to subscribe job topic! {e:?}");
+    };
+
+    if let Err(e) = controller.subscribe(NODE_TOPIC).await {
+        eprintln!("Fail to subscribe node topic! {e:?}")
+    };
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     dotenv().ok();
@@ -94,25 +116,9 @@ pub async fn run() {
         server.run().await;
     });
 
-    // Listen on all interfaces and whatever port OS assigns
-    let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().expect("Shouldn't fail");
-    let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
-        .parse()
-        .expect("Shouldn't fail");
+    setup_connection(&mut controller).await;
 
-    controller.start_listening(tcp).await;
-    controller.start_listening(udp).await;
-
-    // let's automatically listen to the topics mention above.
-    // all network interference must subscribe to these topics!
-    if let Err(e) = controller.subscribe(JOB_TOPIC).await {
-        eprintln!("Fail to subscribe job topic! {e:?}");
-    };
-
-    if let Err(e) = controller.subscribe(NODE_TOPIC).await {
-        eprintln!("Fail to subscribe node topic! {e:?}")
-    };
-
+    // TODO: Restructure this to allow running client from GUI mode.
     let _ = match cli.command {
         // run as client mode.
         Some(Commands::Client) => {

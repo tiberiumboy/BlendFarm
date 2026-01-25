@@ -560,7 +560,7 @@ impl TauriApp {
                             // if let Err(e) = handle.emit("job_image_complete", (job_id, frame, file)) {
                             //     eprintln!("Fail to publish image completion emit to front end! {e:?}");
                             // }
-                        },
+                        }
                         Err(e) => {
                             eprintln!("Failed to fetch the file from peers!\n{:?}", e);
                         }
@@ -580,7 +580,9 @@ impl TauriApp {
                 JobEvent::Render(..) => {
                     // if we have a local client up and running, we should just communicate it directly. This will help setup the output correctly.
                     // TODO: Host should try to communicate local client
-                    println!("Host received a Render Job - Contact client and provide info about this job. Read on how Rust micromange services?");
+                    println!(
+                        "Host received a Render Job - Contact client and provide info about this job. Read on how Rust micromange services?"
+                    );
                 }
                 JobEvent::RequestTask(peer_id_str) => {
                     // a node is requesting task.
@@ -656,6 +658,7 @@ impl BlendFarm for TauriApp {
                 get_worker,
                 update_output_field,
                 add_blender_installation,
+                install_from_internet,
                 list_blender_installed,
                 disconnect_blender_installation,
                 delete_blender,

@@ -1,3 +1,4 @@
+use crate::blend_file::{BlendFile, SceneInfo};
 /*
     Developer blog:
     This manager class will serve the following purpose:
@@ -6,7 +7,10 @@
     - If user fetch for list of installation, verify all path exist before returning the list.
     - Implements download and install code
 */
-use crate::blender::Blender;
+use crate::blender::{Blender, BlenderError};
+use crate::models::blender_scene::BlenderScene;
+use crate::models::peek_response::PeekResponse;
+use crate::models::render_setting::RenderSetting;
 use crate::models::{category::BlenderCategory, download_link::DownloadLink};
 use crate::page_cache::PageCache;
 
@@ -240,6 +244,43 @@ impl Manager {
             Err(e) => println!("Unable to save new manager data! {:?}", e),
         }
         data
+    }
+
+    /// Peek is a function design to read and fetch information about the blender file.
+    pub async fn peek(&mut self, blendfile: BlendFile) -> Result<PeekResponse, BlenderError> {
+        let (major, minor) = blendfile.get_partial_version();
+        // simple upcast
+        let (major, minor) = (major as u64, minor as u64);
+
+        // using scope to drop manager usage.
+        let blend_version = {
+            // TODO: Refactor this script so we can ask the manager to fetch the information without accessing category at all.
+            match self.have_blender_partial(major, minor) {
+                Some(blend) => blend.get_version().clone(),
+                None => self
+                    .get_latest_version_patch(major, minor)
+                    .unwrap_or(Version::new(major, minor, 0)),
+            }
+        };
+
+        let scene_info: SceneInfo = blendfile.into();
+        let selected_scene = scene_info.selected_scene();
+        let selected_camera = scene_info.selected_camera();
+
+        let render_setting: RenderSetting = scene_info.render_setting();
+        let current = BlenderScene::new(selected_scene, selected_camera, render_setting);
+
+        // TODO: Rethink structure?
+        let result = PeekResponse::new(
+            blend_version, // Why?
+            scene_info.frame_start,
+            scene_info.frame_end,
+            scene_info.cameras,
+            scene_info.scenes,
+            current,
+        );
+
+        Ok(result)
     }
 
     pub fn get_install_path(&self) -> &Path {

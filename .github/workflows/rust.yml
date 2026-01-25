@@ -14,8 +14,9 @@ jobs:
         include:
           - platform: 'macos-latest' # for ARM based macs
             args: '--target aarch64-apple-darwin'
-          - platform: 'macos-latest' # for Intel based macs
-            args: '--target x86_64-apple-darwin'
+          # Blender no longer supports Intel based macs. May phase out in the future
+          # - platform: 'macos-latest' # for Intel based macs
+          #   args: '--target x86_64-apple-darwin'
           - platform: 'ubuntu-22.04' # for linux distro
             args: ''
           - platform: 'windows-latest'

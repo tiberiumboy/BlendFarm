@@ -212,7 +212,7 @@ fn convert_file_src(path: &PathBuf) -> String {
     let base = "http://asset.localhost/";
     #[cfg(not(any(windows, target_os = "android")))]
     let base = "asset://localhost/";
-
+    // Consider about removing dunce lib for less dependencies involve for this case?
     let path = dunce::canonicalize(path).expect("Should be able to canonicalize path!");
     let binding = path.to_string_lossy();
     let encoded = urlencoding::encode(&binding);

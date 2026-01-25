@@ -92,6 +92,17 @@ pub async fn add_blender_installation(
     Ok(())
 }
 
+// Somehow I was missing this function where it was used in this class?
+#[command(async)]
+pub async fn install_from_internet(
+    _handle: State<'_, Mutex<AppHandle>>,
+    _state: State<'_, Mutex<AppState>>
+) -> Result<(), ()>{
+    print!("Show me what the internet still have?");
+    // in this case, I need to return a maud layout of the dialog pop up using htmx
+    Err(())
+}
+
 // So this can no longer be a valid api call?
 // TODO: Reconsider refactoring this so that it's not a public api call. Deprecate/remove asap
 #[command(async)]
