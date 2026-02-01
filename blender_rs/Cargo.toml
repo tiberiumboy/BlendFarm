@@ -21,7 +21,6 @@ blend = "0.8.0"
 tokio = { version = "^1.49", features = ["full"] }
 # xml-rpc will merge into this project some day in the future, as it's just a http server protocol.
 xml-rpc = { git = "https://github.com/tiberiumboy/xml-rpc-rs.git" }
-# xml-rpc = { version = "*" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 zip = "^7"

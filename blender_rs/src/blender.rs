@@ -80,8 +80,12 @@ use std::{
 };
 use thiserror::Error;
 use tokio::spawn;
-use xml_rpc::Server;
-use xml_rpc::{Params, Value, XmlResponse};
+use xml_rpc::{Params, Server, Value, XmlResponse};
+
+// TODO: this is ugly, and I want to get rid of this. How can I improve this?
+// Backstory: Win and linux can be invoked via their direct app link. However, MacOS .app is just a bundle, which contains the executable inside.
+// To run process::Command, I must properly reference the executable path inside the blender.app on MacOS, using the hardcoded path below.
+const MACOS_PATH: &str = "Contents/MacOS/Blender";
 
 pub type Frame = i32;
 
@@ -100,6 +104,11 @@ pub enum BlenderError {
     #[error("Unable to fetch info from blender home service! Are you connected to the internet and is blender foundation still around?")]
     ServiceOffline,
 }
+
+// struct BlenderService {
+//     get_next_frame: dyn FnMut() -> Option<i32>
+//     settings:  
+// }
 
 /// Blender structure to hold path to executable and version of blender installed.
 /// Pretend this is the wrapper to interface with the actual blender program.
@@ -318,6 +327,11 @@ impl Blender {
         }
     }
 
+    fn local_get_next_render_que(&mut self, _params: Params) -> XmlResponse {
+        
+        Ok(Params::new(vec![Value::Int(1)]))
+    }
+
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
     /// # Examples
     /// ```
@@ -400,17 +414,15 @@ impl Blender {
 
         let mut server = Server::new(socket).expect("Unable to open socket for xml_rpc!");
 
-        // while we're actively listening to the server, we can send response back.
-
-        // subscribe mesages with invoker
-        server.register(
-            "next_render_queue".to_owned(),
-            move |params| match get_next_frame() {
-                Some(frame) => XmlResponse::Ok(Params::new(vec![Value::Int(frame)])),
-                // this is our only way to stop python script.
-                None => XmlResponse::Err(Fault::new(1, "No more frames to render!")),
-            },
-        );
+        server.register("next_render_queue".to_owned(), self::local_get_next_render_que);
+        /* 
+        server.register("next_render_queue".to_owned(), move |params| match get_next_frame() {
+            Some(frame) => Ok(frame),
+            
+            // this is our only way to stop python script.
+            None => Err(Fault::new(1, "No more frames to render!")),
+        });
+        */
 
         // server.register("fetch_info".to_owned(), move |_i: i32| {
         //     let setting = serde_json::to_string(&*global_settings.clone()).unwrap();
