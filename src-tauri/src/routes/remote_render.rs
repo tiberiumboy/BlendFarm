@@ -1,51 +1,84 @@
 /* Dev blog:
 - I really need to draw things out and make sense of the workflow for using this application.
-I wonder why initially I thought of importing the files over and then selecting the files again to begin the render job?
-
-For now - Let's go ahead and save the changes we have so far.
-Next update - Remove Project list, and instead just allow user to create a new job.
-when you create a new job, it immediately sends a new job to the server farm
 
 for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
-use crate::AppState;
+use super::util::select_directory;
+use crate::{
+    models::{app_state::AppState, project_file::ProjectFile},
+    services::tauri_app::{QueryMode, UiCommand},
+};
+use crate::models::blender_action::BlenderAction;
 use blender::blender::Blender;
+use futures::{SinkExt, StreamExt, channel::mpsc};
 use maud::html;
 use semver::Version;
 use std::path::PathBuf;
-use tauri::{command, AppHandle, State};
+use tauri::{AppHandle, State, command};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FilePath;
 use tokio::sync::Mutex;
 
-// todo break commands apart, find a way to get the list of versions
-async fn list_versions(app_state: &AppState) -> Vec<Version> {
-    let manager = app_state.manager.read().await;
-    let mut versions = Vec::new();
+// TODO: where is this function called?
+async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
+    // TODO: see if there's a better way to get around this problematic function
+    /*
+       Issues: I'm noticing a significant delay of behaviour event happening here when connected online.
+       When connected online, BlenderManager seems to hold up to approximately 2-3 seconds before the remaining content fills in.
+       Offline loads instant, which is exactly the kind of behaviour I expect to see from this application.
+    */
+    let (sender, mut receiver) = mpsc::channel(1);
+    let event = UiCommand::Blender(BlenderAction::List(
+        sender,
+        QueryMode::ONLINE | QueryMode::LOCAL,
+    ));
+    if let Err(e) = app_state.invoke.send(event).await {
+        eprintln!("Fail to send event! {e:?}");
+        return Vec::new();
+    }
 
-    let _ = manager.home.as_ref().iter().for_each(|b| {
-        let version = match b.fetch_latest() {
-            Ok(download_link) => download_link.get_version().clone(),
-            Err(_) => Version::new(b.major, b.minor, 0),
-        };
-        versions.push(version);
-    });
+    let res = receiver.select_next_some().await;
+    match res {
+        // Clone operation used here. might be expensive? See if there's another way to get aorund this.
+        Some(list) => list
+            .iter()
+            .map(|f| f.version.clone())
+            .collect::<Vec<Version>>(),
+        None => Vec::new(),
+    }
 
-    // let manager = server.manager.read().await;
-    let _ = manager
-        .get_blenders()
-        .iter()
-        .for_each(|b| versions.push(b.get_version().clone()));
+    // let mut versions = Vec::new();
 
-    versions
+    // // fetch local installation first.
+    // let mut local = manager
+    //     .get_blenders()
+    //     .iter()
+    //     .map(|b| b.get_version().clone())
+    //     .collect::<Vec<Version>>();
+
+    // if !local.is_empty() {
+    //     versions.append(&mut local);
+    // }
+
+    // // then display the rest of the download list
+    // if let Some(downloads) = manager.fetch_download_list() {
+    //     let mut item = downloads
+    //         .iter()
+    //         .map(|d| d.get_version().clone())
+    //         .collect::<Vec<Version>>();
+    //     versions.append(&mut item);
+    // };
+
+    // versions
 }
 
 /// List all of the available blender version.
+// TODO: not used in the function yet?
 #[command(async)]
 pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let server = state.lock().await;
-    let versions = list_versions(&server).await;
+    let mut server = state.lock().await;
+    let versions = list_versions(&mut server).await;
 
     Ok(html!(
         div {
@@ -59,44 +92,52 @@ pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<Str
     .0)
 }
 
-#[command(async)]
-pub async fn create_new_job(
-    state: State<'_, Mutex<AppState>>,
+// This function must be async to avoid ui thread lock. Without async, no dialog will appear and app will freeze
+/// Display dialog and return file path to blender.
+/// This function will read the file and display another dialog prompt for additional detail before continue to display the result from import_blend()
+#[command]
+pub async fn open_dialog_for_blend_file(
     app: AppHandle,
+    state: State<'_, Mutex<AppState>>,
 ) -> Result<String, String> {
-    // tell tauri to open file dialog
-    // with that file path we will run import_blend function.
-    // else return nothing.
-    let result = match app
+    let given_path = app
         .dialog()
         .file()
         .add_filter("Blender", &["blend"])
         .blocking_pick_file()
-    {
-        Some(file_path) => match file_path {
-            FilePath::Path(path) => import_blend(state, path).await.unwrap(),
-            FilePath::Url(uri) => import_blend(state, uri.as_str().into()).await.unwrap(),
-        },
-        None => "".to_owned(),
-    };
+        .and_then(|f| match f {
+            // TODO - see about converting PathBuf into &str, to reduce .into() for Url
+            FilePath::Path(f) => Some(f),
+            FilePath::Url(u) => Some(u.as_str().into()),
+        });
 
-    Ok(result)
+    if let Some(path) = given_path {
+        return import_blend(&state, path).await;
+    }
+    Err("No file selected!".into())
 }
 
-// change this to return HTML content of the info back.
-#[command(async)]
-pub async fn import_blend(
-    state: State<'_, Mutex<AppState>>,
-    path: PathBuf,
-) -> Result<String, String> {
-    let server = state.lock().await;
-    let versions = list_versions(&server).await;
-
-    if path.file_name() == None {
-        return Err("Should be a valid file!".to_owned());
+#[command]
+pub async fn update_output_field(app: AppHandle) -> Result<String, ()> {
+    match select_directory(app).await {
+        Ok(path) => Ok(html!(
+            input type="text" class="form-input" placeholder="Output Path" name="output" value=(path) readonly={true};
+        ).0),
+        Err(_) => Err(()),
     }
+}
 
-    let data = match Blender::peek(&path).await {
+// TODO: Rename this function to "read_blend_file_content" - return info about this file.
+// we can multi-purpose this for drag and drop feature
+pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<String, String> {
+    // for some reason this function takes longer online than it does offline?
+    // TODO: set unit test to make sure this function doesn't repetitively call blender.org everytime it's called.
+    let mut app_state = state.lock().await;
+    let versions = list_versions(&mut app_state).await;
+
+    // validate file path.
+    let project_file = ProjectFile::from(path).map_err(|e| e.to_string())?;
+    let data = match Blender::peek(&project_file.to_path_buf()).await {
         Ok(data) => data,
         Err(e) => return Err(e.to_string()),
     };
@@ -108,12 +149,13 @@ pub async fn import_blend(
                 form method="dialog" tauri-invoke="create_job" hx-target="#workplace" _="on submit trigger closeModal" {
                     h1 { "Create new Render Job" };
                     label { "Project File Path:" };
-                    input type="text" class="form-input" name="path" value=(path.to_str().unwrap()) placeholder="Project path" readonly={true};
-                    // add a button here to let the user search by directory path. Let them edit the form.
+                    input type="text" class="form-input" name="path" value=(project_file.to_str().unwrap()) placeholder="Project path" readonly={true};
                     br;
 
                     label { "Output destination:" };
-                    input type="text" tauri-invoke="select_directory" hx-target="this" class="form-input" placeholder="Output Path" name="output" value=(data.output.to_str().unwrap()) readonly={true};
+                    div tauri-invoke="update_output_field" hx-target="this" {
+                        input type="text" class="form-input" placeholder="Output Path" name="output" value=(data.current.render_setting.get_output().to_str().unwrap()) readonly={true};
+                    }
                     br;
 
                     div name="mode" {
@@ -159,24 +201,7 @@ pub async fn import_blend(
     Ok(content.into_string())
 }
 
-#[command(async)]
-pub async fn remote_render_page() -> Result<String, String> {
-    let content = html! {
-        div class="content" {
-            h1 { "Remote Jobs" };
-
-            button tauri-invoke="create_new_job" hx-target="body" hx-indicator="#spinner" hx-swap="beforeend" {
-                "Import"
-            };
-
-            img id="spinner" class="htmx-indicator" src="/assets/svg-loaders/tail-spin.svg";
-
-            div class="group" id="joblist" tauri-invoke="list_jobs" hx-trigger="load" hx-target="this" {
-            };
-
-            div id="detail";
-        };
-    };
-
-    Ok(content.0)
+#[cfg(test)]
+mod test {
+    // TODO: fill testing suite for this route
 }

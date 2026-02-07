@@ -1,0 +1,185 @@
+{
+  "main": {
+    "id": "8feadfda19abf729",
+    "type": "split",
+    "children": [
+      {
+        "id": "851a88eb97dcae8a",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "1610ed8efcefe535",
+            "type": "leaf",
+            "state": {
+              "type": "empty",
+              "state": {},
+              "icon": "lucide-file",
+              "title": "New tab"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "9a6ebaaf46a183c1",
+    "type": "split",
+    "children": [
+      {
+        "id": "6773760fa693399a",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "4cd97139ec477c9a",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "7a0a8e5d4082139f",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "225092051244b87c",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "60591356ab10c700",
+    "type": "split",
+    "children": [
+      {
+        "id": "3c3953cdabdfb81d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "8b521025b8d5e6d8",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "d9ed51fe2faaa56c",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "7382b9f98d4a9384",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "acabdbc43090b872",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "blendfarm/Bugs/Unit test fail - cannot validate .blend file path.md"
+              },
+              "icon": "lucide-list",
+              "title": "Outline of Unit test fail - cannot validate .blend file path"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false
+    }
+  },
+  "active": "1610ed8efcefe535",
+  "lastOpenFiles": [
+    "blendfarm/Bugs/Unable to discover localhost with no internet connection is established or provided..md",
+    "blendfarm/Bugs/Node identification not store in database.md",
+    "blendfarm/Bugs/Render not saved to database.md",
+    "blendfarm/Task/Features.md",
+    "blendfarm/Bugs/Unit test fail - symbol _EMBED_INFO_PLIST already defined.md",
+    "blendfarm/Bugs/Deleting Blender from UI cause app to crash..md",
+    "blendfarm/Bugs/Program cannot discover itself on the same network.md",
+    "blendfarm/Task/Task.md",
+    "blendfarm/Images/RenderJobDialog.png",
+    "blendfarm/Images/RenderJobDialog.png",
+    "blendfarm/Images/SettingPage.png",
+    "blendfarm/Images/RemoteJobPage.png",
+    "blendfarm/Pages/Settings.md",
+    "blendfarm/Pages/Render Job window.md",
+    "blendfarm/Pages/Remote Render.md",
+    "blendfarm/Task/TODO.md",
+    "blendfarm/Context.md",
+    "blendfarm/Network code notes.md",
+    "blendfarm/Yamux.md",
+    "blendfarm/Bugs/Import Job does nothing.md",
+    "blendfarm/Bugs/Cannot open dialog.md",
+    "main/Untitled.md",
+    "main/Main Story.md"
+  ]
+}

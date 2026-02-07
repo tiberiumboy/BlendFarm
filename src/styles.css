@@ -23,12 +23,6 @@ body {
   height: 100%;
 }
 
-/* TODO: Where is this used? what is this?  */
-.imgbox {
-  display: grid;
-  height: 100%;
-}
-
 .center-fit {
   max-width: 100%;
   max-height: 100%;
@@ -103,7 +97,10 @@ button {
   margin-right: 5px;
 }
 
-/* TODO: Do we still use this anymore anywhere? */
+/* 
+    Q: Do we still use this anymore anywhere? 
+    A: Yes we are using nav-bar style in tauri_app.rs
+*/
 .nav-bar {
   font-weight: 500;
   color: #646cff;

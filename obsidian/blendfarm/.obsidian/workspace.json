@@ -1,0 +1,201 @@
+{
+  "main": {
+    "id": "78337d635dbb6873",
+    "type": "split",
+    "children": [
+      {
+        "id": "d16ff2f5029d2146",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "212dd14b152c2710",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Bugs/Render not saved to database.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Render not saved to database"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "e6315f2e9a577efa",
+    "type": "split",
+    "children": [
+      {
+        "id": "eca3db1b7ab0c78d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "b8e74c2efd380365",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "73232a02b1c2e739",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "137e05f70b72093a",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "2cc1b4442ff01725",
+    "type": "split",
+    "children": [
+      {
+        "id": "6cfb792e40cb1461",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "4a7e73098dd67e05",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "cbd94ab7fb0d96c5",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "c81e9aaf518413f3",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "4c4e869fbb38e6d7",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {},
+              "icon": "lucide-list",
+              "title": "Outline"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "bases:Create new base": false,
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false
+    }
+  },
+  "active": "212dd14b152c2710",
+  "lastOpenFiles": [
+    "Bugs/Unable to discover localhost with no internet connection is established or provided..md",
+    "Bugs/Unit test fail - symbol _EMBED_INFO_PLIST already defined.md",
+    "Bugs/Buglist.md",
+    "Home.md",
+    "README.md",
+    "Network code notes.md",
+    "Pages/Pagelist.md",
+    "Task/Features.md",
+    "Task/TODO.md",
+    "Yamux.md",
+    "Job list disappear after switching window.md",
+    "Makefile.md",
+    "About.md",
+    "Task/Task.md",
+    "Bugs/Import Job does nothing.md",
+    "Bugs/Deleting Blender from UI cause app to crash..md",
+    "Bugs/Unit test fail - cannot validate .blend file path.md",
+    "Images/dialog_open_bug.png",
+    "Bugs/Cannot open dialog.md",
+    "Images/SettingPage.png",
+    "Images/RenderJobDialog.png",
+    "Images/RemoteJobPage.png",
+    "Small tiny things that annoys me.md",
+    "Task/Small tiny things that annoys me.md",
+    "Pages/Render Job window.md",
+    "Pages/Settings.md",
+    "Pages/Remote Render.md",
+    "Bugs/Dialog.open plugin not found.md",
+    "Bugs/Job list disappear after switching window.md",
+    "Bugs/Missing Blender installation path.md",
+    "Images/Setting_page.png",
+    "Images",
+    "Pages",
+    "Task",
+    "Bugs"
+  ]
+}

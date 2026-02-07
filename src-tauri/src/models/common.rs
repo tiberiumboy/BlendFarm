@@ -1,8 +1,11 @@
-use std::path::PathBuf;
+// use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+// use ser dde::{Deserialize, Serialize};
+
+/*
 
 // not sure if I still need this or keep it separated?
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize)]
 pub enum SenderMsg {
     FileRequest(String, usize),
@@ -10,7 +13,10 @@ pub enum SenderMsg {
     Render(PathBuf, i32),
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize)]
 pub enum ReceiverMsg {
     CanReceive(bool),
 }
+
+*/

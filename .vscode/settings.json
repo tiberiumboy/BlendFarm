@@ -1,4 +1,5 @@
 {
     "rust-analyzer.showUnlinkedFileNotification": false,
-    "todo-tree.tree.scanMode": "workspace"
+    "todo-tree.tree.scanMode": "workspace",
+    "makefile.configureOnOpen": false
 }

@@ -1077,13 +1077,6 @@ var htmx = (function() {
       if (elt && elt.closest) {
         return elt.closest(selector)
       } else {
-        // TODO remove when IE goes away
-        do {
-          if (elt == null || matches(elt, selector)) {
-            return elt
-          }
-        }
-        while (elt = elt && asElement(parentElt(elt)))
         return null
       }
     }
@@ -2962,7 +2955,7 @@ var htmx = (function() {
     function makeEvent(eventName, detail) {
       let evt
       if (window.CustomEvent && typeof window.CustomEvent === 'function') {
-        // TODO: `composed: true` here is a hack to make global event handlers work with events in shadow DOM
+        // `composed: true` here is a hack to make global event handlers work with events in shadow DOM
         // This breaks expected encapsulation but needs to be here until decided otherwise by core devs
         evt = new CustomEvent(eventName, { bubbles: true, cancelable: true, composed: true, detail })
       } else {

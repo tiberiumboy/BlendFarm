@@ -1,3 +1,9 @@
+use std::str::FromStr;
+
+use libp2p::PeerId;
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, SqlitePool};
+
 use crate::{
     domains::worker_store::WorkerStore,
     models::{
@@ -5,10 +11,24 @@ use crate::{
         worker::{Worker, WorkerError},
     },
 };
-use sqlx::{prelude::FromRow, query, SqlitePool};
 
 pub struct SqliteWorkerStore {
     conn: SqlitePool,
+}
+
+#[derive(FromRow, Serialize, Deserialize, Debug)]
+struct WorkerDTO {
+    machine_id: String,
+    // TODO: find a way to use #[sqlx(json)]?
+    spec: String, // deserialize/serialize as json
+}
+
+impl WorkerDTO {
+    pub fn dto_to_obj(&self) -> Worker {
+        let id = PeerId::from_str(&self.machine_id).expect("ID was mutated!");
+        let spec = serde_json::from_str::<ComputerSpec>(&self.spec).expect("spec was mutated!");
+        Worker { id, spec }
+    }
 }
 
 impl SqliteWorkerStore {
@@ -17,71 +37,59 @@ impl SqliteWorkerStore {
     }
 }
 
-#[derive(FromRow)]
-struct WorkerDb {
-    machine_id: String,
-    spec: String,
-}
-
 #[async_trait::async_trait]
 impl WorkerStore for SqliteWorkerStore {
     // List
     async fn list_worker(&self) -> Result<Vec<Worker>, WorkerError> {
         // we'll add a limit here for now.
-        let sql = r"SELECT machine_id, spec FROM workers LIMIT 255";
-        sqlx::query_as(sql)
-            .fetch_all(&self.conn)
-            .await
-            .map_err(|e| WorkerError::Database(e.to_string()))
-            .and_then(|r: Vec<WorkerDb>| {
-                Ok(r.into_iter()
-                    .map(|r: WorkerDb| {
-                        let spec: ComputerSpec = serde_json::from_str(&r.spec).unwrap();
-                        Worker::new(r.machine_id, spec)
-                    })
-                    .collect::<Vec<Worker>>())
-            })
+        let result: Vec<WorkerDTO> =
+            sqlx::query_as!(WorkerDTO, r"SELECT machine_id, spec FROM workers")
+                .fetch_all(&self.conn)
+                .await
+                .map_err(|e| WorkerError::Database(e.to_string()))?;
+
+        Ok(result.iter().map(|e| e.dto_to_obj()).collect())
     }
 
     // Create
     async fn add_worker(&mut self, worker: Worker) -> Result<(), WorkerError> {
-        let spec = serde_json::to_string(&worker.spec).unwrap();
-
+        let id = worker.id.to_base58();
+        let spec = serde_json::to_string(&worker.spec).expect("Fail to parse specs");
+        // TODO: Update the record if it exist by marking it status "Active", relearn SQL again?
         if let Err(e) = sqlx::query(
             r"
             INSERT INTO workers (machine_id, spec)
             VALUES($1, $2);
         ",
         )
-        .bind(worker.machine_id)
+        .bind(id)
         .bind(spec)
         .execute(&self.conn)
         .await
         {
-            eprintln!("{e}");
+            eprintln!("Fail to insert new worker: {e}");
         }
 
         Ok(())
     }
 
     // Read
-    async fn get_worker(&self, id: &str) -> Option<Worker> {
-        match query!(
+    async fn get_worker(&self, id: &PeerId) -> Option<Worker> {
+        // so this panic when there's no record?
+        let peer_id = id.to_base58();
+        let result: Result<WorkerDTO, sqlx::Error> = sqlx::query_as!(
+            WorkerDTO,
             r#"SELECT machine_id, spec FROM workers WHERE machine_id=$1"#,
-            id,
+            peer_id
         )
         .fetch_one(&self.conn)
-        .await
-        {
-            Ok(worker) => {
-                let spec =
-                    serde_json::from_str::<ComputerSpec>(&String::from_utf8(worker.spec).unwrap())
-                        .unwrap();
-                Some(Worker::new(worker.machine_id, spec))
-            }
+        .await;
+
+        match result {
+            Ok(data) => Some(data.dto_to_obj()),
             Err(e) => {
-                eprintln!("{:?}", e.to_string());
-                return None;
+                eprintln!("SQLx generated an error: {e:?}");
+                None
             }
         }
     }
@@ -89,11 +97,25 @@ impl WorkerStore for SqliteWorkerStore {
     // no update?
 
     // Delete
-    async fn delete_worker(&mut self, machine_id: &str) -> Result<(), WorkerError> {
-        let _ = sqlx::query(r"DELETE FROM workers WHERE machine_id = $1")
-            .bind(machine_id)
+    async fn delete_worker(&mut self, id: &PeerId) -> Result<(), WorkerError> {
+        let peer_id = id.to_base58();
+        // TODO: mark the worker inactive instead.
+        let _ = sqlx::query!(r"DELETE FROM workers WHERE machine_id = $1", peer_id)
+            // my mind goes on a brainfart moment overcomplicating simplification and data requirement.
+            // should status be a enum type, then should it be a string instead?
+            // let _ = sqlx::query!("UPDATE workers SET status=false,  ")
+            // .bind(peer_id)
             .execute(&self.conn)
             .await;
+        Ok(())
+    }
+
+    // Clear worker table
+    async fn clear_worker(&mut self) -> Result<(), WorkerError> {
+        let _ = sqlx::query(r"DELETE FROM workers")
+            .execute(&self.conn)
+            .await
+            .map_err(|e| WorkerError::Database(e.to_string()))?;
         Ok(())
     }
 }

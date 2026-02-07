@@ -1,0 +1,1 @@
+Blendfarm is a network service application, similar to flamango, but with memory safety in mind for high level applications and maintain uptime distribution across system schematics.
