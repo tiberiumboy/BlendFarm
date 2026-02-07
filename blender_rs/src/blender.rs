@@ -55,14 +55,13 @@ TODO:
         of just letting BlendFarm do all the work.
     */
 extern crate xml_rpc;
-use crate::blend_file::{BlendFile, SceneInfo};
+use crate::blend_file::BlendFile;
+use crate::manager::BlenderConfig;
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
-use crate::models::blender_scene::BlenderScene;
 use crate::models::config::BlenderConfiguration;
 use crate::models::event::BlenderEvent;
 use crate::models::peek_response::PeekResponse;
-use crate::models::render_setting::RenderSetting;
 
 #[cfg(test)]
 use blend::Instance;
@@ -80,7 +79,9 @@ use std::{
 };
 use thiserror::Error;
 use tokio::spawn;
-use xml_rpc::{Params, Server, Value, XmlResponse};
+use xml_rpc::xmlfmt::XmlResponse;
+use xml_rpc::{Params, Value};
+use xml_rpc::server::Server;
 
 // TODO: this is ugly, and I want to get rid of this. How can I improve this?
 // Backstory: Win and linux can be invoked via their direct app link. However, MacOS .app is just a bundle, which contains the executable inside.
@@ -104,11 +105,6 @@ pub enum BlenderError {
     #[error("Unable to fetch info from blender home service! Are you connected to the internet and is blender foundation still around?")]
     ServiceOffline,
 }
-
-// struct BlenderService {
-//     get_next_frame: dyn FnMut() -> Option<i32>
-//     settings:  
-// }
 
 /// Blender structure to hold path to executable and version of blender installed.
 /// Pretend this is the wrapper to interface with the actual blender program.
@@ -327,9 +323,9 @@ impl Blender {
         }
     }
 
+    // TODO: Replace this to modify the struct to get next batch of rendering queue.
     fn local_get_next_render_que(&mut self, _params: Params) -> XmlResponse {
-        
-        Ok(Params::new(vec![Value::Int(1)]))
+        Ok(Value::Int(1).into())
     }
 
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
@@ -343,15 +339,14 @@ impl Blender {
     /// ```
     // so instead of just returning the string of render result or blender error, we'll simply use the single producer to produce result from this class.
     // issue here is that we need to lock thread. If we are rendering, we need to be able to call abort.
-    pub async fn render<F>(&self, args: Args, get_next_frame: F) -> Receiver<BlenderEvent>
-    where
-        F: Fn() -> Option<i32> + Send + Sync + 'static,
+    pub async fn render<F>(&self, args: Args) -> Receiver<BlenderEvent>
     {
         let (signal, listener) = mpsc::channel::<BlenderEvent>();
+        // can 
         let blend_info: PeekResponse = args.file.peek_response(&self.version);
         // this is the only place used for BlenderRenderSetting... thoughts?
         let settings = BlenderConfiguration::parse_from(&args, &blend_info, &self.version);
-        self.setup_listening_server(settings, listener, get_next_frame)
+        self.setup_listening_server(settings, listener)
             .await;
 
         let (rx, tx) = mpsc::channel::<BlenderEvent>();
@@ -365,21 +360,17 @@ impl Blender {
         tx
     }
 
-    fn next_render_queue_callback(params: Params) -> XmlResponse {
+    fn next_render_queue_callback(_params: Params) -> XmlResponse {
         // here, they're asking for next render queue callback.
         // in this case here, we don't care about the params, ? Why is Params called?
-
-        XmlResponse::Ok(Params::new(vec![Value::Int(42)]))
+        XmlResponse::Ok(Value::Int(42).into())
     }
 
     async fn setup_listening_server<F>(
-        &self,
+        &mut self,
         settings: BlenderConfiguration,
         listener: Receiver<BlenderEvent>,
-        get_next_frame: F,
     ) -> Result<(), BlenderError>
-    where
-        F: Fn() -> Option<i32> + Send + Sync + 'static,
     {
         // Read here - https://en.wikipedia.org/wiki/XML-RPC#Usage
         /*
@@ -412,9 +403,11 @@ impl Blender {
         let global_settings = Arc::new(settings);
         let socket = 8081;
 
+        // I think in order for me to make this working example, I need to create a struct that is memory bound to different threads, and read when available. This isolate mutation of variable and object that needs to be thread-safetly. 
+        // TODO: remove expect() once we have this working again.
         let mut server = Server::new(socket).expect("Unable to open socket for xml_rpc!");
 
-        server.register("next_render_queue".to_owned(), self::local_get_next_render_que);
+        server.register("next_render_queue".to_owned(),Box::new(self.local_get_next_render_que as fn()));
         /* 
         server.register("next_render_queue".to_owned(), move |params| match get_next_frame() {
             Some(frame) => Ok(frame),
@@ -423,11 +416,19 @@ impl Blender {
             None => Err(Fault::new(1, "No more frames to render!")),
         });
         */
-
-        // server.register("fetch_info".to_owned(), move |_i: i32| {
-        //     let setting = serde_json::to_string(&*global_settings.clone()).unwrap();
-        //     Ok(setting)
-        // });
+        
+        // let me understand this better. 
+        // In this listening server, I'm setting up a xml-rpc server to listen to all of the blender python script.
+        // When blender calls fetch_info, we provide back the global_settings we have from job information.
+        server.register("fetch_info".to_owned(), Box::new(move |params| {
+            let settings = *global_settings.clone();
+            // How come we're using unwrap? seems dangerous and sketchy
+            match serde_json::to_string(&settings) {
+                Ok(setting) => Ok(Value::String(setting).into()),
+                // Err(e) => Err(XmlResponse::Err(Valu(-1, e.to_string()))
+                Err(e) => Err(Value::fault(-1, e.to_string()))
+            }
+        }));
 
         // spin up XML-RPC server
         spawn(async move {
@@ -463,6 +464,7 @@ impl Blender {
         ])
     }
 
+    // setup xml-rpc listening server for blender's IPC
     async fn setup_listening_blender<T: AsRef<Path>>(
         args: &Args,
         executable: T,

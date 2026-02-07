@@ -10,9 +10,9 @@ pub struct RenderSetting {
     /// output of where our stored image will save to
     output: PathBuf,
     /// Render frame Width
-    pub width: Frame,
+    pub width: Frame, // Not to be confused with animation frame
     /// Render frame height
-    pub height: Frame,
+    pub height: Frame,  // Not to be confused with animation frame
     /// Samples capture from the scene
     pub sample: Sample,
     /// Frame per second
