@@ -1,6 +1,8 @@
+use blender::blend_file::BlendFile;
 use blender::blender::Manager;
 use blender::models::engine::Engine;
 use blender::models::{args::Args, event::BlenderEvent};
+use xml_rpc::Value;
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -12,19 +14,13 @@ async fn render_with_manager() {
         Some(p) => PathBuf::from(p),
     };
 
-    let blend_file = BlendFile::new(blend_path).unwrap("Expects a valid blend file to continue!");
+    let blend_file = BlendFile::new(&blend_path).expect("Expects a valid blend file to continue!");
 
     // Get latest blender installed, or install latest blender from web.
     let mut manager = Manager::load();
     println!("Fetch latest available blender to use");
 
-    let blender = manager.latest_local_avail().unwrap_or_else(|| {
-        println!("No local blender installation found! Downloading latest from internet...");
-        manager
-            .download_latest_version()
-            .expect("Should be able to download blender! Are you not connected to the internet?")
-    });
-
+    let mut blender = manager.latest_local_avail().expect("No local blender installation found! Must have at least one blender installed!");
     println!("Prepare blender configuration...");
 
     // Here we ask for the output path, for now we set our path in the same directory as our executable path.
@@ -38,8 +34,14 @@ async fn render_with_manager() {
 
     // render the frame. Completed render will return the path of the rendered frame, error indicates failure to render due to blender incompatible hardware settings or configurations. (CPU vs GPU / Metal vs OpenGL)
     let listener = blender
-        .render(args, move || frames.write().unwrap().next())
-        .await;
+        .render(args, Box::new(move |_params| {
+            // need to convert this into XmlResponse
+            match frames.write().unwrap().next() {
+                Some(frame) => Ok(Value::Int(frame).into()),
+                None => Err(Value::fault(-1, "No more frames to render!".to_owned()))
+            }
+        }))
+        .await.expect("Should not have any issue?");
 
     // Handle blender status
     while let Ok(status) = listener.recv() {

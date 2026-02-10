@@ -1,4 +1,4 @@
-use blender::blender::Blender;
+use blender::blend_file::BlendFile;
 use std::path::PathBuf;
 
 /// Peek into the blend file to see what's inside.
@@ -10,9 +10,8 @@ async fn main() {
         Some(p) => PathBuf::from(p),
     };
 
-    // we reference blender by executable path. Version will be detected upon running command process. (Self validation)
-    match Blender::peek(&blend_path).await {
-        Ok(result) => println!("{:?}", &result),
+    match BlendFile::new(&blend_path) {
+        Ok(result) => println!("{:?}", &result.peek_response(None)),
         Err(e) => println!("Error: {:?}", e),
     }
 }

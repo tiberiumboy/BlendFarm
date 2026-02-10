@@ -14,10 +14,11 @@ pub struct PageCache {
     was_modified: bool,
 }
 
+// the whole idea behind this was to store information from blender with minimal connectivity interface as possible. Rely on cache if we need to lookup again.
 impl PageCache {
     // fetch cache directory
     fn get_dir() -> Result<PathBuf> {
-        // TODO: What should happen if I can't fetch cache_dir()?
+        // FIXME: Consider using some kind of system settings to load where to save the cache to.
         let mut tmp = dirs::cache_dir().ok_or(Error::new(
             std::io::ErrorKind::NotFound,
             "Unable to fetch cache directory!",
@@ -34,9 +35,13 @@ impl PageCache {
 
     // private method, only used to save when cache has changed.
     fn save(&mut self) -> Result<()> {
-        self.was_modified = false;
-        let data = serde_json::to_string(&self).expect("Unable to deserialize data!");
+        if !self.was_modified {
+            return Ok(())
+        }
+
+        let data = serde_json::to_string(&self)?;
         fs::write(Self::get_cache_path()?, data)?;
+        self.was_modified = false;
         Ok(())
     }
 
@@ -107,10 +112,15 @@ impl PageCache {
         Ok(tmp)
     }
 
+    // I often wonder if there was any need to return Unit. I think it'd be a lot better if it return something in principle.
+    // pub fn update<T: Into<str>>(&mut self, url: &Url, content: T) -> Result<()> {
+
+    // }
+
     /// check and see if the url matches the cache,
     /// otherwise, fetch the page from the internet, and save it to storage cache,
     /// then return the page result.
-    pub fn fetch(&mut self, url: &Url) -> Result<String> {
+    pub fn fetch_or_update(&mut self, url: &Url) -> Result<String> {
         let path = self.cache.entry(url.to_owned()).or_insert({
             self.was_modified = true;
             Self::save_content_to_cache(url)?.to_owned()
@@ -119,19 +129,22 @@ impl PageCache {
         fs::read_to_string(path)
     }
 
-    // TODO: Maybe this isn't needed, but would like to know if there's a better way to do this? Look into IntoUrl?
-    pub fn fetch_str(&mut self, url: &str) -> Result<String> {
-        let url = Url::parse(url).unwrap();
-        self.fetch(&url)
+    pub fn fetch(self, url: &Url) -> Option<String> {
+        let path = self.cache.get(url)?;
+        fs::read_to_string(path).ok()
     }
+
+    // TODO: Maybe this isn't needed, but would like to know if there's a better way to do this? Look into IntoUrl?
+    // pub fn fetch_str(&mut self, url: &str) -> Result<String> {
+    //     let url = Url::parse(url).unwrap();
+    //     self.fetch(&url)
+    // }
 }
 
 impl Drop for PageCache {
     fn drop(&mut self) {
-        if self.was_modified {
-            if let Err(e) = self.save() {
-                println!("Error saving cache file: {}", e);
-            }
+        if let Err(e) = self.save() {
+            println!("Error saving cache file: {}", e);
         }
     }
 }
@@ -140,18 +153,32 @@ impl Drop for PageCache {
 mod tests {
     use super::*;
 
+    // This automation test does not make a lot of sense at all. It should be per each function callings.
     #[test]
     fn should_pass() {
         let cache = PageCache::load();
-        assert_eq!(cache.is_ok(), true);
+        assert!(cache.is_ok());
         let mut cache = cache.unwrap();
         let url = Url::parse("http://www.google.com").unwrap();
-        let content = cache.fetch(&url);
+        let content = cache.fetch_or_update(&url);
         assert_eq!(content.is_ok(), true);
     }
 
     #[test]
     fn should_fail() {
-        todo!();
+        // TODO: How can I fail page_cache?
+        // - lack of permission for directory asking to store and save web contents.
+        // - logic condition inside Drop method scope. We try to invoke some Io operation on drop. Discouraging? Maybe?
+        // - fetch_str rely on url parsing.
+        let cache = PageCache::load();
+        assert!(cache.is_ok());
+    }
+
+
+    // TODO: write unit test for get_dir()
+    #[test]
+    fn get_dir_succeed() {
+        let cache = PageCache::get_dir();
+        assert!(cache.is_ok());
     }
 }

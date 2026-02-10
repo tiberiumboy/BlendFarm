@@ -1,4 +1,3 @@
-use super::category::BlenderCategory;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -7,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use url::Url;
+use crate::utils::get_extension;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DownloadLink {
@@ -143,7 +143,7 @@ impl DownloadLink {
     // TODO: wonder why I'm not using BlenderError for this?
     pub fn download_and_extract(&self, destination: impl AsRef<Path>) -> Result<PathBuf, Error> {
         // precheck qualification
-        let ext = BlenderCategory::get_extension()
+        let ext = get_extension()
             .map_err(|e| Error::other(format!("Cannot run blender under this OS: {}!", e)))?;
 
         let target = &destination.as_ref().join(&self.name);

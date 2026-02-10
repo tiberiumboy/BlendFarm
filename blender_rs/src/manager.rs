@@ -11,8 +11,10 @@ use crate::blender::{Blender, BlenderError};
 use crate::models::blender_scene::BlenderScene;
 use crate::models::peek_response::PeekResponse;
 use crate::models::render_setting::RenderSetting;
-use crate::models::{category::BlenderCategory, download_link::DownloadLink};
+use crate::models::{download_link::DownloadLink};
+use crate::services::category::BlenderCategory;
 use crate::page_cache::PageCache;
+use crate::utils::get_extension;
 
 use regex::Regex;
 use semver::Version;
@@ -113,7 +115,7 @@ impl Default for Manager {
 impl Manager {
     fn fetch_categories(cache: &mut PageCache) -> Result<Vec<BlenderCategory>, Error> {
         let parent = Url::parse("https://download.blender.org/release/").unwrap();
-        let content = cache.fetch(&parent)?;
+        let content = cache.fetch_or_update(&parent)?;
 
         // Omit any blender version 2.8 and below
         let pattern =
@@ -303,7 +305,7 @@ impl Manager {
     /// Check and add a local installation of blender to manager's registry of blender version to use from.
     pub fn add_blender_path(&mut self, path: &impl AsRef<Path>) -> Result<Blender, ManagerError> {
         let path = path.as_ref();
-        let extension = BlenderCategory::get_extension().map_err(ManagerError::UnsupportedOS)?;
+        let extension = get_extension().map_err(ManagerError::UnsupportedOS)?;
 
         let path = if path
             .extension()
@@ -482,4 +484,6 @@ mod tests {
     fn should_pass() {
         let _manager = Manager::load();
     }
+
+    // TODO: Write unit test for Drop if that's possible?
 }

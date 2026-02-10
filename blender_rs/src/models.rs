@@ -1,6 +1,5 @@
 pub mod args;
 pub mod blender_scene;
-pub(crate) mod category;
 pub(crate) mod config;
 pub mod device;
 pub mod download_link;

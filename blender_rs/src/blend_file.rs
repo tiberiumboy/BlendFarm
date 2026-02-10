@@ -83,15 +83,14 @@ impl SceneInfo {
         Ok(self)
     }
 
-    // TODO: See about not using clone if possible?
-    pub fn render_setting(&self) -> RenderSetting {
+    pub fn render_setting(self) -> RenderSetting {
         RenderSetting::new(
-            self.output.clone(),
-            self.render_width.clone(),
-            self.render_height.clone(),
-            self.sample.clone(),
-            self.fps.clone(),
-            self.engine.clone(),
+            self.output,
+            self.render_width,
+            self.render_height,
+            self.sample,
+            self.fps,
+            self.engine,
             Format::default(),
             Window::default(),
         )
@@ -101,9 +100,9 @@ impl SceneInfo {
         let selected_scene = self.selected_scene();
         let selected_camera = self.selected_camera();
 
-        let render_setting: RenderSetting = self.render_setting();
+        let render_setting: RenderSetting = self.clone().render_setting();
         let current = BlenderScene::new(selected_scene, selected_camera, render_setting);
-
+        
         PeekResponse::new(
             version.clone(),
             self.frame_start,
@@ -146,7 +145,7 @@ impl BlendFile {
         let minor = value % 100;
 
         let scene_info = SceneInfo::default().process(&blend)?;
-        let render_setting = scene_info.render_setting();
+        let render_setting = scene_info.clone().render_setting();
 
         Ok(BlendFile {
             inner: path_to_blend_file.to_path_buf(),
@@ -161,8 +160,12 @@ impl BlendFile {
         (self.major, self.minor)
     }
 
-    pub fn peek_response(&self, version: &Version) -> PeekResponse {
-        self.scene_info.peek_response(version)
+    pub fn peek_response(&self, version: Option<&Version>) -> PeekResponse {
+        let last_version = match version {
+            Some(v) => v,
+            None => &Version::new(self.major.into(), self.minor.into(), 0)
+        };
+        self.scene_info.peek_response(last_version)
     }
 
     pub fn to_path(&self) -> &Path {

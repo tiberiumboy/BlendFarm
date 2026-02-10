@@ -7,26 +7,26 @@ Reading the wikipedia - https://en.wikipedia.org/wiki/XML-RPC#Usage - xml-rpc is
 
 Currently, there is no error handling situation from blender side of things. If blender crash, we will resume the rest of the code in attempt to parse the data.
     This will eventually lead to a program crash because we couldn't parse the information we expect from stdout.
-    Todo peek into stderr and see if
+    TODO: How can I stream this data better?
 
-- As of Blender 4.2 - they introduced BLENDER_EEVEE_NEXT as a replacement to BLENDER_EEVEE. Will need to make sure I pass in the correct enum for version 4.2 and above.
+- As of Blender 4.2 - they introduced BLENDER_EEVEE_NEXT as a replacement to BLENDER_EEVEE. 
+    Will need to make sure I pass in the correct enum for version 4.2 and above.
 
 - Spoke to Sheepit - another "Intranet" distribution render service (Closed source)
-    - In order to get Render preview window, there needs to be a GPU context to attach to. Otherwise, we'll have to wait for the render to complete the process before sending the image back to the user.
+    - In order to get Render preview window, there needs to be a GPU context to attach to. 
+        Otherwise, we'll have to wait for the render to complete the process before sending the image back to the user.
     - They mention to enforce compute methods, do not mix cpu and gpu. (Why?)
-
-Trial:
-- try loading .dll from blender? See if it's possible?
 
 Advantage:
 - can support M-series ARM processor.
 - Original tool Doesn't composite video for you - We can make ffmpeg wrapper? - This will be a feature but not in this level of implementation.
-- LogicReinc uses JSON to load batch file - difficult to adjust frame(s) after job sent. I'm creating an IPC between this program and python to ask next frame. To improve actions over blender.
+- LogicReinc uses JSON to load batch file - difficult to adjust frame(s) after job sent. 
+    I'm creating an IPC between this program and python to ask next frame. To improve actions over blender.
 
 Disadvantage:
 - Currently rely on python script to do custom render within blender.
     No interops/additional cli commands other than interops through bpy (blender python) package
-    Instead of using JSON to send configuration to python/blender, we're using IPC to control next frame to render.
+    Instead of using JSON to send configuration to python/blender, we're using IPC to control next frame/batch to render(s).
     Currently using Command::Process to invoke commands to blender. Would like to see if there's public API or .dll to interface into.
 
 Challenges:
@@ -54,20 +54,20 @@ TODO:
         less smooth. (As you may need to set up these plugins for every Blender version instead
         of just letting BlendFarm do all the work.
     */
-extern crate xml_rpc;
+
 use crate::blend_file::BlendFile;
-use crate::manager::BlenderConfig;
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
 use crate::models::config::BlenderConfiguration;
 use crate::models::event::BlenderEvent;
-use crate::models::peek_response::PeekResponse;
+use xml_rpc::server::Handler;
 
 #[cfg(test)]
 use blend::Instance;
-use regex::Regex;
+use regex::{Captures, Regex};
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::num::ParseIntError;
 // use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -79,14 +79,8 @@ use std::{
 };
 use thiserror::Error;
 use tokio::spawn;
-use xml_rpc::xmlfmt::XmlResponse;
-use xml_rpc::{Params, Value};
+use xml_rpc::{Params, Value, XmlResponse};
 use xml_rpc::server::Server;
-
-// TODO: this is ugly, and I want to get rid of this. How can I improve this?
-// Backstory: Win and linux can be invoked via their direct app link. However, MacOS .app is just a bundle, which contains the executable inside.
-// To run process::Command, I must properly reference the executable path inside the blender.app on MacOS, using the hardcoded path below.
-const MACOS_PATH: &str = "Contents/MacOS/Blender";
 
 pub type Frame = i32;
 
@@ -109,7 +103,7 @@ pub enum BlenderError {
 /// Blender structure to hold path to executable and version of blender installed.
 /// Pretend this is the wrapper to interface with the actual blender program.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq)]
-pub struct Blender {
+pub struct Blender {    
     /// Path to blender executable on the system.
     executable: PathBuf,
     /// Version of blender installed on the system.
@@ -155,6 +149,18 @@ impl Blender {
         }
     }
 
+    fn handle_capture<'a>(capture: &Captures<'a>, names: &str) -> Result<u64, BlenderError> {
+        capture[names].parse().map_err(|e: ParseIntError| BlenderError::InvalidFile(e.to_string()))
+    }
+
+    fn parse_capture_to_version<'a>(info: &Captures) -> Result<Version, BlenderError> {
+        Ok(Version::new(
+            Blender::handle_capture(info, "major")?,
+            Blender::handle_capture(info, "minor")?,
+            Blender::handle_capture(info, "patch")?,
+        ))
+    }
+
     /// This function will invoke the -v command ot retrieve blender version information.
     ///
     /// # Errors
@@ -165,15 +171,12 @@ impl Blender {
         if let Ok(output) = Command::new(executable_path.as_ref()).arg("-v").output() {
             // wonder if there's a better way to test this?
             let regex =
-                Regex::new(r"(Blender (?<major>[0-9]).(?<minor>[0-9]).(?<patch>[0-9]))").unwrap();
+                Regex::new(r"(Blender (?<major>[0-9]).(?<minor>[0-9]).(?<patch>[0-9]))")
+                    .map_err(|e| BlenderError::InvalidFile(e.to_string()))?;
 
             let stdout = String::from_utf8(output.stdout).unwrap();
             return match regex.captures(&stdout) {
-                Some(info) => Ok(Version::new(
-                    info["major"].parse().unwrap(),
-                    info["minor"].parse().unwrap(),
-                    info["patch"].parse().unwrap(),
-                )),
+                Some(info) => Blender::parse_capture_to_version(&info),
                 None => Err(BlenderError::ExecutableInvalid),
             };
         }
@@ -188,6 +191,7 @@ impl Blender {
     // the difference between this function and getting executable are
     // a) MacOs is special. Executable reference a path inside app bundle.
     // b) This returns valid dir location to open to for user to look at from file POV
+    // TODO: Remove all of this unwrap nightmare.
     pub fn get_relative_path(&self) -> &Path {
         if cfg!(target_os = "macos") {
             &self
@@ -259,7 +263,9 @@ impl Blender {
         // 2: Executable is functional and operational
         // Otherwise, return an error that we were unable to verify this custom blender integrity.
         let version = Self::check_version(path)?;
-        Ok(Self::new(path.to_path_buf(), version))
+        let executable = path.to_path_buf();
+        let blender = Self::new(executable, version); 
+        Ok(blender)
     }
 
     // this is used to read and see blend file friendly view mode
@@ -323,11 +329,6 @@ impl Blender {
         }
     }
 
-    // TODO: Replace this to modify the struct to get next batch of rendering queue.
-    fn local_get_next_render_que(&mut self, _params: Params) -> XmlResponse {
-        Ok(Value::Int(1).into())
-    }
-
     /// Render one frame - can we make the assumption that ProjectFile may have configuration predefined Or is that just a system global setting to apply on?
     /// # Examples
     /// ```
@@ -339,37 +340,33 @@ impl Blender {
     /// ```
     // so instead of just returning the string of render result or blender error, we'll simply use the single producer to produce result from this class.
     // issue here is that we need to lock thread. If we are rendering, we need to be able to call abort.
-    pub async fn render<F>(&self, args: Args) -> Receiver<BlenderEvent>
+    pub async fn render(&mut self, args: Args, get_next_frame: Handler ) -> Result<Receiver<BlenderEvent>, BlenderError>
     {
         let (signal, listener) = mpsc::channel::<BlenderEvent>();
-        // can 
-        let blend_info: PeekResponse = args.file.peek_response(&self.version);
+         
         // this is the only place used for BlenderRenderSetting... thoughts?
-        let settings = BlenderConfiguration::parse_from(&args, &blend_info, &self.version);
-        self.setup_listening_server(settings, listener)
-            .await;
+        let settings = BlenderConfiguration::parse_from(&args, &self.version);
+        self.setup_listening_server(settings, listener, get_next_frame)
+            .await?;
 
         let (rx, tx) = mpsc::channel::<BlenderEvent>();
         let executable = self.executable.clone();
 
         spawn(async move {
-            Blender::setup_listening_blender(&args, executable, rx, signal).await;
+            if let Err(e) = Blender::setup_listening_blender(&args, executable, rx, signal).await {
+                println!("{e:?}");
+            }
         });
 
         // channel to invoke commands to blender while blender is running.
-        tx
+        Ok(tx)
     }
 
-    fn next_render_queue_callback(_params: Params) -> XmlResponse {
-        // here, they're asking for next render queue callback.
-        // in this case here, we don't care about the params, ? Why is Params called?
-        XmlResponse::Ok(Value::Int(42).into())
-    }
-
-    async fn setup_listening_server<F>(
+    async fn setup_listening_server(
         &mut self,
         settings: BlenderConfiguration,
         listener: Receiver<BlenderEvent>,
+        _get_next_frame: Box<dyn FnMut(Params) -> XmlResponse + Send + Sync>,
     ) -> Result<(), BlenderError>
     {
         // Read here - https://en.wikipedia.org/wiki/XML-RPC#Usage
@@ -407,7 +404,10 @@ impl Blender {
         // TODO: remove expect() once we have this working again.
         let mut server = Server::new(socket).expect("Unable to open socket for xml_rpc!");
 
-        server.register("next_render_queue".to_owned(),Box::new(self.local_get_next_render_que as fn()));
+        server.register("next_render_queue".to_owned(),Box::new(|_| {
+            // where/how can I tell my render counts?            
+            Ok(Value::Int(1).into())
+        }));
         /* 
         server.register("next_render_queue".to_owned(), move |params| match get_next_frame() {
             Some(frame) => Ok(frame),
@@ -420,12 +420,10 @@ impl Blender {
         // let me understand this better. 
         // In this listening server, I'm setting up a xml-rpc server to listen to all of the blender python script.
         // When blender calls fetch_info, we provide back the global_settings we have from job information.
-        server.register("fetch_info".to_owned(), Box::new(move |params| {
-            let settings = *global_settings.clone();
+        server.register("fetch_info".to_owned(), Box::new(move |_| {
             // How come we're using unwrap? seems dangerous and sketchy
-            match serde_json::to_string(&settings) {
+            match serde_json::to_string(&*global_settings.clone()) {
                 Ok(setting) => Ok(Value::String(setting).into()),
-                // Err(e) => Err(XmlResponse::Err(Valu(-1, e.to_string()))
                 Err(e) => Err(Value::fault(-1, e.to_string()))
             }
         }));
@@ -436,8 +434,14 @@ impl Blender {
                 // if the program shut down or if we've completed the render, then we should stop the server
                 match listener.try_recv() {
                     Ok(BlenderEvent::Exit) => break,
-                    e => println!("Listener received unconditionally: {e:?}"),
-                    // _ => server.poll(),
+                    Err(e) => {
+                        println!("Something happen? {e:?}");
+                        break;
+                    }
+                    e => {
+                        println!("Listener received unconditionally: {e:?}");
+                        server.poll()
+                    },
                 }
             }
         });

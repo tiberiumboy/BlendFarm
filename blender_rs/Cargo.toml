@@ -20,7 +20,8 @@ ureq = { version = "^3.0" }
 blend = "0.8.0"
 tokio = { version = "^1.49", features = ["full"] }
 # xml-rpc will merge into this project some day in the future, as it's just a http server protocol.
-xml-rpc = { git = "https://github.com/tiberiumboy/xml-rpc-rs.git" }
+# xml-rpc = { git = "https://github.com/tiberiumboy/xml-rpc-rs.git" }
+xml-rpc = { path = "/home/oem/Documents/src/rust/xml-rpc-rs" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 zip = "^7"

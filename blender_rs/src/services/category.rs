@@ -1,15 +1,27 @@
-use super::download_link::DownloadLink;
+use crate::models::download_link::DownloadLink;
+use crate::utils::{get_extension, get_valid_arch};
 use crate::page_cache::PageCache;
+use std::env::consts;
+use std::marker::PhantomData;
 use regex::Regex;
 use semver::Version;
-use std::env::consts;
 use thiserror::Error;
 use url::Url;
 
-pub(crate) struct BlenderCategory {
+// Is it possible to use phantom data here?
+// I have a situation where I can create this object, but not yet populate the download list.
+// There are two ways to load the list, one from page cache, assuming we have already visited the website
+// and the second is to load the website content, but also update the page cache to avoid revisitation and suspectible to DDoS/IP ban
+
+struct NotLoaded;
+struct Loaded;
+
+pub(crate) struct BlenderCategory<State = NotLoaded> {
     url: Url,
     major: u64,
     minor: u64,
+    links: Vec<DownloadLink>,
+    state: PhantomData<State>
 }
 
 #[derive(Debug, Error)]
@@ -24,44 +36,18 @@ pub enum BlenderCategoryError {
     Io(#[from] std::io::Error),
 }
 
-impl BlenderCategory {
-    /// fetch current architecture (Currently support x86_64 or aarch64 (apple silicon))
-    fn get_valid_arch() -> Result<String, BlenderCategoryError> {
-        match consts::ARCH {
-            "x86_64" => Ok("x64".to_owned()),
-            "aarch64" => Ok("arm64".to_owned()),
-            arch => Err(BlenderCategoryError::InvalidArch(arch.to_string())),
-        }
+impl BlenderCategory<NotLoaded> {
+    pub fn new(url: Url, major: u64, minor: u64) -> BlenderCategory<NotLoaded> {
+        // This would be a great place to load the links to validate the urls anyway.
+        Self { url, major, minor, links: Vec::new(), state: PhantomData::<NotLoaded> }
     }
 
-    /// Return extension matching to the current operating system (Only display Windows(.zip), Linux(.tar.xz), or macos(.dmg)).
-    pub(crate) fn get_extension() -> Result<String, String> {
-        match consts::OS {
-            "windows" => Ok(".zip".to_owned()),
-            "macos" => Ok(".dmg".to_owned()),
-            "linux" => Ok(".tar.xz".to_owned()),
-            os => Err(os.to_string()),
-        }
-    }
-
-    pub fn partial_version_match(&self, major: u64, minor: u64) -> bool {
-        self.major.eq(&major) && self.minor.eq(&minor)
-    }
-
-    pub fn version_match(&self, version: &Version) -> bool {
-        self.partial_version_match(version.major, version.minor)
-    }
-
-    pub fn new(url: Url, major: u64, minor: u64) -> Self {
-        Self { url, major, minor }
-    }
-
-    // for some reason I was fetching this multiple of times already. This seems expensive to call for some reason?
-    pub fn fetch(&self, cache: &mut PageCache) -> Result<Vec<DownloadLink>, BlenderCategoryError> {
+    // TODO: [BUG] for some reason I was fetching this multiple of times already. This seems expensive to call for some reason?
+    pub fn fetch(self, cache: &mut PageCache) -> Result<BlenderCategory<Loaded>, BlenderCategoryError> {
         // this function is called everytime fetch is called. This seems to be slowing down the performance for this application usage.
-        let content = cache.fetch(&self.url).map_err(BlenderCategoryError::Io)?;
-        let arch = Self::get_valid_arch()?;
-        let ext = Self::get_extension().map_err(BlenderCategoryError::UnsupportedOS)?;
+        let content = cache.fetch_or_update(&self.url).map_err(BlenderCategoryError::Io)?;
+        let arch = get_valid_arch().map_err(BlenderCategoryError::InvalidArch)?;
+        let ext = get_extension().map_err(BlenderCategoryError::UnsupportedOS)?;
 
         // Regex rules - Find the url that matches version, computer os and arch, and the extension.
         // - There should only be one entry matching for this. Otherwise return error stating unable to find download path
@@ -85,19 +71,14 @@ impl BlenderCategory {
                 Some(DownloadLink::new(name.to_owned(), url, version))
             })
             .collect();
-
-        Ok(vec)
-    }
-
-    // internal function use - depends on PageCache
-    pub(crate) fn fetch_latest(
-        &self,
-        cache: &mut PageCache,
-    ) -> Result<DownloadLink, BlenderCategoryError> {
-        let mut list = self.fetch(cache)?;
-        list.sort_by(|a, b| b.cmp(a));
-        let entry = list.first().ok_or(BlenderCategoryError::NotFound)?;
-        Ok(entry.clone())
+        
+        Ok(BlenderCategory::<Loaded>{
+            url: self.url,
+            major: self.major,
+            minor: self.minor,
+            links: vec,
+            state: PhantomData::<Loaded>,
+        })
     }
 
     pub fn retrieve(
@@ -111,6 +92,30 @@ impl BlenderCategory {
             .find(|dl| dl.as_ref().eq(version))
             .ok_or(BlenderCategoryError::NotFound)?;
         Ok(entry.to_owned())
+    }
+}
+
+impl BlenderCategory<Loaded> {
+    pub(crate) fn fetch_latest(
+        &self,
+        cache: &mut PageCache,
+    ) -> Result<DownloadLink, BlenderCategoryError> {
+        let mut list = self.fetch(cache)?;
+        list.sort_by(|a, b| b.cmp(a));
+        let entry = list.first().ok_or(BlenderCategoryError::NotFound)?;
+        Ok(entry.clone())
+    }
+}
+
+// content of https://download.blender.org/release/Blender{major}.{minor}/
+impl BlenderCategory {
+    
+    pub fn partial_version_match(&self, major: u64, minor: u64) -> bool {
+        self.major.eq(&major) && self.minor.eq(&minor)
+    }
+
+    pub fn version_match(&self, version: &Version) -> bool {
+        self.partial_version_match(version.major, version.minor)
     }
 }
 

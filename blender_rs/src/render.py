@@ -147,7 +147,10 @@ def main():
     while True:
         try:
             frame = proxy.next_render_queue(1)
-        except:
+            if frame is None:
+                break
+        except Exception as e:
+            print(e)    # Wanted to see what the logs looks like so we can handle this better here
             break
         renderFrame(scn, config, scene, frame)
 

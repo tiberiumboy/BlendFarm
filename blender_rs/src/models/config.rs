@@ -40,11 +40,18 @@ impl BlenderConfiguration {
         engine: Engine,
         format: Format,
     ) -> Self {
+        let cores = match std::thread::available_parallelism() {
+            Ok(f) => f.get(),
+            Err(e) => {
+                println!("{e:?}");
+                1
+            }
+        };
         Self {
             id: Uuid::new_v4(),
             output,
             scene_info,
-            cores: std::thread::available_parallelism().unwrap().get(),
+            cores,
             processor,
             hardware_mode,
             tile_width,
@@ -57,7 +64,8 @@ impl BlenderConfiguration {
     }
 
     /// Args are user provided value - this should not correlate to the machine's hardware (CUDA/OPTIX/GPU usage)
-    pub fn parse_from(args: &Args, info: &PeekResponse, version: &Version) -> Self {
+    pub fn parse_from(args: &Args, version: &Version) -> Self {
+        let info: PeekResponse = args.file.peek_response(Some(version));
         BlenderConfiguration::new(
             args.output.clone(),
             info.current.clone(),

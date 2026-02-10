@@ -23,7 +23,11 @@ pub struct RenderSetting {
     /// Image format
     pub format: Format,
     /// Borders
-    pub border: Window,
+    pub border: Window
+    // Start Frame (timeline)
+    // pub frame_start: Frame,
+    // End Frame (timeline)
+    // pub frame_end: Frame,
 }
 
 impl RenderSetting {
