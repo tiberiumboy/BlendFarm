@@ -5,6 +5,55 @@ use std::io::{Error, Read, Result};
 use std::{collections::HashMap, fs, path::PathBuf, time::SystemTime};
 use url::Url;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum ExpirationUnits {
+    Disable,
+    Day(i8),
+    Week(i8),
+    Month(i8),
+    // Year(i8),
+}
+
+impl Default for ExpirationUnits {
+    fn default() -> Self {
+        ExpirationUnits::Month(6)
+    }
+}
+
+const PATTERN: &str = r#"[/\\?%*:|."<>]"#;
+
+// TODO: Should I make this public? If not, then other class cannot read this?
+// Unless PageCache manages this internally.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PageCacheConfiguration {
+    #[serde(skip, default = "PageCacheConfiguration::default_regex")]
+    pub regex: Regex,
+    expiration_duration: ExpirationUnits,
+    cache_dir: PathBuf,
+    config_path: PathBuf,
+}
+
+impl Default for PageCacheConfiguration {
+    fn default() -> Self {
+
+        // TODO: I would like to know what reason could this fail and return Error? So that we can get rid of this unwrap() function
+        // but it's my responsibility anyway and anyhow.
+        let regex = Regex::new(PATTERN).unwrap();
+        Self { 
+            regex, 
+            expiration_duration: Default::default(), 
+            cache_dir: Default::default(),
+            config_path: Default::default() 
+        }
+    }
+}
+
+impl PageCacheConfiguration {
+    fn default_regex() -> Regex {
+        Regex::new(PATTERN).unwrap()
+    }
+}
+
 // Hide this for now,
 #[doc(hidden)]
 // rely the cache creation date on file metadata.
@@ -12,16 +61,19 @@ use url::Url;
 pub struct PageCache {
     cache: HashMap<Url, PathBuf>,
     was_modified: bool,
+    config: PageCacheConfiguration,
 }
 
-// the whole idea behind this was to store information from blender with minimal connectivity interface as possible. Rely on cache if we need to lookup again.
+// the whole idea behind this was to store information from blender with minimal connectivity 
+// interface as possible. Rely on cache if we need to lookup again. This separate us from ChatGPT and other LLM agents.
 impl PageCache {
     // fetch cache directory
     fn get_dir() -> Result<PathBuf> {
         // FIXME: Consider using some kind of system settings to load where to save the cache to.
-        let mut tmp = dirs::cache_dir().ok_or(Error::new(
+        let mut tmp = dirs::cache_dir().ok_or(
+            Error::new(
             std::io::ErrorKind::NotFound,
-            "Unable to fetch cache directory!",
+            "Unable to fetch cache directory! Must have permission to create cache directory!",
         ))?;
         tmp.push("cache");
         fs::create_dir_all(&tmp)?;
@@ -45,7 +97,13 @@ impl PageCache {
         Ok(())
     }
 
-    // TODO: Impl a way to verify cache is not old or out of date. What's a good refresh cache time? 2 weeks? server_settings config?
+    fn validate_cache(&mut self) {
+        // Here we run a check of all of the cache we have stored, and then check the last modified date. If it exceed page cache's 
+        // TODO: Present a "Delete cache after X Y" Where X is a number and Y is enum such as Day, Weeks, or Month - We should be realistic, protective, and caution about security and delete cache older than 6 months, unless someone objects this idea and creates a PR request removing this comment and prove me wrong why we should store cache older than a year? At this point, you might as well just turn off this feature?
+        // PageCacheConfig::get_expiration_duration(self) -> Option<ExpirationUnits>
+    }
+    
+    // TODO: name is too ambiguous. What is load? What are we loading? What does it do? Does it load the program? File? Something?
     pub fn load() -> Result<Self> {
         let current = SystemTime::now();
         // use define path to cache file
@@ -77,13 +135,14 @@ impl PageCache {
         Ok(data)
     }
 
-    // This function can be relocated somewhere else?
-    fn generate_file_name(url: &Url) -> String {
+    fn generate_file_name(self, url: &Url) -> String {
         let mut file_name = url.to_string();
 
         // Rule: find any invalid file name characters
         // TODO: Is there a way to make this shared statically? Doesn't seems like it's being used anywhere?
-        let re = Regex::new(r#"[/\\?%*:|."<>]"#).unwrap();
+        // Is it possible for me to compile this as an object instead of calling it unwrap every single time?
+        
+        let re = self.config.regex;
 
         // remove trailing slash
         file_name.ends_with('/').then(|| file_name.pop());

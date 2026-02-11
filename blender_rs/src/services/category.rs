@@ -8,13 +8,12 @@ use semver::Version;
 use thiserror::Error;
 use url::Url;
 
-// Is it possible to use phantom data here?
 // I have a situation where I can create this object, but not yet populate the download list.
 // There are two ways to load the list, one from page cache, assuming we have already visited the website
 // and the second is to load the website content, but also update the page cache to avoid revisitation and suspectible to DDoS/IP ban
 
-struct NotLoaded;
-struct Loaded;
+pub(crate) struct NotLoaded;
+pub(crate) struct Loaded;
 
 pub(crate) struct BlenderCategory<State = NotLoaded> {
     url: Url,
@@ -50,6 +49,7 @@ impl BlenderCategory<NotLoaded> {
         let ext = get_extension().map_err(BlenderCategoryError::UnsupportedOS)?;
 
         // Regex rules - Find the url that matches version, computer os and arch, and the extension.
+        // Don't cache this. Only used once and forget. Design to get information from website template. May change one day.
         // - There should only be one entry matching for this. Otherwise return error stating unable to find download path
         let pattern = format!(
             r#"<a href=\"(?<url>.*)\">(?<name>.*-{}\.{}\.(?<patch>\d*.)-{}.*{}*.{})<\/a>"#,
@@ -61,7 +61,7 @@ impl BlenderCategory<NotLoaded> {
         );
 
         let regex = Regex::new(&pattern).unwrap();
-        let vec = regex
+        let mut vec: Vec<DownloadLink> = regex
             .captures_iter(&content)
             .filter_map(|c| {
                 let (_, [url, name, patch]) = c.extract();
@@ -71,6 +71,8 @@ impl BlenderCategory<NotLoaded> {
                 Some(DownloadLink::new(name.to_owned(), url, version))
             })
             .collect();
+
+        vec.sort_by(|a, b| b.cmp(a));
         
         Ok(BlenderCategory::<Loaded>{
             url: self.url,
@@ -80,30 +82,25 @@ impl BlenderCategory<NotLoaded> {
             state: PhantomData::<Loaded>,
         })
     }
-
-    pub fn retrieve(
-        &self,
-        version: &Version,
-        cache: &mut PageCache,
-    ) -> Result<DownloadLink, BlenderCategoryError> {
-        let list = self.fetch(cache)?;
-        let entry = list
-            .iter()
-            .find(|dl| dl.as_ref().eq(version))
-            .ok_or(BlenderCategoryError::NotFound)?;
-        Ok(entry.to_owned())
-    }
 }
 
 impl BlenderCategory<Loaded> {
     pub(crate) fn fetch_latest(
-        &self,
-        cache: &mut PageCache,
+        &self
     ) -> Result<DownloadLink, BlenderCategoryError> {
-        let mut list = self.fetch(cache)?;
-        list.sort_by(|a, b| b.cmp(a));
-        let entry = list.first().ok_or(BlenderCategoryError::NotFound)?;
+        let entry = self.links.first().ok_or(BlenderCategoryError::NotFound)?;
         Ok(entry.clone())
+    }
+
+    pub fn retrieve(
+        &self,
+        version: &Version,
+    ) -> Result<DownloadLink, BlenderCategoryError> {
+        let entry = self.links
+            .iter()
+            .find(|dl| dl.as_ref().eq(version))
+            .ok_or(BlenderCategoryError::NotFound)?;
+        Ok(entry.to_owned())
     }
 }
 

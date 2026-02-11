@@ -12,7 +12,7 @@ use crate::models::blender_scene::BlenderScene;
 use crate::models::peek_response::PeekResponse;
 use crate::models::render_setting::RenderSetting;
 use crate::models::{download_link::DownloadLink};
-use crate::services::category::BlenderCategory;
+use crate::services::category::{BlenderCategory, Loaded};
 use crate::page_cache::PageCache;
 use crate::utils::get_extension;
 
@@ -81,7 +81,7 @@ impl BlenderConfig {
 pub struct Manager {
     /// Store all known installation of blender directory information
     config: BlenderConfig,
-    list: Vec<BlenderCategory>,
+    list: Vec<BlenderCategory<Loaded>>,
     download_links: Vec<DownloadLink>,
     cache: PageCache,
     has_modified: bool, // detect if the configuration has changed.
@@ -113,13 +113,15 @@ impl Default for Manager {
 }
 
 impl Manager {
-    fn fetch_categories(cache: &mut PageCache) -> Result<Vec<BlenderCategory>, Error> {
+    fn fetch_categories(cache: &mut PageCache) -> Result<Vec<BlenderCategory<Loaded>>, Error> {
         let parent = Url::parse("https://download.blender.org/release/").unwrap();
         let content = cache.fetch_or_update(&parent)?;
 
         // Omit any blender version 2.8 and below
         let pattern =
             r#"<a href=\"(?<url>.*)\">Blender(?<major>[3-9]|\d{2,}).(?<minor>\d*).*\/<\/a>"#;
+        // I would at least expect this regex pattern to never change or fail so creating a cache would make sense?
+        // TODO: I don't think there's anyway this could break or throw error?
         let regex = Regex::new(pattern).map_err(|e| {
             Error::new(
                 ErrorKind::InvalidData,
@@ -127,14 +129,17 @@ impl Manager {
             )
         })?;
 
-        let mut list: Vec<BlenderCategory> = regex
+        let mut list: Vec<BlenderCategory<Loaded>> = regex
             .captures_iter(&content)
             .map(|c| {
                 let (_, [url, major, minor]) = c.extract();
                 let url = parent.join(url).ok()?;
                 let major = major.parse().ok()?;
                 let minor = minor.parse().ok()?;
-                Some(BlenderCategory::new(url, major, minor))
+                let unloaded = BlenderCategory::new(url, major, minor);
+                // todo find a way to remove this expect()
+                let loaded = unloaded.fetch(&mut cache).expect("Should work"); 
+                Some(loaded)
             })
             .flatten()
             .collect();
@@ -269,7 +274,7 @@ impl Manager {
         let selected_scene = scene_info.selected_scene();
         let selected_camera = scene_info.selected_camera();
 
-        let render_setting: RenderSetting = scene_info.render_setting();
+        let render_setting: RenderSetting = scene_info.clone().render_setting();
         let current = BlenderScene::new(selected_scene, selected_camera, render_setting);
 
         // TODO: Rethink structure?
@@ -410,11 +415,13 @@ impl Manager {
     pub fn download_latest_version(&mut self) -> Result<Blender, ManagerError> {
         // in this case - we need to fetch the latest version from somewhere, download.blender.org will let us fetch the parent before we need to dive into
         // TODO: Find a way to replace these unwrap()
-        let category = &self.list.first().map_or(Err(ManagerError::RequestError("Category list is empty! Did you clear the cache? Please connect to the internet to retrieve blender download list".to_string())), |c| Ok(c))?;
-
-        // TODO how do I get around this? I moved PageCache to manager class instead of BlenderHome.
-        // This kinda open up a whole can of worms.
-        let link = category.fetch_latest(&mut self.cache).unwrap();
+        let category = 
+            self.list.first()
+                .map_or(
+                    Err(
+                        ManagerError::RequestError("Category list is empty! Did you clear the cache? Please connect to the internet to retrieve blender download list".to_string()))
+                        , |c| Ok(c))?;
+        let link = category.fetch_latest().unwrap();
         let destination = self.config.install_path.join(&link.get_parent());
 
         // got a permission denied here? Interesting?
