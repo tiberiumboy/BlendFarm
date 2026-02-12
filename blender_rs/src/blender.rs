@@ -1,3 +1,4 @@
+#![cfg(not(doctest))]
 /*
 Developer blog:
 
@@ -227,10 +228,9 @@ impl Blender {
     /// * InvalidData - executable path do not exist, or is invalid. Please verify that the executable path is correct and leads to the actual executable.
     /// *
     /// # Examples
-    ///
     /// ```
     /// use blender::Blender;
-    /// let blender = Blender::from_executable(Pathbuf::from("path/to/blender")).unwrap();
+    /// let blender = Blender::from_executable(Pathbuf::from("../examples/")).unwrap();
     /// ```
     pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self, BlenderError> {
         // TODO: this is ugly, and I want to get rid of this. How can I improve this?

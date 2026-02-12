@@ -135,28 +135,22 @@ impl PageCache {
         Ok(data)
     }
 
-    fn generate_file_name(self, url: &Url) -> String {
+    fn generate_file_name(&self, url: &Url) -> String {
         let mut file_name = url.to_string();
-
-        // Rule: find any invalid file name characters
-        // TODO: Is there a way to make this shared statically? Doesn't seems like it's being used anywhere?
-        // Is it possible for me to compile this as an object instead of calling it unwrap every single time?
-        
-        let re = self.config.regex;
-
+        // Rule: find any invalid file name characters 
+        let re = &self.config.regex;
         // remove trailing slash
         file_name.ends_with('/').then(|| file_name.pop());
-
         // Replace any invalid characters with hyphens
         re.replace_all(&file_name, "-").to_string()
     }
 
     /// Fetch url response from argument and save response body to cache directory using url as file name
     /// This will append a new entry to the cache hashmap.
-    fn save_content_to_cache(url: &Url) -> Result<PathBuf> {
+    fn save_content_to_cache(&self, url: &Url) -> Result<PathBuf> {
         // create an absolute file path
         let mut tmp = Self::get_dir()?;
-        tmp.push(Self::generate_file_name(url));
+        tmp.push(self.generate_file_name(url));
 
         // fetch the content from the url
         // expensive implict type cast?
@@ -180,11 +174,15 @@ impl PageCache {
     /// otherwise, fetch the page from the internet, and save it to storage cache,
     /// then return the page result.
     pub fn fetch_or_update(&mut self, url: &Url) -> Result<String> {
-        let path = self.cache.entry(url.to_owned()).or_insert({
-            self.was_modified = true;
-            Self::save_content_to_cache(url)?.to_owned()
-        });
-
+        let path = match self.cache.contains_key(url) {
+            true => self.cache.get(url).unwrap(),
+            false => {
+                let path = self.save_content_to_cache(url)?.to_owned();
+                self.cache.insert(url.to_owned(), path.clone());
+                &path.clone()
+            }
+        };
+        
         fs::read_to_string(path)
     }
 

@@ -83,7 +83,7 @@ pub struct Manager {
     config: BlenderConfig,
     list: Vec<BlenderCategory<Loaded>>,
     download_links: Vec<DownloadLink>,
-    cache: PageCache,
+    // cache: PageCache,
     has_modified: bool, // detect if the configuration has changed.
 }
 
@@ -106,7 +106,7 @@ impl Default for Manager {
             config,
             list,
             download_links: Vec::new(),
-            cache,
+            // cache,
             has_modified: false,
         }
     }
@@ -138,7 +138,7 @@ impl Manager {
                 let minor = minor.parse().ok()?;
                 let unloaded = BlenderCategory::new(url, major, minor);
                 // todo find a way to remove this expect()
-                let loaded = unloaded.fetch(&mut cache).expect("Should work"); 
+                let loaded = unloaded.fetch(cache).expect("Should work"); 
                 Some(loaded)
             })
             .flatten()
@@ -438,12 +438,12 @@ impl Manager {
         Ok(blender)
     }
 
-    pub fn get_blender_link_by_version(&mut self, version: &Version) -> Option<DownloadLink> {
+    pub fn get_blender_link_by_version(&self, version: &Version) -> Option<DownloadLink> {
         self.list
             .iter()
-            .find(|c| c.version_match(version))
+            .find(|&c| c.version_match(version))
             .map_or(None, |c| {
-                c.retrieve(version, &mut self.cache)
+                c.retrieve(version)
                     .map_or(None, |l| Some(l))
             })
     }
@@ -455,7 +455,7 @@ impl Manager {
             .iter()
             .find(|v| v.partial_version_match(major, minor))
             .map_or(None, |c| {
-                c.fetch_latest(&mut self.cache)
+                c.fetch_latest()
                     .map_or(None, |l| Some(l.get_version().clone()))
             })
     }

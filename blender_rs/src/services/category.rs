@@ -105,7 +105,7 @@ impl BlenderCategory<Loaded> {
 }
 
 // content of https://download.blender.org/release/Blender{major}.{minor}/
-impl BlenderCategory {
+impl<State> BlenderCategory<State> {
     
     pub fn partial_version_match(&self, major: u64, minor: u64) -> bool {
         self.major.eq(&major) && self.minor.eq(&minor)
@@ -134,6 +134,32 @@ impl PartialOrd for BlenderCategory {
 }
 
 impl Ord for BlenderCategory {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.major.cmp(&other.major) {
+            std::cmp::Ordering::Equal => self.minor.cmp(&other.minor),
+            all => return all,
+        }
+    }
+}
+
+impl PartialEq for BlenderCategory<Loaded> {
+    fn eq(&self, other: &Self) -> bool {
+        self.url == other.url && self.major.eq(&other.major) && self.minor.eq(&other.minor)
+    }
+}
+
+impl Eq for BlenderCategory<Loaded> {}
+
+impl PartialOrd for BlenderCategory<Loaded> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.major.partial_cmp(&other.major) {
+            Some(core::cmp::Ordering::Equal) => return self.minor.partial_cmp(&other.minor),
+            ord => return ord,
+        }
+    }
+}
+
+impl Ord for BlenderCategory<Loaded> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         match self.major.cmp(&other.major) {
             std::cmp::Ordering::Equal => self.minor.cmp(&other.minor),
