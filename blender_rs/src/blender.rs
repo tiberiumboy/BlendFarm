@@ -435,6 +435,7 @@ impl Blender {
                 match listener.try_recv() {
                     Ok(BlenderEvent::Exit) => break,
                     Err(e) => {
+                        // Received "Empty"?
                         println!("Something happen? {e:?}");
                         break;
                     }

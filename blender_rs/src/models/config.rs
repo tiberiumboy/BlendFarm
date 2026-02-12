@@ -88,3 +88,14 @@ impl BlenderConfiguration {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::blender::Args;
+
+    // TODO: Need to write a unit test to ensure the correct engine is used per blender version.
+    #[test]
+    fn blender_should_use_eevee_next() {
+        // Args::new(file, output, engine)
+    }
+}
