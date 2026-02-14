@@ -97,6 +97,7 @@ impl PageCache {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn validate_cache(&mut self) {
         // Here we run a check of all of the cache we have stored, and then check the last modified date. If it exceed page cache's 
         // TODO: Present a "Delete cache after X Y" Where X is a number and Y is enum such as Day, Weeks, or Month - We should be realistic, protective, and caution about security and delete cache older than 6 months, unless someone objects this idea and creates a PR request removing this comment and prove me wrong why we should store cache older than a year? At this point, you might as well just turn off this feature?
