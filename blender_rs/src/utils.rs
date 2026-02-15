@@ -1,4 +1,4 @@
-use std::env::consts;
+use std::{env::consts, path::PathBuf};
 
 /// Return extension matching to the current operating system (Only display Windows(.zip), Linux(.tar.xz), or macos(.dmg)).
 pub(crate) fn get_extension() -> Result<String, String> {
@@ -17,4 +17,11 @@ pub(crate) fn get_valid_arch() -> Result<String, String> {
         "aarch64" => Ok("arm64".to_owned()),
         arch => Err(arch.to_string()),
     }
+}
+
+/// Fetch the configuration path for blender. 
+/// This is used to store temporary files and configuration files for blender.
+/// TODO: Consider loading this from user preferences?
+pub(crate) fn get_config_path() -> PathBuf {
+    dirs::config_dir().unwrap().join("BlendFarm")
 }

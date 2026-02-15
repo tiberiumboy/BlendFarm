@@ -1,6 +1,5 @@
 use std::{
-    num::ParseIntError,
-    path::{Path, PathBuf},
+    fs, num::ParseIntError, path::{Path, PathBuf}
 };
 
 use blend::Blend;
@@ -17,6 +16,7 @@ use crate::{
         render_setting::{FrameRate, RenderSetting},
         window::Window,
     },
+    utils::get_config_path
 };
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -156,6 +156,25 @@ impl BlendFile {
         })
     }
 
+    pub fn setup_args(&self) -> Result<Vec<String>, BlenderError> {
+        let script_path = get_config_path().join("render.py");
+        if !script_path.exists() {
+            let data = include_bytes!("./render.py");
+            fs::write(&script_path, data).map_err(|e| BlenderError::PythonError(e.to_string()))?;
+        }
+
+        let path = self.to_path().as_os_str();
+
+        Ok(vec![
+            "--factory-startup".to_owned(),
+            "-noaudio".into(),
+            "-b".into(),
+            path.to_str().unwrap().to_owned(),
+            "-P".into(),
+            script_path.to_str().unwrap().into(),
+        ])
+    }
+
     pub fn get_partial_version(&self) -> (u16, u16) {
         (self.major, self.minor)
     }
@@ -189,4 +208,13 @@ impl Into<SceneInfo> for BlendFile {
     fn into(self) -> SceneInfo {
         self.scene_info
     }
+}
+
+#[cfg(test)]
+mod tests {
+    // use crate::blend_file::BlendFile;
+
+    // fn mock_blendfile() -> BlendFile {
+    //     let blend_file = BlendFile::new(path_to_blend_file)
+    // }
 }

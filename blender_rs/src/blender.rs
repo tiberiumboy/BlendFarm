@@ -56,7 +56,6 @@ TODO:
         of just letting BlendFarm do all the work.
     */
 
-use crate::blend_file::BlendFile;
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
 use crate::models::config::BlenderConfiguration;
@@ -73,7 +72,6 @@ use std::num::ParseIntError;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::{
-    fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     sync::mpsc::{self, Receiver, Sender},
@@ -182,11 +180,6 @@ impl Blender {
             };
         }
         Err(BlenderError::ExecutableInvalid)
-    }
-
-    /// Fetch the configuration path for blender. This is used to store temporary files and configuration files for blender.
-    pub fn get_config_path() -> PathBuf {
-        dirs::config_dir().unwrap().join("BlendFarm")
     }
 
     // the difference between this function and getting executable are
@@ -344,16 +337,15 @@ impl Blender {
     {
         let (signal, listener) = mpsc::channel::<BlenderEvent>();
          
-        // this is the only place used for BlenderRenderSetting... thoughts?
-        let settings = BlenderConfiguration::parse_from(&args, &self.version);
+        let settings = args.parse_from(&self.version).to_owned();
         self.setup_listening_server(settings, listener, get_next_frame)
             .await?;
 
         let (rx, tx) = mpsc::channel::<BlenderEvent>();
-        let executable = self.executable.clone();
+        let blender = self.clone();
 
         spawn(async move {
-            if let Err(e) = Blender::setup_listening_blender(&args, executable, rx, signal).await {
+            if let Err(e) = &blender.setup_listening_blender(&args, rx, signal).await {
                 println!("{e:?}");
             }
         });
@@ -450,36 +442,18 @@ impl Blender {
         Ok(())
     }
 
-    fn setup_args(blend_file: &BlendFile) -> Result<Vec<String>, BlenderError> {
-        let script_path = Blender::get_config_path().join("render.py");
-        if !script_path.exists() {
-            let data = include_bytes!("./render.py");
-            fs::write(&script_path, data).map_err(|e| BlenderError::PythonError(e.to_string()))?;
-        }
-
-        let path = blend_file.to_path().as_os_str();
-
-        Ok(vec![
-            "--factory-startup".to_owned(),
-            "-noaudio".into(),
-            "-b".into(),
-            path.to_str().unwrap().to_owned(),
-            "-P".into(),
-            script_path.to_str().unwrap().into(),
-        ])
-    }
-
     // setup xml-rpc listening server for blender's IPC
-    async fn setup_listening_blender<T: AsRef<Path>>(
+    async fn setup_listening_blender(
+        &self,
         args: &Args,
-        executable: T,
         rx: Sender<BlenderEvent>,
         signal: Sender<BlenderEvent>,
     ) -> Result<(), BlenderError> {
-        let col = Self::setup_args(&args.file)?;
+
+        let col = &args.file.setup_args()?;
 
         // TODO: Find a way to remove unwrap()
-        let stdout = Command::new(executable.as_ref())
+        let stdout = Command::new(self.get_executable())
             .args(col)
             .stdout(Stdio::piped())
             .spawn()
@@ -563,7 +537,9 @@ impl Blender {
             }
 
             // Strange how this was thrown, but doesn't report back to this program?
+            // [ERR] Error: Engine 'BLENDER_EEVEE_NEXT' not available for scene 'Scene' (an add-on may need to be installed or enabled)
             line if line.starts_with("EXCEPTION:") => {
+                // Why would this crash?
                 signal.send(BlenderEvent::Exit).unwrap();
                 rx.send(BlenderEvent::Error(line.to_owned())).unwrap();
             }
