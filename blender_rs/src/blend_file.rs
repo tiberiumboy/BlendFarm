@@ -1,5 +1,5 @@
 use std::{
-    fs, num::ParseIntError, path::{Path, PathBuf}
+    fs, net::SocketAddrV4, num::ParseIntError, path::{Path, PathBuf}
 };
 
 use blend::Blend;
@@ -42,12 +42,13 @@ impl SceneInfo {
         self.scenes.get(0).unwrap_or(&"".to_owned()).to_owned()
     }
 
-    pub fn process(mut self, blend: &Blend) -> Result<Self, BlenderError> {
+    pub(crate) fn process(mut self, blend: &Blend) -> Result<Self, BlenderError> {
         // this denotes how many scene objects there are.
         for obj in blend.instances_with_code(*b"SC") {
             let scene = obj.get("id").get_string("name").replace("SC", ""); // not the correct name usage?
             let render = &obj.get("r"); // get render data
-
+            
+            // do need to make sure that the engine is correctly set?
             self.engine = match render.get_string("engine") {
                 x if x.contains("NEXT") => Engine::BLENDER_EEVEE_NEXT,
                 x if x.contains("EEVEE") => Engine::BLENDER_EEVEE,
@@ -96,7 +97,7 @@ impl SceneInfo {
         )
     }
 
-    pub fn peek_response(&self, version: &Version) -> PeekResponse {
+    pub(crate) fn peek_response(&self, version: &Version) -> PeekResponse {
         let selected_scene = self.selected_scene();
         let selected_camera = self.selected_camera();
 
@@ -156,7 +157,7 @@ impl BlendFile {
         })
     }
 
-    pub fn setup_args(&self) -> Result<Vec<String>, BlenderError> {
+    pub fn setup_args(&self, socket: &SocketAddrV4) -> Result<Vec<String>, BlenderError> {
         let script_path = get_config_path().join("render.py");
         if !script_path.exists() {
             let data = include_bytes!("./render.py");
@@ -172,6 +173,10 @@ impl BlendFile {
             path.to_str().unwrap().to_owned(),
             "-P".into(),
             script_path.to_str().unwrap().into(),
+            "-i".into(),
+            socket.ip().to_string(),
+            "-p".into(),
+            socket.port().to_string()
         ])
     }
 

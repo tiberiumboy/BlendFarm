@@ -67,6 +67,7 @@ use blend::Instance;
 use regex::{Captures, Regex};
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::num::ParseIntError;
 // use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process::{Command, Stdio};
@@ -335,17 +336,21 @@ impl Blender {
     // issue here is that we need to lock thread. If we are rendering, we need to be able to call abort.
     pub async fn render(&mut self, args: Args, get_next_frame: Handler ) -> Result<Receiver<BlenderEvent>, BlenderError>
     {
+        let port = 8081;
+        let socket = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
+
+        // I'm not even sure why we have two mpsc here for setup_listening_blender to use?
         let (signal, listener) = mpsc::channel::<BlenderEvent>();
          
         let settings = args.parse_from(&self.version).to_owned();
-        self.setup_listening_server(settings, listener, get_next_frame)
+        self.setup_listening_server(settings, listener, &socket, get_next_frame)
             .await?;
 
         let (rx, tx) = mpsc::channel::<BlenderEvent>();
         let blender = self.clone();
 
         spawn(async move {
-            if let Err(e) = &blender.setup_listening_blender(&args, rx, signal).await {
+            if let Err(e) = &blender.setup_listening_blender(&args, rx, signal, &socket).await {
                 println!("{e:?}");
             }
         });
@@ -358,6 +363,7 @@ impl Blender {
         &mut self,
         settings: BlenderConfiguration,
         listener: Receiver<BlenderEvent>,
+        socket: &SocketAddrV4,
         _get_next_frame: Box<dyn FnMut(Params) -> XmlResponse + Send + Sync>,
     ) -> Result<(), BlenderError>
     {
@@ -390,11 +396,9 @@ impl Blender {
         */
 
         let global_settings = Arc::new(settings);
-        let socket = 8081;
-
         // I think in order for me to make this working example, I need to create a struct that is memory bound to different threads, and read when available. This isolate mutation of variable and object that needs to be thread-safetly. 
         // TODO: remove expect() once we have this working again.
-        let mut server = Server::new(socket).expect("Unable to open socket for xml_rpc!");
+        let mut server = Server::new(socket.port()).expect("Unable to open socket for xml_rpc!");
 
         server.register("next_render_queue".to_owned(),Box::new(|_| {
             // where/how can I tell my render counts?            
@@ -448,9 +452,11 @@ impl Blender {
         args: &Args,
         rx: Sender<BlenderEvent>,
         signal: Sender<BlenderEvent>,
+        socket: &SocketAddrV4
     ) -> Result<(), BlenderError> {
 
-        let col = &args.file.setup_args()?;
+        let col = &args.file.setup_args(socket)?;
+        dbg!(col);
 
         // TODO: Find a way to remove unwrap()
         let stdout = Command::new(self.get_executable())
@@ -480,6 +486,7 @@ impl Blender {
     fn handle_blender_stdio(
         line: String,
         frame: &mut i32,
+        // What's the difference between rx and signal?
         rx: &Sender<BlenderEvent>,
         signal: &Sender<BlenderEvent>,
     ) {
@@ -547,6 +554,24 @@ impl Blender {
             line if line.starts_with("COMPLETED") => {
                 signal.send(BlenderEvent::Exit).unwrap();
                 rx.send(BlenderEvent::Exit).unwrap();
+            }
+
+            // When launch blender for the first time, it prints out the version number and the hash information about the build)
+            line if line.starts_with("Blender ") => {
+                rx.send(BlenderEvent::Log(line)).unwrap();
+            }
+            
+            // Blender prints out reading blender files, here we'll just log the info anyway (We already have the information)
+            line if line.starts_with("Read blend: ") => {
+                rx.send(BlenderEvent::Log(line)).unwrap();
+            }
+
+            line if line.starts_with("regiondata free error") => {
+                rx.send(BlenderEvent::Warning(line)).unwrap()
+            }
+
+            line if line.starts_with("Color management: ") => {
+                rx.send(BlenderEvent::Log(line)).unwrap();
             }
 
             // TODO: Warning keyword is used multiple of times. Consider removing warning apart and submit remaining content above

@@ -11,8 +11,6 @@ import argparse
 # from dataclasses import dataclass
 from multiprocessing import cpu_count
 
-# isPre3 = bpy.app.version < (3,0,0)
-
 def eprint(msg):
     print("EXCEPTION:" + str(msg) + "\n")
 
@@ -144,8 +142,8 @@ def renderFrame(scn, config, frame):
     id = str(config["TaskID"])
     # TODO: How do I stream this? Why do I have to "flush"?
     print("RENDER_START: " + id + "\n", flush=True)
-    # TODO: Research what use_viewport does?
-    bpy.ops.render.render(animation=False, write_still=True, use_viewport=False)
+    # TODO: Research what use_viewport does? What about animation?
+    bpy.ops.render.render(animation=True, write_still=True, use_viewport=False)
     # TODO: How do I stream this? Why do I have to "flush"?
     print("SUCCESS: " + id + "\n", flush=True)
 
@@ -179,27 +177,26 @@ def main(ip: str, port: int) -> None:
             print(e)    # Wanted to see what the logs looks like so we can handle this better here
             break
 
-    print("COMPLETED")
-
 # main()
 if __name__ == "__main__":
     # TODO: See about capturing ip addresse and port here
     parser = argparse.ArgumentParser(
-        prog="BlendFarm IPC Layer Services",
-        descript="Opens up a listening server which run blender with provided context information such as files and scene information"
+        description="Opens up a listening server which run blender with provided context information such as files and scene information"
     )
 
     parser.add_argument(
         "-i", "--ip",
         action="store",
         type=str,
-        default="localhost"
+        default="localhost",
+        required=False
     )
     parser.add_argument(
         "-p", "--port",
         action="store",
         type=int,
-        default="8081"        
+        default="8081",
+        required=False        
     )
 
     args = parser.parse_args()

@@ -21,6 +21,7 @@ use crate::{
     },
     network::controller::Controller,
 };
+use blender::blend_file::BlendFile;
 use blender::blender::{Manager as BlenderManager, ManagerError};
 use blender::models::event::BlenderEvent;
 use libp2p::{Multiaddr, PeerId};
@@ -175,9 +176,8 @@ impl CliApp {
         // let project_file = self.validate_project_file(client, &task).await?;
 
         let job = AsRef::<Job>::as_ref(&task);
-        let project_file = AsRef::<ProjectFile>::as_ref(&job);
-        let version = job.as_ref();
-
+        let blend_file = &job.as_ref::<BlendFile>();
+        let version = job.as_ref(); 
         /*
         this script below was our internal implementation of handling DHT fallback mode
         save this for future feature updates
@@ -244,7 +244,7 @@ impl CliApp {
         // TODO: is there a better way to get around clone?
         match task
             .clone()
-            .run(project_file.to_path_buf(), output, &blender)
+            .run(blend_file, output, &blender)
             .await
         {
             Ok(rx) => loop {

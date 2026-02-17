@@ -1,15 +1,13 @@
 use super::job::CreatedJobDto;
 use crate::{
     domains::task_store::TaskError,
-    models::{job::Job, with_id::WithId},
+    models::{job::Job, with_id::WithId}
 };
+// use xml_rpc::xmlfmt::{params::Params, value::Value};
 use blender::{
-    blender::{Args, Blender},
-    constant::MIN_THRESHOLD_FETCH,
-    models::{engine::Engine, event::BlenderEvent},
+    blend_file::BlendFile, blender::{Args, Blender}, constant::MIN_THRESHOLD_FETCH, models::{engine::Engine, event::BlenderEvent}
 };
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::{
     ops::Range,
@@ -93,17 +91,17 @@ impl Task {
 
     // Invoke blender to run the job
     // how do I stop this? Will this be another async container?
-    pub async fn run<T: AsRef<Path>>(
+    pub async fn run(
         self,
-        blend_file: T,
+        blend_file: BlendFile,
         // output is used to create local path storage to save frame path to
-        output: T,
+        output: PathBuf,
         // reference to the blender executable path to run this task.
         blender: &Blender,
     ) -> Result<Receiver<BlenderEvent>, TaskError> {
         let args = Args::new(
-            blend_file.as_ref().to_path_buf(),
-            output.as_ref().to_path_buf(),
+            blend_file,
+            output,
             Engine::CYCLES,
         );
 
@@ -112,13 +110,20 @@ impl Task {
         // TODO: How can I adjust blender jobs?
         // this always puzzle me. Is this still awaited after application closed?
         let receiver = blender
-            .render(args, move || -> Option<i32> {
+            .render(args, Box::new(move |_params: Params| -> Result<Params, Value> {
                 let mut task = match arc_task.write() {
                     Ok(task) => task,
-                    Err(_) => return None,
+                    Err(_) => return Err(Value::String("lock_failed".into())),
                 };
-                task.get_next_frame()
-            })
+                match task.get_next_frame() {
+                    Some(frame) => {
+                        let val = Value::Int(frame);
+                        let params = Params::new(vec![val]);
+                        Ok(params)
+                    }
+                    None => Err(Value::String("no_frame".into())),
+                }
+            }))
             .await;
         Ok(receiver)
     }

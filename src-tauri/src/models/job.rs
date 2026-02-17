@@ -9,8 +9,9 @@
 */
 use super::task::Task;
 use super::with_id::WithId;
-use crate::{domains::job_store::JobError, models::project_file::ProjectFile};
-use blender::models::mode::RenderMode;
+use crate::domains::job_store::JobError;
+use std::{ffi::OsStr, path::Path};
+use blender::{blend_file::BlendFile, models::mode::RenderMode};
 use futures::channel::mpsc::Sender;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -86,7 +87,7 @@ pub struct Job {
     mode: RenderMode,
 
     /// Path to blender files
-    project_file: ProjectFile,
+    blend_file: BlendFile,
 
     // target blender version
     blender_version: Version,
@@ -99,13 +100,13 @@ impl Job {
     // private - no validation, we trust that the validation is done from public api.
     fn new(
         mode: RenderMode,
-        project_file: ProjectFile,
+        blend_file: BlendFile,
         blender_version: Version, // TODO: see if we can validate if this job uses the correct blender version
         output: Output,          // must be a valid directory
     ) -> Self {
         Self {
             mode,
-            project_file,
+            blend_file,
             blender_version,
             output,
         }
@@ -114,11 +115,11 @@ impl Job {
     /// Create a new job entry with provided all information intact. Used for holding database records
     pub fn from(
         mode: RenderMode,
-        project_file: PathBuf,
+        project_file: &Path,
         version: Version,
         output: PathBuf,
     ) -> Result<Self, JobError> {
-        match ProjectFile::from(project_file) {
+        match BlendFile::new(project_file) {
             Ok(file) => Ok(Job::new(mode, file, version, output)),
             Err(e) => Err(JobError::InvalidFile(e.to_string())),
         }
@@ -139,17 +140,14 @@ impl Job {
         }
     }
 
-    // TODO: See if there's a better way to obtain file name, project path, and version
-    pub fn get_file_name_expected(&self) -> &str {
-        // this line could potentially break the application
-        // if the project file was malform or set to use directory instead.
-        self.project_file.file_name().unwrap().to_str().unwrap()
+    pub fn get_file_name_expected(&self) -> &OsStr {
+        self.blend_file.to_path().file_name().expect("Must have valid file name already")
     }
 }
 
-impl AsRef<ProjectFile> for Job {
-    fn as_ref(&self) -> &ProjectFile {
-        &self.project_file
+impl AsRef<BlendFile> for Job {
+    fn as_ref(&self) -> &BlendFile {
+        &self.blend_file
     }
 }
 
@@ -194,9 +192,8 @@ pub(crate) mod test {
     pub fn scaffold_job() -> Job {
         let mode = RenderMode::Frame(1);
         let file = Path::new(EXAMPLE_FILE);
-        let project_file = file.to_path_buf();
         let project_file =
-            ProjectFile::from(project_file).expect("expect this to work without issue");
+            BlendFile::new(file).expect("expect this to work without issue");
         let version = Version::new(4, 4, 0);
         let dir = Path::new(EXAMPLE_OUTPUT);
         let output = dir.to_path_buf();
@@ -212,20 +209,20 @@ pub(crate) mod test {
         let output = Path::new("./test/");
         let job = Job::from(
             mode.clone(),
-            file.to_path_buf(),
+            file,
             version.clone(),
             output.to_path_buf(),
         );
 
         let project_file =
-            ProjectFile::from(file.to_path_buf()).expect("Should be valid project file");
+            BlendFile::new(file).expect("Should be valid project file");
 
         assert!(job.is_ok());
         let job = job.unwrap();
 
         assert_eq!(job.mode, mode);
         assert_eq!(job.output, output);
-        assert_eq!(AsRef::<ProjectFile>::as_ref(&job), &project_file);
+        assert_eq!(AsRef::<BlendFile>::as_ref(&job), &project_file);
         assert_eq!(AsRef::<Version>::as_ref(&job), &version);
         assert_eq!(
             job.get_file_name_expected(),

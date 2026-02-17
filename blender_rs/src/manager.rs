@@ -402,12 +402,25 @@ impl Manager {
     // TODO: Try to remove unwrap as much as possible
     /// Fetch the latest version of blender available from Blender.org
     /// this function might be ambiguous. Should I use latest_local or latest_online?
-    pub fn latest_local_avail(&mut self) -> Option<Blender> {
+    pub fn latest_local_avail(&mut self, version: &Option<Version>) -> Option<Blender> {
         // in this case I need to contact Manager class or BlenderDownloadLink somewhere and fetch the latest blender information
-        let mut data = self.config.blenders.clone();
-        data.sort();
-        let value = data.first().map(|v| v.to_owned());
-        value
+        // I think the data is already sorted to begin with? No need to resort this list again.
+        // let mut data = self.config.blenders.clone();
+        // data.sort();
+        let data = self.config.blenders;
+        match version {
+            Some(v) => {
+                let value = data.iter()
+                    .filter(|b: &Blender| b.get_version().ge(v))
+                    .collect::<Vec<&Blender>>()
+                    .first()
+                    .and_then(|v| Some(v.to_owned()));
+                value
+            },
+            None => data.first().map(|v| v.to_owned())
+        }
+        // let value = data.first().map(|v| v.to_owned());
+        // value
     }
 
     // find a way to hold reference to blender home here?
