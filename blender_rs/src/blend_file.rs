@@ -1,5 +1,8 @@
 use std::{
-    fs, net::SocketAddrV4, num::ParseIntError, path::{Path, PathBuf}
+    fs,
+    net::SocketAddrV4,
+    num::ParseIntError,
+    path::{Path, PathBuf},
 };
 
 use blend::Blend;
@@ -16,7 +19,7 @@ use crate::{
         render_setting::{FrameRate, RenderSetting},
         window::Window,
     },
-    utils::get_config_path
+    utils::get_config_path,
 };
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -47,7 +50,7 @@ impl SceneInfo {
         for obj in blend.instances_with_code(*b"SC") {
             let scene = obj.get("id").get_string("name").replace("SC", ""); // not the correct name usage?
             let render = &obj.get("r"); // get render data
-            
+
             // do need to make sure that the engine is correctly set?
             self.engine = match render.get_string("engine") {
                 x if x.contains("NEXT") => Engine::BLENDER_EEVEE_NEXT,
@@ -103,7 +106,7 @@ impl SceneInfo {
 
         let render_setting: RenderSetting = self.clone().render_setting();
         let current = BlenderScene::new(selected_scene, selected_camera, render_setting);
-        
+
         PeekResponse::new(
             version.clone(),
             self.frame_start,
@@ -164,19 +167,20 @@ impl BlendFile {
             fs::write(&script_path, data).map_err(|e| BlenderError::PythonError(e.to_string()))?;
         }
 
-        let path = self.to_path().as_os_str();
+        let path = self.to_path().as_os_str().to_os_string();
 
         Ok(vec![
-            "--factory-startup".to_owned(),
-            "-noaudio".into(),
+            // "--factory-startup".to_owned(),
+            // "-noaudio".into(),
             "-b".into(),
             path.to_str().unwrap().to_owned(),
             "-P".into(),
             script_path.to_str().unwrap().into(),
+            "--".into(),
             "-i".into(),
             socket.ip().to_string(),
             "-p".into(),
-            socket.port().to_string()
+            socket.port().to_string(),
         ])
     }
 
@@ -187,7 +191,7 @@ impl BlendFile {
     pub fn peek_response(&self, version: Option<&Version>) -> PeekResponse {
         let last_version = match version {
             Some(v) => v,
-            None => &Version::new(self.major.into(), self.minor.into(), 0)
+            None => &Version::new(self.major.into(), self.minor.into(), 0),
         };
         self.scene_info.peek_response(last_version)
     }

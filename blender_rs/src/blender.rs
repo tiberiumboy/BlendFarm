@@ -10,18 +10,18 @@ Currently, there is no error handling situation from blender side of things. If 
     This will eventually lead to a program crash because we couldn't parse the information we expect from stdout.
     TODO: How can I stream this data better?
 
-- As of Blender 4.2 - they introduced BLENDER_EEVEE_NEXT as a replacement to BLENDER_EEVEE. 
+- As of Blender 4.2 - they introduced BLENDER_EEVEE_NEXT as a replacement to BLENDER_EEVEE.
     Will need to make sure I pass in the correct enum for version 4.2 and above.
 
 - Spoke to Sheepit - another "Intranet" distribution render service (Closed source)
-    - In order to get Render preview window, there needs to be a GPU context to attach to. 
+    - In order to get Render preview window, there needs to be a GPU context to attach to.
         Otherwise, we'll have to wait for the render to complete the process before sending the image back to the user.
     - They mention to enforce compute methods, do not mix cpu and gpu. (Why?)
 
 Advantage:
 - can support M-series ARM processor.
 - Original tool Doesn't composite video for you - We can make ffmpeg wrapper? - This will be a feature but not in this level of implementation.
-- LogicReinc uses JSON to load batch file - difficult to adjust frame(s) after job sent. 
+- LogicReinc uses JSON to load batch file - difficult to adjust frame(s) after job sent.
     I'm creating an IPC between this program and python to ask next frame. To improve actions over blender.
 
 Disadvantage:
@@ -64,12 +64,11 @@ use xml_rpc::server::Handler;
 
 #[cfg(test)]
 use blend::Instance;
-use regex::{Captures, Regex};
+use lazy_regex::regex_captures;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::num::ParseIntError;
-// use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::{
@@ -79,8 +78,8 @@ use std::{
 };
 use thiserror::Error;
 use tokio::spawn;
-use xml_rpc::{Params, Value, XmlResponse};
 use xml_rpc::server::Server;
+use xml_rpc::{Params, Value, XmlResponse};
 
 pub type Frame = i32;
 
@@ -103,7 +102,7 @@ pub enum BlenderError {
 /// Blender structure to hold path to executable and version of blender installed.
 /// Pretend this is the wrapper to interface with the actual blender program.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq)]
-pub struct Blender {    
+pub struct Blender {
     /// Path to blender executable on the system.
     executable: PathBuf,
     /// Version of blender installed on the system.
@@ -149,38 +148,44 @@ impl Blender {
         }
     }
 
-    fn handle_capture<'a>(capture: &Captures<'a>, names: &str) -> Result<u64, BlenderError> {
-        capture[names].parse().map_err(|e: ParseIntError| BlenderError::InvalidFile(e.to_string()))
+    fn handle_parse(names: &str) -> Result<u64, BlenderError> {
+        names
+            .parse()
+            .map_err(|e: ParseIntError| BlenderError::InvalidFile(e.to_string()))
     }
 
-    fn parse_capture_to_version<'a>(info: &Captures) -> Result<Version, BlenderError> {
-        Ok(Version::new(
-            Blender::handle_capture(info, "major")?,
-            Blender::handle_capture(info, "minor")?,
-            Blender::handle_capture(info, "patch")?,
-        ))
-    }
-
-    /// This function will invoke the -v command ot retrieve blender version information.
+    /// Obtain the version by invoking version command to blender directly.
+    /// This function will invoke the -v command to retrieve blender version information.
+    /// This validate two things,
+    /// 1: Blender's internal version is reliable
+    /// 2: Executable is functional and operational
+    /// Otherwise, return an error that we were unable to verify this custom blender integrity.
     ///
     /// # Errors
     /// * InvalidData - executable path do not exist or is invalid. Please verify that the path provided exist and not compressed.
     ///  This error also serves where the executable is unable to provide the blender version.
     // TODO: Find a better way to fetch version from stdout (Research for best practice to parse data from stdout)
-    fn check_version(executable_path: impl AsRef<Path>) -> Result<Version, BlenderError> {
-        if let Ok(output) = Command::new(executable_path.as_ref()).arg("-v").output() {
-            // wonder if there's a better way to test this?
-            let regex =
-                Regex::new(r"(Blender (?<major>[0-9]).(?<minor>[0-9]).(?<patch>[0-9]))")
-                    .map_err(|e| BlenderError::InvalidFile(e.to_string()))?;
-
-            let stdout = String::from_utf8(output.stdout).unwrap();
-            return match regex.captures(&stdout) {
-                Some(info) => Blender::parse_capture_to_version(&info),
-                None => Err(BlenderError::ExecutableInvalid),
-            };
+    fn check_version(executable_path: impl AsRef<Path>) -> Result<Self, BlenderError> {
+        let exec_path = executable_path.as_ref();
+        let output = Command::new(exec_path)
+            .arg("-v")
+            .output()
+            .map_err(|_| BlenderError::ExecutableInvalid)?;
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        match regex_captures!(
+            r"\(Blender (?<major>[0-9]).(?<minor>[0-9]).(?<patch>[0-9])\)",
+            &stdout
+        ) {
+            Some((_, major, minor, patch)) => {
+                let maj = Self::handle_parse(major)?;
+                let min = Self::handle_parse(minor)?;
+                let pat = Self::handle_parse(patch)?;
+                let version = Version::new(maj, min, pat);
+                let blender = Self::new(exec_path.to_path_buf(), version);
+                Ok(blender)
+            }
+            None => Err(BlenderError::ExecutableInvalid),
         }
-        Err(BlenderError::ExecutableInvalid)
     }
 
     // the difference between this function and getting executable are
@@ -251,14 +256,7 @@ impl Blender {
             return Err(BlenderError::ExecutableNotFound(path.to_path_buf()));
         }
 
-        // Obtain the version by invoking version command to blender directly.
-        // This validate two things,
-        // 1: Blender's internal version is reliable
-        // 2: Executable is functional and operational
-        // Otherwise, return an error that we were unable to verify this custom blender integrity.
-        let version = Self::check_version(path)?;
-        let executable = path.to_path_buf();
-        let blender = Self::new(executable, version); 
+        let blender = Self::check_version(path)?;
         Ok(blender)
     }
 
@@ -334,14 +332,17 @@ impl Blender {
     /// ```
     // so instead of just returning the string of render result or blender error, we'll simply use the single producer to produce result from this class.
     // issue here is that we need to lock thread. If we are rendering, we need to be able to call abort.
-    pub async fn render(&mut self, args: Args, get_next_frame: Handler ) -> Result<Receiver<BlenderEvent>, BlenderError>
-    {
+    pub async fn render(
+        &self,
+        args: Args,
+        get_next_frame: Handler,
+    ) -> Result<Receiver<BlenderEvent>, BlenderError> {
         let port = 8081;
         let socket = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
 
         // I'm not even sure why we have two mpsc here for setup_listening_blender to use?
         let (signal, listener) = mpsc::channel::<BlenderEvent>();
-         
+
         let settings = args.parse_from(&self.version).to_owned();
         self.setup_listening_server(settings, listener, &socket, get_next_frame)
             .await?;
@@ -350,7 +351,10 @@ impl Blender {
         let blender = self.clone();
 
         spawn(async move {
-            if let Err(e) = &blender.setup_listening_blender(&args, rx, signal, &socket).await {
+            if let Err(e) = &blender
+                .setup_listening_blender(&args, rx, signal, &socket)
+                .await
+            {
                 println!("{e:?}");
             }
         });
@@ -360,13 +364,12 @@ impl Blender {
     }
 
     async fn setup_listening_server(
-        &mut self,
+        &self,
         settings: BlenderConfiguration,
         listener: Receiver<BlenderEvent>,
         socket: &SocketAddrV4,
         _get_next_frame: Box<dyn FnMut(Params) -> XmlResponse + Send + Sync>,
-    ) -> Result<(), BlenderError>
-    {
+    ) -> Result<(), BlenderError> {
         // Read here - https://en.wikipedia.org/wiki/XML-RPC#Usage
         /*
         In XML-RPC, a client performs an RPC by sending an HTTP request
@@ -396,33 +399,39 @@ impl Blender {
         */
 
         let global_settings = Arc::new(settings);
-        // I think in order for me to make this working example, I need to create a struct that is memory bound to different threads, and read when available. This isolate mutation of variable and object that needs to be thread-safetly. 
+        // I think in order for me to make this working example, I need to create a struct that is memory bound to different threads, and read when available. This isolate mutation of variable and object that needs to be thread-safetly.
         // TODO: remove expect() once we have this working again.
         let mut server = Server::new(socket.port()).expect("Unable to open socket for xml_rpc!");
 
-        server.register("next_render_queue".to_owned(),Box::new(|_| {
-            // where/how can I tell my render counts?            
-            Ok(Value::Int(1).into())
-        }));
-        /* 
+        server.register(
+            "next_render_queue".to_owned(),
+            Box::new(|_| {
+                // where/how can I tell my render counts?
+                Ok(Value::Int(1).into())
+            }),
+        );
+        /*
         server.register("next_render_queue".to_owned(), move |params| match get_next_frame() {
             Some(frame) => Ok(frame),
-            
+
             // this is our only way to stop python script.
             None => Err(Fault::new(1, "No more frames to render!")),
         });
         */
-        
-        // let me understand this better. 
+
+        // let me understand this better.
         // In this listening server, I'm setting up a xml-rpc server to listen to all of the blender python script.
         // When blender calls fetch_info, we provide back the global_settings we have from job information.
-        server.register("fetch_info".to_owned(), Box::new(move |_| {
-            // How come we're using unwrap? seems dangerous and sketchy
-            match serde_json::to_string(&*global_settings.clone()) {
-                Ok(setting) => Ok(Value::String(setting).into()),
-                Err(e) => Err(Value::fault(-1, e.to_string()))
-            }
-        }));
+        server.register(
+            "fetch_info".to_owned(),
+            Box::new(move |_| {
+                // How come we're using unwrap? seems dangerous and sketchy
+                match serde_json::to_string(&*global_settings.clone()) {
+                    Ok(setting) => Ok(Value::String(setting).into()),
+                    Err(e) => Err(Value::fault(-1, e.to_string())),
+                }
+            }),
+        );
 
         // spin up XML-RPC server
         spawn(async move {
@@ -433,12 +442,13 @@ impl Blender {
                     Err(e) => {
                         // Received "Empty"?
                         println!("Something happen? {e:?}");
-                        break;
+                        server.poll()
+                        // break;
                     }
                     e => {
                         println!("Listener received unconditionally: {e:?}");
                         server.poll()
-                    },
+                    }
                 }
             }
         });
@@ -452,12 +462,9 @@ impl Blender {
         args: &Args,
         rx: Sender<BlenderEvent>,
         signal: Sender<BlenderEvent>,
-        socket: &SocketAddrV4
+        socket: &SocketAddrV4,
     ) -> Result<(), BlenderError> {
-
         let col = &args.file.setup_args(socket)?;
-        dbg!(col);
-
         // TODO: Find a way to remove unwrap()
         let stdout = Command::new(self.get_executable())
             .args(col)
@@ -547,8 +554,12 @@ impl Blender {
             // [ERR] Error: Engine 'BLENDER_EEVEE_NEXT' not available for scene 'Scene' (an add-on may need to be installed or enabled)
             line if line.starts_with("EXCEPTION:") => {
                 // Why would this crash?
-                signal.send(BlenderEvent::Exit).unwrap();
-                rx.send(BlenderEvent::Error(line.to_owned())).unwrap();
+                if let Err(e) = signal.send(BlenderEvent::Exit) {
+                    println!("Fail to send error! {e:?}\n{line}");
+                }
+                if let Err(e) = rx.send(BlenderEvent::Error(line.to_owned())) {
+                    println!("Fail to send error! {e:?}\n{line}");
+                }
             }
 
             line if line.starts_with("COMPLETED") => {
@@ -560,7 +571,7 @@ impl Blender {
             line if line.starts_with("Blender ") => {
                 rx.send(BlenderEvent::Log(line)).unwrap();
             }
-            
+
             // Blender prints out reading blender files, here we'll just log the info anyway (We already have the information)
             line if line.starts_with("Read blend: ") => {
                 rx.send(BlenderEvent::Log(line)).unwrap();

@@ -1,3 +1,4 @@
+use crate::utils::get_extension;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -6,7 +7,6 @@ use std::{
     path::{Path, PathBuf},
 };
 use url::Url;
-use crate::utils::get_extension;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DownloadLink {
@@ -151,11 +151,10 @@ impl DownloadLink {
         // Check and see if we haven't already download the file
         if !target.exists() {
             // Download the file from the internet and save it to blender data folder
-            let mut response = ureq::get(self.url.as_str())
-                .call()
-                .map_err(|e: ureq::Error| Error::other(e))?;
-
+            let mut response = ureq::get(self.url.as_str()).call().map_err(Error::other)?;
             let mut body: Vec<u8> = Vec::new();
+            // TODO: See if there's a better way to save or store the file?
+            // It's like why can't we stream directly to io?
             if let Err(e) = response.body_mut().as_reader().read_to_end(&mut body) {
                 eprintln!("Fail to read data from response! {e:?}");
             }

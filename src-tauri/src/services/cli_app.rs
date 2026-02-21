@@ -15,7 +15,6 @@ use crate::{
     domains::{job_store::JobError, task_store::TaskStore},
     models::{
         job::{Job, JobEvent},
-        project_file::ProjectFile,
         server_setting::ServerSetting,
         task::Task,
     },
@@ -177,7 +176,7 @@ impl CliApp {
 
         let job = AsRef::<Job>::as_ref(&task);
         let blend_file = &job.as_ref::<BlendFile>();
-        let version = job.as_ref(); 
+        let version = job.as_ref();
         /*
         this script below was our internal implementation of handling DHT fallback mode
         save this for future feature updates
@@ -242,11 +241,7 @@ impl CliApp {
 
         // run the job!
         // TODO: is there a better way to get around clone?
-        match task
-            .clone()
-            .run(blend_file, output, &blender)
-            .await
-        {
+        match task.clone().run(blend_file, output, &blender).await {
             Ok(rx) => loop {
                 match rx.recv() {
                     Ok(status) => {

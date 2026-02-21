@@ -149,6 +149,8 @@ def renderFrame(scn, config, frame):
 
 def main(ip: str, port: int) -> None:
     # TODO: Consider sanitize ip first
+    # Had connection refused?
+    print(ip, port)
     proxy = xmlrpc.client.ServerProxy("http://%s:%s" % (ip, port))
     # TODO: Cast as Config to enforce arguments sanitization
     config = None 

@@ -10,14 +10,14 @@
 use super::task::Task;
 use super::with_id::WithId;
 use crate::domains::job_store::JobError;
-use std::{ffi::OsStr, path::Path};
+use crate::network::PeerIdString;
 use blender::{blend_file::BlendFile, models::mode::RenderMode};
 use futures::channel::mpsc::Sender;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::{ffi::OsStr, path::Path};
 use std::{ops::Range, path::PathBuf};
 use uuid::Uuid;
-use crate::network::PeerIdString;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum JobEvent {
@@ -48,20 +48,20 @@ pub enum JobAction {
     All(Sender<Option<Vec<CreatedJobDto>>>),
     // we will ask all of the node on the network if there's any completed job list.
     // The node will advertise their collection of completed job
-    // the host will be responsible to compare with the current output files and 
-    // see if there's any missing job. If there is missing frame then 
+    // the host will be responsible to compare with the current output files and
+    // see if there's any missing job. If there is missing frame then
     // we will ask to fetch for that completed image back
-    AskForCompletedList(JobId), 
+    AskForCompletedList(JobId),
     Advertise(JobId),
 }
 
-// Used to ignore sender types comparsion. We do not care about sender equality. 
+// Used to ignore sender types comparsion. We do not care about sender equality.
 impl PartialEq for JobAction {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Find(l0, ..), Self::Find(r0, ..)) => l0 == r0,
             (Self::Update(l0), Self::Update(r0)) => l0.id == r0.id,
-            (Self::Create(l0, ..), Self::Create(r0,.. )) => l0 == r0,
+            (Self::Create(l0, ..), Self::Create(r0, ..)) => l0 == r0,
             (Self::Kill(l0), Self::Kill(r0)) => l0 == r0,
             (Self::All(..), Self::All(..)) => true,
             (Self::AskForCompletedList(l0), Self::AskForCompletedList(r0)) => l0 == r0,
@@ -79,9 +79,7 @@ pub type CreatedJobDto = WithId<Job, JobId>;
 
 // This job is created by the manager and will be used to help determine the individual task created for the workers
 // we will derive this job into separate task for individual workers to process based on chunk size.
-#[derive(
-    Debug, Serialize, Deserialize, Clone, sqlx::FromRow, sqlx::Encode, sqlx::Decode, PartialEq,
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow, sqlx::Encode, sqlx::Decode)]
 pub struct Job {
     /// contains the information to specify the kind of job to render (We could auto fill this from blender peek function?)
     mode: RenderMode,
@@ -94,6 +92,9 @@ pub struct Job {
 
     // target output destination
     output: Output,
+
+    // List of task created by the runners This serves as a job history and transaction that perform the job
+    tasks: Vec<Task>,
 }
 
 impl Job {
@@ -102,13 +103,14 @@ impl Job {
         mode: RenderMode,
         blend_file: BlendFile,
         blender_version: Version, // TODO: see if we can validate if this job uses the correct blender version
-        output: Output,          // must be a valid directory
+        output: Output,           // must be a valid directory
     ) -> Self {
         Self {
             mode,
             blend_file,
             blender_version,
             output,
+            tasks: Vec::new(),
         }
     }
 
@@ -130,7 +132,7 @@ impl Job {
         // first thing first, how can I tell if the job is completed or not?
         let range = self.clone().into();
         let job_id = WithId { id, item: self };
-        
+
         match Task::from(job_id, range) {
             Ok(task) => Some(task),
             Err(e) => {
@@ -141,7 +143,21 @@ impl Job {
     }
 
     pub fn get_file_name_expected(&self) -> &OsStr {
-        self.blend_file.to_path().file_name().expect("Must have valid file name already")
+        self.blend_file
+            .to_path()
+            .file_name()
+            .expect("Must have valid file name already")
+    }
+}
+
+impl PartialEq for Job {
+    fn eq(&self, other: &Self) -> bool {
+        self.mode == other.mode
+            && self.blend_file == other.blend_file
+            && self.blender_version == other.blender_version
+            && self.output == other.output
+        // no need to compare job history for partial equal
+        // && self.tasks == other.tasks
     }
 }
 
@@ -192,8 +208,7 @@ pub(crate) mod test {
     pub fn scaffold_job() -> Job {
         let mode = RenderMode::Frame(1);
         let file = Path::new(EXAMPLE_FILE);
-        let project_file =
-            BlendFile::new(file).expect("expect this to work without issue");
+        let project_file = BlendFile::new(file).expect("expect this to work without issue");
         let version = Version::new(4, 4, 0);
         let dir = Path::new(EXAMPLE_OUTPUT);
         let output = dir.to_path_buf();
@@ -207,15 +222,9 @@ pub(crate) mod test {
         let mode = RenderMode::Frame(1);
         let version = Version::new(1, 1, 1);
         let output = Path::new("./test/");
-        let job = Job::from(
-            mode.clone(),
-            file,
-            version.clone(),
-            output.to_path_buf(),
-        );
+        let job = Job::from(mode.clone(), file, version.clone(), output.to_path_buf());
 
-        let project_file =
-            BlendFile::new(file).expect("Should be valid project file");
+        let project_file = BlendFile::new(file).expect("Should be valid project file");
 
         assert!(job.is_ok());
         let job = job.unwrap();

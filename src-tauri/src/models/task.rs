@@ -1,11 +1,13 @@
 use super::job::CreatedJobDto;
 use crate::{
     domains::task_store::TaskError,
-    models::{job::Job, with_id::WithId}
+    models::{job::Job, with_id::WithId},
 };
-// use xml_rpc::xmlfmt::{params::Params, value::Value};
 use blender::{
-    blend_file::BlendFile, blender::{Args, Blender}, constant::MIN_THRESHOLD_FETCH, models::{engine::Engine, event::BlenderEvent}
+    blend_file::BlendFile,
+    blender::{Args, Blender},
+    constant::MIN_THRESHOLD_FETCH,
+    models::{engine::Engine, event::BlenderEvent},
 };
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::Receiver;
@@ -15,6 +17,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use uuid::Uuid;
+// use xml_rpc::xmlfmt::{params::Params, value::Value};
 
 pub type CreatedTaskDto = WithId<Task, Uuid>;
 
@@ -27,10 +30,12 @@ pub struct Task {
     /// Id used to identify the job
     job_id: Uuid,
 
-    /// job reference.
+    /// job reference. // May no longer needed?
+    /// This really should expand out to the required info to run the job such as blender file, version, frames, etc.
     job: Job,
 
     // temp output destination - used to hold render image in temp on client machines
+    // this should not be visible/present for host to obtain.
     temp_output: PathBuf,
 
     /// Render range frame to perform the task
@@ -99,33 +104,32 @@ impl Task {
         // reference to the blender executable path to run this task.
         blender: &Blender,
     ) -> Result<Receiver<BlenderEvent>, TaskError> {
-        let args = Args::new(
-            blend_file,
-            output,
-            Engine::CYCLES,
-        );
+        let args = Args::new(blend_file, output, Engine::CYCLES);
 
         let arc_task = Arc::new(RwLock::new(self)).clone();
 
         // TODO: How can I adjust blender jobs?
         // this always puzzle me. Is this still awaited after application closed?
         let receiver = blender
-            .render(args, Box::new(move |_params: Params| -> Result<Params, Value> {
-                let mut task = match arc_task.write() {
-                    Ok(task) => task,
-                    Err(_) => return Err(Value::String("lock_failed".into())),
-                };
-                match task.get_next_frame() {
-                    Some(frame) => {
-                        let val = Value::Int(frame);
-                        let params = Params::new(vec![val]);
-                        Ok(params)
+            .render(
+                args,
+                Box::new(move |_params: Params| -> Result<Params, Value> {
+                    let mut task = match arc_task.write() {
+                        Ok(task) => task,
+                        Err(_) => return Err(Value::String("lock_failed".into())),
+                    };
+                    match task.get_next_frame() {
+                        Some(frame) => {
+                            let val = Value::Int(frame);
+                            let params = Params::new(vec![val]);
+                            Ok(params)
+                        }
+                        None => Err(Value::String("no_frame".into())),
                     }
-                    None => Err(Value::String("no_frame".into())),
-                }
-            }))
+                }),
+            )
             .await;
-        Ok(receiver)
+        Ok(receiver?)
     }
 }
 

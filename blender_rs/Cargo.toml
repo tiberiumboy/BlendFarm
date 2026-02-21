@@ -10,21 +10,22 @@ edition = "2021"
 [dependencies]
 dirs = "6.0.0"
 regex = "^1.11.1"
+lazy-regex = "^3.6"
 semver = { version = "^1.0", features = ["serde"] }
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
 url = { version = "^2.5.4", features = ["serde"] }
 thiserror = "^2.0"
-uuid = { version = "^1.20", features = ["serde", "v4"] }
+uuid = { version = "^1.21", features = ["serde", "v4"] }
 ureq = { version = "^3.0" }
 blend = "0.8.0"
 tokio = { version = "^1.49", features = ["full"] }
 # xml-rpc will merge into this project some day in the future, as it's just a http server protocol.
-# xml-rpc = { git = "https://github.com/tiberiumboy/xml-rpc-rs.git" }
-xml-rpc = { path = "/home/oem/Documents/src/rust/xml-rpc-rs" }
+xml-rpc = { git = "https://github.com/tiberiumboy/xml-rpc-rs.git", branch = "main" }
+# xml-rpc = { path = "/home/oem/Documents/src/rust/xml-rpc-rs" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-zip = "^7"
+zip = "^8.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 dmg = { version = "^0.1" }

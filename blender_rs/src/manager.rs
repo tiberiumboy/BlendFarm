@@ -11,6 +11,7 @@ use crate::blender::{Blender, BlenderError};
 use crate::models::blender_scene::BlenderScene;
 use crate::models::peek_response::PeekResponse;
 use crate::models::render_setting::RenderSetting;
+use crate::models::blender_config::BlenderConfig;
 use crate::models::{download_link::DownloadLink};
 use crate::services::category::{BlenderCategory, Loaded};
 use crate::page_cache::PageCache;
@@ -18,7 +19,6 @@ use crate::utils::get_extension;
 
 use regex::Regex;
 use semver::Version;
-use serde::{Deserialize, Serialize};
 use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::{fs, path::PathBuf};
@@ -59,25 +59,6 @@ pub enum ManagerError {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BlenderConfig {
-    /// List of installed blenders
-    blenders: Vec<Blender>,
-
-    /// Install path. By default set to `$HOME/Downloads/Blender`
-    install_path: PathBuf,
-
-    /// Auto save on drop
-    auto_save: bool,
-}
-
-impl BlenderConfig {
-    /// Remove any invalid blender path entry from BlenderConfig
-    pub fn remove_invalid_blender_path(&mut self) {
-        self.blenders.retain(|x| x.get_executable().exists());
-    }
-}
-
 pub struct Manager {
     /// Store all known installation of blender directory information
     config: BlenderConfig,
@@ -92,11 +73,7 @@ impl Default for Manager {
     // instead they should rely on "load" function instead.
     fn default() -> Self {
         let install_path = dirs::download_dir().unwrap().join("Blender");
-        let config = BlenderConfig {
-            blenders: Vec::new(),
-            install_path,
-            auto_save: true,
-        };
+        let config = BlenderConfig::new(None,install_path,true);
         let mut cache =
             PageCache::load().expect("Page Cache should have permission to load content!");
 
@@ -207,7 +184,7 @@ impl Manager {
         let blender = Blender::from_executable(destination)
             .map_err(|e| ManagerError::BlenderError { source: e })?;
 
-        self.add_blender(blender.clone());
+        self.add_blender(&blender);
         self.save().unwrap();
         Ok(blender)
     }
@@ -222,9 +199,10 @@ impl Manager {
     }
 
     /// Return a reference to the vector list of all known blender installations
-    pub fn get_blenders(&self) -> &Vec<Blender> {
-        &self.config.blenders
-    }
+    // Don't think I need this function anymore?
+    // pub fn get_blenders(&self) -> &Vec<Blender> {
+    //     &self.config.get_blenders()
+    // }
 
     /// Load the manager data from the config file.
     pub fn load() -> Self {
@@ -302,8 +280,8 @@ impl Manager {
     }
 
     /// Add a new blender installation to the manager list.
-    pub fn add_blender(&mut self, blender: Blender) {
-        self.config.blenders.push(blender);
+    pub fn add_blender(&mut self, blender: &Blender) {
+        self.config.append_blender(blender);
         self.has_modified = true;
     }
 
@@ -338,7 +316,7 @@ impl Manager {
             Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
 
         // I would have at least expect to see this populated?
-        self.add_blender(blender.clone());
+        self.add_blender(&blender);
         // TODO: This is a hack - Would prefer to understand why program does not auto save file after closing.
         // Or look into better saving mechanism than this.
         let _ = self.save();
@@ -347,7 +325,7 @@ impl Manager {
 
     /// Remove blender installation from the manager list.
     pub fn remove_blender(&mut self, blender: &Blender) {
-        self.config.blenders.retain(|x| x.eq(blender));
+        self.config.remove_blender(blender);
         self.has_modified = true;
     }
 
@@ -386,41 +364,19 @@ impl Manager {
     }
 
     pub fn have_blender(&self, version: &Version) -> Option<&Blender> {
-        self.config
-            .blenders
-            .iter()
-            .find(|x| x.get_version().eq(version))
+        self.config.get_blender(version)
     }
 
     pub fn have_blender_partial(&self, major: u64, minor: u64) -> Option<&Blender> {
-        self.config.blenders.iter().find(|x| {
-            let v = x.get_version();
-            v.major.eq(&major) && v.minor.eq(&minor)
-        })
+        self.config.get_blender_partial(major, minor)
     }
 
-    // TODO: Try to remove unwrap as much as possible
     /// Fetch the latest version of blender available from Blender.org
     /// this function might be ambiguous. Should I use latest_local or latest_online?
-    pub fn latest_local_avail(&mut self, version: &Option<Version>) -> Option<Blender> {
+    pub fn latest_local_avail(&mut self, version: Option<&Version>) -> Option<&Blender> {
         // in this case I need to contact Manager class or BlenderDownloadLink somewhere and fetch the latest blender information
         // I think the data is already sorted to begin with? No need to resort this list again.
-        // let mut data = self.config.blenders.clone();
-        // data.sort();
-        let data = self.config.blenders;
-        match version {
-            Some(v) => {
-                let value = data.iter()
-                    .filter(|b: &Blender| b.get_version().ge(v))
-                    .collect::<Vec<&Blender>>()
-                    .first()
-                    .and_then(|v| Some(v.to_owned()));
-                value
-            },
-            None => data.first().map(|v| v.to_owned())
-        }
-        // let value = data.first().map(|v| v.to_owned());
-        // value
+        self.config.get_latest_blender_available(version)
     }
 
     // find a way to hold reference to blender home here?
@@ -438,16 +394,15 @@ impl Manager {
         let destination = self.config.install_path.join(&link.get_parent());
 
         // got a permission denied here? Interesting?
-        // I need to figure out why and how I can stop this from happening?
-        fs::create_dir_all(&destination).unwrap();
+        fs::create_dir_all(&destination).map_err(|e| ManagerError::IoError(e.to_string()))?;
 
         let path = link
             .download_and_extract(&destination)
             .map_err(|e| ManagerError::IoError(e.to_string()))?;
 
         // I would expect this to always work?
-        let blender = Blender::from_executable(path).expect("Invalid Blender executable!");
-        self.config.blenders.push(blender.clone());
+        let blender = Blender::from_executable(path).map_err(|e| ManagerError::BlenderError{ source: e})?;
+        self.config.append_blender(&blender);
         Ok(blender)
     }
 
@@ -504,6 +459,20 @@ mod tests {
     fn should_pass() {
         let _manager = Manager::load();
     }
+    /* 
+        fn test_download_blender_home_link() {
+            let mut manager = Manager::load();
+            let link = manager.latest_local_avail(None).or(manager
+                .download_latest_version()
+                .map_or(None, |l| Some(l.to_owned())));
+            match link {
+                Some(link) => {
+                    dbg!(link);
+                }
+                None => println!("No blender found and unable to connect to internet! Skipping!"),
+            }
+        }
+    */    
 
     // TODO: Write unit test for Drop if that's possible?
 }

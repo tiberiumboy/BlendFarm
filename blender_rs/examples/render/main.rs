@@ -2,10 +2,11 @@ use blender::blend_file::BlendFile;
 use blender::blender::Manager;
 use blender::models::engine::Engine;
 use blender::models::{args::Args, event::BlenderEvent};
-use xml_rpc::Value;
+use semver::Version;
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
+use xml_rpc::Value;
 
 async fn render_with_manager() {
     let args = std::env::args().collect::<Vec<String>>();
@@ -20,7 +21,12 @@ async fn render_with_manager() {
     let mut manager = Manager::load();
     println!("Fetch latest available blender to use");
 
-    let mut blender = manager.latest_local_avail().expect("No local blender installation found! Must have at least one blender installed!");
+    let (max, min) = blend_file.get_partial_version();
+    let version = Version::new(max as u64, min as u64, 0);
+
+    let blender = manager
+        .latest_local_avail(Some(&version))
+        .expect("No local blender installation found! Must have at least one blender installed!");
     println!("Prepare blender configuration...");
 
     // Here we ask for the output path, for now we set our path in the same directory as our executable path.
@@ -34,14 +40,18 @@ async fn render_with_manager() {
 
     // render the frame. Completed render will return the path of the rendered frame, error indicates failure to render due to blender incompatible hardware settings or configurations. (CPU vs GPU / Metal vs OpenGL)
     let listener = blender
-        .render(args, Box::new(move |_params| {
-            // need to convert this into XmlResponse
-            match frames.write().unwrap().next() {
-                Some(frame) => Ok(Value::Int(frame).into()),
-                None => Err(Value::fault(-1, "No more frames to render!".to_owned()))
-            }
-        }))
-        .await.expect("Should not have any issue?");
+        .render(
+            args,
+            Box::new(move |_params| {
+                // need to convert this into XmlResponse
+                match frames.write().unwrap().next() {
+                    Some(frame) => Ok(Value::Int(frame).into()),
+                    None => Err(Value::fault(-1, "No more frames to render!".to_owned())),
+                }
+            }),
+        )
+        .await
+        .expect("Should not have any issue?");
 
     // Handle blender status
     while let Ok(status) = listener.recv() {
