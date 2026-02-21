@@ -11,19 +11,25 @@ use xml_rpc::Value;
 async fn render_with_manager() {
     let args = std::env::args().collect::<Vec<String>>();
     let blend_path = match args.get(1) {
+        // FIXME: Path is relative to where command is invoked. Must be from blender_rs directory, otherwise path will fail.
         None => PathBuf::from("./examples/assets/test.blend"),
         Some(p) => PathBuf::from(p),
     };
 
+    // loads blender file and retrieve some information to display for job queue.
     let blend_file = BlendFile::new(&blend_path).expect("Expects a valid blend file to continue!");
 
     // Get latest blender installed, or install latest blender from web.
-    let mut manager = Manager::load();
-    println!("Fetch latest available blender to use");
+    let mut manager = Manager::load();      
 
+    // Retrieve last blender version opened/used. Only contains major and minor, no patch. Rely on latest patch if possible.
     let (max, min) = blend_file.get_partial_version();
+    
+    // Minimum version required to run this blender file
     let version = Version::new(max as u64, min as u64, 0);
 
+    // Fetch latest local version that meets the requirement version. We will not try to install, so we will stop here and ask the user to load blender into configuration initially.
+    // TODO: 
     let blender = manager
         .latest_local_avail(Some(&version))
         .expect("No local blender installation found! Must have at least one blender installed!");

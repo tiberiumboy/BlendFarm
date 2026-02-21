@@ -569,7 +569,14 @@ impl Blender {
 
             // When launch blender for the first time, it prints out the version number and the hash information about the build)
             line if line.starts_with("Blender ") => {
-                rx.send(BlenderEvent::Log(line)).unwrap();
+                // if the line reads "Blender quit", we should send BlenderEvent::Exit signal
+                if line.eq_ignore_ascii_case("blender quit") {
+                    rx.send(BlenderEvent::Exit).unwrap();
+                } else {
+                    rx.send(BlenderEvent::Log(line)).unwrap();
+                }
+                
+
             }
 
             // Blender prints out reading blender files, here we'll just log the info anyway (We already have the information)
