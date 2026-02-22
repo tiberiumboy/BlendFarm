@@ -15,10 +15,10 @@ use crate::models::blender_config::BlenderConfig;
 use crate::models::{download_link::DownloadLink};
 use crate::services::category::{BlenderCategory, Loaded};
 use crate::page_cache::PageCache;
-use crate::utils::get_extension;
 
 use regex::Regex;
 use semver::Version;
+use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::{fs, path::PathBuf};
@@ -63,7 +63,6 @@ pub struct Manager {
     /// Store all known installation of blender directory information
     config: BlenderConfig,
     list: Vec<BlenderCategory<Loaded>>,
-    download_links: Vec<DownloadLink>,
     // cache: PageCache,
     has_modified: bool, // detect if the configuration has changed.
 }
@@ -82,7 +81,7 @@ impl Default for Manager {
         Self {
             config,
             list,
-            download_links: Vec::new(),
+            download_links: HashMap::new(),
             // cache,
             has_modified: false,
         }
@@ -159,7 +158,7 @@ impl Manager {
         let os = std::env::consts::OS.to_owned();
 
         let download_link =
-            self.get_blender_link_by_version(version)
+            self.get_blender_by_version(version)
                 .ok_or(ManagerError::DownloadNotFound {
                     arch,
                     os,
@@ -168,22 +167,11 @@ impl Manager {
                         version.major, version.minor
                     ),
                 })?;
-
-        // need to fetch category name such as "Blender4.1"
-        let destination = self.config.install_path.join(&download_link.name);
-
-        // got a permission denied here? Interesting?
-        // I need to figure out why and how I can stop this from happening?
-        fs::create_dir_all(&destination).unwrap();
-
-        // TODO: verify this is working for windows (.zip)?
-        let destination = download_link
-            .download_and_extract(&destination)
-            .map_err(|e| ManagerError::IoError(e.to_string()))?;
-
-        let blender = Blender::from_executable(destination)
-            .map_err(|e| ManagerError::BlenderError { source: e })?;
-
+        
+        let destination = self.config.get_download_destination(&download_link);
+        let download_link = download_link.download(destination).map_err(|e| ManagerError::IoError(e.to_string()))?;
+        let download_link = download_link.extract().map_err(|e| ManagerError::IoError(e.to_string()))?;
+        let blender = download_link.get_blender().map_err(|e| ManagerError::IoError(e.to_string()))?;
         self.add_blender(&blender);
         self.save().unwrap();
         Ok(blender)
@@ -203,6 +191,44 @@ impl Manager {
     // pub fn get_blenders(&self) -> &Vec<Blender> {
     //     &self.config.get_blenders()
     // }
+
+    fn get_download_link(&self, target_version: &Version) -> Option<&DownloadLink> {
+        match self.download_links.contains_key(&target_version) {
+            true => self.download_links.get(target_version),
+            false => self.get_blender_by_version(target_version)
+        }
+    }
+
+    // TODO: Write Unit test
+    fn get_latest_download_link(&self, minimum_version: Option<&Version>) -> Option<&DownloadLink> {
+        match minimum_version { 
+            Some(min_version) => {
+                self.download_links.iter().fold(None, |result, (version, downloadlink)| {
+                    if min_version.gt(version) {
+                        return result
+                    } 
+
+                    if let Some(prev) = result {
+                        if prev.get_version().gt(version) {
+                            return result
+                        }
+                    }
+                    Some(downloadlink)   
+                })
+            },
+            None =>    
+                self.download_links.iter().fold(None, |result: Option<&DownloadLink>, (version, item)| {
+                    if let Some(latest) = result {
+                        return match latest.get_version().lt(version) {
+                            true => Some(item),
+                            false => Some(latest)
+                        }
+                    }
+                    Some(item)
+                })
+            }
+        }
+    
 
     /// Load the manager data from the config file.
     pub fn load() -> Self {
@@ -281,41 +307,46 @@ impl Manager {
 
     /// Add a new blender installation to the manager list.
     pub fn add_blender(&mut self, blender: &Blender) {
-        self.config.append_blender(blender);
-        self.has_modified = true;
+        // make sure it doesn't exist already.
+        if self.config.append_blender(blender) {
+            self.has_modified = true;
+        }
     }
 
     /// Check and add a local installation of blender to manager's registry of blender version to use from.
+    /// We should expect 
     pub fn add_blender_path(&mut self, path: &impl AsRef<Path>) -> Result<Blender, ManagerError> {
         let path = path.as_ref();
-        let extension = get_extension().map_err(ManagerError::UnsupportedOS)?;
 
-        let path = if path
-            .extension()
-            .is_some_and(|e| extension.contains(e.to_str().unwrap()))
-        {
-            // Create a folder name from given path
-            let folder_name = &path
-                .file_name()
-                .unwrap()
-                .to_os_string()
-                .to_str()
-                .unwrap()
-                .replace(&extension, "");
+        //     // Do not worry about this. For now, treat the url as content already unpacked by user.
+        // let extension = get_extension().map_err(ManagerError::UnsupportedOS)?;
+        // let path = if path
+        //     .extension()
+        //     .is_some_and(|e| extension.contains(e.to_str().unwrap()))
+        // {
+        //     // Create a folder name from given path
+        //     let folder_name = &path
+        //         .file_name()
+        //         .unwrap()
+        //         .to_os_string()
+        //         .to_str()
+        //         .unwrap()
+        //         .replace(&extension, "");
 
-            DownloadLink::extract_content(path, folder_name)
-                .map_err(|e| ManagerError::UnableToExtract(e.to_string()))
-        } else {
-            // for MacOS - User will select the app bundle instead of actual executable, We must include the additional path
-            match std::env::consts::OS {
-                "macos" => Ok(path.join("Contents/MacOS/Blender")),
-                _ => Ok(path.to_path_buf()),
-            }
-        }?;
+        //     DownloadLink::extract_content(path, folder_name)
+        //         .map_err(|e| ManagerError::UnableToExtract(e.to_string()))
+        // } else {
+        //     // for MacOS - User will select the app bundle instead of actual executable, We must include the additional path
+        //     match std::env::consts::OS {
+        //         "macos" => Ok(path.join("Contents/MacOS/Blender")),
+        //         _ => Ok(path.to_path_buf()),
+        //     }
+        // }?;
+        
+        // Here is where we verify the integrity of blender before adding to manager collection.
         let blender =
             Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
 
-        // I would have at least expect to see this populated?
         self.add_blender(&blender);
         // TODO: This is a hack - Would prefer to understand why program does not auto save file after closing.
         // Or look into better saving mechanism than this.
@@ -356,12 +387,13 @@ impl Manager {
 
     // TODO: Refactor this method to provide already established DownloadLinks from the manager instead.
     // Category struct is going away and will be used to fetch download links only. Nothing more beyond that.
-    pub fn fetch_download_list(&self) -> Option<Vec<DownloadLink>> {
-        match &self.download_links.is_empty() {
-            false => Some(self.download_links.clone()),
-            true => None,
-        }
-    }
+    // TODO: Why do I need to make this public?
+    // pub fn fetch_download_list(&self) -> Option<Vec<DownloadLink>> {
+    //     match &self.download_links.is_empty() {
+    //         false => Some(self.download_links.clone()),
+    //         true => None,
+    //     }
+    // }
 
     pub fn have_blender(&self, version: &Version) -> Option<&Blender> {
         self.config.get_blender(version)
@@ -379,6 +411,23 @@ impl Manager {
         self.config.get_latest_blender_available(version)
     }
 
+    pub fn latest_online(&mut self) -> Result<Blender, ManagerError> {
+
+        let link = self.get_latest_download_link(None);
+        
+        // TODO: It would be nice to fetch online if we received None from the link above.
+        // However as of the time right now, I'm focus on functionality getting this working
+        let link = link.expect("Must be connected online!");
+        let destination = self.config.get_download_destination(&link);
+        let download_link = link.download(destination).map_err(|e| ManagerError::IoError(e.to_string()))?;
+        let download_link = download_link.extract().map_err(|e| ManagerError::IoError(e.to_string()))?;
+        // Download the executable and extract the contents.
+        // let blender = link.download_and_extract(self.config.install_path).map_err(|e: Error| ManagerError::UnableToExtract(e.to_string()))?;
+        let blender = download_link.get_blender().map_err(|e| ManagerError::IoError(e.to_string()))?;
+        self.add_blender(&blender);
+        Ok(blender)
+    }
+
     // find a way to hold reference to blender home here?
     // split this function
     pub fn download_latest_version(&mut self) -> Result<Blender, ManagerError> {
@@ -390,29 +439,19 @@ impl Manager {
                     Err(
                         ManagerError::RequestError("Category list is empty! Did you clear the cache? Please connect to the internet to retrieve blender download list".to_string()))
                         , |c| Ok(c))?;
-        let link = category.fetch_latest().unwrap();
-        let destination = self.config.install_path.join(&link.get_parent());
 
-        // got a permission denied here? Interesting?
-        fs::create_dir_all(&destination).map_err(|e| ManagerError::IoError(e.to_string()))?;
-
-        let path = link
-            .download_and_extract(&destination)
-            .map_err(|e| ManagerError::IoError(e.to_string()))?;
-
-        // I would expect this to always work?
-        let blender = Blender::from_executable(path).map_err(|e| ManagerError::BlenderError{ source: e})?;
+        let blender = category.fetch_latest(&self.config).unwrap();
         self.config.append_blender(&blender);
         Ok(blender)
     }
 
-    pub fn get_blender_link_by_version(&self, version: &Version) -> Option<DownloadLink> {
+    fn get_blender_by_version(&self, version: &Version) -> Option<Blender> {
         self.list
             .iter()
             .find(|&c| c.version_match(version))
             .map_or(None, |c| {
-                c.retrieve(version)
-                    .map_or(None, |l| Some(l))
+                c.retrieve(&self.config, version)
+                    .map_or(None, |l| Some(l.to_owned()))
             })
     }
 

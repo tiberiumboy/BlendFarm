@@ -141,7 +141,7 @@ impl Blender {
     /// use blender::Blender;
     /// let blender = Blender::new(PathBuf::from("path/to/blender"), Version::new(4,1,0));
     /// ```
-    fn new(executable: PathBuf, version: Version) -> Self {
+    pub(crate) fn new(executable: PathBuf, version: Version) -> Self {
         Self {
             executable,
             version,
@@ -466,6 +466,7 @@ impl Blender {
     ) -> Result<(), BlenderError> {
         let col = &args.file.setup_args(socket)?;
         // TODO: Find a way to remove unwrap()
+        // TODO: How do I know if the program has successfully exit? what is keeping the stream open?
         let stdout = Command::new(self.get_executable())
             .args(col)
             .stdout(Stdio::piped())
@@ -572,6 +573,7 @@ impl Blender {
                 // if the line reads "Blender quit", we should send BlenderEvent::Exit signal
                 if line.eq_ignore_ascii_case("blender quit") {
                     rx.send(BlenderEvent::Exit).unwrap();
+                    // Here we need to stop the runner?
                 } else {
                     rx.send(BlenderEvent::Log(line)).unwrap();
                 }
