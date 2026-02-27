@@ -1,6 +1,7 @@
 use std::{env::consts, path::PathBuf};
 
 /// Return extension matching to the current operating system (Only display Windows(.zip), Linux(.tar.xz), or macos(.dmg)).
+// Rely on providing valid extension to use. This seems backward.
 pub(crate) fn get_extension() -> Result<String, String> {
     match consts::OS {
         "windows" => Ok(".zip".to_owned()),

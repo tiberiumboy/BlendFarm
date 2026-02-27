@@ -1,24 +1,19 @@
 use std::{collections::HashMap, path::PathBuf};
-
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use crate::blender::Blender;
 
-use crate::{blender::Blender, models::download_link::DownloadLink};
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct BlenderConfig {
     /// List of installed blenders
     blenders: HashMap<Version, Blender>,
 
     /// Install path. By default set to `$HOME/Downloads/Blender`
     pub install_path: PathBuf,
-
-    /// Auto save on drop
-    pub auto_save: bool,
 }
 
 impl BlenderConfig {
-    pub fn new(blenders: Option<Vec<Blender>>, install_path: PathBuf, auto_save: bool) -> Self {
+    pub fn new(blenders: Option<Vec<Blender>>, install_path: PathBuf) -> Self {
         match blenders {
             Some(vec) => 
             Self {
@@ -28,12 +23,10 @@ impl BlenderConfig {
                 accumulator
             }),
                 install_path: install_path.into(),
-                auto_save,
             },
             None => Self {
                 blenders: HashMap::new(),
                 install_path: install_path.into(),
-                auto_save,
             },
         }
     }
@@ -42,11 +35,7 @@ impl BlenderConfig {
         self.install_path.join(category_folder_name)
     }
 
-    /// Remove any invalid blender path entry from BlenderConfig
-    pub fn remove_invalid_blender_path(&mut self) {
-        self.blenders.retain(|_,v| v.get_executable().exists());
-    }
-
+    // Seems like it's a read only mode?
     pub fn get_latest_blender_available(&self, version: Option<&Version>) -> Option<&Blender> {
         match version {
             // TODO: Finish this piece
@@ -80,16 +69,12 @@ impl BlenderConfig {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn get_auto_save(&self) -> &bool {
-        &self.auto_save
+    /// Return matching exact blender version
+    pub fn get_blender(&self, version: &Version) -> Option<&Blender> {
+        self.blenders.values().find(|x| x.get_version().eq(version))
     }
 
-    // Don't think I need this function anymore?
-    // pub fn get_blenders(&self) -> &Vec<Blender> {
-    //     &self.blenders
-    // }
-
+    /// Return a reference to matching partial version, but uses latest patch
     pub fn get_blender_partial(&self, major: u64, minor: u64) -> Option<&Blender> {
         self.blenders.values().find(|x| {
             let v = x.get_version();
@@ -97,18 +82,20 @@ impl BlenderConfig {
         })
     }
 
-    pub fn get_blender(&self, version: &Version) -> Option<&Blender> {
-        self.blenders.values().find(|x| x.get_version().eq(version))
+    /// Remove any invalid blender path entry from BlenderConfig
+    pub fn remove_invalid_blender_path(&mut self) {
+        self.blenders.retain(|_,v| v.get_executable().exists());
     }
 
-    pub fn remove_blender(&mut self, blender: &Blender) {
-        self.blenders.remove(blender.get_version());
+    /// remove target blender
+    pub fn remove_blender(&mut self, blender: &Blender) -> bool {
+        self.blenders.remove(blender.get_version()).is_some()
     }
 
-    /// Tries to append blender if it have not previously exist before. Otherwise False is return if entry already exist.
-    pub fn append_blender(&mut self, blender: &Blender) -> bool {
+    /// append blender to database
+    pub fn append_blender(&mut self, blender: &Blender) -> Option<Blender> {
         // If Some returns, it means we override record. None means no previous record exist and a new entry is added.
-        self.blenders.insert(blender.get_version().to_owned(), blender.clone()).is_none()
+        self.blenders.insert(blender.get_version().to_owned(), blender.clone())
     }
 }
 
