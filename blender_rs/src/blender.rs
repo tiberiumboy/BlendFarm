@@ -67,6 +67,7 @@ use blend::Instance;
 use lazy_regex::regex_captures;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::env::consts;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::num::ParseIntError;
 use std::process::{Command, Stdio};
@@ -99,22 +100,18 @@ pub enum BlenderError {
     ServiceOffline,
 }
 
+// [Note] In the sense of PartialOrd, Ord - Blender's executable would not matter if the version is identical. 
 /// Blender structure to hold path to executable and version of blender installed.
 /// Pretend this is the wrapper to interface with the actual blender program.
-#[derive(Debug, Clone, Serialize, Deserialize, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Blender {
-    /// Path to blender executable on the system.
+    /// Path to blender executable on the system. 
     executable: PathBuf,
     /// Version of blender installed on the system.
     version: Version,
 }
 
-impl PartialEq for Blender {
-    fn eq(&self, other: &Self) -> bool {
-        self.version.eq(&other.version)
-    }
-}
-
+// Overload to omit path ordering. Order by Version instead.
 impl PartialOrd for Blender {
     fn ge(&self, other: &Self) -> bool {
         self.version.ge(&other.version)
@@ -125,6 +122,7 @@ impl PartialOrd for Blender {
     }
 }
 
+// Overload to omit path ordering. Order by Version instead.
 impl Ord for Blender {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.version.cmp(&other.version)
@@ -220,7 +218,7 @@ impl Blender {
     }
 
     /// Create a new blender struct from executable path. This function will fetch the version of blender by invoking -v command.
-    /// Otherwise, if Blender is not install, or a version is not found, an error will be thrown
+    /// Otherwise, if Blender is not install, or a version is not found, an error will throw
     ///
     /// # Error
     ///
@@ -245,7 +243,7 @@ impl Blender {
         // Command::Process needs to access the content inside app bundle to perform the operation correctly.
         // To do this - I need to append additional path args to correctly invoke the right application for this to work.
         // TODO: Verify this works for Linux/window OS?
-        let path = if std::env::consts::OS == "macos" && !&path.ends_with(MACOS_PATH) {
+        let path = if consts::OS == "macos" && !&path.ends_with(MACOS_PATH) {
             &path.join(MACOS_PATH)
         } else {
             path
@@ -436,6 +434,9 @@ impl Blender {
         // spin up XML-RPC server
         spawn(async move {
             loop {
+                // TODO: The logic here doesn't make much sense for this class / program to handle and substitute the state. 
+                // I believe this function was design to stop the listening server if blender was completed or closed unexpected. 
+                // We don't have any other state to control and govern this threaded task.
                 // if the program shut down or if we've completed the render, then we should stop the server
                 match listener.try_recv() {
                     Ok(BlenderEvent::Exit) => break,
@@ -443,7 +444,6 @@ impl Blender {
                         // Received "Empty"?
                         println!("Something happen? {e:?}");
                         server.poll()
-                        // break;
                     }
                     e => {
                         println!("Listener received unconditionally: {e:?}");
@@ -460,8 +460,8 @@ impl Blender {
     async fn setup_listening_blender(
         &self,
         args: &Args,
-        rx: Sender<BlenderEvent>,
-        signal: Sender<BlenderEvent>,
+        tx: Sender<BlenderEvent>,   // Transmission to Application subscribing to this class logger
+        signal: Sender<BlenderEvent>,   // Used to stop the listening service.
         socket: &SocketAddrV4,
     ) -> Result<(), BlenderError> {
         let col = &args.file.setup_args(socket)?;
@@ -482,7 +482,7 @@ impl Blender {
 
         reader.lines().for_each(|line| {
             if let Ok(line) = line {
-                Self::handle_blender_stdio(line, &mut frame, &rx, &signal);
+                Self::handle_blender_stdio(line, &mut frame, &tx, &signal);
             };
         });
 
@@ -494,9 +494,8 @@ impl Blender {
     fn handle_blender_stdio(
         line: String,
         frame: &mut i32,
-        // What's the difference between rx and signal?
-        rx: &Sender<BlenderEvent>,
-        signal: &Sender<BlenderEvent>,
+        tx: &Sender<BlenderEvent>, // Transmission to Application subscribing events produce by this struct
+        signal: &Sender<BlenderEvent>,  // Signal for this class to listen and act upon.
     ) {
         match line {
             // TODO: find a more elegant way to parse the string std out and handle invocation action.
@@ -518,25 +517,25 @@ impl Blender {
                     }
                     _ => BlenderEvent::Unhandled(line),
                 };
-                rx.send(msg).unwrap();
+                tx.send(msg).unwrap();
             }
 
             line if line.starts_with("Time:") => {
-                rx.send(BlenderEvent::Log(line)).unwrap();
+                tx.send(BlenderEvent::Log(line)).unwrap();
             }
             // Python logs get injected to stdio
             line if line.starts_with("SUCCESS:") => {
                 // somehow I received an error from sending?
-                rx.send(BlenderEvent::Log(line)).unwrap();
+                tx.send(BlenderEvent::Log(line)).unwrap();
             }
             line if line.starts_with("LOG:") => {
-                rx.send(BlenderEvent::Log(line)).unwrap();
+                tx.send(BlenderEvent::Log(line)).unwrap();
             }
             line if line.contains("Use:") => {
-                rx.send(BlenderEvent::Log(line)).unwrap();
+                tx.send(BlenderEvent::Log(line)).unwrap();
             }
             line if line.contains("RENDER_START:") => {
-                rx.send(BlenderEvent::Log(line)).unwrap();
+                tx.send(BlenderEvent::Log(line)).unwrap();
             }
 
             // it would be nice if we can somehow make this as a struct or enum of types?
@@ -544,7 +543,7 @@ impl Blender {
                 // TODO: Test this for OSX compatibility
                 let location = line.split('\'').collect::<Vec<&str>>();
                 let result = PathBuf::from(location[1]);
-                rx.send(BlenderEvent::Completed {
+                tx.send(BlenderEvent::Completed {
                     frame: *frame,
                     result,
                 })
@@ -558,24 +557,24 @@ impl Blender {
                 if let Err(e) = signal.send(BlenderEvent::Exit) {
                     println!("Fail to send error! {e:?}\n{line}");
                 }
-                if let Err(e) = rx.send(BlenderEvent::Error(line.to_owned())) {
+                if let Err(e) = tx.send(BlenderEvent::Error(line.to_owned())) {
                     println!("Fail to send error! {e:?}\n{line}");
                 }
             }
 
             line if line.starts_with("COMPLETED") => {
                 signal.send(BlenderEvent::Exit).unwrap();
-                rx.send(BlenderEvent::Exit).unwrap();
+                tx.send(BlenderEvent::Exit).unwrap();
             }
 
             // When launch blender for the first time, it prints out the version number and the hash information about the build)
             line if line.starts_with("Blender ") => {
                 // if the line reads "Blender quit", we should send BlenderEvent::Exit signal
                 if line.eq_ignore_ascii_case("blender quit") {
-                    rx.send(BlenderEvent::Exit).unwrap();
+                    tx.send(BlenderEvent::Exit).unwrap();
                     // Here we need to stop the runner?
                 } else {
-                    rx.send(BlenderEvent::Log(line)).unwrap();
+                    tx.send(BlenderEvent::Log(line)).unwrap();
                 }
                 
 
@@ -583,25 +582,25 @@ impl Blender {
 
             // Blender prints out reading blender files, here we'll just log the info anyway (We already have the information)
             line if line.starts_with("Read blend: ") => {
-                rx.send(BlenderEvent::Log(line)).unwrap();
+                tx.send(BlenderEvent::Log(line)).unwrap();
             }
 
             line if line.starts_with("regiondata free error") => {
-                rx.send(BlenderEvent::Warning(line)).unwrap()
+                tx.send(BlenderEvent::Warning(line)).unwrap()
             }
 
             line if line.starts_with("Color management: ") => {
-                rx.send(BlenderEvent::Log(line)).unwrap();
+                tx.send(BlenderEvent::Log(line)).unwrap();
             }
 
             // TODO: Warning keyword is used multiple of times. Consider removing warning apart and submit remaining content above
             line if line.contains("Warning:") => {
-                rx.send(BlenderEvent::Warning(line.to_owned())).unwrap();
+                tx.send(BlenderEvent::Warning(line.to_owned())).unwrap();
             }
 
             line if line.contains("Error:") => {
                 let msg = BlenderEvent::Error(line.to_owned());
-                rx.send(msg).unwrap();
+                tx.send(msg).unwrap();
             }
 
             line if line.contains("Blender quit") => {
@@ -614,7 +613,7 @@ impl Blender {
                 // somehow it was able to pick up the blender version and commit hash value?
                 let msg = format!("[Unhandle Blender Event]:{line}");
                 let event = BlenderEvent::Unhandled(msg);
-                rx.send(event).unwrap();
+                tx.send(event).unwrap();
             }
             _ => {
                 // Only empty log entry would show up here...
