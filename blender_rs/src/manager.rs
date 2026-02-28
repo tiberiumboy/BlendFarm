@@ -68,13 +68,6 @@ pub enum ManagerError {
     },
 }
 
-// No new data has been changed, No need to save configuration file to storage.
-#[derive(Debug)]
-pub(crate) struct Unmodified;
-// struct has been modified, provide save method before release.
-#[derive(Debug)]
-pub(crate) struct Modified;
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum BlenderCategoryState {
     Loaded(BlenderCategory<Loaded>),
@@ -82,16 +75,14 @@ pub(crate) enum BlenderCategoryState {
 }
 
 #[derive(Debug)]
-pub struct Manager<State = Unmodified> {
+pub struct Manager {
     /// Store all known installation of blender directory information
     /// Manager's rulebook. Should only be available in this struct scope
     config: BlenderConfig,
     // List of Department. 
     list: Vec<BlenderCategoryState>,
     // Accountant 
-    cache: PageCache,
-    // Version Control
-    state: PhantomData::<State>,
+    cache: PageCache
 }
 
 /*
@@ -115,7 +106,7 @@ impl Default for Manager<Unmodified> {
     }
 } */
 
-impl Manager<Unmodified> {
+impl Manager {
     /// Load the manager data from the config file.
     // TODO: How can I get page cache?
     pub fn load(page_cache: PageCache) -> Self {
@@ -125,12 +116,11 @@ impl Manager<Unmodified> {
         if let Ok(content) = fs::read_to_string(&path) {
             if let Ok(mut config) = serde_json::from_str::<BlenderConfig>(&content) {
                 config.remove_invalid_blender_path();
-                let manager = Manager::<Unmodified> {
+                let manager = Self {
                     config: config,
                     // TODO: Find a way to load Blender Category here?
                     list:Vec::new(),    
                     cache: page_cache,
-                    state: PhantomData::<Unmodified>,
                 };
                 return manager;
             } else {
@@ -152,27 +142,18 @@ impl Manager<Unmodified> {
         // TODO: Remove expects
         data.save().expect("Should be able to save to storage")
     }
-}
 
-impl Manager<Modified> {
     // Save the configuration, and restore to Unmodified state
-    pub fn save(self) -> Result<Manager<Unmodified>, ManagerError> {
+    pub fn save(self) -> Result<(), ManagerError> {
         // strictly speaking, this function shouldn't crash...
         let data = serde_json::to_string(&self.config).unwrap();
         let path = Self::get_config_path();
         fs::write(path, data).map_err(ManagerError::IoError);
-        Ok(Manager::<Unmodified>{
-            config: self.config,
-            list: self.list,
-            cache: self.cache,
-            state: PhantomData::<Unmodified>
-        })
+        Ok(())
     }
-}
 
-impl<State> Manager<State> {
     // TODO: split this up into handling kinds.
-    fn fetch(self, cache: &mut PageCache) -> Result<Manager::<Modified>, ManagerError> {
+    fn fetch(self, cache: &mut PageCache) -> Result<Manager, ManagerError> {
         let parent = Url::parse("https://download.blender.org/release/").unwrap();
         
         // we fetch the content from the website above.
@@ -271,7 +252,7 @@ impl<State> Manager<State> {
         let os = std::env::consts::OS.to_owned();
 
         let blender =
-            self.get_blender_by_version(version)
+            &self.get_blender_by_version(version)
                 .ok_or(ManagerError::DownloadNotFound {
                     arch,
                     os,
@@ -288,7 +269,7 @@ impl<State> Manager<State> {
         
         let manager = self.add_blender(&blender);
         manager.save().unwrap();
-        Ok(blender)
+        Ok(blender.clone())
     }
     
     /// Return a reference to the vector list of all known blender installations
