@@ -1,4 +1,3 @@
-use crate::blend_file::{BlendFile, SceneInfo};
 /*
     Developer blog:
     This manager class will serve the following purpose:
@@ -23,14 +22,14 @@ use crate::blender::Blender; // , BlenderError
 // use crate::models::peek_response::PeekResponse;
 // use crate::models::render_setting::RenderSetting;
 use crate::models::blender_config::BlenderConfig;
+use crate::models::download_link::Unpacked;
 use crate::models::{download_link::DownloadLink};
-use crate::services::category::{BlenderCategory, Kind};
+use crate::services::category::{BlenderCategory, Loaded, NotLoaded};
 use crate::page_cache::PageCache;
 
 use lazy_regex::regex_captures_iter;
 use semver::Version;
 use std::marker::PhantomData;
-use std::num::ParseIntError;
 use std::path::Path;
 use std::{fs, path::PathBuf};
 use thiserror::Error;
@@ -56,9 +55,8 @@ pub enum ManagerError {
     },
     #[error("Unable to fetch blender! {0}")]
     RequestError(String),
-    // TODO: Find meaningful error message to represent from this struct class?
     #[error("IO Error: {0}")]
-    IoError(String),
+    IoError(#[from] std::io::Error),
     #[error("Url ParseError: {0}")]
     UrlParseError(String),
     #[error("Page cache error: {0}")]
@@ -71,9 +69,17 @@ pub enum ManagerError {
 }
 
 // No new data has been changed, No need to save configuration file to storage.
+#[derive(Debug)]
 pub(crate) struct Unmodified;
 // struct has been modified, provide save method before release.
+#[derive(Debug)]
 pub(crate) struct Modified;
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum BlenderCategoryState {
+    Loaded(BlenderCategory<Loaded>),
+    NotLoaded(BlenderCategory<NotLoaded>),
+}
 
 #[derive(Debug)]
 pub struct Manager<State = Unmodified> {
@@ -81,7 +87,7 @@ pub struct Manager<State = Unmodified> {
     /// Manager's rulebook. Should only be available in this struct scope
     config: BlenderConfig,
     // List of Department. 
-    list: Vec<BlenderCategory>,
+    list: Vec<BlenderCategoryState>,
     // Accountant 
     cache: PageCache,
     // Version Control
@@ -154,7 +160,7 @@ impl Manager<Modified> {
         // strictly speaking, this function shouldn't crash...
         let data = serde_json::to_string(&self.config).unwrap();
         let path = Self::get_config_path();
-        fs::write(path, data).map_err(|e| ManagerError::IoError(e.to_string()));
+        fs::write(path, data).map_err(ManagerError::IoError);
         Ok(Manager::<Unmodified>{
             config: self.config,
             list: self.list,
@@ -173,7 +179,7 @@ impl<State> Manager<State> {
         // TODO: This could be dependency injected?
         let content = cache
             .fetch_or_update(&parent)
-            .map_err(|e| ManagerError::PageCacheError(e.to_string()))?;
+            .map_err(ManagerError::IoError)?;
 
         // Omit any blender version 2.8 and below
         let iter = regex_captures_iter!(
@@ -182,23 +188,41 @@ impl<State> Manager<State> {
         
         let mut list = iter
             .map(|c| c.extract())
-            .fold(Vec::with_capacity(iter.count()), |mut map: Vec<BlenderCategory>, (_, [url, major, minor])| {
-                let url = parent.join(url).map_err(|e| ManagerError::UrlParseError(e.to_string()))?;
-                let major: u64 = major.parse().map_err(|e: ParseIntError| ManagerError::UnableToExtract(e.to_string()))?;
-                let minor: u64 = minor.parse().map_err(|e: ParseIntError| ManagerError::UnableToExtract(e.to_string()))?;
-                let kind = Kind::Website{ base_url: url, major, minor };
-                let category = BlenderCategory::new(kind);
-                
-                // where did we do with Page Cache?
-                if let Ok(category) = category.fetch(&mut self.cache) {
-                    map.push(category);
+            .fold(Vec::new(), |mut map: Vec<BlenderCategoryState>, (_, [url, major, minor])| {
+                // Find a way to return the map instead? If it's invalid, log it and skip it.
+                let url = match parent.join(url) {
+                    Ok(url) => url,
+                    Err(_e) => {
+                        // TODO: Implement logger here for debugging purposes.
+                        return map
+                    }
+                };
+
+                let major: u64 = match major.parse() {
+                    Ok(val) => val,
+                    Err(e) => {
+                        // TODO: Implement logger here for debugging purposes.
+                        return map
+                    }
+                };
+                let minor: u64 = match minor.parse() {
+                    Ok(val) => val,
+                    Err(e) => {
+                        // TODO: Implement logger here for debugging purposes.
+                        return map
+                    }
+                };
+                let category = BlenderCategory::new(url, major, minor);
+                if let Ok(category) = category.fetch(cache) {
+                    let state = BlenderCategoryState::Loaded(category);
+                    map.push(state);
                 }
 
                 map
         });
                 
         list.sort_by(|a, b| b.cmp(a));
-        
+
         Ok(Manager::<Modified, > {
             config: self.config,
             list: list,
@@ -275,16 +299,12 @@ impl<State> Manager<State> {
     }
 
     // May no longer in use?
-    fn get_download_link(&self, _target_version: &Version) -> Option<&DownloadLink> {
+    fn get_download_link(&self, _target_version: &Version) -> Option<&DownloadLink<Unpacked>> {
         todo!("Return blender object instead. Please rewrite the API to use Blender struct");
-        // match self.download_links.contains_key(&target_version) {
-        //     true => self.download_links.get(target_version),
-        //     false => self.get_blender_by_version(target_version)
-        // }
     }
 
     // TODO: Write Unit test
-    fn get_latest_download_link(&self, minimum_version: Option<&Version>) -> Option<&DownloadLink> {
+    fn get_latest_download_link(&self, minimum_version: Option<&Version>) -> Option<&DownloadLink<Unpacked>> {
         match minimum_version { 
             Some(min_version) => {
                 self.download_links.iter().fold(None, |result, (version, downloadlink)| {

@@ -2,37 +2,37 @@ use crate::{blender::Blender, utils::get_extension};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
-    fs, io::{Error as IoError, Read}, marker::PhantomData, path::{Path, PathBuf}
+    fs, io::{Error as IoError, Read}, path::{Path, PathBuf}
 };
 use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-struct NotDownloaded;
+pub(crate) struct NotDownloaded {
+    url: Url,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-struct Downloaded;
+pub(crate) struct Downloaded {
+    pub download_path: PathBuf,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-struct Unpacked;
+pub(crate) struct Unpacked {
+    pub executable_path: PathBuf
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub struct DownloadLink<State = NotDownloaded> {
-    // Why is this method public?
-    /*pub*/ name: String,
-    url: Url,
+pub struct DownloadLink<State> {
+    name: String,
     version: Version,
-    download_path: Option<PathBuf>,
-    executable_path: Option<PathBuf>,
-    state: PhantomData<State>,
+    state: State,
 }
 
 impl DownloadLink<NotDownloaded> {
-    pub fn new(name: String, url: Url, version: Version) -> Self {
+    pub fn new(name: String, url: Url, version: Version) -> Self {        
         Self { 
             name, 
-            url, 
             version, 
-            download_path: None,
-            executable_path: None,
-            state: PhantomData::<NotDownloaded> }
+            state: NotDownloaded { url },
+        }
     }
 
     // at this point here we will download the link and return an updated state
@@ -48,7 +48,7 @@ impl DownloadLink<NotDownloaded> {
         // Check and see if we haven't download the file already
         if !target.exists() {
             // Download the file from the internet
-            let mut response = ureq::get(self.url.as_str()).call().map_err(IoError::other)?;
+            let mut response = ureq::get(self.state.url.as_str()).call().map_err(IoError::other)?;
             let mut body: Vec<u8> = Vec::new();
             // TODO: See if there's a better way to save or store the file?
             // It's like why can't we stream directly to io?
@@ -62,11 +62,8 @@ impl DownloadLink<NotDownloaded> {
         // Assume the file we download are zipped/compressed.
         Ok(DownloadLink::<Downloaded>{
             name: self.name,
-            url: self.url,
             version: self.version,
-            download_path: Some(target.to_path_buf()),
-            executable_path: None,
-            state: PhantomData::<Downloaded>,
+            state: Downloaded { download_path: target.to_path_buf() },
         })
     }
 }
@@ -99,7 +96,7 @@ impl DownloadLink<Downloaded> {
         use tar::Archive;
         use xz::read::XzDecoder;
 
-        let path = &self.download_path.as_ref().expect("Should have valid path!");
+        let path = &self.state.download_path;
         // Get file handler to download location
         let file = File::open(path)?;
 
@@ -129,7 +126,7 @@ impl DownloadLink<Downloaded> {
     ) -> Result<PathBuf, Error> {
         use dmg::Attach;
 
-        let source = &self.download_path.as_ref().expect("Should have valid path!");
+        let source = &self.state.download_path;
         let dst = source // generate destination path
             .parent()
             .unwrap()
@@ -156,7 +153,7 @@ impl DownloadLink<Downloaded> {
         use std::fs::File;
         use zip::ZipArchive;
 
-        let source = &self.download_path.as_ref().expect("Must have valid path!");
+        let source = &self.state.download_path;
         //  On windows, unzipped content includes a new folder underneath. Instead of doing this, we will just unzip from the parent instead... weird
         let zip_loc = source.parent().unwrap();
         let output = zip_loc.join(folder_name);
@@ -199,11 +196,8 @@ impl DownloadLink<Downloaded> {
         
         Ok(DownloadLink::<Unpacked>{ 
             name: self.name,
-            url: self.url,
-            download_path: self.download_path,
-            executable_path: Some(executable_path.to_path_buf()),
             version: self.version,
-            state: PhantomData::<Unpacked>
+            state: Unpacked { executable_path: executable_path.to_path_buf() }
         })     
     }
 }
@@ -212,7 +206,7 @@ impl DownloadLink<Unpacked> {
 
     pub fn get_blender(&self) -> Result<Blender, IoError> {
         // TODO: Eliminate clone + expect() methods
-        let executable = self.executable_path.clone().expect("Should have valid blender?");
+        let executable = &self.state.executable_path;
         let blender = Blender::from_executable(executable).map_err(|e| IoError::other(e))?;
         Ok(blender)
     }
@@ -226,13 +220,9 @@ impl<State> DownloadLink<State> {
     pub fn get_parent(&self) -> String {
         format!("Blender{}.{}", self.version.major, self.version.minor)
     }
-
-    pub fn get_url(&self) -> &Url {
-        &self.url
-    }
 }
 
-impl AsRef<Version> for DownloadLink {
+impl<State> AsRef<Version> for DownloadLink<State> {
     fn as_ref(&self) -> &Version {
         &self.version
     }

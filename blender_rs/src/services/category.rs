@@ -1,15 +1,15 @@
 use crate::blender::Blender;
 use crate::models::blender_config::BlenderConfig;
-use crate::models::download_link::DownloadLink;
+use crate::models::download_link::{DownloadLink, Downloaded, NotDownloaded, Unpacked};
 use crate::utils::{get_extension, get_valid_arch};
 use crate::page_cache::PageCache;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::env::consts;
-use std::marker::PhantomData;
-use std::path::PathBuf;
+use std::path::Path;
 use lazy_regex::{self, regex_captures_iter};
 use semver::Version;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
@@ -33,108 +33,185 @@ pub enum BlenderCategoryError {
 #[derive(Debug, Default)]
 pub(crate) struct NotLoaded;
 #[derive(Debug, Default)]
-pub(crate) struct Loaded;
-
-// It may be a scalable thing in the future to add more features and rules, E.g. Groups or Remote/Pool/Shared?
-#[derive(Debug)]
-pub(crate) enum Kind {
-    Website{base_url: Url, major: u64, minor: u64},
-    Local{install_folder: PathBuf}
+pub(crate) struct Loaded {
+    links: HashMap<Version, Package>,
 }
 
-#[derive(Debug)]
-pub(crate) struct BlenderCategory<State = NotLoaded> {
-    kind: Kind,
-    links: HashMap<Version, DownloadLink>,   // how can this vector hold various of state?
-    state: PhantomData<State>
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+enum Package {
+    Metadata(DownloadLink<NotDownloaded>),
+    Downloaded(DownloadLink<Downloaded>),
+    Executable(DownloadLink<Unpacked>),
 }
+
+impl Package {
+    pub fn get_version(&self) -> &Version {
+        match self {
+            Package::Metadata(link) => link.get_version(),
+            Package::Downloaded(link) => link.get_version(),
+            Package::Executable(link) => link.get_version(),
+        }
+    }
+
+    pub fn get_package_ready(&self, destination: impl AsRef<Path>) -> Result<DownloadLink<Unpacked>, BlenderCategoryError> {
+        match self {
+            Package::Metadata(link) => {
+                let download_link = link.clone().download(destination)?;
+                Ok(download_link.extract()?)
+            },
+            Package::Downloaded(link) => {
+                Ok(link.clone().extract()?)
+            },
+            Package::Executable(link) => 
+                Ok(link.clone()),
+        }
+    } 
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct BlenderCategory<State> {
+    base_url: Url,
+    major: u64, 
+    minor: u64,
+    state: State
+}
+
+impl<State> PartialOrd for BlenderCategory<State> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match self.major.partial_cmp(&other.major) {
+            Some(core::cmp::Ordering::Equal) => {
+                self.minor.partial_cmp(&other.minor)
+            }
+            ord => return ord,
+        }
+        // self.state.partial_cmp(&other.state)
+    }
+}
+
+impl<State> Ord for BlenderCategory<State> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.major.cmp(&other.major) {
+            core::cmp::Ordering::Equal => {
+                self.minor.cmp(&other.minor)
+            },
+            ord => ord
+        }
+    }
+}
+
+// TODO: Figure out how I can handle it here?
+impl<State> PartialEq for BlenderCategory<State> {
+    fn eq(&self, other: &Self) -> bool {
+        match self.base_url.partial_cmp(&other.base_url) {
+            Some(ord) => ord.is_eq(),
+            None => false
+        }
+    }
+}
+
+impl<State> Eq for BlenderCategory<State> {}
+
 
 impl BlenderCategory<NotLoaded> {
-    pub fn new(kind: Kind) -> BlenderCategory<NotLoaded> {
+    pub fn new(base_url: Url, major: u64, minor: u64) -> BlenderCategory<NotLoaded> {
         // This would be a great place to load the links to validate the urls anyway.
-        Self { kind, links: HashMap::new(), state: PhantomData::<NotLoaded> }
+        Self { 
+            base_url, 
+            major,
+            minor, 
+            state: NotLoaded 
+        }
     }
 
     // TODO: [BUG] for some reason I was fetching this multiple of times already. Expensive to call. Profile test?
     pub fn fetch(self, cache: &mut PageCache) -> Result<BlenderCategory<Loaded>, BlenderCategoryError> {
-        
-        let mut vec = match self.kind {
-            // I think this is just a link path instead?
-            Kind::Local{ install_folder} => {
-                // This ensures and checks Blender local directory. 
-                // we will still provide download_url for the links, however, download_path will default to None.
-                // Here we have created a blender category folder setup, treat it as Blender4.0 or something similar.
-                // We should expect a .zip compressed of blender executables and maybe unzipped blender executables.
-                // And sometimes blender executables without zip packages. (Externally Installed)
+        // this function is called everytime fetch is called. This seems to be slowing down the performance for this application usage.
+        // TODO: because we changed the methodology of BlenderCategory's kind mechanism.. We will rely on the api call it can provide to us. 
+        let content = cache.fetch_or_update(&self.base_url).map_err(BlenderCategoryError::Io)?;
+        let current_arch = get_valid_arch().map_err(BlenderCategoryError::InvalidArch)?;
+        let valid_ext = get_extension().map_err(BlenderCategoryError::UnsupportedOS)?;
 
+        // <a href="(?<url>\w*-(?<major>\d*).(?<minor>\d*).(?<patch>\d*.)-(?<os>\w.*)-(?<arch>\w*)\.(?<ext>.*))">
+        let iter = regex_captures_iter!(r#"<a href="(?<url>\w*-(?<major>\d*).(?<minor>\d*).(?<patch>\d*.)-(?<os>\w.*)-(?<arch>\w*)\.(?<ext>.*))">"#,&content);
+        let links = iter.map(|c| c.extract()).fold(HashMap::new(), |mut map, (_, [url, major, minor, patch, os, arch, ext])| {
+            
+            // Check and see if the extension is valid
+            if ext.ne(&valid_ext) {
+                return map;
+            }
+            
+            // Must match running operating system.
+            if os.ne(consts::OS) {
+                return map;
+            }
+            
+            // Compatible with existing archtecture
+            if arch.ne(&current_arch) {
+                return map;
+            }   
 
-                Vec::new()
-            },
-            Kind::Website { base_url, major, minor } => {
-                // this function is called everytime fetch is called. This seems to be slowing down the performance for this application usage.
-                // TODO: because we changed the methodology of BlenderCategory's kind mechanism.. We will rely on the api call it can provide to us. 
-                let content = cache.fetch_or_update(&base_url).map_err(BlenderCategoryError::Io)?;
-                let current_arch = get_valid_arch().map_err(BlenderCategoryError::InvalidArch)?;
-                let valid_ext = get_extension().map_err(BlenderCategoryError::UnsupportedOS)?;
-    
-                // <a href="(?<url>\w*-(?<major>\d*).(?<minor>\d*).(?<patch>\d*.)-(?<os>\w.*)-(?<arch>\w*)\.(?<ext>.*))">
-                let iter = regex_captures_iter!(r#"<a href="(?<url>\w*-(?<major>\d*).(?<minor>\d*).(?<patch>\d*.)-(?<os>\w.*)-(?<arch>\w*)\.(?<ext>.*))">"#,&content);
-                let mut list = Vec::with_capacity(iter.count());
-                for (_, [url, major, minjor, patch, os, arch, ext]) in iter.map(|c| c.extract()) {
-                    // Must match running operating system.
-                    if os.ne(consts::OS) {
-                        continue;
-                    }
-                    
-                    // Compatible with existing archtecture
-                    if arch.ne(&current_arch) {
-                        continue;
-                    }
-
-                    let version = Version::new(major.parse().ok()?, minor.parse().ok()?, patch.parse().ok()?);
-                    let download_link = DownloadLink::new(url.to_owned(), parent.join(url), version);
-                    list.push(download_link);
+            let major: u64 = match major.parse() {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{e:?}");
+                    return map;
                 }
+            };
 
-                list
-            }};
-        
-        // let mut vec: Vec<DownloadLink> = regex
-        //     .captures_iter(&content)
-        //     .filter_map(|c| {
-        //         let (_, [url, name, patch]) = c.extract();
-        //         let url = self.url.join(url).ok()?;
-        //         let patch = patch.parse().ok()?;
-        //         let version = Version::new(self.major, self.minor, patch);
-        //         Some(DownloadLink::new(name.to_owned(), url, version))
-        //     })
-        //     .collect();
+            let minor: u64 = match minor.parse() {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{e:?}");
+                    return map;
+                }
+            };
 
-        vec.sort_by(|a, b| b.cmp(a));
+            let patch: u64 = match patch.parse() {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{e:?}");
+                    return map;
+                }
+            };
 
-        let links = vec.iter()
-            .fold(HashMap::with_capacity(vec.len()), |mut map, item| {
-            map.insert(item.get_version().to_owned(), item.to_owned());
+            let download_path = match self.base_url.join(url) {
+                Ok(url) => url,
+                Err(e) => {
+                    eprintln!("{e:?}");
+                    return map;
+                }
+            };
+
+            let version = Version::new(major, minor, patch);
+            let download_link = DownloadLink::new(url.to_string(), download_path, version.clone());
+            let package = Package::Metadata(download_link);
+            map.insert(version, package);
             map
         });
 
         Ok(BlenderCategory::<Loaded>{
-            kind: self.kind,
-            links: links,
-            state: PhantomData::<Loaded>,
+            base_url: self.base_url,
+            major: self.major,
+            minor: self.minor,
+            state: Loaded { links },
         })
     }
 }
 
 impl BlenderCategory<Loaded> {
 
-    // I wonder about this... What am I'm fetching the latest from?
+    // Only used in this state.
+    fn get_parent(&self) -> String {
+        format!("Blender{}.{}", self.major, self.minor)
+    }
+
+    // fetch latest version of blender if it's available.
     pub(crate) fn fetch_latest(
         &mut self,
         config: &BlenderConfig
     ) -> Result<Blender, BlenderCategoryError> {
-        // first I need to pop the entry from the links vector, as we're going to mutate the value.
-        let link = self.links.iter().fold(None, | latest: Option<&DownloadLink>, (version, link)| {
+        // first I need is pop the entry from the links vector, as we're going to mutate the value.
+        let package = &self.state.links.iter().fold(None, | latest: Option<&Package>, (version, link)| {
             if let Some(current) = latest {
                 return match current.get_version().gt(version) {
                     true => latest,
@@ -142,50 +219,31 @@ impl BlenderCategory<Loaded> {
                 }
             }
             Some(link)
-        });
+        }).ok_or(BlenderCategoryError::NotFound)?;
 
-        let blender = match link { 
-            Some(dl) => {
-                match dl {
-                    Some(file: DownloadLink::<Downloaded>) => {
-
-                    },
-                    Some(executable: DownloadLink::<Unpacked>) => {
-                        executable.get_blender()
-                    }
-                }
-            },
-            None => {
-                return Err(BlenderCategoryError::NotFound)
-            }
-        };
-        let destination = config.get_download_destination(&link);
-        let download = link.download(destination).unwrap();
-        let blender = download.extract().unwrap().get_blender().unwrap();
+        // repeated method as described below:
+        let destination = config.get_download_destination(&self.get_parent()); 
+        let link = package.get_package_ready(destination)?;
+        self.state.links.insert(link.get_version().clone(), Package::Executable(link.clone()));
+        let blender = link.get_blender().map_err(BlenderCategoryError::Io)?;
         Ok(blender)
     }
 
-    // May not be in used yet?
-    pub fn get_parent(&self) -> String {
-        format!("Blender{}.{}", self.major, self.minor)
-    }
-
     // for the sake of this, we will trust that the user wants Blender from this.
-    pub fn retrieve(
+    // Function renamed from retrieve
+    /// Retrieve blender if it already installed, otherwise install from known source and return blender.
+    pub fn get_blender(
         &mut self,
         config: &BlenderConfig,
         target_version: &Version,
     ) -> Result<Blender, BlenderCategoryError> {
-
-        let entry = self.links.raw_entry_mut()
-            .from_key(target_version)
-            .or_insert( target_version, || {
-                DownloadLink::new(name, url, version)
-            })?;
-        let destination = config.get_download_destination(link); 
-        let download_link = entry.1.download(destination).unwrap();
-        let extracted_link = download_link.extract().unwrap();        
-        let blender = extracted_link.get_blender().unwrap();
+        let package = self.state.links.get(&target_version).ok_or(BlenderCategoryError::NotFound)?;
+        
+        // repeated method as described above:
+        let destination = config.get_download_destination(&self.get_parent()); 
+        let link = package.get_package_ready(destination)?;
+        self.state.links.insert(link.get_version().clone(), Package::Executable(link.clone()));
+        let blender = link.get_blender().map_err(BlenderCategoryError::Io)?;
         Ok(blender)
     }
 }
@@ -194,72 +252,13 @@ impl BlenderCategory<Loaded> {
 impl<State> BlenderCategory<State> {
     // Use this to compare major/minor version without patch
     pub fn partial_version_match(&self, major: u64, minor: u64) -> Ordering {
-        match self.kind {
-            Kind::Website { major: maj, minor: min, .. } => {
-                match maj.cmp(&major) {
-                    Ordering::Equal => min.cmp(&minor),
-                    itself => itself
-                }
-            },
-            Kind::Local { install_folder } => {
-                self.links.fold
-            }
+        match self.major.cmp(&major) {
+            Ordering::Equal => self.minor.cmp(&minor),
+            itself => itself
         }
     }
 
     pub fn version_match(&self, version: &Version) -> Ordering {
         self.partial_version_match(version.major, version.minor)
-    }
-}
-
-// TODO: Figure out how I can handle it here?
-impl PartialEq for BlenderCategory {
-    fn eq(&self, other: &Self) -> bool {
-        match self.kind {
-            Kind::Website { .. } => true,
-            Kind::Local { .. } => false,
-        }
-        // self.major.eq(&other.major) && 
-        // self.minor.eq(&other.minor)
-    }
-}
-
-impl Eq for BlenderCategory {}
-
-impl PartialOrd for BlenderCategory {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.partial_version_match(other.major, other.minor))
-    }
-}
-
-impl Ord for BlenderCategory {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_version_match(other.major, other.minor)
-    }
-}
-
-impl PartialEq for BlenderCategory<Loaded> {
-    fn eq(&self, other: &Self) -> bool {
-        self.url == other.url && self.major.eq(&other.major) && self.minor.eq(&other.minor)
-    }
-}
-
-impl Eq for BlenderCategory<Loaded> {}
-
-impl PartialOrd for BlenderCategory<Loaded> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match self.major.partial_cmp(&other.major) {
-            Some(core::cmp::Ordering::Equal) => return self.minor.partial_cmp(&other.minor),
-            ord => return ord,
-        }
-    }
-}
-
-impl Ord for BlenderCategory<Loaded> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match self.major.cmp(&other.major) {
-            std::cmp::Ordering::Equal => self.minor.cmp(&other.minor),
-            all => return all,
-        }
     }
 }
