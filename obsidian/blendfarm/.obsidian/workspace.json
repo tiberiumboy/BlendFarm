@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Features/Exchange IP address from client to render.py.md",
+                "file": "Architecture/Portal.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Exchange IP address from client to render.py"
+              "title": "Portal"
             }
           }
         ]
@@ -160,13 +160,15 @@
       "command-palette:Open command palette": false
     }
   },
-  "active": "b8e74c2efd380365",
+  "active": "5b3fd6476d52c94a",
   "lastOpenFiles": [
+    "Features/Exchange IP address from client to render.py.md",
+    "Architecture/Portal.md",
+    "Architecture",
     "Features",
     "Bugs/Deleting Blender from UI cause app to crash..md",
     "Bugs/Buglist.md",
     "Bugs/Node identification not store in database.md",
-    "Features/Exchange IP address from client to render.py.md",
     "Bugs/Render not saved to database.md",
     "Bugs/Unable to discover localhost with no internet connection is established or provided..md",
     "Bugs/Unit test fail - symbol _EMBED_INFO_PLIST already defined.md",

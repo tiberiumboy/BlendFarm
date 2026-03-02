@@ -3,7 +3,6 @@ pub(crate) mod blender_config;
 pub mod blender_scene;
 pub(crate) mod config;
 pub mod device;
-pub mod download_link;
 pub mod engine;
 pub mod event;
 pub mod format;

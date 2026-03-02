@@ -230,11 +230,8 @@ impl Blender {
     /// let blender = Blender::from_executable(Pathbuf::from("../examples/")).unwrap();
     /// ```
     pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self, BlenderError> {
-        // TODO: this is ugly, and I want to get rid of this. How can I improve this?
-        // Backstory: Win and linux can be invoked via their direct app link. However, MacOS .app is just a bundle, which contains the executable inside.
-        // To run process::Command, I must properly reference the executable path inside the blender.app on MacOS, using the hardcoded path below.
-        const MACOS_PATH: &str = "Contents/MacOS/Blender";
-
+        use crate::utils::MACOS_PATH;
+        
         // check and verify that the executable exist.
         // first line for validating blender executable.
         let path = executable.as_ref();

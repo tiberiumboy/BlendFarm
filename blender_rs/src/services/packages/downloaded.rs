@@ -1,74 +1,37 @@
-use crate::{blender::Blender, utils::get_extension};
+use std::env::consts::OS;
+use std::path::{Path, PathBuf};
+use std::io::Error as IoError;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{
-    fs, io::{Error as IoError, Read}, path::{Path, PathBuf}
-};
-use url::Url;
+use crate::services::category::BlenderCategoryError;
+use crate::services::packages::bundle::Bundle;
+use crate::services::packages::package::PackageT;
+use crate::utils::MACOS_PATH;
+use crate::{services::packages::download_link::DownloadLink, utils::get_extension};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct NotDownloaded {
-    url: Url,
-}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Downloaded {
-    pub download_path: PathBuf,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Unpacked {
-    pub executable_path: PathBuf
+    pub origin: DownloadLink,
+    pub content: PathBuf,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub struct DownloadLink<State> {
-    name: String,
-    version: Version,
-    state: State,
-}
+impl Downloaded {
 
-impl DownloadLink<NotDownloaded> {
-    pub fn new(name: String, url: Url, version: Version) -> Self {        
-        Self { 
-            name, 
-            version, 
-            state: NotDownloaded { url },
+    fn get_executable_path(&self) -> Result<PathBuf, BlenderCategoryError> {
+        let ext = get_extension()
+            .map_err(|e| IoError::other(format!("Cannot run blender under this OS: {}!", e)))?;
+        let folder_name = self.origin.name.replace(&ext, "");   // remove the extension
+        let parent_folder = self.content.parent().unwrap().join(folder_name);
+
+        // per different operating system, we need to craft a path that points to blender executable. It various across all operating system.
+        match OS {
+            "macos" => Ok(parent_folder.join("Blender.app").join(MACOS_PATH)),
+            "linux" => Ok(parent_folder.join("blender")),
+            "windows" => Ok(parent_folder.join("Blender.exe")),
+            _ => Err(BlenderCategoryError::UnsupportedOS(OS.into()))
         }
     }
-
-    // at this point here we will download the link and return an updated state
-    pub fn download(self, destination: impl AsRef<Path>) -> Result<DownloadLink<Downloaded>, IoError> {
-
-        // got a permission denied here? Interesting?
-        // I need to figure out why and how I can stop this from happening?
-        fs::create_dir_all(&destination)?;
-
-        // create a target name
-        let target = &destination.as_ref().join(&self.name);
-        
-        // Check and see if we haven't download the file already
-        if !target.exists() {
-            // Download the file from the internet
-            let mut response = ureq::get(self.state.url.as_str()).call().map_err(IoError::other)?;
-            let mut body: Vec<u8> = Vec::new();
-            // TODO: See if there's a better way to save or store the file?
-            // It's like why can't we stream directly to io?
-            if let Err(e) = response.body_mut().as_reader().read_to_end(&mut body) {
-                eprintln!("Fail to read data from response! {e:?}");
-            }
-            // save the content to target
-            fs::write(target, &body)?;
-        }
-        
-        // Assume the file we download are zipped/compressed.
-        Ok(DownloadLink::<Downloaded>{
-            name: self.name,
-            version: self.version,
-            state: Downloaded { download_path: target.to_path_buf() },
-        })
-    }
-}
-
-impl DownloadLink<Downloaded> {
 
     // Currently being used for MacOS (I wonder if I need to do the same for windows?)
     #[cfg(target_os = "macos")]
@@ -89,14 +52,14 @@ impl DownloadLink<Downloaded> {
     // TODO: Tested on Linux - something didn't work right here. Need to investigate/debug through
     #[cfg(target_os = "linux")]
     fn extract_content(
-        &self,
+        download_path: impl AsRef<Path>,
         folder_name: &str,
     ) -> Result<PathBuf, IoError> {
         use std::fs::File;
         use tar::Archive;
         use xz::read::XzDecoder;
 
-        let path = &self.state.download_path;
+        let path = download_path.as_ref();
         // Get file handler to download location
         let file = File::open(path)?;
 
@@ -121,12 +84,14 @@ impl DownloadLink<Downloaded> {
     /// lastly, provide a path to the blender executable inside the content.
     #[cfg(target_os = "macos")]
     fn extract_content(
-        &self,
+        download_path: impl AsRef<Path>,
         folder_name: &str,
     ) -> Result<PathBuf, Error> {
         use dmg::Attach;
 
-        let source = &self.state.download_path;
+        use crate::utils::MACOS_PATH;
+
+        let source = download_path.as_ref();
         let dst = source // generate destination path
             .parent()
             .unwrap()
@@ -141,19 +106,19 @@ impl DownloadLink<Downloaded> {
         let src = PathBuf::from(&dmg.mount_point.join("Blender.app")); // create source path from mount point
         Self::copy_dir_all(&src, &dst)?; // Extract content inside Blender.app to destination
         dmg.detach()?; // detach dmg volume
-        Ok(dst.join("Contents/MacOS/Blender")) // return path with additional path to invoke blender directly
+        Ok(dst.join(MACOS_PATH)) // return path with additional path to invoke blender directly
     }
 
     // TODO: verify this is working for windows (.zip)?
     #[cfg(target_os = "windows")]
     fn extract_content(
-        &self,
+        download_path: impl AsRef<Path>,
         folder_name: &str,
     ) -> Result<PathBuf, Error> {
         use std::fs::File;
         use zip::ZipArchive;
 
-        let source = &self.state.download_path;
+        let source = download_path.as_ref();
         //  On windows, unzipped content includes a new folder underneath. Instead of doing this, we will just unzip from the parent instead... weird
         let zip_loc = source.parent().unwrap();
         let output = zip_loc.join(folder_name);
@@ -179,51 +144,30 @@ impl DownloadLink<Downloaded> {
         Ok(output.join("Blender.exe"))
     }
 
-    // pub fn from_path(path: PathBuf) -> Result<DownloadLink::<Downloaded> {
-    //     Ok(DownloadLink::<Downloaded> {
-    //         name
-    //     })
-    // }
+    pub fn check_unpacked(self) -> Result<Bundle, Downloaded> {
+        // here we would navigate to the extracted directory based on the rules generated in this struct, if the path to executable exist, then return Bundle, otherwise return itself.
+        // assuming the logic goes - in the same path destination as compressed content, there should be a folder containing the extracted content. 
+        if let Ok(executable_path) = self.get_executable_path() {
+            if executable_path.exists() {
+                return Ok(Bundle::new(self, executable_path));
+            }
+        }
+        Err(self)
+    }
 
-    pub fn extract(self) -> Result<DownloadLink::<Unpacked>, IoError> {
-        // as painful as it may be, I wish I didn't do this weird cfg trick...
-        // precheck qualification
+    pub fn extract(self, destination: PathBuf) -> Result<Bundle, IoError> {
         let ext = get_extension()
             .map_err(|e| IoError::other(format!("Cannot run blender under this OS: {}!", e)))?;
         // create a target folder name to extract content to.
-        let folder_name = &self.name.replace(&ext, "");
-        let executable_path = &self.extract_content(folder_name)?;
-        
-        Ok(DownloadLink::<Unpacked>{ 
-            name: self.name,
-            version: self.version,
-            state: Unpacked { executable_path: executable_path.to_path_buf() }
-        })     
+        let name = &self.origin.name;
+        let folder_name = &name.replace(&ext, "");
+        let executable_path = Self::extract_content(destination, folder_name)?;
+        Ok(Bundle::new(self, executable_path)) 
     }
 }
 
-impl DownloadLink<Unpacked> {
-
-    pub fn get_blender(&self) -> Result<Blender, IoError> {
-        // TODO: Eliminate clone + expect() methods
-        let executable = &self.state.executable_path;
-        let blender = Blender::from_executable(executable).map_err(|e| IoError::other(e))?;
-        Ok(blender)
-    }
-}
-
-impl<State> DownloadLink<State> {
-    pub fn get_version(&self) -> &Version {
-        &self.version
-    }
-
-    pub fn get_parent(&self) -> String {
-        format!("Blender{}.{}", self.version.major, self.version.minor)
-    }
-}
-
-impl<State> AsRef<Version> for DownloadLink<State> {
-    fn as_ref(&self) -> &Version {
-        &self.version
+impl PackageT for Downloaded {
+    fn get_version(&self) -> &Version {
+        self.origin.get_version()
     }
 }

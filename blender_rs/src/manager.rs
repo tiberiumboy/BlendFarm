@@ -17,23 +17,17 @@
                 configuration modification (New blender installation, download new version, cache refresh, etc). Limits API usage once we update phantom state to save or load. 
 
     */
-use crate::blender::Blender; // , BlenderError
-// use crate::models::blender_scene::BlenderScene;
-// use crate::models::peek_response::PeekResponse;
-// use crate::models::render_setting::RenderSetting;
+use crate::blender::Blender;
 use crate::models::blender_config::BlenderConfig;
-use crate::models::download_link::Unpacked;
-use crate::models::{download_link::DownloadLink};
-use crate::services::category::{BlenderCategory, Loaded, NotLoaded};
 use crate::page_cache::PageCache;
+use crate::services::category;
+use crate::services::portal::Portal;
 
-use lazy_regex::regex_captures_iter;
+
 use semver::Version;
-use std::marker::PhantomData;
 use std::path::Path;
 use std::{fs, path::PathBuf};
 use thiserror::Error;
-use url::Url;
 
 // I would like this to be a feature only crate. blender by itself should be lightweight and interface with the program directly.
 // could also implement serde as optionals?
@@ -57,6 +51,10 @@ pub enum ManagerError {
     RequestError(String),
     #[error("IO Error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Serde_Json: {0}")]
+    SerdeJson(#[from] serde_json::Error),
+    #[error("Category error: {0}")]
+    Category(#[from] category::BlenderCategoryError),
     #[error("Url ParseError: {0}")]
     UrlParseError(String),
     #[error("Page cache error: {0}")]
@@ -68,21 +66,14 @@ pub enum ManagerError {
     },
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum BlenderCategoryState {
-    Loaded(BlenderCategory<Loaded>),
-    NotLoaded(BlenderCategory<NotLoaded>),
-}
-
 #[derive(Debug)]
 pub struct Manager {
     /// Store all known installation of blender directory information
     /// Manager's rulebook. Should only be available in this struct scope
     config: BlenderConfig,
     // List of Department. 
-    list: Vec<BlenderCategoryState>,
-    // Accountant 
-    cache: PageCache
+    // TODO: Extract this out as a separate component, like manager.
+    portal: Portal,
 }
 
 /*
@@ -106,21 +97,29 @@ impl Default for Manager<Unmodified> {
     }
 } */
 
+// This struct is becoming a mess for a manager to take on.
+// I need to separate out components and pieces.
+// I have a config file, which contains list of local installed blender
+// and install path. This Config struct is serialized and store in persistent folder location.
+
+// Take the online download part into a separate components.
+// Manager should only govern local installed blenders (Or blenders that was added by users)
+
 impl Manager {
     /// Load the manager data from the config file.
     // TODO: How can I get page cache?
-    pub fn load(page_cache: PageCache) -> Self {
+    pub fn load(page_cache: &mut PageCache) -> Self {
         // load from a known file path (Maybe a persistence storage solution somewhere?)
         // if the config file does not exist on the system, create a new one and return a new struct instead.
         let path = Self::get_config_path();
         if let Ok(content) = fs::read_to_string(&path) {
             if let Ok(mut config) = serde_json::from_str::<BlenderConfig>(&content) {
-                config.remove_invalid_blender_path();
+                config.remove_invalid_blender();
+                let download_path = &config.install_path;
+                let portal = Portal::new(download_path.clone(), page_cache);
                 let manager = Self {
                     config: config,
-                    // TODO: Find a way to load Blender Category here?
-                    list:Vec::new(),    
-                    cache: page_cache,
+                    portal,
                 };
                 return manager;
             } else {
@@ -132,92 +131,33 @@ impl Manager {
 
 
         // default case, create a new manager data and save it.
+        let download_path = dirs::download_dir().unwrap().join("Blender");
+        let portal = Portal::new(download_path, page_cache);
         let data = Manager {
             config: BlenderConfig::new(None, path),
-            list: Vec::new(),
-            cache: page_cache,
-            state: PhantomData::<Modified>,
+            portal,
         };
         
         // TODO: Remove expects
-        data.save().expect("Should be able to save to storage")
+        // We only need to get this far if we cannot load the file based on the condition above
+        &data.save().expect("Should be able to save to storage");
+        data
     }
 
     // Save the configuration, and restore to Unmodified state
-    pub fn save(self) -> Result<(), ManagerError> {
-        // strictly speaking, this function shouldn't crash...
-        let data = serde_json::to_string(&self.config).unwrap();
+    pub fn save(&self) -> Result<(), ManagerError> {
+        // TODO: handle unwrap
+        let data = serde_json::to_string(&self.config).map_err(ManagerError::SerdeJson)?;
         let path = Self::get_config_path();
         fs::write(path, data).map_err(ManagerError::IoError);
         Ok(())
     }
 
-    // TODO: split this up into handling kinds.
-    fn fetch(self, cache: &mut PageCache) -> Result<Manager, ManagerError> {
-        let parent = Url::parse("https://download.blender.org/release/").unwrap();
-        
-        // we fetch the content from the website above.
-        // TODO: This could be dependency injected?
-        let content = cache
-            .fetch_or_update(&parent)
-            .map_err(ManagerError::IoError)?;
-
-        // Omit any blender version 2.8 and below
-        let iter = regex_captures_iter!(
-            r#"<a href="(?<url>.*)">Blender(?<major>[3-9]|\d{1,}).(?<minor>\d*)/</a>"#,
-            &content);
-        
-        let mut list = iter
-            .map(|c| c.extract())
-            .fold(Vec::new(), |mut map: Vec<BlenderCategoryState>, (_, [url, major, minor])| {
-                // Find a way to return the map instead? If it's invalid, log it and skip it.
-                let url = match parent.join(url) {
-                    Ok(url) => url,
-                    Err(_e) => {
-                        // TODO: Implement logger here for debugging purposes.
-                        return map
-                    }
-                };
-
-                let major: u64 = match major.parse() {
-                    Ok(val) => val,
-                    Err(e) => {
-                        // TODO: Implement logger here for debugging purposes.
-                        return map
-                    }
-                };
-                let minor: u64 = match minor.parse() {
-                    Ok(val) => val,
-                    Err(e) => {
-                        // TODO: Implement logger here for debugging purposes.
-                        return map
-                    }
-                };
-                let category = BlenderCategory::new(url, major, minor);
-                if let Ok(category) = category.fetch(cache) {
-                    let state = BlenderCategoryState::Loaded(category);
-                    map.push(state);
-                }
-
-                map
-        });
-                
-        list.sort_by(|a, b| b.cmp(a));
-
-        Ok(Manager::<Modified, > {
-            config: self.config,
-            list: list,
-            cache: self.cache,
-            state: PhantomData::<Modified>
-        })
-    }
-
-    fn set_config(self, config: BlenderConfig) -> Manager<Modified> {
-        Manager::<Modified> {
+    #[deprecated(note = "Provide me an example where this would be useful?")]
+    fn set_config(self, config: BlenderConfig) -> Manager {
+        Self {
             config: config,
-            list: self.list,
-            cache: self.cache,
-            state: PhantomData::<Modified>,
+            portal: self.portal
         }
     }
 
@@ -242,78 +182,11 @@ impl Manager {
         Self::get_config_dir(None).join("BlenderManager.json")
     }
 
-    /// Download Blender of matching version, install on this machine, and returns blender struct.
-    /// This function will update PageCache if not previously visited. Hence mutation requirement.
-    // TODO: Is this Manager Responsibility? Refactor this down?
-    // TODO: Consider making a non-ambiguous function call get_target_blender(version)
-    pub fn download_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
-        // TODO: As a extra security measure, I would like to verify the hash of the content before extracting the files.
-        let arch = std::env::consts::ARCH.to_owned();
-        let os = std::env::consts::OS.to_owned();
-
-        let blender =
-            &self.get_blender_by_version(version)
-                .ok_or(ManagerError::DownloadNotFound {
-                    arch,
-                    os,
-                    url: format!(
-                        "Blender version {}.{} was not found!",
-                        version.major, version.minor
-                    ),
-                })?;
-        
-        // let destination = self.config.get_download_destination(&download_link);
-        // let download_link = download_link.download(destination).map_err(|e| ManagerError::IoError(e.to_string()))?;
-        // let download_link = download_link.extract().map_err(|e| ManagerError::IoError(e.to_string()))?;
-        // let blender = download_link.get_blender().map_err(|e| ManagerError::IoError(e.to_string()))?;
-        
-        let manager = self.add_blender(&blender);
-        manager.save().unwrap();
-        Ok(blender.clone())
-    }
-    
     /// Return a reference to the vector list of all known blender installations
-    // TODO: Identify where this is used and see if it make sense in general architecture design?
-    pub fn get_blenders(&self) -> Vec<Blender> {
-        todo!("read description");
-        // &self.config.get_blenders()
+    pub fn get_blenders(&self) -> Vec<&Blender> {
+        self.config.get_blenders()
     }
 
-    // May no longer in use?
-    fn get_download_link(&self, _target_version: &Version) -> Option<&DownloadLink<Unpacked>> {
-        todo!("Return blender object instead. Please rewrite the API to use Blender struct");
-    }
-
-    // TODO: Write Unit test
-    fn get_latest_download_link(&self, minimum_version: Option<&Version>) -> Option<&DownloadLink<Unpacked>> {
-        match minimum_version { 
-            Some(min_version) => {
-                self.download_links.iter().fold(None, |result, (version, downloadlink)| {
-                    if min_version.gt(version) {
-                        return result
-                    } 
-
-                    if let Some(prev) = result {
-                        if prev.get_version().gt(version) {
-                            return result
-                        }
-                    }
-                    Some(downloadlink)   
-                })
-            },
-            None =>    
-                self.download_links.iter().fold(None, |result: Option<&DownloadLink>, (version, item)| {
-                    if let Some(latest) = result {
-                        return match latest.get_version().lt(version) {
-                            true => Some(item),
-                            false => Some(latest)
-                        }
-                    }
-                    Some(item)
-                })
-            }
-        }
-    
     /// Peek is a function design to read and fetch information about the blender file.
     // TODO: see where this is used, as this seems like blendfile already have information?
     // Is this code even in used at all?
@@ -355,96 +228,60 @@ impl Manager {
         Ok(result)
     }
     */
-
+    
+    // It's used to display the information on the website.
     pub fn get_install_path(&self) -> &Path {
         &self.config.install_path
     }
 
     /// Set path for blender download and installation
-    pub fn set_install_path(mut self, new_path: &Path) -> Manager::<Modified> {
+    pub fn set_install_path(mut self, new_path: &Path) -> Manager {
         // Consider the design behind this. Should we move blender installations to new path?
         self.config.install_path = new_path.to_path_buf().clone();
         
-        Manager::<Modified> {
+        Self {
             config: self.config,
-            list: self.list,
-            cache: self.cache,
-            state: PhantomData::<Modified>,
+            portal: self.portal,
         }
     }
 
     /// Add a new blender installation to the manager list.
     // would require consuming manager.
-    pub fn add_blender(mut self, blender: &Blender) -> Manager::<Modified> {
+    /// Returns old blender value that was replaced by the new updated value.
+    pub fn add_blender(&mut self, blender: &Blender) -> Result<Option<Blender>, ManagerError> {
         // make sure it doesn't exist already.
-        // Use Manager::<Modify>() method here!
-        if let Some(old) = &self.config.append_blender(blender) {
-            println!("Blender was updated! Old config: {old:?}")
-        }
-        
-        Manager::<Modified> {
-            config: self.config,
-            list: self.list,
-            cache: self.cache,
-            state: PhantomData::<Modified>
-        }
+        // Returns None if previously doesn't exist, or Some(old_value) when the record has been updated.
+        Ok(self.config.insert_blender(blender))
     }
 
     /// Check and add a local installation of blender to manager's registry of blender version to use from.
     /// We should expect 
-    pub fn add_blender_path(self, path: &impl AsRef<Path>) -> Result<Blender, ManagerError> {
-        let path = path.as_ref();
-
-        //     // Do not worry about this. For now, treat the url as content already unpacked by user.
-        // let extension = get_extension().map_err(ManagerError::UnsupportedOS)?;
-        // let path = if path
-        //     .extension()
-        //     .is_some_and(|e| extension.contains(e.to_str().unwrap()))
-        // {
-        //     // Create a folder name from given path
-        //     let folder_name = &path
-        //         .file_name()
-        //         .unwrap()
-        //         .to_os_string()
-        //         .to_str()
-        //         .unwrap()
-        //         .replace(&extension, "");
-
-        //     DownloadLink::extract_content(path, folder_name)
-        //         .map_err(|e| ManagerError::UnableToExtract(e.to_string()))
-        // } else {
-        //     // for MacOS - User will select the app bundle instead of actual executable, We must include the additional path
-        //     match std::env::consts::OS {
-        //         "macos" => Ok(path.join("Contents/MacOS/Blender")),
-        //         _ => Ok(path.to_path_buf()),
-        //     }
-        // }?;
-        
+    pub fn add_blender_path(&mut self, path: &impl AsRef<Path>) -> Result<Blender, ManagerError> {
         // Here is where we verify the integrity of blender before adding to manager collection.
         let blender =
             Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
 
-        let manager = self.add_blender(&blender);
+        if let Some(_old_value) = self.add_blender(&blender)? {
+            eprintln!("Record updated");
+        }
+
         // TODO: This is a hack - Would prefer to understand why program does not auto save file after closing.
         // Or look into better saving mechanism than this.
-        let _ = manager.save()?;
+        let _ = self.save()?;
         Ok(blender)
     }
 
     /// Remove blender installation from the manager list.
-    pub fn remove_blender(mut self, blender: &Blender) -> Manager::<Modified> {
+    pub fn remove_blender(mut self, blender: &Blender) -> Result<(), ManagerError> {
         &self.config.remove_blender(blender);
-        Manager::<Modified> {
-            config: self.config,
-            list: self.list,
-            cache: self.cache,
-            state: PhantomData::<Modified>,
-        }
+        Ok(())
     }
 
     /// Deletes the parent directory that blender reside in. This might be a dangerous function as this involves removing the directory blender executable is in.
     /// TODO: verify that this doesn't break macos path executable... Why mac gotta be special with appbundle?
-    pub fn delete_blender(self, blender: &Blender) -> Manager::<Modified> {
+    // If this is a dangerous function, we should instead make this private and handle it carefully.
+    // TODO: Limiting scope visibility until we can make it private. I'm not sure where it's used atm, but making it work atm. 1 hour work
+    pub(crate) fn delete_blender(self, blender: &Blender) -> Result<(), ManagerError> {
         // this deletes blender from the system. You have been warn!
         // BEWARE - MacOS is special that the executable path is referencing inside the bundle. I would need to get the app path instead of the bundle inside.
         if std::env::consts::OS == "macos" {
@@ -453,32 +290,26 @@ impl Manager {
                 blender.get_executable()
             );
         }
+
         // I'm still concern about this, why are we deleting the parent? Need to perform unit test for this to make sure it doesn't delete anything else.
         fs::remove_dir_all(blender.get_executable().parent().unwrap()).unwrap();
-        self.remove_blender(blender)
+        self.remove_blender(blender)?;
+        Ok(())
     }
 
-    // TODO: Name ambiguous - clarify method name to be clear and explicit
     /// This will first check if blender is installed locally, otherwise download the version online.
     pub fn fetch_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
-        match self.have_blender(version) {
+        match self.config.get_blender(version) {
             Some(blender) => Ok(blender.clone()),
-            None => self.download_blender(version),
+            None => {
+                let blender = self.portal.download_blender(version)?;
+                // Expects no history previously stored due to match conditions above. If it breaks, something is seriously wrong.
+                if let Some(old_value) = self.add_blender(&blender)? {
+                    panic!("Record contain existing record, but filter above assure we didn't have it? {old_value:?}\n{:?}", &blender);
+                }
+                Ok(blender)
+            },
         }
-    }
-
-    // TODO: Refactor this method to provide already established DownloadLinks from the manager instead.
-    // Category struct is going away and will be used to fetch download links only. Nothing more beyond that.
-    // TODO: Why do I need to make this public?
-    // pub fn fetch_download_list(&self) -> Option<Vec<DownloadLink>> {
-    //     match &self.download_links.is_empty() {
-    //         false => Some(self.download_links.clone()),
-    //         true => None,
-    //     }
-    // }
-
-    pub fn have_blender(&self, version: &Version) -> Option<&Blender> {
-        self.config.get_blender(version)
     }
 
     pub fn have_blender_partial(&self, major: u64, minor: u64) -> Option<&Blender> {
@@ -492,72 +323,6 @@ impl Manager {
         // I think the data is already sorted to begin with? No need to resort this list again.
         self.config.get_latest_blender_available(version)
     }
-
-    pub fn latest_online(&mut self) -> Result<Blender, ManagerError> {
-
-        let link = self.get_latest_download_link(None);
-        
-        // TODO: It would be nice to fetch online if we received None from the link above.
-        // However as of the time right now, I'm focus on functionality getting this working
-        let link = link.expect("Must be connected online!");
-        let destination = self.config.get_download_destination(&link);
-        let download_link = link.download(destination).map_err(|e| ManagerError::IoError(e.to_string()))?;
-        let download_link = download_link.extract().map_err(|e| ManagerError::IoError(e.to_string()))?;
-        // Download the executable and extract the contents.
-        // let blender = link.download_and_extract(self.config.install_path).map_err(|e: Error| ManagerError::UnableToExtract(e.to_string()))?;
-        let blender = download_link.get_blender().map_err(|e| ManagerError::IoError(e.to_string()))?;
-        self.add_blender(&blender);
-        Ok(blender)
-    }
-
-    // find a way to hold reference to blender home here?
-    // split this function
-    pub fn download_latest_version(&mut self) -> Result<Blender, ManagerError> {
-        // in this case - we need to fetch the latest version from somewhere, download.blender.org will let us fetch the parent before we need to dive into
-        // TODO: Find a way to replace these unwrap()
-        let category = 
-            self.list.
-                first()
-                .map_or(
-                    Err(
-                        ManagerError::RequestError("Category list is empty! Did you clear the cache? Please connect to the internet to retrieve blender download list".to_string()))
-                        , |c| Ok(c))?;
-        
-        let loaded = category.fetch(&mut self.cache).map_err(|e| ManagerError::FetchError(e.to_string()))?;
-        let blender = loaded.fetch_latest(&self.config).map_err(|e| ManagerError::FetchError(e.to_string()))?;
-        self.config.append_blender(&blender);
-        Ok(blender)
-    }
-
-    fn get_blender_by_version(&self, version: &Version) -> Option<Blender> {
-        self.list
-            .raw_entry_mut()
-            .from_key(version)
-            .or_insert_with({
-                    let name = "";
-                    let url = Url::parse("").unwrap();
-                    DownloadLink::new(name, url, &version)
-                }
-            )
-            // .iter()
-            // .find(|&c| c.version_match(version))
-            // .map_or(None, |c| {
-            //     c.retrieve(&self.config, version)
-            //         .map_or(None, |l| Some(l.to_owned()))
-            // })
-    }
-
-    // I may want to change this to see if I'm picking the one from locally installed or from remote
-    pub fn get_latest_version_patch(&mut self, major: u64, minor: u64) -> Option<Version> {
-        // Get the latest patch from blender home
-        self.list
-            .iter()
-            .find(|v| v.partial_version_match(major, minor))
-            .map_or(None, |c| {
-                c.fetch_latest()
-                    .map_or(None, |l| Some(l.get_version().clone()))
-            })
-    }
 }
 
 impl AsRef<PathBuf> for Manager {
@@ -565,12 +330,6 @@ impl AsRef<PathBuf> for Manager {
         &self.config.install_path
     }
 }
-
-// impl AsRef<Vec<BlenderCategory>> for Manager {
-//     fn as_ref(&self) -> &Vec<BlenderCategory> {
-//         &self.list
-//     }
-// }
 
 #[cfg(test)]
 mod tests {

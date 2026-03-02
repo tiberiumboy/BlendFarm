@@ -35,65 +35,88 @@ impl BlenderConfig {
         self.install_path.join(category_folder_name)
     }
 
-    // Seems like it's a read only mode?
+    // Fetch best matching version of blender if provided, or latest version available if none was provided.
     pub fn get_latest_blender_available(&self, version: Option<&Version>) -> Option<&Blender> {
         match version {
-            // TODO: Finish this piece
             Some(v) => {
-                self.blenders.values()
-                    .filter(|b| b.get_version().ge(v))
-                    .collect::<Vec<&Blender>>()
-                    .first()
-                    .map(|v| Some(v.to_owned()))?
+                self.get_blender(v).or_else(|| self.get_blender_partial(v.major, v.minor))
             },
-            None => self.blenders.iter().fold(None, |accumulator, item| {
-                if let Some(b) = accumulator {
-                    return match b.get_version().le(item.0) {
-                        true => Some(&item.1),
-                        false => accumulator
+            None => self.blenders.iter().fold(None, |result, (version, blender)| {
+                if let Some(current) = result {
+                    if current.get_version().ge(version) {
+                        return result;
                     }
                 } 
-            
-                Some(item.1)
+                Some(blender)
             })
-
-
-            // Some(v) => self
-            //     .blenders
-            //     .iter()
-            //     .filter(|b| b.get_version().ge(v))
-            //     .collect::<Vec<&Blender>>()
-            //     .first()
-            //     .map(|v| &**v),
-            // None => self.blenders.first(),
         }
     }
 
     /// Return matching exact blender version
-    pub fn get_blender(&self, version: &Version) -> Option<&Blender> {
+    // TODO: Can we make this private?
+    pub(crate) fn get_blender(&self, version: &Version) -> Option<&Blender> {
         self.blenders.values().find(|x| x.get_version().eq(version))
     }
 
-    /// Return a reference to matching partial version, but uses latest patch
-    pub fn get_blender_partial(&self, major: u64, minor: u64) -> Option<&Blender> {
-        self.blenders.values().find(|x| {
-            let v = x.get_version();
-            v.major.eq(&major) && v.minor.eq(&minor)
+    // return a immutable reference list of installed blender.
+    // useful to display on website of some sort.
+    pub(crate) fn get_blenders(&self) -> Vec<&Blender> {
+        self.blenders.iter().fold(Vec::new(), |mut map, (_, blender)| {
+            map.push(blender);
+            map
         })
     }
 
+    /// Return a reference to matching partial version, but uses latest patch
+    /// Major must match, Minor will match if greater than 0. Patch will always be the latest version possible.
+    // TODO: Can we make this private?
+    pub(crate) fn get_blender_partial(&self, major: u64, minor: u64) -> Option<&Blender> {
+        self.blenders.values().fold(None, |latest: Option<&Blender>, item| {
+            let current_version = item.get_version();
+            if current_version.major.ne(&major) {
+                return latest;
+            }
+
+            if match minor {
+                0 => false,
+                target => current_version.minor.ne(&target),
+            } {
+                return latest;
+            }
+            
+            if let Some(recent) = latest {
+                return match recent.get_version().ge(current_version) {
+                    true => latest,
+                    false => Some(item)
+                }
+            }
+
+            Some(item)
+        })
+    }
+
+    /// Update Blender installation location for installing blender package.
+    pub fn update_install_path(&mut self, path: PathBuf) -> Result<(), std::io::Error> {
+        // here we can do some things:
+        // Future implementation: We can move all of the previous blender installation to the new path provided to us.
+        // current implementation: Update pathbuf instead.
+        self.install_path = path;
+        Ok(())
+    }
+
     /// Remove any invalid blender path entry from BlenderConfig
-    pub fn remove_invalid_blender_path(&mut self) {
+    pub fn remove_invalid_blender(&mut self) {
         self.blenders.retain(|_,v| v.get_executable().exists());
     }
 
     /// remove target blender
-    pub fn remove_blender(&mut self, blender: &Blender) -> bool {
-        self.blenders.remove(blender.get_version()).is_some()
+    pub fn remove_blender(&mut self, blender: &Blender) -> Option<Blender> {
+        self.blenders.remove(blender.get_version())
     }
 
-    /// append blender to database
-    pub fn append_blender(&mut self, blender: &Blender) -> Option<Blender> {
+    /// Append blender entry to database
+    /// This will create a new record if the key does not exist, or update record, returning old value.
+    pub fn insert_blender(&mut self, blender: &Blender) -> Option<Blender> {
         // If Some returns, it means we override record. None means no previous record exist and a new entry is added.
         self.blenders.insert(blender.get_version().to_owned(), blender.clone())
     }
