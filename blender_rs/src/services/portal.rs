@@ -112,6 +112,8 @@ impl Portal {
 
     /// retrieve the blender executable if it's already downloaded, otherwise download the executable and return Blender instance.
     /// Should we download the blender instances from the internet?
+    #[deprecated(note = "This is not used? Is this true?")]
+    #[allow(dead_code)]
     pub fn fetch_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
         let download_path = self.download_path.clone();
         if let Some(category) = self.get_blender_state_by_version(version) {

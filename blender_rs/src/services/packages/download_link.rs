@@ -82,17 +82,13 @@ impl DownloadLink {
         })
     }
 
-    pub fn get_version(&self) -> &Version {
-        &self.version
-    }
-
-    pub fn get_parent(&self) -> String {
-        format!("Blender{}.{}", self.version.major, self.version.minor)
-    }
+    // pub fn get_parent(&self) -> String {
+    //     format!("Blender{}.{}", self.version.major, self.version.minor)
+    // }
 }
 
 impl PackageT for DownloadLink {
-    fn get_version(&self) -> &semver::Version {
+    fn get_version(&self) -> &Version {
         &self.version
     }
 }

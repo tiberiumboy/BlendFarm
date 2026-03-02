@@ -1,21 +1,25 @@
-use std::path::{Path, PathBuf};
+use crate::{
+    blender::{Blender, BlenderError},
+    services::packages::{package::PackageT, BlenderPath},
+};
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use crate::{blender::{Blender, BlenderError}, services::packages::{BlenderPath, package::PackageT}};
+use std::path::{Path, PathBuf};
 
 /// Design to let user upload path to blender executables.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Custom {
     version: Version,
-    executable: PathBuf
+    executable: PathBuf,
 }
 
 impl Custom {
-    pub fn new(path: impl AsRef<Path> ) -> Result<Self, BlenderError> {
+    #[allow(dead_code)]
+    pub fn new(path: impl AsRef<Path>) -> Result<Self, BlenderError> {
         let blender = Blender::from_executable(path)?;
         Ok(Self {
             version: blender.get_version().to_owned(),
-            executable: blender.get_executable().to_owned()
+            executable: blender.get_executable().to_owned(),
         })
     }
 }

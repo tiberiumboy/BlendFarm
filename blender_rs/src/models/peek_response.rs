@@ -1,5 +1,5 @@
-use crate::blender::Frame;
 use super::blender_scene::{BlenderScene, Camera, SceneName};
+use crate::blender::Frame;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -17,15 +17,21 @@ pub struct PeekResponse {
 }
 
 impl PeekResponse {
-    pub fn new(last_version: Version, frame_start: Frame, frame_end: Frame, cameras: Vec<String>, scenes: Vec<String>,
-    current: BlenderScene ) -> Self {
+    pub fn new(
+        last_version: Version,
+        frame_start: Frame,
+        frame_end: Frame,
+        cameras: Vec<String>,
+        scenes: Vec<String>,
+        current: BlenderScene,
+    ) -> Self {
         Self {
             last_version,
             frame_start,
-            frame_end, 
+            frame_end,
             cameras,
             scenes,
-            current
+            current,
         }
     }
 }

@@ -70,9 +70,8 @@ pub struct Manager {
     /// Store all known installation of blender directory information
     /// Manager's rulebook. Should only be available in this struct scope
     config: BlenderConfig,
-    // List of Department.
-    // TODO: Extract this out as a separate component, like manager.
-    portal: Portal,
+    // Online interface (Download blender, look up version, etc)
+    portal: Portal, // Todo this will get extracted away, leaving only blender configs.
 }
 
 /*
@@ -96,14 +95,10 @@ impl Default for Manager<Unmodified> {
     }
 } */
 
-// This struct is becoming a mess for a manager to take on.
-// I need to separate out components and pieces.
 // I have a config file, which contains list of local installed blender
-// and install path. This Config struct is serialized and store in persistent folder location.
+// and install path. This Config struct is serialized and st
 
-// Take the online download part into a separate components.
 // Manager should only govern local installed blenders (Or blenders that was added by users)
-
 impl Manager {
     /// Load the manager data from the config file.
     // TODO: How can I get page cache?
@@ -188,48 +183,6 @@ impl Manager {
     pub fn get_blenders(&self) -> Vec<&Blender> {
         self.config.get_blenders()
     }
-
-    /// Peek is a function design to read and fetch information about the blender file.
-    // TODO: see where this is used, as this seems like blendfile already have information?
-    // Is this code even in used at all?
-    /*
-    pub async fn peek(&mut self, blendfile: BlendFile) -> Result<PeekResponse, BlenderError> {
-        todo!("Please see note. Where is this funciton used, and consider refactoring on using BlendFile information instead.");
-        let (major, minor) = blendfile.get_partial_version();
-        // simple upcast
-        let (major, minor) = (major as u64, minor as u64);
-
-        // using scope to drop manager usage.
-        let blend_version = {
-            // TODO: Refactor this script so we can ask the manager to fetch the information without accessing category at all.
-            match self.have_blender_partial(major, minor) {
-                Some(blend) => blend.get_version().clone(),
-                None => self
-                .get_latest_version_patch(major, minor)
-                .unwrap_or(Version::new(major, minor, 0)),
-            }
-        };
-
-        let scene_info: SceneInfo = blendfile.into();
-        let selected_scene = scene_info.selected_scene();
-        let selected_camera = scene_info.selected_camera();
-
-        let render_setting: RenderSetting = scene_info.clone().render_setting();
-        let current = BlenderScene::new(selected_scene, selected_camera, render_setting);
-
-        // TODO: Rethink structure?
-        let result = PeekResponse::new(
-            blend_version, // Why?
-            scene_info.frame_start,
-            scene_info.frame_end,
-            scene_info.cameras,
-            scene_info.scenes,
-            current,
-        );
-
-        Ok(result)
-    }
-    */
 
     // It's used to display the information on the website.
     pub fn get_install_path(&self) -> &Path {
