@@ -1,28 +1,27 @@
 /*
-    Developer blog:
-    This manager class will serve the following purpose:
-    - Keep track of blender installation on this active machine.
-    - Prevent downloading of the same blender version if we have one already installed.
-    - If user fetch for list of installation, verify all path exist before returning the list.
-    - Implements download and install code
+Developer blog:
+This manager class will serve the following purpose:
+- Keep track of blender installation on this active machine.
+- Prevent downloading of the same blender version if we have one already installed.
+- If user fetch for list of installation, verify all path exist before returning the list.
+- Implements download and install code
 
-    Story:
-        Pretend this as a factory. What should a manager do to perform this program execution.
-        This manager responsibility accounts for holding the list of known blender installation.
-            If the installation does not exist, we provide customer the ability to install Blender from known location. (Blender.org)
-            We download, extract, and symbolic link (Feature). 
-            - Updated BlenderCategory to use different method of blender location.
-                Originally default to use BlenderOrg, but could point to Local (Can request intranet distribution service- Feature)?)
-            - Manager implements PhantomData to acknowledge modified data. This expose additional function to help ensure user can save the
-                configuration modification (New blender installation, download new version, cache refresh, etc). Limits API usage once we update phantom state to save or load. 
+Story:
+    Pretend this as a factory. What should a manager do to perform this program execution.
+    This manager responsibility accounts for holding the list of known blender installation.
+        If the installation does not exist, we provide customer the ability to install Blender from known location. (Blender.org)
+        We download, extract, and symbolic link (Feature).
+        - Updated BlenderCategory to use different method of blender location.
+            Originally default to use BlenderOrg, but could point to Local (Can request intranet distribution service- Feature)?)
+        - Manager implements PhantomData to acknowledge modified data. This expose additional function to help ensure user can save the
+            configuration modification (New blender installation, download new version, cache refresh, etc). Limits API usage once we update phantom state to save or load.
 
-    */
+*/
 use crate::blender::Blender;
 use crate::models::blender_config::BlenderConfig;
 use crate::page_cache::PageCache;
 use crate::services::category;
 use crate::services::portal::Portal;
-
 
 use semver::Version;
 use std::path::Path;
@@ -71,7 +70,7 @@ pub struct Manager {
     /// Store all known installation of blender directory information
     /// Manager's rulebook. Should only be available in this struct scope
     config: BlenderConfig,
-    // List of Department. 
+    // List of Department.
     // TODO: Extract this out as a separate component, like manager.
     portal: Portal,
 }
@@ -116,7 +115,8 @@ impl Manager {
             if let Ok(mut config) = serde_json::from_str::<BlenderConfig>(&content) {
                 config.remove_invalid_blender();
                 let download_path = &config.install_path;
-                let portal = Portal::new(download_path.clone(), page_cache);
+                let portal = Portal::new(download_path.clone(), page_cache)
+                    .expect("Must have portal running!");
                 let manager = Self {
                     config: config,
                     portal,
@@ -129,18 +129,19 @@ impl Manager {
             println!("File not found! Creating a new default one!");
         };
 
-
         // default case, create a new manager data and save it.
         let download_path = dirs::download_dir().unwrap().join("Blender");
-        let portal = Portal::new(download_path, page_cache);
+        let portal = Portal::new(download_path, page_cache).expect("Must have portal working!");
         let data = Manager {
             config: BlenderConfig::new(None, path),
             portal,
         };
-        
+
         // TODO: Remove expects
         // We only need to get this far if we cannot load the file based on the condition above
-        &data.save().expect("Should be able to save to storage");
+        if let Err(e) = &data.save() {
+            eprintln!("Fail to save data to storage! {e:?}");
+        }
         data
     }
 
@@ -149,15 +150,16 @@ impl Manager {
         // TODO: handle unwrap
         let data = serde_json::to_string(&self.config).map_err(ManagerError::SerdeJson)?;
         let path = Self::get_config_path();
-        fs::write(path, data).map_err(ManagerError::IoError);
+        fs::write(path, data).map_err(ManagerError::IoError)?;
         Ok(())
     }
 
     #[deprecated(note = "Provide me an example where this would be useful?")]
+    #[allow(dead_code)]
     fn set_config(self, config: BlenderConfig) -> Manager {
         Self {
             config: config,
-            portal: self.portal
+            portal: self.portal,
         }
     }
 
@@ -190,13 +192,13 @@ impl Manager {
     /// Peek is a function design to read and fetch information about the blender file.
     // TODO: see where this is used, as this seems like blendfile already have information?
     // Is this code even in used at all?
-    /* 
+    /*
     pub async fn peek(&mut self, blendfile: BlendFile) -> Result<PeekResponse, BlenderError> {
         todo!("Please see note. Where is this funciton used, and consider refactoring on using BlendFile information instead.");
         let (major, minor) = blendfile.get_partial_version();
         // simple upcast
         let (major, minor) = (major as u64, minor as u64);
-        
+
         // using scope to drop manager usage.
         let blend_version = {
             // TODO: Refactor this script so we can ask the manager to fetch the information without accessing category at all.
@@ -207,14 +209,14 @@ impl Manager {
                 .unwrap_or(Version::new(major, minor, 0)),
             }
         };
-        
+
         let scene_info: SceneInfo = blendfile.into();
         let selected_scene = scene_info.selected_scene();
         let selected_camera = scene_info.selected_camera();
-        
+
         let render_setting: RenderSetting = scene_info.clone().render_setting();
         let current = BlenderScene::new(selected_scene, selected_camera, render_setting);
-        
+
         // TODO: Rethink structure?
         let result = PeekResponse::new(
             blend_version, // Why?
@@ -224,11 +226,11 @@ impl Manager {
             scene_info.scenes,
             current,
         );
-        
+
         Ok(result)
     }
     */
-    
+
     // It's used to display the information on the website.
     pub fn get_install_path(&self) -> &Path {
         &self.config.install_path
@@ -238,7 +240,7 @@ impl Manager {
     pub fn set_install_path(mut self, new_path: &Path) -> Manager {
         // Consider the design behind this. Should we move blender installations to new path?
         self.config.install_path = new_path.to_path_buf().clone();
-        
+
         Self {
             config: self.config,
             portal: self.portal,
@@ -255,7 +257,7 @@ impl Manager {
     }
 
     /// Check and add a local installation of blender to manager's registry of blender version to use from.
-    /// We should expect 
+    /// We should expect
     pub fn add_blender_path(&mut self, path: &impl AsRef<Path>) -> Result<Blender, ManagerError> {
         // Here is where we verify the integrity of blender before adding to manager collection.
         let blender =
@@ -273,7 +275,7 @@ impl Manager {
 
     /// Remove blender installation from the manager list.
     pub fn remove_blender(mut self, blender: &Blender) -> Result<(), ManagerError> {
-        &self.config.remove_blender(blender);
+        let _ = &self.config.remove_blender(blender);
         Ok(())
     }
 
@@ -281,6 +283,7 @@ impl Manager {
     /// TODO: verify that this doesn't break macos path executable... Why mac gotta be special with appbundle?
     // If this is a dangerous function, we should instead make this private and handle it carefully.
     // TODO: Limiting scope visibility until we can make it private. I'm not sure where it's used atm, but making it work atm. 1 hour work
+    #[allow(dead_code)]
     pub(crate) fn delete_blender(self, blender: &Blender) -> Result<(), ManagerError> {
         // this deletes blender from the system. You have been warn!
         // BEWARE - MacOS is special that the executable path is referencing inside the bundle. I would need to get the app path instead of the bundle inside.
@@ -308,7 +311,7 @@ impl Manager {
                     panic!("Record contain existing record, but filter above assure we didn't have it? {old_value:?}\n{:?}", &blender);
                 }
                 Ok(blender)
-            },
+            }
         }
     }
 
@@ -339,7 +342,7 @@ mod tests {
     fn should_pass() {
         // let _manager = Manager::load();
     }
-    /* 
+    /*
         fn test_download_blender_home_link() {
             let mut manager = Manager::load();
             let link = manager.latest_local_avail(None).or(manager
@@ -352,7 +355,7 @@ mod tests {
                 None => println!("No blender found and unable to connect to internet! Skipping!"),
             }
         }
-    */    
+    */
 
     // TODO: Write unit test for Drop if that's possible?
 }

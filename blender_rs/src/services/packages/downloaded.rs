@@ -1,14 +1,13 @@
-use std::env::consts::OS;
-use std::path::{Path, PathBuf};
-use std::io::Error as IoError;
-use semver::Version;
-use serde::{Deserialize, Serialize};
 use crate::services::category::BlenderCategoryError;
 use crate::services::packages::bundle::Bundle;
 use crate::services::packages::package::PackageT;
 use crate::utils::MACOS_PATH;
 use crate::{services::packages::download_link::DownloadLink, utils::get_extension};
-
+use semver::Version;
+use serde::{Deserialize, Serialize};
+use std::env::consts::OS;
+use std::io::Error as IoError;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Downloaded {
@@ -17,11 +16,10 @@ pub(crate) struct Downloaded {
 }
 
 impl Downloaded {
-
     fn get_executable_path(&self) -> Result<PathBuf, BlenderCategoryError> {
         let ext = get_extension()
             .map_err(|e| IoError::other(format!("Cannot run blender under this OS: {}!", e)))?;
-        let folder_name = self.origin.name.replace(&ext, "");   // remove the extension
+        let folder_name = self.origin.name.replace(&ext, ""); // remove the extension
         let parent_folder = self.content.parent().unwrap().join(folder_name);
 
         // per different operating system, we need to craft a path that points to blender executable. It various across all operating system.
@@ -29,13 +27,15 @@ impl Downloaded {
             "macos" => Ok(parent_folder.join("Blender.app").join(MACOS_PATH)),
             "linux" => Ok(parent_folder.join("blender")),
             "windows" => Ok(parent_folder.join("Blender.exe")),
-            _ => Err(BlenderCategoryError::UnsupportedOS(OS.into()))
+            _ => Err(BlenderCategoryError::UnsupportedOS(OS.into())),
         }
     }
 
     // Currently being used for MacOS (I wonder if I need to do the same for windows?)
     #[cfg(target_os = "macos")]
-    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), Error> {
+    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), IoError> {
+        use std::fs;
+
         fs::create_dir_all(&dst)?;
         for entry in fs::read_dir(src)? {
             let entry = entry.unwrap();
@@ -86,10 +86,10 @@ impl Downloaded {
     fn extract_content(
         download_path: impl AsRef<Path>,
         folder_name: &str,
-    ) -> Result<PathBuf, Error> {
-        use dmg::Attach;
-
+    ) -> Result<PathBuf, IoError> {
         use crate::utils::MACOS_PATH;
+        use dmg::Attach;
+        use std::fs;
 
         let source = download_path.as_ref();
         let dst = source // generate destination path
@@ -146,7 +146,7 @@ impl Downloaded {
 
     pub fn check_unpacked(self) -> Result<Bundle, Downloaded> {
         // here we would navigate to the extracted directory based on the rules generated in this struct, if the path to executable exist, then return Bundle, otherwise return itself.
-        // assuming the logic goes - in the same path destination as compressed content, there should be a folder containing the extracted content. 
+        // assuming the logic goes - in the same path destination as compressed content, there should be a folder containing the extracted content.
         if let Ok(executable_path) = self.get_executable_path() {
             if executable_path.exists() {
                 return Ok(Bundle::new(self, executable_path));
@@ -162,7 +162,7 @@ impl Downloaded {
         let name = &self.origin.name;
         let folder_name = &name.replace(&ext, "");
         let executable_path = Self::extract_content(destination, folder_name)?;
-        Ok(Bundle::new(self, executable_path)) 
+        Ok(Bundle::new(self, executable_path))
     }
 }
 

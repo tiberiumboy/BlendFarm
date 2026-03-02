@@ -60,6 +60,7 @@ async fn config_sqlite_db(file_name: &str) -> Result<SqlitePool, sqlx::Error> {
     // TODO: Ask for user preference.
     let user_pref = None;
 
+    // Here we'll rely on our own blendfarm configuration instead.
     let path = BlenderManager::get_config_dir(user_pref).join(file_name);
     let options = SqliteConnectOptions::new()
         .filename(path)

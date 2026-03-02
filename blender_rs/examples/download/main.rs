@@ -1,5 +1,5 @@
 use ::blender::manager::Manager as BlenderManager;
-use blender::page_cache;
+use ::blender::page_cache::PageCache;
 use semver::Version;
 
 fn main() {
@@ -9,8 +9,8 @@ fn main() {
         None => return println!("Please, set a version number. E.g. 4.1.0"),
     };
 
-    let page_cache = PageCache::load();
-    let mut manager = BlenderManager::load(page_cache);
+    let mut page_cache = PageCache::load().expect("Should be able to load!");
+    let mut manager = BlenderManager::load(&mut page_cache);
     let blender = manager
         .fetch_blender(&version)
         .expect("Unable to download Blender!");

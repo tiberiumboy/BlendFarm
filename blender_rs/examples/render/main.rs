@@ -2,6 +2,7 @@ use blender::blend_file::BlendFile;
 use blender::blender::Manager;
 use blender::models::engine::Engine;
 use blender::models::{args::Args, event::BlenderEvent};
+use blender::page_cache::PageCache;
 use semver::Version;
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
@@ -19,18 +20,20 @@ async fn render_with_manager() {
     // loads blender file and retrieve some information to display for job queue.
     let blend_file = BlendFile::new(&blend_path).expect("Expects a valid blend file to continue!");
 
+    let mut page_cache = PageCache::load().expect("Need to have working page cache!");
+
     // Get latest blender installed, or install latest blender from web.
-    let mut manager = Manager::load();      
+    let mut manager = Manager::load(&mut page_cache);
 
     // Retrieve last blender version opened/used. Only contains major and minor, no patch. Rely on latest patch if possible.
     let (max, min) = blend_file.get_partial_version();
-    
+
     // Minimum version required to run this blender file
     let version = Version::new(max as u64, min as u64, 0);
 
-    // Fetch latest local version that meets the requirement version. We will not try to install, 
+    // Fetch latest local version that meets the requirement version. We will not try to install,
     // so we will stop here and ask the user to load blender into configuration initially.
-    // TODO: 
+    // TODO:
     let blender = manager
         .latest_local_avail(Some(&version))
         .expect("No local blender installation found! Must have at least one blender installed!");
