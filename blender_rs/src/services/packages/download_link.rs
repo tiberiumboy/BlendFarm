@@ -13,8 +13,8 @@ use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct DownloadLink {
-    pub name: String,
-    download_url: Url,
+    pub file_name: String, // contains extensions!
+    pub download_url: Url,
     pub version: Version,
 }
 
@@ -28,14 +28,14 @@ impl DownloadLink {
             .to_owned();
 
         Ok(Self {
-            name,
+            file_name: name,
             download_url: url,
             version,
         })
     }
 
     fn download_path(&self, install_path: impl AsRef<Path>) -> PathBuf {
-        install_path.as_ref().join(&self.name)
+        install_path.as_ref().join(&self.file_name)
     }
 
     pub fn content_exist(self, destination: impl AsRef<Path>) -> Result<Downloaded, DownloadLink> {

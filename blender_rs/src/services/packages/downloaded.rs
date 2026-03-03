@@ -19,7 +19,7 @@ impl Downloaded {
     fn get_executable_path(&self) -> Result<PathBuf, BlenderCategoryError> {
         let ext = get_extension()
             .map_err(|e| IoError::other(format!("Cannot run blender under this OS: {}!", e)))?;
-        let folder_name = self.origin.name.replace(&ext, ""); // remove the extension
+        let folder_name = self.origin.file_name.replace(&ext, ""); // remove the extension
         let parent_folder = self.content.parent().unwrap().join(folder_name);
 
         // per different operating system, we need to craft a path that points to blender executable. It various across all operating system.
@@ -159,7 +159,7 @@ impl Downloaded {
         let ext = get_extension()
             .map_err(|e| IoError::other(format!("Cannot run blender under this OS: {}!", e)))?;
         // create a target folder name to extract content to.
-        let name = &self.origin.name;
+        let name = &self.origin.file_name;
         let folder_name = &name.replace(&ext, "");
         let executable_path = Self::extract_content(destination, folder_name)?;
         Ok(Bundle::new(self, executable_path))
