@@ -1,19 +1,21 @@
-use std::path::PathBuf;
+use crate::{
+    blender::Blender,
+    services::packages::{downloaded::Downloaded, package::PackageT, BlenderPath},
+};
 use serde::{Deserialize, Serialize};
-use crate::{blender::Blender, services::packages::{BlenderPath, downloaded::Downloaded, package::PackageT}};
-
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Bundle {
-    content: Downloaded,
-    executable: PathBuf
+    pub content: Downloaded,
+    executable: PathBuf,
 }
 
 impl Bundle {
-    pub(crate) fn new(content: Downloaded, executable: PathBuf ) -> Self {
+    pub(crate) fn new(content: Downloaded, executable: PathBuf) -> Self {
         Self {
             content,
-            executable
+            executable,
         }
     }
 }
