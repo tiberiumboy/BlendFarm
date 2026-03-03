@@ -25,7 +25,7 @@ pub(crate) enum Package {
     // Contains complete set, do not download, do not unpact, should provide executable path
     Bundle(Bundle),
     // Only contains executable location, user defined variable
-    Executable(Custom),
+    // Executable(Custom),
     // TODO: Feature request - Would there ever be a chances for any of the data above would mutate and become invalid? Test this out?
     // In some extreme cases - if something goes wrong, we can put them in malform state until user corrects them into Bundle state, or lesser state known.
     // Malformed { origin: Option<Url>, downloaded: Option<PathBuf>, executable: Option<PathBuf> },
@@ -36,7 +36,7 @@ impl Package {
         match self {
             Package::Metadata(link) => link.get_version(),
             Package::Downloaded(content) => content.get_version(),
-            Package::Executable(path) => path.get_version(),
+            // Package::Executable(path) => path.get_version(),
             Package::Bundle(bundle) => bundle.get_version(),
             // Package::Malformed { origin, downloaded, executable } => todo!(),
         }
@@ -78,7 +78,7 @@ impl Package {
                 Ok(Package::Bundle(bundle))
             }
             // These two are ok since they were already ready to begin with
-            Package::Executable(..) => Ok(self),
+            // Package::Executable(..) => Ok(self),
             Package::Bundle(..) => Ok(self),
         }
     }
@@ -89,7 +89,7 @@ impl BlenderPath for Package {
     fn get_blender(&self) -> Option<Blender> {
         match self {
             Package::Bundle(bundle) => bundle.get_blender(),
-            Package::Executable(custom) => custom.get_blender(),
+            // Package::Executable(custom) => custom.get_blender(),
             _ => None,
         }
     }
