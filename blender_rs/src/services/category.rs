@@ -236,6 +236,13 @@ impl BlenderCategory {
         Ok(blender)
     }
 
+    pub fn get_packages(&self) -> Vec<&Package> {
+        self.links
+            .iter()
+            .map(|(_, package)| package)
+            .collect::<Vec<&Package>>()
+    }
+
     // return the version range for this category
     pub fn get_version(&self) -> Version {
         Version::new(self.major, self.minor, 0) // will always be the lowest patch for category only.
