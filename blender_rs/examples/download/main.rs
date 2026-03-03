@@ -8,9 +8,8 @@ fn main() {
         Some(v) => Version::parse(v).expect("Invalid version!"),
         None => return println!("Please, set a version number. E.g. 4.1.0"),
     };
-
-    let mut page_cache = PageCache::load().expect("Should be able to load!");
-    let mut manager = BlenderManager::load(&mut page_cache);
+    // We'll need a blender configuration file to use.
+    let mut manager = BlenderManager::load();
     let blender = manager
         .fetch_blender(&version)
         .expect("Unable to download Blender!");

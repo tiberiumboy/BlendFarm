@@ -342,16 +342,16 @@ impl TauriApp {
                 // I expect the cache should fetch the info and provide that information rather than querying the internet
                 // everytime this function is called.
                 if flags.contains(QueryMode::ONLINE) {
-                    if let Some(downloads) = self.manager.fetch_download_list() {
-                        let mut item = downloads
-                            .iter()
-                            .map(|d| BlenderQuery {
-                                version: d.get_version().clone(),
-                                origin: Origin::Online(d.get_url().clone()),
-                            })
-                            .collect::<Vec<BlenderQuery>>();
-                        versions.append(&mut item);
-                    };
+                    let mut item = self
+                        .manager
+                        .get_online_version()
+                        .iter()
+                        .map(|(url, version)| BlenderQuery {
+                            version: version.clone(),
+                            origin: Origin::Online(url.clone()),
+                        })
+                        .collect::<Vec<BlenderQuery>>();
+                    versions.append(&mut item);
                 }
 
                 // send the collective list result back
