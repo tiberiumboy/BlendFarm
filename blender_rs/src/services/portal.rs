@@ -1,5 +1,6 @@
 use crate::blender::Blender;
 use crate::services::category::BlenderCategory;
+use crate::services::packages::package::Package;
 use crate::{blender::ManagerError, page_cache::PageCache};
 use lazy_regex::regex_captures_iter;
 use semver::Version;
@@ -108,6 +109,15 @@ impl Portal {
 
             Some(item)
         })
+    }
+
+    pub fn get_downloads(&self) -> Vec<&Package> {
+        let mut result = Vec::with_capacity(self.list.capacity());
+        for item in &self.list {
+            let mut col = item.get_packages();
+            result.append(&mut col);
+        }
+        result
     }
 
     /// retrieve the blender executable if it's already downloaded, otherwise download the executable and return Blender instance.
