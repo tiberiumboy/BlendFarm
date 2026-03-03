@@ -21,12 +21,18 @@ use crate::blender::Blender;
 use crate::models::blender_config::BlenderConfig;
 use crate::page_cache::PageCache;
 use crate::services::category;
+use crate::services::packages::package::{Package, PackageT};
 use crate::services::portal::Portal;
 
 use semver::Version;
 use std::path::Path;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    io::{Error, ErrorKind},
+    path::PathBuf,
+};
 use thiserror::Error;
+use url::Url;
 
 // I would like this to be a feature only crate. blender by itself should be lightweight and interface with the program directly.
 // could also implement serde as optionals?
@@ -72,79 +78,42 @@ pub struct Manager {
     config: BlenderConfig,
     // Online interface (Download blender, look up version, etc)
     portal: Portal, // Todo this will get extracted away, leaving only blender configs.
+    // page cache
+    page_cache: PageCache,
 }
-
-/*
-impl Default for Manager<Unmodified> {
-    // the default method implement should be private because I do not want people to use this function.
-    // instead they should rely on "load" function instead.
-    fn default() -> Manager<Unmodified> {
-        let install_path = dirs::download_dir().unwrap().join("Blender");
-        let config = BlenderConfig::new(None,install_path);
-        let mut cache =
-            PageCache::load().expect("Page Cache should have permission to load content!");
-
-        let list = self.fetch_categories(&mut cache).unwrap_or_else(|_| Vec::new());
-
-        Self {
-            config,
-            list,
-            // cache,   Could be used as dependency injection?
-            state: PhantomData::<Unmodified>,
-        }
-    }
-} */
 
 // I have a config file, which contains list of local installed blender
 // and install path. This Config struct is serialized and st
 
 // Manager should only govern local installed blenders (Or blenders that was added by users)
 impl Manager {
+    pub fn new(config: BlenderConfig, portal: Portal, page_cache: PageCache) -> Self {
+        Manager {
+            config,
+            portal,
+            page_cache,
+        }
+    }
+
     /// Load the manager data from the config file.
-    // TODO: How can I get page cache?
-    pub fn load(page_cache: &mut PageCache) -> Self {
+    pub fn load(config_path: impl AsRef<Path>) -> Result<Self, ManagerError> {
         // load from a known file path (Maybe a persistence storage solution somewhere?)
         // if the config file does not exist on the system, create a new one and return a new struct instead.
-        let path = Self::get_config_path();
-        if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(mut config) = serde_json::from_str::<BlenderConfig>(&content) {
-                config.remove_invalid_blender();
-                let download_path = &config.install_path;
-                let portal = Portal::new(download_path.clone(), page_cache)
-                    .expect("Must have portal running!");
-                let manager = Self {
-                    config: config,
-                    portal,
-                };
-                return manager;
-            } else {
-                println!("Fail to deserialize manager config file!");
-            }
-        } else {
-            println!("File not found! Creating a new default one!");
-        };
+        let config = BlenderConfig::load(config_path)?;
+        let download_path = &config.install_path;
+        // TODO: we'll load cache services here
+        // let cache_path = &config.cache_path;
 
-        // default case, create a new manager data and save it.
-        let download_path = dirs::download_dir().unwrap().join("Blender");
-        let portal = Portal::new(download_path, page_cache).expect("Must have portal working!");
-        let data = Manager {
-            config: BlenderConfig::new(None, path),
-            portal,
-        };
+        let mut page_cache = PageCache::load().expect("Had issue loading PageCache!");
+        let portal =
+            Portal::new(download_path.clone(), &mut page_cache).expect("Must have portal running!");
 
-        // TODO: Remove expects
-        // We only need to get this far if we cannot load the file based on the condition above
-        if let Err(e) = &data.save() {
-            eprintln!("Fail to save data to storage! {e:?}");
-        }
-        data
+        Ok(Self::new(config, portal, page_cache))
     }
 
     // Save the configuration, and restore to Unmodified state
-    pub fn save(&self) -> Result<(), ManagerError> {
-        // TODO: handle unwrap
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), ManagerError> {
         let data = serde_json::to_string(&self.config).map_err(ManagerError::SerdeJson)?;
-        let path = Self::get_config_path();
         fs::write(path, data).map_err(ManagerError::IoError)?;
         Ok(())
     }
@@ -155,33 +124,35 @@ impl Manager {
         Self {
             config: config,
             portal: self.portal,
+            page_cache: self.page_cache,
         }
-    }
-
-    /// Returns the directory path where the configuration file is stored.
-    /// This is stored under the library usage of dirs::config_dir() + "BlendFarm" - the application name by default.
-    /// This ensure directory must exist before returning PathBuf, else report back as permission issue. We must have a place to save the files to.
-    fn get_config_dir(user_pref: Option<PathBuf>) -> PathBuf {
-        let path = match user_pref {
-            Some(path) => path.join("BlendFarm"),
-            None => dirs::config_dir().unwrap().join("BlendFarm"),
-        };
-
-        // ensure path location must exist - we guarantee permission access here.
-        fs::create_dir_all(&path).expect("Unable to create directory!");
-        path
-    }
-
-    // this path should always be fixed and stored under machine specific.
-    // this path should not be shared across machines.
-    fn get_config_path() -> PathBuf {
-        // TODO: see about getting user pref?
-        Self::get_config_dir(None).join("BlenderManager.json")
     }
 
     /// Return a reference to the vector list of all known blender installations
     pub fn get_blenders(&self) -> Vec<&Blender> {
         self.config.get_blenders()
+    }
+
+    // TODO: provide a description what this function means?
+    pub fn get_online_version(&self) -> Vec<(&Url, &Version)> {
+        self.portal
+            .get_downloads()
+            .iter()
+            .map(|package| {
+                match package {
+                    Package::Metadata(download_link) => {
+                        (&download_link.download_url, download_link.get_version())
+                    }
+                    Package::Downloaded(downloaded) => {
+                        (&downloaded.origin.download_url, downloaded.get_version())
+                    }
+                    Package::Bundle(bundle) => {
+                        (&bundle.content.origin.download_url, bundle.get_version())
+                    } // Package::Executable(custom) => ,
+                }
+                // (package.get_version())
+            })
+            .collect::<Vec<(&Url, &Version)>>()
     }
 
     // It's used to display the information on the website.
@@ -197,6 +168,7 @@ impl Manager {
         Self {
             config: self.config,
             portal: self.portal,
+            page_cache: self.page_cache,
         }
     }
 
@@ -209,8 +181,11 @@ impl Manager {
         Ok(self.config.insert_blender(blender))
     }
 
+    // This is weird and a hack. We should let people try to give us valid blender struct. That's all we care about.
     /// Check and add a local installation of blender to manager's registry of blender version to use from.
-    /// We should expect
+    #[deprecated(
+        note = "Consider asking for valid blender struct. Let the client try to get blender working first"
+    )]
     pub fn add_blender_path(&mut self, path: &impl AsRef<Path>) -> Result<Blender, ManagerError> {
         // Here is where we verify the integrity of blender before adding to manager collection.
         let blender =
@@ -222,7 +197,8 @@ impl Manager {
 
         // TODO: This is a hack - Would prefer to understand why program does not auto save file after closing.
         // Or look into better saving mechanism than this.
-        let _ = self.save()?;
+
+        // let _ = self.save()?;
         Ok(blender)
     }
 
@@ -236,8 +212,7 @@ impl Manager {
     /// TODO: verify that this doesn't break macos path executable... Why mac gotta be special with appbundle?
     // If this is a dangerous function, we should instead make this private and handle it carefully.
     // TODO: Limiting scope visibility until we can make it private. I'm not sure where it's used atm, but making it work atm. 1 hour work
-    #[allow(dead_code)]
-    pub(crate) fn delete_blender(self, blender: &Blender) -> Result<(), ManagerError> {
+    pub fn delete_blender(self, blender: &Blender) -> Result<(), ManagerError> {
         // this deletes blender from the system. You have been warn!
         // BEWARE - MacOS is special that the executable path is referencing inside the bundle. I would need to get the app path instead of the bundle inside.
         if std::env::consts::OS == "macos" {
