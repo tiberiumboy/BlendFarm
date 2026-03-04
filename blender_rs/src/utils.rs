@@ -20,7 +20,7 @@ pub(crate) fn get_valid_arch() -> Result<String, String> {
     }
 }
 
-/// Fetch the configuration path for blender. 
+/// Fetch the configuration path for blender.
 /// This is used to store temporary files and configuration files for blender.
 /// TODO: Consider loading this from user preferences?
 pub(crate) fn get_config_path() -> PathBuf {

@@ -1,5 +1,5 @@
 use crate::constant::MAX_VALID_DAYS;
-use regex::Regex;
+use lazy_regex::regex_replace;
 use serde::{Deserialize, Serialize};
 use std::io::{Error, Read, Result};
 use std::{collections::HashMap, fs, path::PathBuf, time::SystemTime};
@@ -20,38 +20,12 @@ impl Default for ExpirationUnits {
     }
 }
 
-const PATTERN: &str = r#"[/\\?%*:|."<>]"#;
-
-// TODO: Should I make this public? If not, then other class cannot read this?
 // Unless PageCache manages this internally.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct PageCacheConfiguration {
-    #[serde(skip, default = "PageCacheConfiguration::default_regex")]
-    pub regex: Regex,
     expiration_duration: ExpirationUnits,
     cache_dir: PathBuf,
     config_path: PathBuf,
-}
-
-impl Default for PageCacheConfiguration {
-    fn default() -> Self {
-
-        // TODO: I would like to know what reason could this fail and return Error? So that we can get rid of this unwrap() function
-        // but it's my responsibility anyway and anyhow.
-        let regex = Regex::new(PATTERN).unwrap();
-        Self { 
-            regex, 
-            expiration_duration: Default::default(), 
-            cache_dir: Default::default(),
-            config_path: Default::default() 
-        }
-    }
-}
-
-impl PageCacheConfiguration {
-    fn default_regex() -> Regex {
-        Regex::new(PATTERN).unwrap()
-    }
 }
 
 // Hide this for now,
@@ -64,14 +38,13 @@ pub struct PageCache {
     config: PageCacheConfiguration,
 }
 
-// the whole idea behind this was to store information from blender with minimal connectivity 
+// the whole idea behind this was to store information from blender with minimal connectivity
 // interface as possible. Rely on cache if we need to lookup again. This separate us from ChatGPT and other LLM agents.
 impl PageCache {
     // fetch cache directory
     fn get_dir() -> Result<PathBuf> {
         // FIXME: Consider using some kind of system settings to load where to save the cache to.
-        let mut tmp = dirs::cache_dir().ok_or(
-            Error::new(
+        let mut tmp = dirs::cache_dir().ok_or(Error::new(
             std::io::ErrorKind::NotFound,
             "Unable to fetch cache directory! Must have permission to create cache directory!",
         ))?;
@@ -88,7 +61,7 @@ impl PageCache {
     // private method, only used to save when cache has changed.
     fn save(&mut self) -> Result<()> {
         if !self.was_modified {
-            return Ok(())
+            return Ok(());
         }
 
         let data = serde_json::to_string(&self)?;
@@ -99,11 +72,11 @@ impl PageCache {
 
     #[allow(dead_code)]
     fn validate_cache(&mut self) {
-        // Here we run a check of all of the cache we have stored, and then check the last modified date. If it exceed page cache's 
+        // Here we run a check of all of the cache we have stored, and then check the last modified date. If it exceed page cache's
         // TODO: Present a "Delete cache after X Y" Where X is a number and Y is enum such as Day, Weeks, or Month - We should be realistic, protective, and caution about security and delete cache older than 6 months, unless someone objects this idea and creates a PR request removing this comment and prove me wrong why we should store cache older than a year? At this point, you might as well just turn off this feature?
         // PageCacheConfig::get_expiration_duration(self) -> Option<ExpirationUnits>
     }
-    
+
     // TODO: name is too ambiguous. What is load? What are we loading? What does it do? Does it load the program? File? Something?
     pub fn load() -> Result<Self> {
         let current = SystemTime::now();
@@ -138,12 +111,11 @@ impl PageCache {
 
     fn generate_file_name(&self, url: &Url) -> String {
         let mut file_name = url.to_string();
-        // Rule: find any invalid file name characters 
-        let re = &self.config.regex;
+        // Rule: find any invalid file name characters
         // remove trailing slash
         file_name.ends_with('/').then(|| file_name.pop());
         // Replace any invalid characters with hyphens
-        re.replace_all(&file_name, "-").to_string()
+        regex_replace!(r#"[/\\?%*:|."<>]"#, &file_name, "-").to_string()
     }
 
     /// Fetch url response from argument and save response body to cache directory using url as file name
@@ -183,7 +155,7 @@ impl PageCache {
                 &path.clone()
             }
         };
-        
+
         fs::read_to_string(path)
     }
 
@@ -231,7 +203,6 @@ mod tests {
         let cache = PageCache::load();
         assert!(cache.is_ok());
     }
-
 
     // TODO: write unit test for get_dir()
     #[test]

@@ -5,11 +5,12 @@ for future features impl:
 Get a preview window that show the user current job progress - this includes last frame render, node status, (and time duration?)
 */
 use super::util::select_directory;
+use crate::models::blender_action::BlenderAction;
 use crate::{
-    models::{app_state::AppState, project_file::ProjectFile},
+    models::app_state::AppState,
     services::tauri_app::{QueryMode, UiCommand},
 };
-use crate::models::blender_action::BlenderAction;
+use blender::blend_file::BlendFile;
 use blender::blender::Blender;
 use futures::{SinkExt, StreamExt, channel::mpsc};
 use maud::html;
@@ -136,11 +137,8 @@ pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<Stri
     let versions = list_versions(&mut app_state).await;
 
     // validate file path.
-    let project_file = ProjectFile::from(path).map_err(|e| e.to_string())?;
-    let data = match Blender::peek(&project_file.to_path_buf()).await {
-        Ok(data) => data,
-        Err(e) => return Err(e.to_string()),
-    };
+    let blend_file = BlendFile::new(&path).map_err(|e| e.to_string())?;
+    let data = blend_file.peek_response(None);
 
     let content = html! {
         div id="modal" _="on closeModal add .closing then wait for animationend then remove me" {
@@ -149,8 +147,10 @@ pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<Stri
                 form method="dialog" tauri-invoke="create_job" hx-target="#workplace" _="on submit trigger closeModal" {
                     h1 { "Create new Render Job" };
                     label { "Project File Path:" };
-                    input type="text" class="form-input" name="path" value=(project_file.to_str().unwrap()) placeholder="Project path" readonly={true};
-                    br;
+                    // TODO: Figure out what this value was suppose to be? What method did this invoke to?
+                    // input type="text" class="form-input" name="path" value=(blend_file.to_str().unwrap()) placeholder="Project path" readonly={true};
+                   p { "Need to update this method. Please see the source code" }
+                   br;
 
                     label { "Output destination:" };
                     div tauri-invoke="update_output_field" hx-target="this" {

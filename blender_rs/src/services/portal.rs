@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use url::Url;
 
 #[derive(Debug)]
-pub struct Portal {
+pub(crate) struct Portal {
     // list of category on download.blender.org
     list: Vec<BlenderCategory>,
 

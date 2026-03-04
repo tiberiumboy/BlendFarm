@@ -1,7 +1,6 @@
 use crate::constant::WORKPLACE;
 use crate::domains::job_store::JobError;
 use crate::models::job::{CreatedJobDto, Output};
-use crate::models::project_file::ProjectFile;
 use crate::models::{app_state::AppState, job::{Job, JobAction}};
 use crate::services::tauri_app::UiCommand;
 use blender::models::mode::RenderMode;

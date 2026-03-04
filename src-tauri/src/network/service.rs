@@ -264,7 +264,8 @@ impl Service {
         }
     }
 
-    // TODO: Where is this method calling from?
+    // This method is invoked by network event.
+    // This is under RequestResponse
     async fn process_response_event(
         &mut self,
         event: libp2p_request_response::Event<FileRequest, FileResponse>,
@@ -380,7 +381,9 @@ impl Service {
             },
             // I should be logging info from other event from gossip... wonder what they got to say?
             // TODO: Log and verify if we need to handle other gossip events.
-            _ => {}
+            any => {
+                println!("[Unhandled Gossipsub]{any:?}");
+            }
         }
     }
 
@@ -466,15 +469,19 @@ impl Service {
     async fn handle_event(&mut self, event: SwarmEvent<BlendFarmBehaviourEvent>) {
         match event {
             SwarmEvent::Behaviour(behaviour) => match behaviour {
+                // RequestResponse?
                 BlendFarmBehaviourEvent::RequestResponse(event) => {
                     self.process_response_event(event).await;
                 }
+                // Gossipsub used to spread message across
                 BlendFarmBehaviourEvent::Gossipsub(event) => {
                     self.process_gossip_event(event).await;
                 }
+                // mdns used to identify other computer on the network
                 BlendFarmBehaviourEvent::Mdns(event) => {
                     self.process_mdns_event(event).await;
                 }
+                // Kademlia for DHT services
                 BlendFarmBehaviourEvent::Kademlia(event) => {
                     self.process_kademlia_event(event).await;
                 }

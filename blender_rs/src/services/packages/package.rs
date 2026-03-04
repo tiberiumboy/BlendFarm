@@ -3,8 +3,8 @@ use crate::{
     services::{
         category::BlenderCategoryError,
         packages::{
-            bundle::Bundle, custom::Custom, download_link::DownloadLink, downloaded::Downloaded,
-            BlenderPath,
+            bundle::Bundle, /* custom::Custom, */ download_link::DownloadLink,
+            downloaded::Downloaded, BlenderPath,
         },
     },
 };
@@ -32,15 +32,15 @@ pub(crate) enum Package {
 }
 
 impl Package {
-    pub fn get_version(&self) -> &Version {
-        match self {
-            Package::Metadata(link) => link.get_version(),
-            Package::Downloaded(content) => content.get_version(),
-            // Package::Executable(path) => path.get_version(),
-            Package::Bundle(bundle) => bundle.get_version(),
-            // Package::Malformed { origin, downloaded, executable } => todo!(),
-        }
-    }
+    // pub fn get_version(&self) -> &Version {
+    //     match self {
+    //         Package::Metadata(link) => link.get_version(),
+    //         Package::Downloaded(content) => content.get_version(),
+    //         // Package::Executable(path) => path.get_version(),
+    //         Package::Bundle(bundle) => bundle.get_version(),
+    //         // Package::Malformed { origin, downloaded, executable } => todo!(),
+    //     }
+    // }
 
     // This is design to check internal source and verify the package is indeed correct, otherwise return the current state it failed in
     // we are only provided with a source.

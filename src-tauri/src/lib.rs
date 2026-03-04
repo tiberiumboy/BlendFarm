@@ -22,14 +22,15 @@ Developer blog:
 // Need a mapping to explain how blender manager is used and invoked for the job
 
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
+// it might be interesting and useful if there's a debug mode enabled?
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use blender::manager::Manager as BlenderManager;
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use libp2p::Multiaddr;
 use services::data_store::sqlite_task_store::SqliteTaskStore;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
+use std::path::Path;
 use std::sync::Arc;
 use tokio::spawn;
 use tokio::sync::RwLock;
@@ -56,12 +57,10 @@ enum Commands {
     Client,
 }
 
-async fn config_sqlite_db(file_name: &str) -> Result<SqlitePool, sqlx::Error> {
-    // TODO: Ask for user preference.
-    let user_pref = None;
-
-    // Here we'll rely on our own blendfarm configuration instead.
-    let path = BlenderManager::get_config_dir(user_pref).join(file_name);
+// TODO: ask for a path to load the database.
+async fn config_sqlite_db(
+    /*file_name: &str*/ path: impl AsRef<Path>,
+) -> Result<SqlitePool, sqlx::Error> {
     let options = SqliteConnectOptions::new()
         .filename(path)
         .create_if_missing(true);
@@ -103,6 +102,11 @@ pub async fn run() {
     // let user_pref = ServerSetting::load();
 
     // initialize database connection
+    // TODO: Ask for user preference.
+    // let user_pref = None;
+    // let path = BlenderManager::get_config_dir(user_pref).join(file_name);
+    // let default_config = path.join(constant::DATABASE_FILE_NAME);
+
     let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db(constant::DATABASE_FILE_NAME)
         .await
         .expect("Must have database connection!");

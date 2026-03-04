@@ -1,10 +1,17 @@
+use super::{
+    args::HardwareMode,
+    blender_scene::{BlenderScene, Sample},
+    device::Processor,
+    engine::Engine,
+    format::Format,
+};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use super::{args::{HardwareMode}, blender_scene::{BlenderScene, Sample}, device::Processor, engine::Engine, format::Format};
 use uuid::Uuid;
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+// TODO: could rename this to something else?
 pub struct BlenderConfiguration {
     #[serde(rename = "TaskID")]
     id: Uuid,
