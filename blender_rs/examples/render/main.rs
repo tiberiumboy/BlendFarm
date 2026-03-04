@@ -1,8 +1,8 @@
 use blender::blend_file::BlendFile;
 use blender::blender::Manager;
+use blender::models::blender_config::BlenderConfig;
 use blender::models::engine::Engine;
 use blender::models::{args::Args, event::BlenderEvent};
-use blender::page_cache::PageCache;
 use semver::Version;
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
@@ -20,10 +20,10 @@ async fn render_with_manager() {
     // loads blender file and retrieve some information to display for job queue.
     let blend_file = BlendFile::new(&blend_path).expect("Expects a valid blend file to continue!");
 
-    let mut page_cache = PageCache::load().expect("Need to have working page cache!");
-
+    let blender_config = BlenderConfig::get_default_config_path();
     // Get latest blender installed, or install latest blender from web.
-    let mut manager = Manager::load(&mut page_cache);
+    let mut manager =
+        Manager::load(blender_config).expect("Must be able to launch manager to get blender");
 
     // Retrieve last blender version opened/used. Only contains major and minor, no patch. Rely on latest patch if possible.
     let (max, min) = blend_file.get_partial_version();
@@ -33,7 +33,6 @@ async fn render_with_manager() {
 
     // Fetch latest local version that meets the requirement version. We will not try to install,
     // so we will stop here and ask the user to load blender into configuration initially.
-    // TODO:
     let blender = manager
         .latest_local_avail(Some(&version))
         .expect("No local blender installation found! Must have at least one blender installed!");
@@ -42,6 +41,7 @@ async fn render_with_manager() {
     // Here we ask for the output path, for now we set our path in the same directory as our executable path.
     // This information will be display after render has been completed successfully.
     // TODO: BUG! This will save to root of C:/ on windows platform! Need to change this to current working dir
+    // Why is window special?
     let output = PathBuf::from("./examples/assets/");
 
     // Create blender argument

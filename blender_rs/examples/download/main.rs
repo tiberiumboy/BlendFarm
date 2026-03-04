@@ -1,5 +1,5 @@
 use ::blender::manager::Manager as BlenderManager;
-use ::blender::page_cache::PageCache;
+use ::blender::models::blender_config::BlenderConfig;
 use semver::Version;
 
 fn main() {
@@ -9,7 +9,8 @@ fn main() {
         None => return println!("Please, set a version number. E.g. 4.1.0"),
     };
     // We'll need a blender configuration file to use.
-    let mut manager = BlenderManager::load();
+    let config_path = BlenderConfig::get_default_config_path();
+    let mut manager = BlenderManager::load(config_path).expect("Should have valid file?");
     let blender = manager
         .fetch_blender(&version)
         .expect("Unable to download Blender!");

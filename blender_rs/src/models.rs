@@ -1,5 +1,5 @@
 pub mod args;
-pub(crate) mod blender_config;
+pub mod blender_config;
 pub mod blender_scene;
 pub(crate) mod config;
 pub mod device;
