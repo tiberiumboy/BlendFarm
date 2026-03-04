@@ -8,22 +8,35 @@ use std::{
     path::{Path, PathBuf},
 };
 
+const SETTINGS_DIR: &str = "BlendFarm/";
+const SETTINGS_NAME: &str = "BlenderManager.json";
+
+// rename this to manager config somehow?
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BlenderConfig {
     /// List of installed blenders
     blenders: HashMap<Version, Blender>,
 
-    /// Install path. By default set to `$HOME/Downloads/Blender`
+    /// Installation path. By default set to `$HOME/Downloads/Blender`
     pub install_path: PathBuf,
+    // cache dir?
+    // cache_dir: PathBuf,
 }
 
 impl BlenderConfig {
     // this path should always be fixed and stored under machine specific.
     // this path should not be shared across machines.
     #[inline]
-    fn get_config_path() -> Result<PathBuf, Error> {
-        // TODO: see about getting user pref?
-        Ok(Self::get_config_dir(None)?.join("BlenderManager.json"))
+    pub fn get_default_config_path() -> PathBuf {
+        // This is stored under the library usage of dirs::config_dir() + "BlendFarm" - the application name by default.
+        // This ensure directory must exist before returning PathBuf, else report back as permission issue. We must have a place to save the files to.
+        Self::get_default_config_dir().join(SETTINGS_NAME)
+    }
+
+    pub fn get_default_config_dir() -> PathBuf {
+        dirs::config_dir()
+            .expect("Must have access to config directory for application persistent storage")
+            .join(SETTINGS_DIR)
     }
 
     pub fn new(blenders: Option<Vec<Blender>>, install_path: PathBuf) -> Self {
@@ -124,15 +137,6 @@ impl BlenderConfig {
             })
     }
 
-    /// Update Blender installation location for installing blender package.
-    pub fn update_install_path(&mut self, path: PathBuf) -> Result<(), std::io::Error> {
-        // here we can do some things:
-        // Future implementation: We can move all of the previous blender installation to the new path provided to us.
-        // current implementation: Update pathbuf instead.
-        self.install_path = path;
-        Ok(())
-    }
-
     /// Remove any invalid blender path entry from BlenderConfig
     pub fn remove_invalid_blender(&mut self) {
         self.blenders.retain(|_, v| v.get_executable().exists());
@@ -152,17 +156,11 @@ impl BlenderConfig {
     }
 }
 
-const SETTINGS_PATH: &str = "BlendFarm/";
-
 impl Default for BlenderConfig {
     fn default() -> Self {
-        // This is stored under the library usage of dirs::config_dir() + "BlendFarm" - the application name by default.
-        // This ensure directory must exist before returning PathBuf, else report back as permission issue. We must have a place to save the files to.
-        let install_path = match dirs::config_dir() {
-            Some(path) => path,
-            None => PathBuf::new(),
-        }
-        .join(SETTINGS_PATH);
+        let install_path = dirs::download_dir()
+            .expect("Must have place to download!")
+            .join(SETTINGS_DIR);
 
         // ensure path location must exist to save and store to
         // - we've been given a place with permission access.

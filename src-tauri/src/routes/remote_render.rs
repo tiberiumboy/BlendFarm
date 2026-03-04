@@ -11,7 +11,6 @@ use crate::{
     services::tauri_app::{QueryMode, UiCommand},
 };
 use blender::blend_file::BlendFile;
-use blender::blender::Blender;
 use futures::{SinkExt, StreamExt, channel::mpsc};
 use maud::html;
 use semver::Version;

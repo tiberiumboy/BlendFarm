@@ -3,9 +3,11 @@ use std::{path::PathBuf, str::FromStr};
 use crate::{
     domains::job_store::{JobError, JobStore},
     models::{
-        job::{CreatedJobDto, Job, NewJobDto, Output}, project_file::ProjectFile, with_id::WithId
+        job::{CreatedJobDto, Job, NewJobDto, Output},
+        with_id::WithId,
     },
 };
+use blender::blend_file::BlendFile;
 use blender::models::mode::RenderMode;
 use semver::Version;
 use sqlx::{FromRow, SqlitePool, query_as};
@@ -39,7 +41,7 @@ impl JobDAO {
         let blender_version =
             Version::from_str(&self.blender_version).expect("Blender version malformed");
         let output = PathBuf::from_str(&self.output_path).expect("Output path malformed");
-        match Job::from(mode, project_file, blender_version, output) {
+        match Job::from(mode, &project_file, blender_version, output) {
             Ok(item) => Ok(WithId { id, item }),
             Err(e) => Err(JobError::InvalidFile(e.to_string())),
         }
@@ -52,7 +54,7 @@ impl JobStore for SqliteJobStore {
         let id = Uuid::new_v4();
         let id_str = id.to_string();
         let mode = serde_json::to_string::<RenderMode>(job.as_ref()).unwrap();
-        let project_file = AsRef::<ProjectFile>::as_ref(&job).to_str().unwrap().to_owned();
+        let blend_file = AsRef::<BlendFile>::as_ref(&job).to_path().to_string_lossy();
         let blender_version = AsRef::<Version>::as_ref(&job).to_string();
         let output = AsRef::<Output>::as_ref(&job).to_str().unwrap().to_owned();
 
@@ -63,7 +65,7 @@ impl JobStore for SqliteJobStore {
             ",
             id_str,
             mode,
-            project_file,
+            blend_file,
             blender_version,
             output
         )
@@ -90,7 +92,7 @@ impl JobStore for SqliteJobStore {
                     let project = PathBuf::from(r.project_file);
                     let version = Version::from_str(&r.blender_version).unwrap();
                     let output = PathBuf::from(r.output_path);
-                    match Job::from(mode, project, version, output) {
+                    match Job::from(mode, &project, version, output) {
                         Ok(job) => Ok(Some(WithId { id, item: job })),
                         Err(e) => Err(JobError::InvalidFile(e.to_string())),
                     }
@@ -105,11 +107,13 @@ impl JobStore for SqliteJobStore {
         let id = job.id.to_string();
         let item = &job.item;
         let mode = serde_json::to_string(item.into()).unwrap();
-        let project = AsRef::<ProjectFile>::as_ref(&item)
+        let project = AsRef::<BlendFile>::as_ref(&item)
+            .to_path()
+            .to_string_lossy();
+        let version = AsRef::<Version>::as_ref(&item).to_string();
+        let output = AsRef::<Output>::as_ref(&item)
             .to_str()
             .expect("Must have valid path!");
-        let version = AsRef::<Version>::as_ref(&item).to_string();
-        let output = AsRef::<Output>::as_ref(&item).to_str().expect("Must have valid path!");
 
         match sqlx::query!(
             r"UPDATE Jobs SET mode=$2, project_file=$3, blender_version=$4, output_path=$5

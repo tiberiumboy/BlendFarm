@@ -74,7 +74,6 @@ impl BlenderCategory {
         download_path: impl AsRef<Path>,
     ) -> Result<HashMap<Version, Package>, BlenderCategoryError> {
         // this function is called everytime fetch is called. This seems to be slowing down the performance for this application usage.
-        // TODO: because we changed the methodology of BlenderCategory's kind mechanism.. We will rely on the api call it can provide to us.
         let current_arch = get_valid_arch().map_err(BlenderCategoryError::InvalidArch)?;
         let valid_ext = get_extension().map_err(BlenderCategoryError::UnsupportedOS)?;
 
@@ -179,37 +178,37 @@ impl BlenderCategory {
 
     // fetch latest version of blender if it's available.
     // TODO: Refactor this class down.
-    pub(crate) fn fetch_latest(
-        &mut self,
-        download_path: impl AsRef<Path>,
-    ) -> Result<Blender, BlenderCategoryError> {
-        // first I need is pop the entry from the links vector, as we're going to mutate the value.
-        let package = self
-            .links
-            .iter()
-            .fold(None, |result: Option<&Package>, (version, link)| {
-                if let Some(latest) = result {
-                    if latest.get_version().ge(version) {
-                        return result;
-                    }
-                }
-                Some(link)
-            })
-            .ok_or(BlenderCategoryError::NotFound)?;
+    // pub(crate) fn fetch_latest(
+    //     &mut self,
+    //     download_path: impl AsRef<Path>,
+    // ) -> Result<Blender, BlenderCategoryError> {
+    //     // first I need is pop the entry from the links vector, as we're going to mutate the value.
+    //     let package = self
+    //         .links
+    //         .iter()
+    //         .fold(None, |result: Option<&Package>, (version, link)| {
+    //             if let Some(latest) = result {
+    //                 if latest.get_version().ge(version) {
+    //                     return result;
+    //                 }
+    //             }
+    //             Some(link)
+    //         })
+    //         .ok_or(BlenderCategoryError::NotFound)?;
 
-        let target_version = package.get_version().clone();
-        let package = self
-            .links
-            .remove(&target_version)
-            .expect("Would expect at least a valid location?");
+    //     let target_version = package.get_version().clone();
+    //     let package = self
+    //         .links
+    //         .remove(&target_version)
+    //         .expect("Would expect at least a valid location?");
 
-        let link = package.get_package_ready(download_path)?;
-        let blender = link.get_blender().ok_or(BlenderCategoryError::NotFound)?;
-        if let Some(old_value) = self.links.insert(link.get_version().clone(), link) {
-            eprintln!("Not possible? Value must have been popped to mutate value before insert back in \n{old_value:?}");
-        }
-        Ok(blender)
-    }
+    //     let link = package.get_package_ready(download_path)?;
+    //     let blender = link.get_blender().ok_or(BlenderCategoryError::NotFound)?;
+    //     if let Some(old_value) = self.links.insert(link.get_version().clone(), link) {
+    //         eprintln!("Not possible? Value must have been popped to mutate value before insert back in \n{old_value:?}");
+    //     }
+    //     Ok(blender)
+    // }
 
     // for the sake of this, we will trust that the user wants Blender from this.
     // Function renamed from retrieve

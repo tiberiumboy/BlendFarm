@@ -21,9 +21,10 @@ use crate::{
     network::controller::Controller,
 };
 use blender::blend_file::BlendFile;
-use blender::blender::{Manager as BlenderManager, ManagerError};
+use blender::blender::{Blender, Manager as BlenderManager, ManagerError};
 use blender::models::event::BlenderEvent;
 use libp2p::{Multiaddr, PeerId};
+use semver::Version;
 use std::time::Duration;
 use std::{path::PathBuf, str::FromStr, sync::Arc};
 use thiserror::Error;
@@ -71,10 +72,10 @@ pub struct CliApp {
 impl CliApp {
     // we could simplify this design by just asking for the database info?
     pub fn new(
+        manager: BlenderManager,
         task_store: Arc<RwLock<dyn TaskStore + Send + Sync + 'static>>,
         render_store: Arc<RwLock<dyn RenderStore + Send + Sync + 'static>>,
     ) -> Self {
-        let manager = BlenderManager::load();
         Self {
             settings: ServerSetting::load(),
             manager,
@@ -137,7 +138,7 @@ impl CliApp {
             // so I need to figure out something about this...
             // TODO - find a way to break out of this if we can't fetch the project file.
             let job = AsRef::<Job>::as_ref(&task);
-            let file_name = job.get_file_name_expected();
+            let file_name = job.get_file_name_expected().to_string_lossy();
 
             // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
             let path = client
@@ -160,6 +161,56 @@ impl CliApp {
         Ok(output)
     }
 
+    async fn check_for_blender(&self, version: &Version) -> Result<&Blender, CliError> {
+        // this script below was our internal implementation of handling DHT fallback mode
+        // save this for future feature updates
+        let blender = match self.manager.have_blender(version) {
+            Some(blend) => blend,
+            None => {
+                // when I do not have task blender version installed - two things will happen here before an error is thrown
+                // First, check our internal DHT services to see if any other client on the network have matching version - then fetch it. Install after completion
+                // Secondly, download the file online.
+                // If we reach here - it is because no other node have matching version, and unable to connect to download url (Internet connectivity most likely).
+                // TODO: It would be nice to broadcast everyone else "Hey! I'm download this version, could you wait until I'm done to distribute?"
+                panic!("Finish implementing this part");
+                /*
+                let destination = self.manager.get_install_path();
+
+
+                    // should also use this to send CmdCommands for network stuff.
+                    // where did this client come from?
+                    let latest = self
+                    .client
+                    .get_file_from_peers(&link_name, destination)
+                    .await;
+
+                match latest {
+                    Ok(path) => {
+                        // assumed the file I downloaded is already zipped, proceed with caution on installing.
+                        let folder_name = self.manager.get_install_path();
+                        let exe =
+                        DownloadLink::extract_content(path, folder_name.to_str().unwrap())
+                        .expect(
+                            "Unable to extract content, More likely a permission issue?",
+                        );
+                        &Blender::from_executable(exe).expect("Received invalid blender copy!")
+                    }
+                    Err(e) => {
+                        println!(
+                            "No client on network is advertising target blender installation! {e:?}"
+                        );
+                        &self
+                        .manager
+                        .fetch_blender(&version)
+                        .expect("Fail to download blender")
+                    }
+                }
+                */
+            }
+        };
+        Ok(blender)
+    }
+
     // TODO: Refactor this!
     // TODO: Rewrite this to meet Single responsibility principle.
     // How do I abort the job? -> That's the neat part! You don't! Delete the job+task entry from the database, and notify client to halt if running deleted jobs.
@@ -170,78 +221,29 @@ impl CliApp {
         task: &mut Task,
         sender: &mut Sender<BlenderEvent>,
     ) -> Result<(), CliError> {
+        let job = AsRef::<Job>::as_ref(&task);
+        let blend_file = AsRef::<BlendFile>::as_ref(&job);
+        let version = job.as_ref();
+
         // for now, let's skip this part and continue on. We don't have DHT setup, but I want to make sure cli does actually render once we get the file share situation straighten out.
         // TODO: Find a way to get the file share working across network.
         // let project_file = self.validate_project_file(client, &task).await?;
+        // self.check_for_blender()?;
 
-        let job = AsRef::<Job>::as_ref(&task);
-        let blend_file = &job.as_ref::<BlendFile>();
-        let version = job.as_ref();
-        /*
-        this script below was our internal implementation of handling DHT fallback mode
-        save this for future feature updates
-        let blender = match self.manager.have_blender(version) {
-            Some(blend) => blend,
-            None => {
-                // when I do not have task blender version installed - two things will happen here before an error is thrown
-                // First, check our internal DHT services to see if any other client on the network have matching version - then fetch it. Install after completion
-                // Secondly, download the file online.
-                // If we reach here - it is because no other node have matching version, and unable to connect to download url (Internet connectivity most likely).
-                // TODO: It would be nice to broadcast everyone else "Hey! I'm download this version, could you wait until I'm done to distribute?"
-                let link_name = &self
-                    .manager
-                    .get_blender_link_by_version(version)
-                    .expect(&format!(
-                        "Invalid Blender version used. Not found anywhere! Version {:?}",
-                        &version
-                    ))
-                    .name;
-                let destination = self.manager.get_install_path();
-
-                // should also use this to send CmdCommands for network stuff.
-                let latest = client.get_file_from_peers(&link_name, destination).await;
-
-                match latest {
-                    Ok(path) => {
-                        // assumed the file I downloaded is already zipped, proceed with caution on installing.
-                        let folder_name = self.manager.get_install_path();
-                        let exe =
-                            DownloadLink::extract_content(path, folder_name.to_str().unwrap())
-                                .expect(
-                                    "Unable to extract content, More likely a permission issue?",
-                                );
-                        &Blender::from_executable(exe).expect("Received invalid blender copy!")
-                    }
-                    Err(e) => {
-                        println!(
-                            "No client on network is advertising target blender installation! {e:?}"
-                        );
-                        &self
-                            .manager
-                            .fetch_blender(&version)
-                            .expect("Fail to download blender")
-                    }
-                }
-            }
-        };
-        */
-
-        let blender = match self.manager.fetch_blender(version) {
-            Ok(blender) => blender,
-            Err(e) => {
-                return Err(CliError::ManagerError(e));
-            }
-        };
+        let blender = self
+            .manager
+            .fetch_blender(version)
+            .map_err(CliError::ManagerError)?;
 
         let id = AsRef::<Uuid>::as_ref(&task);
         let output = self
             .verify_and_check_render_output_path(id)
             .await
-            .map_err(|e| CliError::Io(e))?;
+            .map_err(CliError::Io)?;
 
         // run the job!
         // TODO: is there a better way to get around clone?
-        match task.clone().run(blend_file, output, &blender).await {
+        match task.clone().run(blend_file.clone(), output, &blender).await {
             Ok(rx) => loop {
                 match rx.recv() {
                     Ok(status) => {

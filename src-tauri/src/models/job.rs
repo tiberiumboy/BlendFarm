@@ -117,7 +117,7 @@ impl Job {
     /// Create a new job entry with provided all information intact. Used for holding database records
     pub fn from(
         mode: RenderMode,
-        project_file: &Path,
+        project_file: impl AsRef<Path>,
         version: Version,
         output: PathBuf,
     ) -> Result<Self, JobError> {
@@ -130,6 +130,7 @@ impl Job {
     pub fn generate_task(self, id: Uuid) -> Option<Task> {
         // in this case, a job would have break up into pieces for worker client to receive and start a new job
         // first thing first, how can I tell if the job is completed or not?
+        // TODO: Remove clone()
         let range = self.clone().into();
         let job_id = WithId { id, item: self };
 

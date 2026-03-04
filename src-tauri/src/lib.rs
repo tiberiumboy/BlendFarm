@@ -24,6 +24,8 @@ Developer blog:
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 // it might be interesting and useful if there's a debug mode enabled?
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+use blender::manager::Manager as BlenderManager;
+use blender::models::blender_config::BlenderConfig;
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use libp2p::Multiaddr;
@@ -99,15 +101,13 @@ pub async fn run() {
     let secret_key = None;
 
     // TODO: insist on loading user_pref here? if there's a custom cli command that insist user path for server settings, we would ask them there.
+    // TODO: Ask for user preference.
     // let user_pref = ServerSetting::load();
+    let blend_config_path = BlenderConfig::get_default_config_dir();
+    let db_path = blend_config_path.join(constant::DATABASE_FILE_NAME);
 
     // initialize database connection
-    // TODO: Ask for user preference.
-    // let user_pref = None;
-    // let path = BlenderManager::get_config_dir(user_pref).join(file_name);
-    // let default_config = path.join(constant::DATABASE_FILE_NAME);
-
-    let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db(constant::DATABASE_FILE_NAME)
+    let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db(db_path)
         .await
         .expect("Must have database connection!");
 
@@ -123,6 +123,9 @@ pub async fn run() {
 
     setup_connection(&mut controller).await;
 
+    let config = "."; // expects a config path to load from.
+    let manager = BlenderManager::load(config).expect("Must have blender configuration to load!");
+
     // TODO: Restructure this to allow running client from GUI mode.
     let _ = match cli.command {
         // run as client mode.
@@ -136,14 +139,14 @@ pub async fn run() {
             let render_store = Arc::new(RwLock::new(render_store));
 
             // here the client wants database connection to task table. Why not provide database connection instead?
-            CliApp::new(task_store, render_store)
+            CliApp::new(manager, task_store, render_store)
                 .run(controller, receiver)
                 .await
                 .map_err(|e| println!("Error running Cli app: {e:?}"))
         }
 
         // run as GUI mode.
-        _ => TauriApp::new(&db)
+        _ => TauriApp::new(manager, &db)
             .await
             // we're clearing workers?
             .clear_workers_collection()

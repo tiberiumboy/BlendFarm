@@ -130,7 +130,7 @@ pub struct BlendFile {
 }
 
 impl BlendFile {
-    pub fn new(path_to_blend_file: &Path) -> Result<Self, BlenderError> {
+    pub fn new(path_to_blend_file: impl AsRef<Path>) -> Result<Self, BlenderError> {
         let blend = Blend::from_path(&path_to_blend_file)
             // TODO: try to handle BlendParseError? Future work
             .map_err(|e| {
@@ -152,7 +152,7 @@ impl BlendFile {
         let render_setting = scene_info.clone().render_setting();
 
         Ok(BlendFile {
-            inner: path_to_blend_file.to_path_buf(),
+            inner: path_to_blend_file.as_ref().to_path_buf(),
             major,
             minor,
             render_setting,

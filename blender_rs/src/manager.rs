@@ -26,11 +26,7 @@ use crate::services::portal::Portal;
 
 use semver::Version;
 use std::path::Path;
-use std::{
-    fs,
-    io::{Error, ErrorKind},
-    path::PathBuf,
-};
+use std::{fs, path::PathBuf};
 use thiserror::Error;
 use url::Url;
 
@@ -87,7 +83,7 @@ pub struct Manager {
 
 // Manager should only govern local installed blenders (Or blenders that was added by users)
 impl Manager {
-    pub fn new(config: BlenderConfig, portal: Portal, page_cache: PageCache) -> Self {
+    fn new(config: BlenderConfig, portal: Portal, page_cache: PageCache) -> Self {
         Manager {
             config,
             portal,
@@ -102,7 +98,7 @@ impl Manager {
         let config = BlenderConfig::load(config_path)?;
         let download_path = &config.install_path;
         // TODO: we'll load cache services here
-        // let cache_path = &config.cache_path;
+        // let cache_path = &config.cache_dir;
 
         let mut page_cache = PageCache::load().expect("Had issue loading PageCache!");
         let portal =
@@ -133,26 +129,29 @@ impl Manager {
         self.config.get_blenders()
     }
 
-    // TODO: provide a description what this function means?
-    pub fn get_online_version(&self) -> Vec<(&Url, &Version)> {
+    /// Returns a list of url path to download and version (For UI models)
+    pub fn get_online_version(&self) -> Vec<(Url, Version)> {
         self.portal
             .get_downloads()
             .iter()
             .map(|package| {
                 match package {
-                    Package::Metadata(download_link) => {
-                        (&download_link.download_url, download_link.get_version())
-                    }
-                    Package::Downloaded(downloaded) => {
-                        (&downloaded.origin.download_url, downloaded.get_version())
-                    }
-                    Package::Bundle(bundle) => {
-                        (&bundle.content.origin.download_url, bundle.get_version())
-                    } // Package::Executable(custom) => ,
+                    Package::Metadata(download_link) => (
+                        download_link.download_url.to_owned(),
+                        download_link.get_version().to_owned(),
+                    ),
+                    Package::Downloaded(downloaded) => (
+                        downloaded.origin.download_url.to_owned(),
+                        downloaded.get_version().to_owned(),
+                    ),
+                    Package::Bundle(bundle) => (
+                        bundle.content.origin.download_url.to_owned(),
+                        bundle.get_version().to_owned(),
+                    ), // Package::Executable(custom) => ,
                 }
                 // (package.get_version())
             })
-            .collect::<Vec<(&Url, &Version)>>()
+            .collect::<Vec<(Url, Version)>>()
     }
 
     // It's used to display the information on the website.
@@ -183,28 +182,28 @@ impl Manager {
 
     // This is weird and a hack. We should let people try to give us valid blender struct. That's all we care about.
     /// Check and add a local installation of blender to manager's registry of blender version to use from.
-    #[deprecated(
-        note = "Consider asking for valid blender struct. Let the client try to get blender working first"
-    )]
-    pub fn add_blender_path(&mut self, path: &impl AsRef<Path>) -> Result<Blender, ManagerError> {
-        // Here is where we verify the integrity of blender before adding to manager collection.
-        let blender =
-            Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
+    // #[deprecated(
+    //     note = "Consider asking for valid blender struct. Let the client try to get blender working first"
+    // )]
+    // pub fn add_blender_path(&mut self, path: &impl AsRef<Path>) -> Result<Blender, ManagerError> {
+    //     // Here is where we verify the integrity of blender before adding to manager collection.
+    //     let blender =
+    //         Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
 
-        if let Some(_old_value) = self.add_blender(&blender)? {
-            eprintln!("Record updated");
-        }
+    //     if let Some(_old_value) = self.add_blender(&blender)? {
+    //         eprintln!("Record updated");
+    //     }
 
-        // TODO: This is a hack - Would prefer to understand why program does not auto save file after closing.
-        // Or look into better saving mechanism than this.
+    //     // TODO: This is a hack - Would prefer to understand why program does not auto save file after closing.
+    //     // Or look into better saving mechanism than this.
 
-        // let _ = self.save()?;
-        Ok(blender)
-    }
+    //     // let _ = self.save()?;
+    //     Ok(blender)
+    // }
 
     /// Remove blender installation from the manager list.
-    pub fn remove_blender(mut self, blender: &Blender) -> Result<(), ManagerError> {
-        let _ = &self.config.remove_blender(blender);
+    pub fn remove_blender(&mut self, blender: &Blender) -> Result<(), ManagerError> {
+        let _ = self.config.remove_blender(blender);
         Ok(())
     }
 
@@ -212,7 +211,8 @@ impl Manager {
     /// TODO: verify that this doesn't break macos path executable... Why mac gotta be special with appbundle?
     // If this is a dangerous function, we should instead make this private and handle it carefully.
     // TODO: Limiting scope visibility until we can make it private. I'm not sure where it's used atm, but making it work atm. 1 hour work
-    pub fn delete_blender(self, blender: &Blender) -> Result<(), ManagerError> {
+    #[allow(dead_code)]
+    pub(crate) fn delete_blender(&mut self, blender: &Blender) -> Result<(), ManagerError> {
         // this deletes blender from the system. You have been warn!
         // BEWARE - MacOS is special that the executable path is referencing inside the bundle. I would need to get the app path instead of the bundle inside.
         if std::env::consts::OS == "macos" {
@@ -241,6 +241,10 @@ impl Manager {
                 Ok(blender)
             }
         }
+    }
+
+    pub fn have_blender(&self, version: &Version) -> Option<&Blender> {
+        self.config.get_blender(version)
     }
 
     pub fn have_blender_partial(&self, major: u64, minor: u64) -> Option<&Blender> {

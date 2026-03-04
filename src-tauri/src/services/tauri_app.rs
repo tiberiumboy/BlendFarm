@@ -23,7 +23,6 @@ use crate::{
         blender_action::BlenderAction,
         computer_spec::ComputerSpec,
         job::{CreatedJobDto, JobAction, JobEvent},
-        project_file::ProjectFile,
         server_setting::ServerSetting,
         setting_action::SettingsAction,
         task::Task,
@@ -32,7 +31,9 @@ use crate::{
     routes::{index::*, job::*, remote_render::*, settings::*, util::*, worker::*},
 };
 use bitflags;
-use blender::{manager::Manager as BlenderManager, models::mode::RenderMode};
+use blender::{
+    blend_file::BlendFile, manager::Manager as BlenderManager, models::mode::RenderMode,
+};
 use futures::{
     SinkExt, StreamExt,
     channel::mpsc::{self, Sender},
@@ -126,13 +127,13 @@ impl TauriApp {
         self
     }
 
-    pub async fn new(pool: &Pool<Sqlite>) -> Self {
+    pub async fn new(manager: BlenderManager, pool: &Pool<Sqlite>) -> Self {
         Self {
             peers: Default::default(),
             worker_store: SqliteWorkerStore::new(pool.clone()),
             job_store: SqliteJobStore::new(pool.clone()),
             settings: ServerSetting::load(),
-            manager: BlenderManager::load(),
+            manager,
         }
     }
 
@@ -284,8 +285,11 @@ impl TauriApp {
 
                 // first make the file available on the network
                 if let Some(job) = result {
-                    let project_file: &ProjectFile = job.item.as_ref();
-                    let file_name = project_file.file_name().unwrap(); // this is &OsStr
+                    let project_file: &BlendFile = job.item.as_ref();
+                    let file_name = project_file
+                        .to_path()
+                        .file_name()
+                        .expect("Must have a valid blender file name!"); // this is &OsStr
                     let path: &PathBuf = job.item.as_ref();
 
                     println!("Reached to this point of code {file_name:?}");
@@ -342,15 +346,17 @@ impl TauriApp {
                 // I expect the cache should fetch the info and provide that information rather than querying the internet
                 // everytime this function is called.
                 if flags.contains(QueryMode::ONLINE) {
-                    let mut item = self
-                        .manager
-                        .get_online_version()
-                        .iter()
-                        .map(|(url, version)| BlenderQuery {
-                            version: version.clone(),
-                            origin: Origin::Online(url.clone()),
-                        })
-                        .collect::<Vec<BlenderQuery>>();
+                    let mut item = self.manager.get_online_version().iter().fold(
+                        Vec::new(),
+                        |mut map, (url, version)| {
+                            let item = BlenderQuery {
+                                version: version.clone(),
+                                origin: Origin::Online(url.clone()),
+                            };
+                            map.push(item);
+                            map
+                        },
+                    );
                     versions.append(&mut item);
                 }
 
@@ -378,8 +384,9 @@ impl TauriApp {
                 self.manager.remove_blender(&blender);
             }
             // uninstall blender from local machine
-            BlenderAction::Remove(blender) => {
-                self.manager.delete_blender(&blender);
+            BlenderAction::Remove(_blender) => {
+                todo!("Need to do some unit test before you can use this feature...");
+                // self.manager.delete_blender(&blender);
             }
         }
     }
@@ -688,6 +695,8 @@ impl BlendFarm for TauriApp {
 
 #[cfg(test)]
 mod test {
+    use blender::models::blender_config::BlenderConfig;
+
     use super::*;
     use crate::{config_sqlite_db, constant::DATABASE_FILE_NAME};
 
@@ -697,10 +706,20 @@ mod test {
         pool.expect("Assert above should force this to be ok()")
     }
 
+    async fn get_mockup_config() -> BlenderConfig {
+        todo!("Implement a mock up unit test for this blender config");
+    }
+
+    async fn get_mockup_manager() -> BlenderManager {
+        todo!("Implement a mock up blender manager");
+    }
+
     #[tokio::test]
     async fn clear_workers_success() {
         let pool = get_sqlite_conn().await;
-        let app = TauriApp::new(&pool).await;
+        // let config = get_mockup_config().await;
+        let manager = get_mockup_manager().await;
+        let app = TauriApp::new(manager, &pool).await;
 
         let app = app.clear_workers_collection().await;
         assert!(

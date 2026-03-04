@@ -3,6 +3,7 @@ use crate::domains::job_store::JobError;
 use crate::models::job::{CreatedJobDto, Output};
 use crate::models::{app_state::AppState, job::{Job, JobAction}};
 use crate::services::tauri_app::UiCommand;
+use blender::blend_file::BlendFile;
 use blender::models::mode::RenderMode;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
@@ -61,7 +62,7 @@ fn render_list_job(collection: &Option<Vec<CreatedJobDto>>) -> String {
                             tbody {
                                 tr tauri-invoke="get_job_detail" hx-vals=(json!({"jobId":job.id.to_string()})) hx-target={"#" (WORKPLACE) } {
                                     td style="width:100%" {
-                                        (job.item.get_file_name_expected())
+                                        (job.item.get_file_name_expected().to_string_lossy())
                                     };
                                 };
                             };
@@ -93,7 +94,7 @@ fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
             //     let preview = fetch_img_preview(&job.item.output, &imgs);
             // }
 
-            let project_file = AsRef::<ProjectFile>::as_ref(&job.item);
+            let project_file = AsRef::<BlendFile>::as_ref(&job.item).to_path();
             let output = AsRef::<Output>::as_ref(&job.item);
             let version = AsRef::<Version>::as_ref(&job.item);
 
@@ -101,7 +102,7 @@ fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
                 div class="content" {
                     h2 { "Job Detail" };
 
-                    button tauri-invoke="open_dir" hx-vals=(json!({"path": project_file.to_str().unwrap()})) { (  project_file.to_str().unwrap() ) };
+                    button tauri-invoke="open_dir" hx-vals=(json!({"path": project_file.to_string_lossy()})) { (  project_file.to_string_lossy() ) };
                     
                     div { ( output.to_str().unwrap() ) };
                     
