@@ -95,11 +95,19 @@ impl Manager {
     pub fn load(config_path: impl AsRef<Path>) -> Result<Self, ManagerError> {
         // load from a known file path (Maybe a persistence storage solution somewhere?)
         // if the config file does not exist on the system, create a new one and return a new struct instead.
-        let config = BlenderConfig::load(config_path)?;
+        let config = match BlenderConfig::load(config_path) {
+            Ok(config) => config,
+            Err(e) => {
+                eprintln!(
+                    "Unable to load Blender Configuration file, returning default config! {e:?}"
+                );
+                BlenderConfig::default()
+            }
+        };
         let download_path = &config.install_path;
+
         // TODO: we'll load cache services here
         // let cache_path = &config.cache_dir;
-
         let mut page_cache = PageCache::load().expect("Had issue loading PageCache!");
         let portal =
             Portal::new(download_path.clone(), &mut page_cache).expect("Must have portal running!");

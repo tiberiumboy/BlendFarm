@@ -32,7 +32,7 @@ use libp2p::Multiaddr;
 use services::data_store::sqlite_task_store::SqliteTaskStore;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::spawn;
 use tokio::sync::RwLock;
@@ -50,6 +50,8 @@ pub mod services;
 
 #[derive(Parser)]
 struct Cli {
+    #[arg(short, long, default_value=None)]
+    config_path: Option<PathBuf>,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -100,11 +102,11 @@ pub async fn run() {
     // TODO: Ask Cli for the secret_key
     let secret_key = None;
 
-    // TODO: insist on loading user_pref here? if there's a custom cli command that insist user path for server settings, we would ask them there.
-    // TODO: Ask for user preference.
-    // let user_pref = ServerSetting::load();
-    let blend_config_path = BlenderConfig::get_default_config_dir();
-    let db_path = blend_config_path.join(constant::DATABASE_FILE_NAME);
+    // If the user overrides a configuration path, then we'll use that, otherwise use default config directory location instead.
+    let blend_config_path = cli
+        .config_path
+        .unwrap_or(BlenderConfig::get_default_config_path());
+    let db_path = BlenderConfig::get_default_config_dir().join(constant::DATABASE_FILE_NAME);
 
     // initialize database connection
     let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db(db_path)
@@ -123,7 +125,7 @@ pub async fn run() {
 
     setup_connection(&mut controller).await;
 
-    let config = "."; // expects a config path to load from.
+    let config = blend_config_path; // expects a config path to load from.
     let manager = BlenderManager::load(config).expect("Must have blender configuration to load!");
 
     // TODO: Restructure this to allow running client from GUI mode.
