@@ -21,6 +21,7 @@ impl Portal {
 
     pub fn new(download_path: PathBuf, cache: &mut PageCache) -> Result<Self, ManagerError> {
         let list = Self::fetch(&download_path, cache)?;
+        
         Ok(Portal {
             list,
             download_path,
@@ -31,6 +32,7 @@ impl Portal {
         download_path: impl AsRef<Path>,
         cache: &mut PageCache,
     ) -> Result<Vec<BlenderCategory>, ManagerError> {
+        // TODO: Remove unwrap(). Could this be made into static/singleton/OnceCell?
         let parent = Url::parse(Self::ROOT_URL).unwrap();
 
         // we fetch the content from the website above.

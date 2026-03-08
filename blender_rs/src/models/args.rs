@@ -9,7 +9,7 @@
     this limits what I can do in term of functionality, but it'll be a good start.
     FEATURE - See if python allows pointers/buffer access to obtain job render progress - Allows node to send host progress result. Possibly viewport network rendering?
 
-    Do note that blender is open source - it's not impossible to create FFI that interfaces blender directly, but rather, there's no support to perform this kind of action.
+    Do note that blender is open source - it's not impossible to create FFI that interfaces blender directly, but rather, there's no support to perform this kind of action (yet).
 */
 // May Subject to change.
 use crate::{
@@ -33,7 +33,7 @@ pub enum HardwareMode {
 }
 
 // ref: https://docs.blender.org/manual/en/latest/advanced/command_line/render.html
-// TODO: Why are all of the fields public?
+/// Field must be public to offer context to render the scene. Let user mutate however they see fits
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Args {
     pub file: BlendFile, // required

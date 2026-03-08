@@ -34,14 +34,13 @@ async fn render_with_manager() {
     // Fetch latest local version that meets the requirement version. We will not try to install,
     // so we will stop here and ask the user to load blender into configuration initially.
     let blender = manager
-        .latest_local_avail(Some(&version))
+        .latest_local_avail(&version)
         .expect("No local blender installation found! Must have at least one blender installed!");
     println!("Prepare blender configuration...");
 
     // Here we ask for the output path, for now we set our path in the same directory as our executable path.
     // This information will be display after render has been completed successfully.
     // TODO: BUG! This will save to root of C:/ on windows platform! Need to change this to current working dir
-    // Why is window special?
     let output = PathBuf::from("./examples/assets/");
 
     // Create blender argument

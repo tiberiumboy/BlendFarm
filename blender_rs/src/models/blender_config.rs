@@ -71,23 +71,10 @@ impl BlenderConfig {
     }
 
     // Fetch best matching version of blender if provided, or latest version available if none was provided.
-    pub fn get_latest_blender_available(&self, version: Option<&Version>) -> Option<&Blender> {
-        match version {
-            Some(v) => self
-                .get_blender(v)
-                .or_else(|| self.get_blender_partial(v.major, v.minor)),
-            None => self
-                .blenders
-                .iter()
-                .fold(None, |result, (version, blender)| {
-                    if let Some(current) = result {
-                        if current.get_version().ge(version) {
-                            return result;
-                        }
-                    }
-                    Some(blender)
-                }),
-        }
+    pub fn get_latest_blender_available(&self, version: &Version) -> Option<&Blender> {
+        self
+                .get_blender(version)
+                .or_else(|| self.get_blender_partial(version.major, version.minor))
     }
 
     /// Return matching exact blender version
@@ -114,23 +101,22 @@ impl BlenderConfig {
         self.blenders
             .values()
             .fold(None, |latest: Option<&Blender>, item| {
+                
                 let current_version = item.get_version();
+                
                 if current_version.major.ne(&major) {
                     return latest;
                 }
-
-                if match minor {
-                    0 => false,
-                    target => current_version.minor.ne(&target),
-                } {
+                
+                // custom rule: If minor = 0 (default), use latest, otherwise compare all others.
+                if minor > 0 && current_version.minor.ne(&minor) {
                     return latest;
                 }
 
                 if let Some(recent) = latest {
-                    return match recent.get_version().ge(current_version) {
-                        true => latest,
-                        false => Some(item),
-                    };
+                    if recent.get_version().ge(current_version) {
+                        return latest;
+                    }
                 }
 
                 Some(item)
@@ -155,6 +141,7 @@ impl BlenderConfig {
             .insert(blender.get_version().to_owned(), blender.clone())
     }
 }
+
 
 impl Default for BlenderConfig {
     fn default() -> Self {

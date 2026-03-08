@@ -67,6 +67,7 @@ pub enum ManagerError {
     },
 }
 
+// TODO: Look into OnceCell andsee how I can utilize lazy implementations?
 #[derive(Debug)]
 pub struct Manager {
     /// Store all known installation of blender directory information
@@ -259,9 +260,8 @@ impl Manager {
         self.config.get_blender_partial(major, minor)
     }
 
-    /// Fetch the latest version of blender available from Blender.org
-    /// this function might be ambiguous. Should I use latest_local or latest_online?
-    pub fn latest_local_avail(&mut self, version: Option<&Version>) -> Option<&Blender> {
+    /// Fetch the latest version available on this local machine
+    pub fn latest_local_avail(&mut self, version: &Version) -> Option<&Blender> {
         // in this case I need to contact Manager class or BlenderDownloadLink somewhere and fetch the latest blender information
         // I think the data is already sorted to begin with? No need to resort this list again.
         self.config.get_latest_blender_available(version)
