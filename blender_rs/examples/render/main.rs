@@ -44,20 +44,19 @@ async fn render_with_manager() {
     let output = PathBuf::from("./examples/assets/");
 
     // Create blender argument
-    let args = Args::new(blend_file, output, Engine::BLENDER_EEVEE_NEXT);
-    let frames = Arc::new(RwLock::new(RangeInclusive::new(2, 10)));
+    let args = Args::new(blend_file, output, Engine::BLENDER_EEVEE_NEXT, 2, 10);
 
     // render the frame. Completed render will return the path of the rendered frame, error indicates failure to render due to blender incompatible hardware settings or configurations. (CPU vs GPU / Metal vs OpenGL)
     let listener = blender
         .render(
             args,
-            Box::new(move |_params| {
-                // need to convert this into XmlResponse
-                match frames.write().unwrap().next() {
-                    Some(frame) => Ok(Value::Int(frame).into()),
-                    None => Err(Value::fault(-1, "No more frames to render!".to_owned())),
-                }
-            }),
+            // Box::new(move |_params| {
+            //     // need to convert this into XmlResponse
+            //     match frames.write().unwrap().next() {
+            //         Some(frame) => Ok(Value::Int(frame).into()),
+            //         None => Err(Value::fault(-1, "No more frames to render!".to_owned())),
+            //     }
+            // }),
         )
         .await
         .expect("Should not have any issue?");

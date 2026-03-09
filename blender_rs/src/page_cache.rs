@@ -1,10 +1,7 @@
 use crate::constant::MAX_VALID_DAYS;
-use lazy_regex::regex_replace;
-use serde::de::DeserializeOwned;
+use lazy_regex::regex_replace_all;
 use serde::{Deserialize, Serialize};
-use serde_json::Deserializer;
-use std::io::{self, Error, ErrorKind, Read, Result};
-use std::os::fd::AsFd;
+use std::io::{BufReader, ErrorKind, Error, Read, Result};
 use std::{collections::HashMap, fs, path::PathBuf, time::SystemTime};
 use url::Url;
 
@@ -24,11 +21,24 @@ impl Default for ExpirationUnits {
 }
 
 // Unless PageCache manages this internally.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct PageCacheConfiguration {
     expiration_duration: ExpirationUnits,
     cache_dir: PathBuf,
     config_path: PathBuf,
+}
+
+impl Default for PageCacheConfiguration {
+    fn default() -> Self {
+        let cache_dir = PageCache::get_default_dir().expect("Must have access to cache directory");
+        let config_path = PageCache::get_cache_path().expect("Must have access to cache dir");
+
+        Self { 
+            expiration_duration: Default::default(), 
+            cache_dir, 
+            config_path 
+        }
+    }
 }
 
 // Hide this for now,
@@ -37,6 +47,7 @@ struct PageCacheConfiguration {
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct PageCache {
     cache: HashMap<Url, PathBuf>,
+    // TODO: consider replacing this to something else.
     was_modified: bool,
     config: PageCacheConfiguration,
 }
@@ -48,23 +59,21 @@ impl PageCache {
     const CONFIG_NAME: &str = "cache.json";
 
     // fetch cache directory
-    // TODO: rename me to "get_default_dir()"
-    fn get_dir() -> Result<PathBuf> {
-        // FIXME: Consider using some kind of system settings to load where to save the cache to.
+    fn get_default_dir() -> Result<PathBuf> {
         let mut tmp = dirs::cache_dir().ok_or(Error::new(
-            std::io::ErrorKind::NotFound,
+            ErrorKind::NotFound,
             "Unable to fetch cache directory! Must have permission to create cache directory!",
         ))?;
         // append our program folder name.
         tmp.push(Self::CACHE_DIR);
         // ensure directory exist and created.
-        fs::create_dir_all(&tmp)?;
-        Ok(tmp)
+        fs::create_dir_all(&tmp).and(Ok(tmp))
     }
 
     // fetch path to cache file
+    #[inline]
     fn get_cache_path() -> Result<PathBuf> {
-        Ok(Self::get_dir()?.join(Self::CONFIG_NAME))
+        Ok(Self::get_default_dir()?.join(Self::CONFIG_NAME))
     }
 
     // private method, only used to save when cache has changed.
@@ -86,6 +95,9 @@ impl PageCache {
         // PageCacheConfig::get_expiration_duration(self) -> Option<ExpirationUnits>
     }
 
+    /* 
+    // for future project, consider stream io input instead of read_to_string();
+    
     fn read_skipping_ws(mut reader: impl Read) -> Result<u8> {
         loop {
             let mut byte = 0u8;
@@ -96,6 +108,7 @@ impl PageCache {
         }
     }
 
+    #[inline]
     fn invalid_data(msg: &str) -> Error {
         Error::new(ErrorKind::InvalidData, msg)
     }
@@ -119,6 +132,7 @@ impl PageCache {
                 if peek == b']' {
                     Ok(None)
                 } else {
+                    // we're creating new cursor each yield objects?
                     let obj = Self::deserialize_single(io::Cursor::new([peek]).chain(reader))?;
                     Ok(Some(obj))
                 }
@@ -141,6 +155,8 @@ impl PageCache {
         std::iter::from_fn(move || Self::yield_next_obj(&mut reader, &mut at_start).transpose())
     }
 
+    */
+
     // TODO: name is too ambiguous. What is load? What are we loading? What does it do? Does it load the program? File? Something?
     pub fn load() -> Result<Self> {
         let current = SystemTime::now();
@@ -158,31 +174,20 @@ impl PageCache {
             _ => fallback,
         };
 
-        let data = match current.duration_since(created_date) {
-            Ok(duration) if duration.as_secs() < MAX_VALID_DAYS * 3600 * 24 => {
+        // if file exist and provides duration date.
+        if let Ok(duration) = current.duration_since(created_date) {
+            // must be within valid window timeframe.
+            if duration.as_secs() < MAX_VALID_DAYS * 3600 * 24 {
+                // logger
                 println!(
                     "Time still valid: Remaining {}hrs",
                     duration.as_secs() / 3600 - (MAX_VALID_DAYS * 24)
                 );
-                // is there a way to stream it instead?
-
-                let reader = fs::File::open(path)?;
-                reader.read(Self::iter_json_array)?;
-                fs::read(path)
-
-
-
-                if let Ok(data) = fs::read_to_string(path) {
-                    return serde_json::from_str(&data).map_or(Self::default(), |f| {
-
-                    });
-                }
-                Self::default()
+                let reader = BufReader::new(fs::File::open(path)?);
+                return Ok(serde_json::from_reader(reader)?)
             }
-            _ => Self::default(),
-        };
-
-        Ok(data)
+        }
+        Ok(Self::default())
     }
 
     fn generate_file_name(url: &Url) -> String {
@@ -191,69 +196,34 @@ impl PageCache {
         // remove trailing slash
         file_name.ends_with('/').then(|| file_name.pop());
         // Replace any invalid characters with hyphens
-        regex_replace!(r#"[/\\?%*:|."<>]"#, &file_name, "-").to_string()
+        regex_replace_all!(r#"[/\\?%*:|."<>]"#, &file_name, "-").to_string()
     }
-
-    // I often wonder if there was any need to return Unit. I think it'd be a lot better if it return something in principle.
-    // pub fn update<T: Into<str>>(&mut self, url: &Url, content: T) -> Result<()> {
-
-    // }
 
     /// check and see if the url matches the cache,
     /// otherwise, fetch the page from the internet, and save it to storage cache,
     /// then return the page result.
     pub fn fetch_or_update(&mut self, url: &Url) -> Result<String> {
         
-
-        let path = match self.cache.get(url) {
-            Some(path) => path.to_owned(),
-            None => {
-                let file_name = Self::generate_file_name( url ); //.to_file_path().map_err(|_| Error::new(ErrorKind::InvalidFilename, "Must have valid file name in url path!"))?;
-                // let file_name = file_name.file_name().ok_or_else( || std::io::Error::new(std::io::ErrorKind::InvalidFilename, "Must have valid file name in url path!"))?;                
+        // TODO can we avoid using to_owned()?
+        let path = self.cache.entry(url.clone()).or_insert( {
+                let file_name = Self::generate_file_name( url );
                 let destination_path = self.config.cache_dir.join(file_name);
-                
-                let mut response = ureq::get(url.as_ref()).call().map_err(Error::other)?;
-                let mut body = Vec::new();
-                if let Err(e) = response.body_mut().as_reader().read_to_end(&mut body) {
-                    eprintln!("Fail to read data for cache: {e:?}");
+
+                // Are we making the assumption that if the file is not in the entry then we can just presume it's valid?
+                if !destination_path.exists() {
+                    let mut response = ureq::get(url.as_ref()).call().map_err(Error::other)?;
+                    let mut body = Vec::new();
+                    if let Err(e) = response.body_mut().as_reader().read_to_end(&mut body) {
+                        eprintln!("Fail to read data for cache: {e:?}");
+                    }
+                    
+                    // write the content to the file
+                    fs::write(&destination_path, body)?;
                 }
                 
-                // write the content to the file
-                fs::write(&destination_path, body)?;
                 destination_path    
-            },
-        };
-
-        /* 
-        // TODO can we avoid using to_owned()?
-        let path = &self.cache.entry(url.to_owned()).or_insert({
-            // code smells
-            let mut tmp = &Self::get_dir()?;
-            tmp.push(self.generate_file_name(url));
+            });
             
-            // fetch the content from the url
-            // expensive implict type cast?
-            let mut response = ureq::get(url.as_ref()).call().map_err(Error::other)?;
-            let mut body = Vec::new();
-            if let Err(e) = response.body_mut().as_reader().read_to_end(&mut body) {
-                eprintln!("Fail to read data for cache: {e:?}");
-            }
-            
-            // write the content to the file
-            fs::write(&tmp, body)?;
-            tmp.to_path_buf()
-        });
-        */
-
-        // let path = match self.cache.contains_key(url) {
-        //     true => self.cache.get(url).unwrap(),
-        //     false => {
-        //         let path = self.save_content_to_cache(url)?.to_owned();
-        //         self.cache.insert(url.to_owned(), path.clone());
-        //         &path.clone()
-        //     }
-        // };
-
         fs::read_to_string(path)
     }
 
@@ -305,7 +275,7 @@ mod tests {
     // TODO: write unit test for get_dir()
     #[test]
     fn get_dir_succeed() {
-        let cache = PageCache::get_dir();
+        let cache = PageCache::get_default_dir();
         assert!(cache.is_ok());
     }
 }

@@ -60,7 +60,6 @@ pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
 use crate::models::config::BlenderConfiguration;
 use crate::models::event::BlenderEvent;
-use xml_rpc::server::Handler;
 
 #[cfg(test)]
 use blend::Instance;
@@ -80,11 +79,11 @@ use std::{
 use thiserror::Error;
 use tokio::spawn;
 use xml_rpc::server::Server;
-use xml_rpc::{Params, Value, XmlResponse};
+use xml_rpc::Value;
 
 pub type Frame = i32;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Serialize, Deserialize)]
 pub enum BlenderError {
     #[error("Unable to call blender!")]
     ExecutableInvalid,
@@ -330,7 +329,7 @@ impl Blender {
     pub async fn render(
         &self,
         args: Args,
-        get_next_frame: Handler,
+        // get_next_frame: Handler, // worry about IPC between blender and rust for future impl. Instead we want to render exactly what the argument is providing us.
     ) -> Result<Receiver<BlenderEvent>, BlenderError> {
         let port = 8081;
         let socket = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
@@ -339,7 +338,7 @@ impl Blender {
         let (signal, listener) = mpsc::channel::<BlenderEvent>();
 
         let settings = args.parse_from(&self.version).to_owned();
-        self.setup_listening_server(settings, listener, &socket, get_next_frame)
+        self.setup_listening_server(settings, listener, &socket)
             .await?;
 
         let (rx, tx) = mpsc::channel::<BlenderEvent>();
@@ -363,7 +362,7 @@ impl Blender {
         settings: BlenderConfiguration,
         listener: Receiver<BlenderEvent>,
         socket: &SocketAddrV4,
-        _get_next_frame: Box<dyn FnMut(Params) -> XmlResponse + Send + Sync>,
+        // _get_next_frame: Box<dyn FnMut(Params) -> XmlResponse + Send + Sync>,
     ) -> Result<(), BlenderError> {
         // Read here - https://en.wikipedia.org/wiki/XML-RPC#Usage
         /*

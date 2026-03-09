@@ -5,7 +5,7 @@ use crate::{
 };
 use blender::{
     blend_file::BlendFile,
-    blender::{Args, Blender},
+    blender::{Args, Blender, Frame},
     constant::MIN_THRESHOLD_FETCH,
     models::{engine::Engine, event::BlenderEvent},
 };
@@ -14,10 +14,8 @@ use std::sync::mpsc::Receiver;
 use std::{
     ops::Range,
     path::PathBuf,
-    sync::{Arc, RwLock},
 };
 use uuid::Uuid;
-// use xml_rpc::xmlfmt::{params::Params, value::Value};
 
 pub type CreatedTaskDto = WithId<Task, Uuid>;
 
@@ -83,6 +81,9 @@ impl Task {
         Some(range)
     }
 
+
+    // not currently in used, was originally using this for blender advance batch render feedback system
+    #[cfg(test)]
     fn get_next_frame(&mut self) -> Option<i32> {
         // we will use this to generate a temporary frame record on database for now.
         if self.range.start < (self.range.end + 1) {
@@ -96,40 +97,19 @@ impl Task {
 
     // Invoke blender to run the job
     // how do I stop this? Will this be another async container?
+    // TODO: who invokes this? Client or Host?
     pub async fn run(
         self,
         blend_file: BlendFile,
         // output is used to create local path storage to save frame path to
         output: PathBuf,
+        start: Frame,
+        end: Frame,
         // reference to the blender executable path to run this task.
         blender: &Blender,
     ) -> Result<Receiver<BlenderEvent>, TaskError> {
-        let args = Args::new(blend_file, output, Engine::CYCLES);
-
-        let arc_task = Arc::new(RwLock::new(self)).clone();
-
-        // TODO: How can I adjust blender jobs?
-        // this always puzzle me. Is this still awaited after application closed?
-        let receiver = blender
-            .render(
-                args,
-                Box::new(move |_params: Params| -> Result<Params, Value> {
-                    let mut task = match arc_task.write() {
-                        Ok(task) => task,
-                        Err(_) => return Err(Value::String("lock_failed".into())),
-                    };
-                    match task.get_next_frame() {
-                        Some(frame) => {
-                            let val = Value::Int(frame);
-                            let params = Params::new(vec![val]);
-                            Ok(params)
-                        }
-                        None => Err(Value::String("no_frame".into())),
-                    }
-                }),
-            )
-            .await;
-        Ok(receiver?)
+        let args = Args::new(blend_file, output, Engine::CYCLES, start, end);
+        blender.render(args).await.map_err(TaskError::BlenderError)
     }
 }
 

@@ -100,12 +100,11 @@ def setRenderSettings(scn, config):
         scn.render.film_transparent = True
 
 #Renders provided settings with id to path
-def renderFrame(scn, config, frame):
+def renderFrame(scn, config):
     # Set frame and output
-    # TODO: Change frame to range instead and use the following api:
-    # scn.frame_start = frame_start,
-    # scn.frame_end = frame_end,
-    scn.frame_set(frame)
+    scn.frame_start = config["start"],
+    scn.frame_end = config["end"],
+    
     # We must override the output path to a valid known location
     scn.render.filepath = config["Output"] + '/' + str(frame).zfill(5)
 
@@ -118,60 +117,22 @@ def renderFrame(scn, config, frame):
     # TODO: How do I stream this? Why do I have to "flush"?
     print("SUCCESS: " + id + "\n", flush=True)
 
-def main(ip: str, port: int) -> None:
-    # TODO: Consider sanitize ip first
-    # Had connection refused?
-    proxy = xmlrpc.client.ServerProxy("http://%s:%s" % (ip, port))
-    
-    # TODO: Cast as Config to enforce arguments sanitization
-    config = None 
-    try:
-        print("About to fetch config", flush=True)
-        config = json.loads(proxy.fetch_info(1))  
-    except Exception as e:
-        eprint(f"Failed to fetch config info! {e}")
-        return
-    
-    # Gather scene info
+def main(config) -> None:
+    # proxy = xmlrpc.client.ServerProxy("http://%s:%s" % (ip, port))
     scn = bpy.context.scene
-    
-    # configure the scene
-    # set scene if there's any
-    # I don't see any reason why we should override the scene information here? 
-    # Rely on the file and render what they provide us with. 
-    # The file itself contains information to what scene to render from anyway?
-    # scene = sceneInfo["scene"]
-    # if(scene is not None and scene != "" and scn.name != scene):
-    #     log("Overriding default scene - using target scene: " + scene + "\n")
-    #     scn = bpy.data.scenes[scene]
-    #     if(scn is None):
-    #         raise Exception("Scene name does not exist:" + scene)
-
-    
-    # set render settings
-    setRenderSettings(scn, config)
-                
-    # Loop over batches
-    while True:
-        try:
-            # TODO: at a good time we can feed in as Optional[Single(int), Range(frame_start,frame_end)]
-            frame = proxy.next_render_queue(1)
-            if frame is None:
-                break
-            # TODO Change frame to range of frames
-            renderFrame(scn, config, frame)
-        except Exception as e:
-            print(e)    # Wanted to see what the logs looks like so we can handle this better here
-            break
+    setRenderSettings(scn, config)    
+    renderFrame(scn, config)
 
 if __name__ == "__main__":
     # argparse.ArgumentParser does not work well with blender! Avoid using argparse!
+    args = sys.argv
     try:
-        args = sys.argv
-        ip = args[args.index('-i')+1]
-        port = args[args.index('-p')+1]
-        main(ip, port)
+        content = args[args.index("-c")+1]
+        config = json.loads(content)
+        # config = json.loads(proxy.fetch_info(1))  
+        main(config)
     except Exception as e:
         print(e)
-        sys.exit(1)
+        sys.exit(-1)
+    sys.exit(0)
         

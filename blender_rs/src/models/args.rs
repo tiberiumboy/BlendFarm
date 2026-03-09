@@ -13,8 +13,7 @@
 */
 // May Subject to change.
 use crate::{
-    blend_file::BlendFile,
-    models::{config::BlenderConfiguration, engine::Engine, format::Format, peek_response::PeekResponse},
+    blend_file::BlendFile, blender::Frame, models::{config::BlenderConfiguration, engine::Engine, format::Format, peek_response::PeekResponse}
 };
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -42,10 +41,12 @@ pub struct Args {
     pub processor: Processor,
     pub mode: HardwareMode, // optional
     pub format: Format,     // optional - default to Png
+    pub start: Frame,
+    pub end: Frame,
 }
 
 impl Args {
-    pub fn new(file: BlendFile, output: PathBuf, engine: Engine) -> Self {
+    pub fn new(file: BlendFile, output: PathBuf, engine: Engine, start: Frame, end: Frame) -> Self {
         Args {
             file: file,
             output: output,
@@ -53,6 +54,8 @@ impl Args {
             mode: HardwareMode::CPU,
             engine,
             format: Format::default(),
+            start,
+            end
         }
     }
 
@@ -96,7 +99,7 @@ mod tests {
         let file = BlendFile::new(&path_to_blend_file).expect("Must have a valid blend file!");
         let output = PathBuf::new();
         let engine = Engine::BLENDER_EEVEE_NEXT;
-        let args = Args::new(file, output, engine);
+        let args = Args::new(file, output, engine, 1,1 );
         let parsed = args.parse_from(&Version::new(4,1,0));
         assert_ne!(parsed.engine, engine);
         let parsed = args.parse_from(&EEVEE_SWITCH);

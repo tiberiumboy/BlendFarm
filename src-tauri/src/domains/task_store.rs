@@ -1,4 +1,5 @@
 use crate::models::task::{CreatedTaskDto, Task};
+use blender::blender::BlenderError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
@@ -10,7 +11,7 @@ pub enum TaskError {
     #[error("Database error: {0}")]
     DatabaseError(String),
     #[error("Something wring with blender: {0}")]
-    BlenderError(String),
+    BlenderError(#[from] BlenderError),
     #[error("Unable to get temp storage location")]
     CacheError,
 }

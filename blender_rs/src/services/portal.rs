@@ -42,6 +42,7 @@ impl Portal {
             .map_err(ManagerError::IoError)?;
 
         // Omit any blender version 2.8 and below
+        // BUG: It's not omitting version 2.8 and below. Would like to omit any version 3.8 and below for now.
         let iter = regex_captures_iter!(
             r#"<a href="(?<url>.*)">Blender(?<major>[3-9]|\d{1,}).(?<minor>\d*)/</a>"#,
             &content
