@@ -132,7 +132,7 @@ pub struct BlendFile {
 impl BlendFile {
     pub fn new(path_to_blend_file: impl AsRef<Path>) -> Result<Self, BlenderError> {
         let blend = Blend::from_path(&path_to_blend_file)
-            // TODO: try to handle BlendParseError? Future work
+            // BUG: *BlendParseError contains different traits that's preventing me using anyhow error traits implementation.
             .map_err(|e| {
                 BlenderError::InvalidFile(format!("Received BlenderParseError! {e:?}").to_owned())
             })?;

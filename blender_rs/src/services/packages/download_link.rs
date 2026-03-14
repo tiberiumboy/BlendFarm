@@ -11,11 +11,12 @@ use std::{
 };
 use url::Url;
 
+// TODO: Could I implement Hash traits? Use version as hash id
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct DownloadLink {
+    pub version: Version,
     pub file_name: String, // contains extensions!
     pub download_url: Url,
-    pub version: Version,
 }
 
 impl DownloadLink {
@@ -38,6 +39,7 @@ impl DownloadLink {
         install_path.as_ref().join(&self.file_name)
     }
 
+    // Destination expects absolute path
     pub fn content_exist(self, destination: impl AsRef<Path>) -> Result<Downloaded, DownloadLink> {
         let path = self.download_path(destination);
         if path.exists() {

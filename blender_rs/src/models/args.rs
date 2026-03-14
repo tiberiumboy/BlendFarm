@@ -37,7 +37,6 @@ pub enum HardwareMode {
 pub struct Args {
     pub file: BlendFile, // required
     pub output: PathBuf, // optional
-    pub engine: Engine,  // optional
     pub processor: Processor,
     pub mode: HardwareMode, // optional
     pub format: Format,     // optional - default to Png
@@ -46,13 +45,12 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn new(file: BlendFile, output: PathBuf, engine: Engine, start: Frame, end: Frame) -> Self {
+    pub fn new(file: BlendFile, output: PathBuf, start: Frame, end: Frame) -> Self {
         Args {
             file: file,
             output: output,
             processor: Processor::NONE,
             mode: HardwareMode::CPU,
-            engine,
             format: Format::default(),
             start,
             end
@@ -86,7 +84,7 @@ impl Args {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*;
 
     // TODO: Need to write a unit test to ensure the correct engine is used per blender version.
     #[test]
@@ -94,15 +92,17 @@ mod tests {
         // let file = 
         // TODO: How can I mock up a blendfile for unit test?
         // reference it from blendfile?
+        todo!("Because we can't explicitly define the engine enum anymore, we'll have to make a mock file instead. Otherwise this unit test will become meaningless.");
+        /* 
         let path_to_blend_file = PathBuf::from("./examples/assets/test.blend");
         // TODO: Create a mock blendfile for unit testing purposes.
         let file = BlendFile::new(&path_to_blend_file).expect("Must have a valid blend file!");
         let output = PathBuf::new();
-        let engine = Engine::BLENDER_EEVEE_NEXT;
-        let args = Args::new(file, output, engine, 1,1 );
+        let args = Args::new(file, output, 1,1 );
         let parsed = args.parse_from(&Version::new(4,1,0));
         assert_ne!(parsed.engine, engine);
         let parsed = args.parse_from(&EEVEE_SWITCH);
         assert_eq!(parsed.engine, engine);
+        */
     }
 }

@@ -1,5 +1,4 @@
 use crate::blender::Blender;
-use crate::page_cache::PageCache;
 use crate::services::packages::BlenderPath;
 use crate::services::packages::{download_link::DownloadLink, package::Package};
 use crate::utils::{get_extension, get_valid_arch};
@@ -29,6 +28,8 @@ pub enum BlenderCategoryError {
     Io(#[from] std::io::Error),
 }
 
+// Blender Category is a sub page within download.blender.org/release page, this page contains all of the urls associated with arch, os, and bits.
+// In this struct, on initialization, we parse the content of this website and generate a structure data we can run functions on.
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct BlenderCategory {
     base_url: Url,
@@ -68,7 +69,9 @@ impl Eq for BlenderCategory {}
 impl BlenderCategory {
     // TODO: [BUG] for some reason I was fetching this multiple of times already. Expensive to call. Profile test?
     // should only be called once when this class is created.
-    fn parse_content(
+    // TODO: Try to make this private as much as possible! this parse content is a hack to help reduce function complexity.
+    //       But instead it creates a spaghetti mess. Will handle this with context of some sort in the future.
+    pub(crate) fn parse_content(
         content: &str,
         base_url: &Url,
         download_path: impl AsRef<Path>,
@@ -100,8 +103,10 @@ impl BlenderCategory {
                     return map;
                 }
 
+                // *filter out any major version 3 or below. We will not be supporting legacy blender at the moment.
                 let major: u64 = match major.parse() {
-                    Ok(v) => v,
+                    Ok(v) if v > 3 => v,
+                    Ok(_) => return map,
                     Err(e) => {
                         eprintln!("{e:?}");
                         return map;
@@ -154,21 +159,14 @@ impl BlenderCategory {
         base_url: Url,
         major: u64,
         minor: u64,
-        download_path: impl AsRef<Path>,
-        page_cache: &mut PageCache,
-    ) -> Result<BlenderCategory, BlenderCategoryError> {
-        // This would be a great place to load the links to validate the urls anyway.
-        let content = page_cache
-            .fetch_or_update(&base_url)
-            .map_err(BlenderCategoryError::Io)?;
-        let links = Self::parse_content(&content, &base_url, &download_path)?;
-
-        Ok(Self {
+        links: HashMap<Version, Package>    
+    ) -> Self {
+        Self {
             base_url,
             major,
             minor,
             links,
-        })
+        }
     }
 
     // Only used in this state.

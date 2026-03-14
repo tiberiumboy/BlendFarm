@@ -381,7 +381,9 @@ impl TauriApp {
             }
             // severe connection - remove the entry from database, but do not touch the installation
             BlenderAction::Disconnect(blender) => {
-                self.manager.remove_blender(&blender);
+                if let Err(e) = self.manager.remove_blender(&blender) {
+                    eprintln!("Unable to disconnect blender: {e:?}");
+                }
             }
             // uninstall blender from local machine
             BlenderAction::Remove(_blender) => {

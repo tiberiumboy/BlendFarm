@@ -31,15 +31,20 @@ use dotenvy::dotenv;
 use libp2p::Multiaddr;
 use services::data_store::sqlite_task_store::SqliteTaskStore;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
+use sqlx::{Pool, Sqlite};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::sync::mpsc::Receiver;
 use tokio::spawn;
 use tokio::sync::RwLock;
 
 use crate::constant::{JOB_TOPIC, NODE_TOPIC};
+use crate::models::server_setting::ServerSetting;
 use crate::network::controller::Controller;
+use crate::network::message::Event;
 use crate::services::data_store::sqlite_renders_store::SqliteRenderStore;
+use crate::services::app_context::AppContext;
 
 pub mod constant;
 pub mod domains;
@@ -61,9 +66,8 @@ enum Commands {
     Client,
 }
 
-// TODO: ask for a path to load the database.
 async fn config_sqlite_db(
-    /*file_name: &str*/ path: impl AsRef<Path>,
+    path: impl AsRef<Path>,
 ) -> Result<SqlitePool, sqlx::Error> {
     let options = SqliteConnectOptions::new()
         .filename(path)
@@ -90,6 +94,33 @@ async fn setup_connection(controller: &mut Controller) {
     if let Err(e) = controller.subscribe(NODE_TOPIC).await {
         eprintln!("Fail to subscribe node topic! {e:?}")
     };
+}
+
+async fn setup_client_mode(context: AppContext, db: Pool<Sqlite>, controller: Controller, receiver: Receiver<Event>) -> Result<(), ()> {
+    // eventually I'll move this code into it's own separate codeblock
+    let task_store = SqliteTaskStore::new(db.clone());
+    let render_store = SqliteRenderStore::new(db.clone());
+
+    // we're sharing this across threads?
+    let task_store = Arc::new(RwLock::new(task_store));
+    let render_store = Arc::new(RwLock::new(render_store));
+
+    // here the client wants database connection to task table. Why not provide database connection instead?
+    CliApp::new(context, task_store, render_store)
+        .run(controller, receiver)
+        .await
+        .map_err(|e| println!("Error running Cli app: {e:?}"))
+}
+
+async fn setup_manager_mode(context: AppContext, db: Pool<Sqlite>, controller: Controller, receiver: Receiver<Event>) -> Result<(), ()> {
+    TauriApp::new(context.manager, &db)
+            .await
+            // we're clearing workers?
+            .clear_workers_collection()
+            .await
+            .run(controller, receiver)
+            .await
+            .map_err(|e| eprintln!("Fail to run Tauri app! {e:?}"))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -125,37 +156,18 @@ pub async fn run() {
 
     setup_connection(&mut controller).await;
 
-    let config = blend_config_path; // expects a config path to load from.
+    let config = Some(blend_config_path); // expects a config path to load from.
     let manager = BlenderManager::load(config).expect("Must have blender configuration to load!");
+    
+    let server_settings = ServerSetting::load();
+    let context = AppContext::new(manager, server_settings);
 
     // TODO: Restructure this to allow running client from GUI mode.
     let _ = match cli.command {
         // run as client mode.
-        Some(Commands::Client) => {
-            // eventually I'll move this code into it's own separate codeblock
-            let task_store = SqliteTaskStore::new(db.clone());
-            let render_store = SqliteRenderStore::new(db.clone());
-
-            // we're sharing this across threads?
-            let task_store = Arc::new(RwLock::new(task_store));
-            let render_store = Arc::new(RwLock::new(render_store));
-
-            // here the client wants database connection to task table. Why not provide database connection instead?
-            CliApp::new(manager, task_store, render_store)
-                .run(controller, receiver)
-                .await
-                .map_err(|e| println!("Error running Cli app: {e:?}"))
-        }
-
+        Some(Commands::Client) => setup_client_mode(context, db, controller, receiver).await,
         // run as GUI mode.
-        _ => TauriApp::new(manager, &db)
-            .await
-            // we're clearing workers?
-            .clear_workers_collection()
-            .await
-            .run(controller, receiver)
-            .await
-            .map_err(|e| eprintln!("Fail to run Tauri app! {e:?}")),
+        _ => setup_manager_mode(context, db, controller, receiver).await,
     };
 }
 

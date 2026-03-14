@@ -3,14 +3,8 @@ use crate::{
     domains::task_store::TaskError,
     models::{job::Job, with_id::WithId},
 };
-use blender::{
-    blend_file::BlendFile,
-    blender::{Args, Blender, Frame},
-    constant::MIN_THRESHOLD_FETCH,
-    models::{engine::Engine, event::BlenderEvent},
-};
+use blender::constant::MIN_THRESHOLD_FETCH;
 use serde::{Deserialize, Serialize};
-use std::sync::mpsc::Receiver;
 use std::{
     ops::Range,
     path::PathBuf,
@@ -41,7 +35,7 @@ pub struct Task {
 }
 
 // To better understand Task, this is something that will be save to the database and maintain a record copy for data recovery
-// This act as a pending work to fulfill when resources are available.
+// This act as a pending work order to fulfill when resources are available.
 impl Task {
     // private method, less validation.
     fn new(job_id: Uuid, job: Job, temp_output: PathBuf, range: Range<i32>) -> Self {
@@ -93,23 +87,6 @@ impl Task {
         } else {
             None
         }
-    }
-
-    // Invoke blender to run the job
-    // how do I stop this? Will this be another async container?
-    // TODO: who invokes this? Client or Host?
-    pub async fn run(
-        self,
-        blend_file: BlendFile,
-        // output is used to create local path storage to save frame path to
-        output: PathBuf,
-        start: Frame,
-        end: Frame,
-        // reference to the blender executable path to run this task.
-        blender: &Blender,
-    ) -> Result<Receiver<BlenderEvent>, TaskError> {
-        let args = Args::new(blend_file, output, Engine::CYCLES, start, end);
-        blender.render(args).await.map_err(TaskError::BlenderError)
     }
 }
 

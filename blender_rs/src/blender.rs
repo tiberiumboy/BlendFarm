@@ -83,7 +83,8 @@ use xml_rpc::Value;
 
 pub type Frame = i32;
 
-#[derive(Debug, Error, Serialize, Deserialize)]
+// TODO: Why does this enum needs to be serialize?
+#[derive(Debug, Error)] // Serialize, Deserialize
 pub enum BlenderError {
     #[error("Unable to call blender!")]
     ExecutableInvalid,
@@ -97,6 +98,8 @@ pub enum BlenderError {
     PythonError(String),
     #[error("Unable to fetch info from blender home service! Are you connected to the internet and is blender foundation still around?")]
     ServiceOffline,
+    #[error("Unable to parse ints from stream! {0}")]
+    ParseInt(#[from] ParseIntError),
 }
 
 // [Note] In the sense of PartialOrd, Ord - Blender's executable would not matter if the version is identical. 
@@ -145,10 +148,11 @@ impl Blender {
         }
     }
 
+    #[inline]
     fn handle_parse(names: &str) -> Result<u64, BlenderError> {
         names
             .parse()
-            .map_err(|e: ParseIntError| BlenderError::InvalidFile(e.to_string()))
+            .map_err(BlenderError::ParseInt)
     }
 
     /// Obtain the version by invoking version command to blender directly.
@@ -161,7 +165,6 @@ impl Blender {
     /// # Errors
     /// * InvalidData - executable path do not exist or is invalid. Please verify that the path provided exist and not compressed.
     ///  This error also serves where the executable is unable to provide the blender version.
-    // TODO: Find a better way to fetch version from stdout (Research for best practice to parse data from stdout)
     fn check_version(executable_path: impl AsRef<Path>) -> Result<Self, BlenderError> {
         let exec_path = executable_path.as_ref();
         let output = Command::new(exec_path)

@@ -2,11 +2,11 @@ use crate::{
     domains::task_store::TaskError,
     models::job::{CreatedJobDto, NewJobDto},
 };
-use serde::{Deserialize, Serialize};
+// use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize, Error)]
+#[derive(Debug, Error)] // Serialize, Deserialize, 
 pub enum JobError {
     #[error("Job failed to run: {0}")]
     FailedToRun(String),

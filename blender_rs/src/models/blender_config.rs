@@ -39,25 +39,25 @@ impl BlenderConfig {
             .join(SETTINGS_DIR)
     }
 
-    pub fn new(blenders: Option<Vec<Blender>>, install_path: PathBuf) -> Self {
-        match blenders {
-            Some(vec) => Self {
-                blenders: vec.iter().fold(
-                    HashMap::with_capacity(vec.capacity()),
-                    |mut accumulator, element| {
-                        let version = element.get_version().to_owned();
-                        accumulator.insert(version, element.to_owned());
-                        accumulator
-                    },
-                ),
-                install_path: install_path.into(),
-            },
-            None => Self {
-                blenders: HashMap::new(),
-                install_path: install_path.into(),
-            },
-        }
-    }
+    // pub fn new(blenders: Option<Vec<Blender>>, install_path: PathBuf) -> Self {
+    //     match blenders {
+    //         Some(vec) => Self {
+    //             blenders: vec.iter().fold(
+    //                 HashMap::with_capacity(vec.capacity()),
+    //                 |mut accumulator, element| {
+    //                     let version = element.get_version().to_owned();
+    //                     accumulator.insert(version, element.to_owned());
+    //                     accumulator
+    //                 },
+    //             ),
+    //             install_path: install_path.into(),
+    //         },
+    //         None => Self {
+    //             blenders: HashMap::new(),
+    //             install_path: install_path.into(),
+    //         },
+    //     }
+    // }
 
     pub fn load(file_path: impl AsRef<Path>) -> Result<BlenderConfig, Error> {
         let content = fs::read_to_string(&file_path)?;

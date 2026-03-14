@@ -36,7 +36,9 @@ pub enum JobEvent {
         files: Vec<String>,
     },
     TaskComplete, // what's the difference between JobComplete and TaskComplete?
-    Error(JobError),
+    // Error(JobError), 
+    // TODO: for now let's handle this error as string. Find a reason why we want to serialize error enums?
+    Error(String)
 }
 
 #[derive(Debug)]

@@ -19,30 +19,68 @@ pub(crate) struct Portal {
 impl Portal {
     const ROOT_URL: &str = "https://download.blender.org/release/";
 
-    pub fn new(download_path: PathBuf, cache: &mut PageCache) -> Result<Self, ManagerError> {
-        let list = Self::fetch(&download_path, cache)?;
-        
-        Ok(Portal {
+    fn new(download_path: PathBuf, list: Vec<BlenderCategory>) -> Self {
+        Self {
             list,
             download_path,
-        })
+        }
     }
 
-    fn fetch(
+    // function generator for closures in regex patterns.
+    fn generate_blender_category(parent: &Url, url: &str, major: &str, minor: &str, download_path: &Path, cache: &mut PageCache) -> Option<BlenderCategory> {
+        // create the link for blender category location
+        let url = match parent.join(url) {
+            Ok(path) => path,
+            Err(e) => {
+                eprintln!("unable to join paths! {e:?}");
+                return None;
+            }
+        };
+
+        let major: u64 = match major.parse() {
+            Ok(val) if val >= 3 => val,
+            Ok(_) => {
+                // TODO: impl a debug switch mode to allow printing these verbose console logs.
+                // eprintln!("Omitting outdated major version.");
+                return None;
+            }
+            Err(e) => {
+                eprintln!("{e:?}");
+                return None;
+            }
+        };
+
+        let minor: u64 = match minor.parse() {
+            Ok(val) => val,
+            Err(e) => {
+                eprintln!("{e:?}");
+                return None;
+            }
+        };
+
+        if let Ok(content) = &cache.fetch_or_update(&url) {
+            if let Ok(links) = BlenderCategory::parse_content(&content, &url, &download_path) {   
+                return Some(BlenderCategory::new(url, major, minor, links))
+            }
+        }
+        None
+    }
+
+    // TODO: Provide descriptions
+    pub fn fetch(
         download_path: impl AsRef<Path>,
         cache: &mut PageCache,
-    ) -> Result<Vec<BlenderCategory>, ManagerError> {
+    ) -> Result<Self, ManagerError> {   
         // TODO: Remove unwrap(). Could this be made into static/singleton/OnceCell?
         let parent = Url::parse(Self::ROOT_URL).unwrap();
 
         // we fetch the content from the website above.
-        // TODO: This could be dependency injected?
         let content = cache
             .fetch_or_update(&parent)
             .map_err(ManagerError::IoError)?;
 
         // Omit any blender version 2.8 and below
-        // BUG: It's not omitting version 2.8 and below. Would like to omit any version 3.8 and below for now.
+        // TODO: BUG: It's not omitting version 2.8 and below. Would like to omit any version 3.8 and below for now.
         let iter = regex_captures_iter!(
             r#"<a href="(?<url>.*)">Blender(?<major>[3-9]|\d{1,}).(?<minor>\d*)/</a>"#,
             &content
@@ -51,42 +89,15 @@ impl Portal {
         let mut list = iter.map(|c| c.extract()).fold(
             Vec::new(),
             |mut map: Vec<BlenderCategory>, (_, [url, major, minor])| {
-                // Find a way to return the map instead? If it's invalid, log it and skip it.
-                let url = match parent.join(url) {
-                    Ok(url) => url,
-                    Err(e) => {
-                        eprintln!("{e:?}");
-                        return map;
-                    }
-                };
-
-                let major: u64 = match major.parse() {
-                    Ok(val) => val,
-                    Err(e) => {
-                        eprintln!("{e:?}");
-                        return map;
-                    }
-                };
-
-                let minor: u64 = match minor.parse() {
-                    Ok(val) => val,
-                    Err(e) => {
-                        eprintln!("{e:?}");
-                        return map;
-                    }
-                };
-
-                let category = BlenderCategory::new(url, major, minor, &download_path, cache);
-                if let Ok(entry) = category {
-                    map.push(entry);
+                if let Some(category) = Portal::generate_blender_category(&parent, url, major, minor, download_path.as_ref(), cache) {
+                    map.push(category);
                 }
                 map
             },
         );
 
         list.sort_by(|a, b| b.cmp(a));
-
-        Ok(list)
+        Ok(Self::new(download_path.as_ref().to_path_buf(), list))
     }
 
     // TODO: Find a better way to deal with this

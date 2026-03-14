@@ -1,10 +1,10 @@
 use crate::models::task::{CreatedTaskDto, Task};
 use blender::blender::BlenderError;
-use serde::{Deserialize, Serialize};
+// use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-#[derive(Debug, Error, Serialize, Deserialize)]
+#[derive(Debug, Error)] // Serialize, Deserialize
 pub enum TaskError {
     #[error("Unknown")]
     Unknown,

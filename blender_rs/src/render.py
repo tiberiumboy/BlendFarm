@@ -54,7 +54,8 @@ def setRenderSettings(scn, config):
         scn.camera = bpy.data.objects[camera]
     
     # set scene render engine
-    scn.render.engine = config["Engine"]
+    # *We should rely on the scene file engine configuration, rather than explicitly assigning before batch jobs.
+    # scn.render.engine = config["Engine"]
     
     # this attribute only accepts 'CPU' or 'GPU' - only available in Cycles Render Engine
     scn.cycles.device = config["HardwareMode"]

@@ -8,9 +8,11 @@ Feature request:
 */
 use super::blend_farm::BlendFarm;
 use crate::domains::render_store::RenderStore;
+use crate::domains::task_store::TaskError;
 use crate::models::render_info::NewRenderInfoDto;
 use crate::network::message::{self, Event, NetworkError, NodeEvent};
 use crate::network::provider_rule::ProviderRule;
+use crate::services::app_context::AppContext;
 use crate::{
     domains::{job_store::JobError, task_store::TaskStore},
     models::{
@@ -21,7 +23,7 @@ use crate::{
     network::controller::Controller,
 };
 use blender::blend_file::BlendFile;
-use blender::blender::{Blender, Manager as BlenderManager, ManagerError};
+use blender::blender::{Args, Blender, Manager as BlenderManager, ManagerError};
 use blender::models::event::BlenderEvent;
 use libp2p::{Multiaddr, PeerId};
 use semver::Version;
@@ -71,16 +73,17 @@ pub struct CliApp {
 
 impl CliApp {
     // we could simplify this design by just asking for the database info?
-    pub fn new(
-        manager: BlenderManager,
+    pub(crate) fn new(
+        context: AppContext,
         task_store: Arc<RwLock<dyn TaskStore + Send + Sync + 'static>>,
         render_store: Arc<RwLock<dyn RenderStore + Send + Sync + 'static>>,
     ) -> Self {
         Self {
-            settings: ServerSetting::load(),
-            manager,
+            settings: context.settings,
+            manager: context.manager,
             task_store,
             render_store,
+            // TODO: why do I need to care about this?
             host: None, // no task assigned yet
         }
     }
@@ -161,6 +164,8 @@ impl CliApp {
         Ok(output)
     }
 
+    // TODO: See where this was originally used, and see if we can remove this.
+    #[allow(dead_code)]
     async fn check_for_blender(&self, version: &Version) -> Result<&Blender, CliError> {
         // this script below was our internal implementation of handling DHT fallback mode
         // save this for future feature updates
@@ -221,6 +226,7 @@ impl CliApp {
         task: &mut Task,
         sender: &mut Sender<BlenderEvent>,
     ) -> Result<(), CliError> {
+        // why do I need the job info?
         let job = AsRef::<Job>::as_ref(&task);
         let blend_file = AsRef::<BlendFile>::as_ref(&job);
         let version = job.as_ref();
@@ -230,20 +236,26 @@ impl CliApp {
         // let project_file = self.validate_project_file(client, &task).await?;
         // self.check_for_blender()?;
 
+        // get blender executables
         let blender = self
             .manager
             .fetch_blender(version)
             .map_err(CliError::ManagerError)?;
 
+        // get the ID of the task for parent directory name
         let id = AsRef::<Uuid>::as_ref(&task);
+        
+        // Generate a new local destination path. Overriding scene's path to valid path location.
+        // TODO: This will throw an error if the directory already exist?
         let output = self
             .verify_and_check_render_output_path(id)
             .await
             .map_err(CliError::Io)?;
 
+        let args = Args::new(blend_file.clone(),output, task.range.start, task.range.end);
+        
         // run the job!
-        // TODO: is there a better way to get around clone?
-        match task.clone().run(blend_file.clone(), output, &blender).await {
+        match blender.render(args).await.map_err(TaskError::BlenderError) {
             Ok(rx) => loop {
                 match rx.recv() {
                     Ok(status) => {
@@ -277,7 +289,7 @@ impl CliApp {
             },
             Err(e) => {
                 let err = JobError::TaskError(e);
-                client.send_job_event(JobEvent::Error(err)).await;
+                client.send_job_event(JobEvent::Error(err.to_string())).await;
             }
         };
 
