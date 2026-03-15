@@ -41,7 +41,7 @@ use futures::{
 use libp2p::PeerId;
 use semver::Version;
 use sqlx::{Pool, Sqlite};
-use std::{collections::HashMap, ops::Range, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use tauri::{self, Url};
 use tokio::sync::mpsc::Receiver;
 use tokio::{select, spawn, sync::Mutex};
@@ -149,22 +149,14 @@ impl TauriApp {
             .plugin(tauri_plugin_dialog::init())
     }
 
-    // This design implement doesn't fit the concept of decentralized network situation setup.
-    // We shouldn't have to rely on finding node availability, instead other node should ping out to other node and offer help instead of relying the host to do the work.
-    /*
-    async fn get_idle_peers(&self) -> String {
-        // see comment above, this method is no longer in use.
-    }
-    */
-
     // The idea here is to generate new task based on job creation.
     // TODO: Explain the expect behaviour for this method before reference it.
     #[allow(dead_code)]
     fn generate_tasks(job: &CreatedJobDto, chunks: i32) -> Vec<Task> {
         // mode may be removed soon, we'll see?
         let (time_start, time_end) = match AsRef::<RenderMode>::as_ref(&job.item) {
-            RenderMode::Animation(anim) => (anim.start, anim.end),
-            RenderMode::Frame(frame) => (frame.clone(), frame.clone()),
+            RenderMode::Animation{ start, end} => (start, end),
+            RenderMode::Frame(frame) => (frame, frame),
         };
 
         // What if it's in the negative? e.g. [-200, 2 ] ? would this result to -180 and what happen to the equation?
@@ -186,13 +178,12 @@ impl TauriApp {
             let end = block + chunks;
             let end = match end.cmp(&time_end) {
                 std::cmp::Ordering::Less => end,
-                _ => time_end,
+                _ => time_end.to_owned(),
             };
-            let range = Range { start, end };
 
             // TODO: Find a way to handle this error.
             // It should only error if we don't have permission to temp cache storage location
-            let task = Task::from(job.clone(), range).expect("Should be able to create task!");
+            let task = Task::from(job.clone(), start, end).expect("Should be able to create task!");
             tasks.push(task);
         }
 
@@ -252,6 +243,7 @@ impl TauriApp {
                     however additional call afterward does not let this function continue or invoke?
                     I must be waiting for something here?
                 */
+                // TODO: Consider looking into using Iter() mutations.
                 let result = match self.job_store.list_all().await {
                     Ok(jobs) => {
                         if jobs.is_empty() {

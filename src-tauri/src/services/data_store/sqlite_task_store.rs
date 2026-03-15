@@ -7,7 +7,7 @@ use crate::{
     },
 };
 use sqlx::{FromRow, SqlitePool, types::Uuid};
-use std::{ops::Range, str::FromStr};
+use std::str::FromStr;
 
 pub struct SqliteTaskStore {
     conn: SqlitePool,
@@ -33,10 +33,8 @@ impl TaskDAO {
         let id = Uuid::from_str(&self.id).expect("id was mutated");
         let job_id = Uuid::from_str(&self.job_id).expect("job_id was mutated");
         let job = serde_json::from_str::<Job>(&self.job).expect("job record was malformed!");
-        let range = Range {
-            start: self.start as i32,
-            end: self.end as i32,
-        };
+        let start = self.start as i32;
+        let end=  self.end as i32;
 
         // at this point here, we shouldn't have to worry about Job's original rendering mode,
         let job_record = WithId {
@@ -44,7 +42,7 @@ impl TaskDAO {
             item: job,
         };
         // TODO: Find a way to handle expect()
-        let item = Task::from(job_record, range).expect("Malformed data detected!");
+        let item = Task::from(job_record, start, end).expect("Malformed data detected!");
         WithId { id, item }
     }
 }
@@ -63,8 +61,8 @@ impl TaskStore for SqliteTaskStore {
             .bind(id.to_string())
             .bind(job_id)
             .bind(job)
-            .bind(&task.range.start)
-            .bind(&task.range.end)
+            .bind(&task.start)
+            .bind(&task.end)
             .execute(&self.conn)
             .await
             .map_err(|e| TaskError::DatabaseError(e.to_string()))?;

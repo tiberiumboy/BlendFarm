@@ -3,7 +3,7 @@ use crate::{
     domains::task_store::TaskError,
     models::{job::Job, with_id::WithId},
 };
-use blender::constant::MIN_THRESHOLD_FETCH;
+use blender::{blender::Frame, constant::MIN_THRESHOLD_FETCH};
 use serde::{Deserialize, Serialize};
 use std::{
     ops::Range,
@@ -13,12 +13,18 @@ use uuid::Uuid;
 
 pub type CreatedTaskDto = WithId<Task, Uuid>;
 
+// pub enum TaskStatus {
+    // use this to describe what's going on with this task.
+// }
+
 /*
     Task is used to send Worker individual task to work on
     this can be customize to determine what and how many frames to render.
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
+    // status: 
+
     /// Id used to identify the job
     job_id: Uuid,
 
@@ -31,25 +37,27 @@ pub struct Task {
     temp_output: PathBuf,
 
     /// Render range frame to perform the task
-    pub range: Range<i32>,
+    pub(crate) start: Frame,
+    pub(crate) end: Frame,
 }
 
 // To better understand Task, this is something that will be save to the database and maintain a record copy for data recovery
 // This act as a pending work order to fulfill when resources are available.
 impl Task {
     // private method, less validation.
-    fn new(job_id: Uuid, job: Job, temp_output: PathBuf, range: Range<i32>) -> Self {
+    fn new(job_id: Uuid, job: Job, temp_output: PathBuf, start: i32, end: i32 ) -> Self {
         Self {
             job_id,
             job,
             temp_output,
-            range,
+            start,
+            end
         }
     }
 
-    pub fn from(job: CreatedJobDto, range: Range<i32>) -> Result<Self, TaskError> {
+    pub fn from(job: CreatedJobDto, start: i32, end: i32) -> Result<Self, TaskError> {
         match dirs::cache_dir() {
-            Some(tmp) => Ok(Task::new(job.id, job.item, tmp, range)),
+            Some(tmp) => Ok(Task::new(job.id, job.item, tmp, start, end)),
             None => Err(TaskError::CacheError),
         }
     }
@@ -61,8 +69,8 @@ impl Task {
     pub fn fetch_end_frames(&mut self, percentage: u8) -> Option<Range<i32>> {
         // Here we'll determine how many franes left, and then pass out percentage of that frames back.
         let perc = percentage as f32 / u8::MAX as f32;
-        let end = self.range.end;
-        let delta = (end - self.range.start) as f32;
+        let end = self.end;
+        let delta = (end - self.start) as f32;
         let trunc = (perc * (delta.powf(2.0)).sqrt()).floor() as usize;
 
         if trunc <= MIN_THRESHOLD_FETCH {
@@ -71,7 +79,7 @@ impl Task {
 
         let start = end - trunc as i32;
         let range = Range { start, end };
-        self.range.end = start - 1; // Update end value accordingly.
+        self.end = start - 1; // Update end value accordingly.
         Some(range)
     }
 
@@ -80,9 +88,9 @@ impl Task {
     #[cfg(test)]
     fn get_next_frame(&mut self) -> Option<i32> {
         // we will use this to generate a temporary frame record on database for now.
-        if self.range.start < (self.range.end + 1) {
-            let value = Some(self.range.start);
-            self.range.start = self.range.start + 1;
+        if self.start < (self.end + 1) {
+            let value = Some(self.start);
+            self.start = self.start + 1;
             value
         } else {
             None
@@ -113,8 +121,7 @@ mod test {
             id: Uuid::new_v4(),
             item: scaffold_job(),
         };
-        let range = Range { start, end };
-        Task::from(data, range).expect("Should have valid task")
+        Task::from(data, start, end).expect("Should have valid task")
     }
 
     #[test]

@@ -252,7 +252,7 @@ impl CliApp {
             .await
             .map_err(CliError::Io)?;
 
-        let args = Args::new(blend_file.clone(),output, task.range.start, task.range.end);
+        let args = Args::new(blend_file.clone(),output, task.start, task.end);
         
         // run the job!
         match blender.render(args).await.map_err(TaskError::BlenderError) {

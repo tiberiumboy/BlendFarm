@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{num::ParseIntError, ops::Range};
+use std::num::ParseIntError;
 
 // context for serde: https://serde.rs/enum-representations.html
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
@@ -10,7 +10,7 @@ pub enum RenderMode {
 
     // JSON: "Animation": {"start":"i32", "end":"i32"}
     // contains the target start frame to the end target frame.
-    Animation(Range<i32>),
+    Animation { start: i32, end: i32 },
 
     // future project - allow network node to only render section of the frame instead of whole to visualize realtime rendering view solution.
     // JSON: "Section": {"frame":"i32", "coord":{"i32", "i32"}, "size": {"i32", "i32"} }
@@ -34,8 +34,7 @@ impl RenderMode {
         if start + 1 == end {
             RenderMode::Frame(start)
         } else {
-            let range = Range { start, end };
-            RenderMode::Animation(range)
+            RenderMode::Animation{ start, end }
         }
     }
 
