@@ -24,26 +24,23 @@ Developer blog:
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 // it might be interesting and useful if there's a debug mode enabled?
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+use anyhow::Error;
 use blender::manager::Manager as BlenderManager;
 use blender::models::blender_config::BlenderConfig;
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use libp2p::Multiaddr;
-use services::data_store::sqlite_task_store::SqliteTaskStore;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
 use sqlx::{Pool, Sqlite};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 use tokio::spawn;
-use tokio::sync::RwLock;
 
 use crate::constant::{JOB_TOPIC, NODE_TOPIC};
 use crate::models::server_setting::ServerSetting;
 use crate::network::controller::Controller;
-use crate::network::message::Event;
-use crate::services::data_store::sqlite_renders_store::SqliteRenderStore;
+use crate::network::message::{Event, NetworkError};
 use crate::services::app_context::AppContext;
 
 pub mod constant;
@@ -75,44 +72,34 @@ async fn config_sqlite_db(
     SqlitePool::connect_with(options).await
 }
 
-async fn setup_connection(controller: &mut Controller) {
+async fn setup_connection(controller: &mut Controller) -> Result<(), Error> {
     // Listen on all interfaces and whatever port OS assigns
     let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().expect("Shouldn't fail");
     let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
         .parse()
         .expect("Shouldn't fail");
 
-    controller.start_listening(tcp).await;
-    controller.start_listening(udp).await;
-
     // let's automatically listen to the topics mention above.
     // all network interference must subscribe to these topics!
-    if let Err(e) = controller.subscribe(JOB_TOPIC).await {
-        eprintln!("Fail to subscribe job topic! {e:?}");
-    };
+    controller.subscribe(JOB_TOPIC).await?;
+    controller.subscribe(NODE_TOPIC).await?;
 
-    if let Err(e) = controller.subscribe(NODE_TOPIC).await {
-        eprintln!("Fail to subscribe node topic! {e:?}")
-    };
+    // can we subscribe first before we listen?
+    controller.start_listening(tcp).await;
+    controller.start_listening(udp).await;
+    Ok(())
 }
 
-async fn setup_client_mode(context: AppContext, db: Pool<Sqlite>, controller: Controller, receiver: Receiver<Event>) -> Result<(), ()> {
-    // eventually I'll move this code into it's own separate codeblock
-    let task_store = SqliteTaskStore::new(db.clone());
-    let render_store = SqliteRenderStore::new(db.clone());
-
-    // we're sharing this across threads?
-    let task_store = Arc::new(RwLock::new(task_store));
-    let render_store = Arc::new(RwLock::new(render_store));
-
+#[inline]
+async fn setup_client_mode(context: AppContext, db: Pool<Sqlite>, controller: Controller, receiver: Receiver<Event>) -> Result<(), NetworkError> {
     // here the client wants database connection to task table. Why not provide database connection instead?
-    CliApp::new(context, task_store, render_store)
+    CliApp::new(context, &db)
         .run(controller, receiver)
         .await
-        .map_err(|e| println!("Error running Cli app: {e:?}"))
 }
 
-async fn setup_manager_mode(context: AppContext, db: Pool<Sqlite>, controller: Controller, receiver: Receiver<Event>) -> Result<(), ()> {
+#[inline]
+async fn setup_manager_mode(context: AppContext, db: Pool<Sqlite>, controller: Controller, receiver: Receiver<Event>) -> Result<(), NetworkError> {
     TauriApp::new(context.manager, &db)
             .await
             // we're clearing workers?
@@ -120,7 +107,6 @@ async fn setup_manager_mode(context: AppContext, db: Pool<Sqlite>, controller: C
             .await
             .run(controller, receiver)
             .await
-            .map_err(|e| eprintln!("Fail to run Tauri app! {e:?}"))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -163,12 +149,16 @@ pub async fn run() {
     let context = AppContext::new(manager, server_settings);
 
     // TODO: Restructure this to allow running client from GUI mode.
-    let _ = match cli.command {
+    let result = match cli.command {
         // run as client mode.
         Some(Commands::Client) => setup_client_mode(context, db, controller, receiver).await,
         // run as GUI mode.
         _ => setup_manager_mode(context, db, controller, receiver).await,
     };
+
+    if let Err(e) = result {
+        eprintln!("Received Network Error! {e:?}");
+    }
 }
 
 #[cfg(test)]

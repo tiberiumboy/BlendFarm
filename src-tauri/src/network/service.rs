@@ -1,7 +1,7 @@
 use crate::constant::{JOB_TOPIC, NODE_TOPIC};
 use crate::models::behaviour::{BlendFarmBehaviourEvent, FileRequest, FileResponse};
 use crate::models::job::JobEvent;
-use crate::network::message::{FileCommand, NodeEvent};
+use crate::network::message::{ChannelStatus, FileCommand, NodeEvent};
 use crate::{
     models::behaviour::BlendFarmBehaviour,
     network::message::{Command, Event},
@@ -156,6 +156,7 @@ impl Service {
     // send command
     // Receive commands from foreign invocation.
     async fn handle_command(&mut self, cmd: Command) {
+        // handle the commands via the services implementation given limited power for the network services.
         match cmd {
             Command::Subscribe { topic } => {
                 let identity = IdentTopic::new(topic);
@@ -244,13 +245,21 @@ impl Service {
             Command::FileService(service) => self.process_file_service(service).await,
 
             // received job status. invoke commands
+            // we should only send command if we are subscribed.
             Command::JobStatus(event) => {
+                // I want to send a message only if we have active subscribers.
+                // which means I need to create my own list of peers I think may be listening on the network
                 // convert data into json format.
+                // The foreign request is asking for the Job Status -> Reply back to the user directly.
                 let data = serde_json::to_string(&event).unwrap();
                 let topic = IdentTopic::new(JOB_TOPIC);
+                // we should wait until we successfully subscribed to the various topics filter.
+                // The only reason why I'm getting failed to send job message is because we are not subscribed to the topic yet.
+                // how can I wait until we're subscribed to the topic?
                 match self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+                    // TODO: Print log verbosity
                     Ok(_) => println!("Job Status Sent!\n{event:?}"),
-                    Err(e) => eprintln!("Fail to send message! {e:?}"),
+                    Err(e) => eprintln!("Fail to send job message! {e:?}"),
                 };
             }
             Command::NodeStatus(status) => {
@@ -379,6 +388,13 @@ impl Service {
                     eprintln!("Intercepted unhandled signal here: {topic}");
                 }
             },
+            gossipsub::Event::Subscribed { peer_id, topic } => {
+                // what are the peer_id and topic?
+                // Maybe it's the user who joined the network, we can send a RequestTask if we're idle?
+                let update = ChannelStatus::Joined( peer_id, topic );
+                let event = Event::Channel(update);
+                self.sender.send(event).await;
+            }
             // I should be logging info from other event from gossip... wonder what they got to say?
             // TODO: Log and verify if we need to handle other gossip events.
             any => {
@@ -567,6 +583,7 @@ impl Service {
         };
     }
 
+    // run the network loops
     pub(crate) async fn run(mut self) {
         loop {
             select! {

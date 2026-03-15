@@ -10,9 +10,12 @@ use super::blend_farm::BlendFarm;
 use crate::domains::render_store::RenderStore;
 use crate::domains::task_store::TaskError;
 use crate::models::render_info::NewRenderInfoDto;
-use crate::network::message::{self, Event, NetworkError, NodeEvent};
+use crate::models::with_id::WithId;
+use crate::network::message::{self, ChannelStatus, Event, NetworkError, NodeEvent};
 use crate::network::provider_rule::ProviderRule;
 use crate::services::app_context::AppContext;
+use crate::services::data_store::sqlite_renders_store::SqliteRenderStore;
+use crate::services::data_store::sqlite_task_store::SqliteTaskStore;
 use crate::{
     domains::{job_store::JobError, task_store::TaskStore},
     models::{
@@ -22,18 +25,19 @@ use crate::{
     },
     network::controller::Controller,
 };
+use async_std::task::spawn;
 use blender::blend_file::BlendFile;
 use blender::blender::{Args, Blender, Manager as BlenderManager, ManagerError};
 use blender::models::event::BlenderEvent;
 use libp2p::{Multiaddr, PeerId};
 use semver::Version;
-use std::time::Duration;
-use std::{path::PathBuf, str::FromStr, sync::Arc};
+use sqlx::{Pool, Sqlite};
+use tauri::async_runtime::Receiver;
+use tokio::task::JoinHandle;
+use std::{path::PathBuf, str::FromStr};
 use thiserror::Error;
-use tokio::spawn;
-use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::time::sleep;
-use tokio::{select, sync::RwLock};
+use tokio::sync::mpsc::{self, Sender};
+use tokio::select;
 use uuid::Uuid;
 
 // TODO: What was this for?
@@ -59,8 +63,8 @@ pub struct CliApp {
     manager: BlenderManager,
 
     // database
-    task_store: Arc<RwLock<dyn TaskStore + Send + Sync + 'static>>,
-    render_store: Arc<RwLock<dyn RenderStore + Send + Sync + 'static>>,
+    task_store: SqliteTaskStore,
+    render_store: SqliteRenderStore,
 
     // config
     settings: ServerSetting,
@@ -68,21 +72,97 @@ pub struct CliApp {
     // The idea behind this is to let the network manager aware that the client side of the app is busy working on current task.
     // it would be nice to receive information and notification about this current client status somehow.
     // Could I use PhantomData to hold Task Object type?
-    host: Option<(PeerId, Multiaddr)>, // isntead of this, we should hold task_handler. That way, we can abort it when we receive the invocation to do so.
+    host: Option<(PeerId, Multiaddr)>, // instead of this, we should hold task_handler. That way, we can abort it when we receive the invocation to do so.
+
+    // to see if there's any job running.
+    handler: Option<JoinHandle<()>>,
 }
 
 impl CliApp {
+
+    // This function sends out a command request to the other thread to launch blender and render the given task.
+    // In return, we should try to return the JohnHandler<()> so that we can gracefully abort the task.
+    async fn subscribe_to_render_job(&mut self, task: WithId<Task,Uuid>, event: &Sender<CmdCommand>, controller: &mut Controller, render_db: &SqliteRenderStore) {
+        // why did this method get invoked twice?
+        // This have code smells. I'm sending a request to another thread to start the rendering job, but that allows me to continue to listen for server updates.
+        // if the host replied to cancel specific job, I must be able to acknowledge the request and act upon immediately without delay.
+        // TODO: Display this under certain verbosity
+        println!("Begin task {:?}!", &task.id);
+        let (sender, mut receiver) = mpsc::channel(32);
+        let job_id_ref: &Uuid = AsRef::as_ref(&task);
+        let job_id = job_id_ref.to_owned();
+        let cmd = CmdCommand::Render(task.item, sender);
+        if let Err(e) = event.send(cmd).await {
+            // TODO: Display this under certain verbosity
+            eprintln!("Fail to send backend service render request! {e:?}");
+        }
+
+        // begin streaming progress to network protocols.
+        loop {
+            select! {
+                event = receiver.recv() => match event {
+                    Some(event) => {
+                        match event {
+                            // TODO: Find ways to print this via verbose command
+                            BlenderEvent::Log(log) => println!("{log}"),
+                            // TODO: Find ways to print this via verbose command
+                            BlenderEvent::Warning(warn) => println!("{warn}"),
+                            // TODO: Find ways to print this via verbose command
+                            // maybe it would be nice to send this network message back to network?
+                            BlenderEvent::Rendering { current, total } => {
+                                println!("Rendering {current} out of {total}")
+
+                            },
+                            BlenderEvent::Completed { result, frame } => {
+                                let render_info = NewRenderInfoDto::new(job_id.clone(), frame, &result );
+                                // TODO: Find ways to print this via verbose command
+                                if let Err(e) = &render_db.create_renders(render_info).await {
+                                    eprintln!("Fail to create a new render entry to the database! {e:?}");
+                                }
+                                // sends a 
+                                let event = JobEvent::ImageCompleted {
+                                    job_id: job_id.clone(),
+                                    frame,
+                                    file_name: result.to_str().unwrap().to_owned()      
+                                };
+                                controller.send_job_event(event).await;
+                            },
+                            // receiving unhandled event for getting blender version and commit hash value?
+                            BlenderEvent::Unhandled(e) => {
+                                // Blender 4.3.2 (hash 32f5fdce0a0a built 2024-12-17 02:14:25)
+                                eprintln!("{e:?}");
+                            },
+                            BlenderEvent::Exit => break,
+                            BlenderEvent::Error(e) => {
+                                eprintln!("Received Blender Error: {e:?}");
+                            },
+                        }
+                    },
+                    None => {
+                        // TODO: Find a way to display verbosity via switch
+                        // eprintln!("Received None from Blender loop! Breaking");
+                        break
+                    }
+                }
+            }
+        }
+    }
+
     // we could simplify this design by just asking for the database info?
     pub(crate) fn new(
         context: AppContext,
-        task_store: Arc<RwLock<dyn TaskStore + Send + Sync + 'static>>,
-        render_store: Arc<RwLock<dyn RenderStore + Send + Sync + 'static>>,
+        db: &Pool<Sqlite>
     ) -> Self {
+
+        let task_store = SqliteTaskStore::new(db.clone());
+        let render_store = SqliteRenderStore::new(db.clone());
+
         Self {
             settings: context.settings,
             manager: context.manager,
             task_store,
             render_store,
+            handler: None,
             // TODO: why do I need to care about this?
             host: None, // no task assigned yet
         }
@@ -324,13 +404,11 @@ impl CliApp {
 
                 // scope containing using self. Need to close at the end of the scope for other method to use it as mutable state.
                 // do we need this right now?
-                {
-                    let db = self.task_store.write().await;
-                    // Need to make sure no other node work the same job here.
-                    if let Err(e) = db.add_task(task.clone()).await {
-                        println!("Unable to add task! {e:?}");
-                    }
+                // Need to make sure no other node work the same job here.
+                if let Err(e) = &self.task_store.add_task(task.clone()).await {
+                    println!("Unable to add task! {e:?}");
                 }
+            
 
                 // println!("Begin printing task at this level!");
                 // let blend = match &self.manager.fetch_blender(&task.get_job().get_version()) {
@@ -406,7 +484,7 @@ impl CliApp {
             JobEvent::TaskComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
             // Remove all task with matching job id.
             JobEvent::Remove(job_id) => {
-                let db = self.task_store.write().await;
+                let db = &self.task_store;
                 if let Err(e) = db.delete_job_task(&job_id).await {
                     eprintln!("Unable to remove all task with matching job id! {e:?}");
                 }
@@ -461,6 +539,16 @@ impl CliApp {
                     }
                 }
             }
+            Event::Channel(channel_status) => match channel_status {
+                ChannelStatus::Joined(peer_id, topic) => {
+                    // if we are idle, we should send this peer a RequestTask message.
+                    // Hello peer_id, can I request a task from you?
+                },
+                ChannelStatus::Disconnected(peer_id, _) => {
+                    // Oh no, this peer disconnected! what shall we ever do!?
+                    eprintln!("TODO: See if we need this conditional branch?");
+                }
+            }
             _ => println!("[CLI] Unhandled event from network: {event:?}"),
         }
     }
@@ -500,6 +588,24 @@ impl CliApp {
 
 #[async_trait::async_trait]
 impl BlendFarm for CliApp {
+
+    /* 
+        Some thoughts:
+
+        The Cli App mode should be stateless, e.g. no Idle state. The services that BlendFarm runs on should utilize the necessary components to run blender from network request.
+        The Cli must have a switch to listen for server connection to become state machines. (TODO: E.g. provide IP and Port)
+        
+    */ 
+
+    /// This program will run into this following state machine:
+    /// It will continue to poll task from the database and work on the given assignments.
+    /// The task will be reflected by the host machine once available, and other peers can request tasks, if they're idle.
+    /// Once exhausted all pending task, this node will send out one RequestTask message to the network and remain idle.
+    /// It will also send discovered node a RequestTask as well.
+    /// The background network services will update and monitor the database connection, as well as governs the task lifetime handlers.
+    ///     E.g. A job cancellation notice should terminate ongoing task jobs. Needs a way to interface ongoing thread and abort before resuming next task.
+    /// Future work: The node can be in a "Paused" state, given under circumstances, that it should await for host's further instructions.
+    ///     E.g. Downloading blender in background. 
     async fn run(
         mut self,
         mut client: Controller,
@@ -509,115 +615,78 @@ impl BlendFarm for CliApp {
         // we will have one thread to process blender and queue, but I must have access to database.
 
         let (event, mut command) = mpsc::channel(32);
+        let taskdb = self.task_store;
+        let render_db = self.render_store;
 
-        // TODO: move this inside on discovery call
-        // let cmd = CmdCommand::RequestTask;
-        // event.send(cmd).await.expect("Should not be free?");
-
-        let taskdb = self.task_store.clone();
-        let render_db = self.render_store.clone();
+        let mut alter_controller = client.clone();
 
         // background thread to handle blender invocation
-        spawn(async move {
-            loop {
-                let db = taskdb.write().await;
+        // So this is where we can say that Cli is a state machine.
+        // TODO: Return the JoinHandler<()> for this thread. Once we go through the tauri_app we'll update this trait.
+        let _worker_handler = spawn(async move {
 
-                // think I have too many nested conditions here? Is it possible to break apart this component into smaller s
+            // there are two loops? break the loops up
+            loop {
+                // get reference to task database
+                // let db = taskdb.write().await;
+                let db = taskdb;
+
+                // TODO: think I have too many nested conditions here? Is it possible to break apart this component into smaller snippet
+                // Yes it's always possible to break this up. I don't think we need to repeatively ask the host for requesting task.
+                // The plan is 
+                //      A) break up the responsibility. 
+                //      B) Cli should work on pending task. Once exhausted all queue - Send RequestTask out. 
+                //      C) Also Send RequestTask out to newly discovered node.
                 match db.poll_task().await {
+                    // if we have a pending task.
                     Ok(result) => {
                         match result {
-                            Some(task) => {
-                                // why did this method get invoked twice?
-                                println!("Begin some task!");
-                                let (sender, mut receiver) = mpsc::channel(32);
-                                let job_id_ref: &Uuid = AsRef::as_ref(&task.item);
-                                let job_id = job_id_ref.to_owned();
-                                let cmd = CmdCommand::Render(task.item, sender);
-                                if let Err(e) = event.send(cmd).await {
-                                    eprintln!("Fail to send backend service render request! {e:?}");
-                                }
-
-                                loop {
-                                    select! {
-                                        event = receiver.recv() => match event {
-                                            Some(event) => {
-                                                match event {
-                                                    BlenderEvent::Log(log) => println!("{log}"),
-                                                    BlenderEvent::Warning(warn) => println!("{warn}"),
-                                                    BlenderEvent::Rendering { current, total } => println!("Rendering {current} out of {total}"),
-                                                    BlenderEvent::Completed { result, frame } => {
-                                                        let render_info = NewRenderInfoDto::new(job_id.clone(), frame, result );
-                                                        let render_db = render_db.write().await;
-                                                        if let Err(e) = render_db.create_renders(render_info).await {
-                                                            eprintln!("Fail to create a new render entry to the database! {e:?}");
-                                                        }
-                                                    },
-                                                    // receiving unhandled event for getting blender version and commit hash value?
-                                                    BlenderEvent::Unhandled(e) => {
-                                                        // Blender 4.3.2 (hash 32f5fdce0a0a built 2024-12-17 02:14:25)
-                                                        eprintln!("{e:?}");
-                                                    },
-                                                    BlenderEvent::Exit => {
-                                                        println!("Blender exit!");
-                                                        // so once the render is done, we somehow deleted the task afterward?
-                                                        // How do I store the final render image result?
-                                                        if let Err(e) = db.delete_task(&task.id).await {
-                                                            // if the task doesn't exist
-                                                            eprintln!(
-                                                                "Fail to delete task entry from database! {e:?}"
-                                                            );
-                                                        }
-                                                        break;
-                                                    },
-                                                    BlenderEvent::Error(e) => {
-                                                        eprintln!("Received Blender Error: {e:?}");
-                                                        break
-                                                    },
-                                                }
-                                            },
-                                            None => {
-                                                eprintln!("Received None from Blender loop! Breaking");
-                                                break
-                                            }
-                                        }
-                                    }
-                                }
+                            // this begins the render job.
+                            Some(task_record) => {
+                                // TODO: Future work Add a handler hook. 
+                                // Update itself, and assign a job handler.
+                                self.subscribe_to_render_job(task_record, &event, &mut alter_controller, &render_db).await;
                             }
-                            None => match event.send(CmdCommand::RequestTask).await {
-                                Ok(_) => {
-                                    sleep(Duration::from_secs(5u64)).await;
-                                }
-                                Err(e) => {
+                            None => {
+                                if let Err(e) = event.send(CmdCommand::RequestTask).await {
                                     eprintln!("Error fail to send command to backend! {e:?}");
-                                    sleep(Duration::from_secs(5u64)).await;
                                 }
+                                break;
                             },
                         }
                     }
                     Err(e) => {
-                        eprintln!("Issue polling task from db: {e:?}");
-                        match event.send(CmdCommand::RequestTask).await {
-                            Ok(_) => {
-                                sleep(Duration::from_secs(5u64)).await;
-                            }
-                            Err(e) => {
-                                eprintln!("Fail to send command to network! {e:?}");
-                            }
-                        }
+                        // This means there's something wrong with this task?
+                        todo!("Please handle these errors: {e:?}");
+                        // match &event.send(CmdCommand::RequestTask).await {
+                        //     Ok(_) => {
+                        //         sleep(Duration::from_secs(5u64)).await;
+                        //     }
+                        //     Err(e) => {
+                        //         eprintln!("Fail to send command to network! {e:?}");
+                        //     }
+                        // }
                     }
                 };
             }
         });
 
         // run cli mode in loop
+        // let service_handler = 
         loop {
             select! {
                 net_event = event_receiver.recv() => match net_event {
-                    Some(event) => self.handle_net_event(&mut client, event).await,
+                    Some(event) => {
+                        &self.handle_net_event(&mut client, event).await;
+                        ()
+                    },
                     None => return Err(NetworkError::Invalid),
                 },
                 msg = command.recv() => match msg {
-                    Some(cmd) => self.handle_command(&mut client, cmd).await,
+                    Some(cmd) => {
+                        &self.handle_command(&mut client, cmd).await;
+                        ()
+                    },
                     _ => (),
                 }
             }

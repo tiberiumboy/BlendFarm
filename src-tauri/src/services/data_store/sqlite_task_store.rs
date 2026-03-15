@@ -6,9 +6,10 @@ use crate::{
         with_id::WithId,
     },
 };
-use sqlx::{FromRow, SqlitePool, types::Uuid};
+use sqlx::{FromRow, SqlitePool, query, query_as, types::Uuid};
 use std::str::FromStr;
 
+// Is this how we can make this connection arc across threads?
 pub struct SqliteTaskStore {
     conn: SqlitePool,
 }
@@ -50,19 +51,17 @@ impl TaskDAO {
 #[async_trait::async_trait]
 impl TaskStore for SqliteTaskStore {
     async fn add_task(&self, task: Task) -> Result<CreatedTaskDto, TaskError> {
-        let sql = r"INSERT INTO tasks(id, job_id, job, start, end) 
-            VALUES($1, $2, $3, $4, $5)";
+        // let sql = ;
         let id = Uuid::new_v4();
         let job = serde_json::to_string::<Job>(task.as_ref())
             .expect("Should be able to convert job into json");
 
         let job_id = AsRef::<Uuid>::as_ref(&task).to_string();
-        let _ = sqlx::query(sql)
-            .bind(id.to_string())
-            .bind(job_id)
-            .bind(job)
-            .bind(&task.start)
-            .bind(&task.end)
+        
+        // todo see if there's a better way to handle sqlite query?
+        let _ = query!(
+            r"INSERT INTO tasks(id, job_id, job, start, end) 
+            VALUES($1, $2, $3, $4, $5)", id, job_id, job, task.start, task.end )
             .execute(&self.conn)
             .await
             .map_err(|e| TaskError::DatabaseError(e.to_string()))?;
@@ -74,16 +73,9 @@ impl TaskStore for SqliteTaskStore {
     async fn poll_task(&self) -> Result<Option<CreatedTaskDto>, TaskError> {
         // fetch next available task to work on
         // TODO: Implement creation date to order by
-        let query = sqlx::query_as!(
-            TaskDAO,
-            r"
-            SELECT id, job_id, job, start, end
-            FROM tasks 
-            LIMIT 1
-            "
-        );
-
-        let result = query
+        let result = query_as!( TaskDAO,
+                r"SELECT id, job_id, job, start, end FROM tasks LIMIT 1"
+            )
             .fetch_optional(&self.conn)
             .await
             .map_err(|e| TaskError::DatabaseError(e.to_string()))?;

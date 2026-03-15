@@ -12,6 +12,7 @@ use futures::channel::oneshot::{self};
 use libp2p::{Multiaddr, PeerId};
 use libp2p_request_response::ResponseChannel;
 use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::error::SendError;
 
 // Network Controller interfaces network service.
 #[derive(Clone)]
@@ -41,15 +42,12 @@ impl Controller {
         }
     }
 
-    pub(crate) async fn subscribe(&mut self, topic: &str) -> Result<(), Box<dyn Error + Send>> {
+    pub(crate) async fn subscribe(&mut self, topic: &str) -> Result<(), SendError<Command>> {
         // TODO: find a better way to get around to_owned(), but for now focus on getting this application to work.
         let cmd = Command::Subscribe {
             topic: topic.to_owned(),
         };
-        if let Err(e) = self.sender.send(cmd).await {
-            eprintln!("Fail to subscribe? {e:}");
-        }
-        Ok(())
+        self.sender.send(cmd).await
     }
 
     #[allow(dead_code)]

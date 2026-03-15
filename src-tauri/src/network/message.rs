@@ -1,5 +1,6 @@
 use blender::models::event::BlenderEvent;
 use futures::channel::oneshot::{self};
+use libp2p::gossipsub::TopicHash;
 use libp2p::{Multiaddr, PeerId};
 use libp2p_request_response::{OutboundRequestId, ResponseChannel};
 use serde::{Deserialize, Serialize};
@@ -123,12 +124,19 @@ pub enum StatusEvent {
     Signal(String),
 }
 
+#[derive(Debug)]
+pub(crate) enum ChannelStatus {
+    Joined(PeerId, TopicHash),
+    Disconnected(PeerId, TopicHash),
+}
+
 // Received network events.
 #[derive(Debug)]
 pub enum Event {
     // Don't think I need this anymore, trying to rely on DHT for node availability somehow?
     // TODO: See about utilizing DHT instead of this? How can I get event from DHT?
     Discovered(PeerId, Multiaddr),
+    Channel(ChannelStatus),
     NodeStatus(NodeEvent),
     InboundRequest {
         request: String,
