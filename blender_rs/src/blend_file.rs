@@ -1,6 +1,5 @@
 use std::{
     fs,
-    net::SocketAddrV4,
     num::ParseIntError,
     path::{Path, PathBuf},
 };
@@ -12,12 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     blender::{BlenderError, Frame},
     models::{
-        blender_scene::{BlenderScene, Camera, Sample, SceneName},
-        engine::Engine,
-        format::Format,
-        peek_response::PeekResponse,
-        render_setting::{FrameRate, RenderSetting},
-        window::Window,
+        blender_scene::{BlenderScene, Camera, Sample, SceneName}, config::BlenderConfiguration, /*engine::Engine, */ format::Format, peek_response::PeekResponse, render_setting::{FrameRate, RenderSetting}, window::Window
     },
     utils::get_config_path,
 };
@@ -33,7 +27,7 @@ pub struct SceneInfo {
     fps: FrameRate,
     sample: Sample,
     output: PathBuf,
-    engine: Engine,
+    // engine: Engine,
 }
 
 impl SceneInfo {
@@ -52,12 +46,12 @@ impl SceneInfo {
             let render = &obj.get("r"); // get render data
 
             // do need to make sure that the engine is correctly set?
-            self.engine = match render.get_string("engine") {
-                x if x.contains("NEXT") => Engine::BLENDER_EEVEE_NEXT,
-                x if x.contains("EEVEE") => Engine::BLENDER_EEVEE,
-                x if x.contains("OPTIX") => Engine::OPTIX,
-                _ => Engine::CYCLES,
-            };
+            // self.engine = match render.get_string("engine") {
+            //     x if x.contains("NEXT") => Engine::BLENDER_EEVEE_NEXT,
+            //     x if x.contains("EEVEE") => Engine::BLENDER_EEVEE,
+            //     x if x.contains("OPTIX") => Engine::OPTIX,
+            //     _ => Engine::CYCLES,
+            // };
 
             self.sample = obj.get("eevee").get_i32("taa_render_samples");
 
@@ -94,7 +88,7 @@ impl SceneInfo {
             self.render_height,
             self.sample,
             self.fps,
-            self.engine,
+            // self.engine,
             Format::default(),
             Window::default(),
         )
@@ -160,7 +154,7 @@ impl BlendFile {
         })
     }
 
-    pub fn setup_args(&self, socket: &SocketAddrV4) -> Result<Vec<String>, BlenderError> {
+    pub fn setup_args(&self, settings: &BlenderConfiguration) -> Result<Vec<String>, BlenderError> {
         let script_path = get_config_path().join("render.py");
         if !script_path.exists() {
             let data = include_bytes!("./render.py");
@@ -168,19 +162,20 @@ impl BlendFile {
         }
 
         let path = self.to_path().as_os_str().to_os_string();
+        // provide the configuration in json format
+        let content = serde_json::to_string(settings).map_err(|e|BlenderError::InvalidFile(e.to_string()))?;
 
         Ok(vec![
-            // "--factory-startup".to_owned(),
-            // "-noaudio".into(),
+            "--factory-startup".to_owned(),
+            "-noaudio".into(),
             "-b".into(),
-            path.to_str().unwrap().to_owned(),
+            fs::canonicalize(path).unwrap().to_str().unwrap_or_default().to_owned(),
             "-P".into(),
             script_path.to_str().unwrap().into(),
             "--".into(),
-            "-i".into(),
-            socket.ip().to_string(),
-            "-p".into(),
-            socket.port().to_string(),
+            "-c".into(),
+            // does this handle escaped characters?
+            content,
         ])
     }
 

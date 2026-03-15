@@ -13,16 +13,15 @@
 */
 // May Subject to change.
 use crate::{
-    blend_file::BlendFile, blender::Frame, models::{config::BlenderConfiguration, engine::Engine, format::Format, peek_response::PeekResponse}
+    blend_file::BlendFile, blender::Frame, models::{config::BlenderConfiguration, /* engine::Engine, */ format::Format, peek_response::PeekResponse}
 };
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-
 use super::device::Processor;
 
 // Blender 4.2 introduce a new enum called BLENDER_EEVEE_NEXT, which is currently handle in python file atm.
-const EEVEE_SWITCH: Version = Version::new(4, 2, 0);
+// const EEVEE_SWITCH: Version = Version::new(4, 2, 0);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum HardwareMode {
@@ -58,25 +57,17 @@ impl Args {
     }
 
     /// Args are user provided value - this should not correlate to the machine's hardware (CUDA/OPTIX/GPU usage)
-    pub fn parse_from(&self, version: &Version) -> BlenderConfiguration {
-        let info: PeekResponse = self.file.peek_response(Some(version));
+    pub fn parse_from(&self, version: Option<&Version>) -> BlenderConfiguration {
+        let info: PeekResponse = self.file.peek_response(version);
         BlenderConfiguration::new(
             self.output.clone(),
             info.current.clone(),
             self.processor.clone(),
             self.mode.clone(),
             info.current.render_setting.sample,
-            match info.current.render_setting.engine {
-                Engine::BLENDER_EEVEE | Engine::BLENDER_EEVEE_NEXT => {
-                    if version.ge(&EEVEE_SWITCH) {
-                        Engine::BLENDER_EEVEE_NEXT
-                    } else {
-                        Engine::BLENDER_EEVEE
-                    }
-                }
-                _ => info.current.render_setting.engine
-            },
             info.current.render_setting.format,
+            self.start,
+            self.end
         )
     }
 }

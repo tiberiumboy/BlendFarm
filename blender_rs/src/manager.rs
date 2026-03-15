@@ -108,10 +108,9 @@ impl Manager {
     }
 
     // Save the configuration, and restore to Unmodified state
-    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), ManagerError> {
+    pub fn save(&self) -> Result<(), ManagerError> {
         let data = serde_json::to_string(&self.config).map_err(ManagerError::SerdeJson)?;
-        fs::write(path, data).map_err(ManagerError::IoError)?;
-        Ok(())
+        fs::write(self.config.get_config_path(), data).map_err(ManagerError::IoError)
     }
 
     #[deprecated(note = "Provide me an example where this would be useful?")]

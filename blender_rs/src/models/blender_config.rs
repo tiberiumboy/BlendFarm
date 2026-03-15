@@ -14,6 +14,9 @@ const SETTINGS_NAME: &str = "BlenderManager.json";
 // rename this to manager config somehow?
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BlenderConfig {
+    #[serde(skip)]
+    inner: PathBuf,
+
     /// List of installed blenders
     blenders: HashMap<Version, Blender>,
 
@@ -59,10 +62,15 @@ impl BlenderConfig {
     //     }
     // }
 
+    pub fn get_config_path(&self) -> &PathBuf {
+        &self.inner
+    }
+
     pub fn load(file_path: impl AsRef<Path>) -> Result<BlenderConfig, Error> {
         let content = fs::read_to_string(&file_path)?;
         let mut config = serde_json::from_str::<BlenderConfig>(&content)?;
         config.remove_invalid_blender();
+        config.inner = file_path.as_ref().to_path_buf();
         Ok(config)
     }
 
@@ -154,7 +162,9 @@ impl Default for BlenderConfig {
         if let Err(e) = fs::create_dir_all(&install_path) {
             eprintln!("Unable to create {e:?}");
         }
+        
         Self {
+            inner: Self::get_default_config_path(), 
             blenders: Default::default(),
             install_path,
         }

@@ -58,7 +58,6 @@ TODO:
 
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
-use crate::models::config::BlenderConfiguration;
 use crate::models::event::BlenderEvent;
 
 #[cfg(test)]
@@ -67,10 +66,9 @@ use lazy_regex::regex_captures;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::env::consts;
-use std::net::{Ipv4Addr, SocketAddrV4};
 use std::num::ParseIntError;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use tokio::task::JoinHandle;
 use std::{
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
@@ -78,8 +76,6 @@ use std::{
 };
 use thiserror::Error;
 use tokio::spawn;
-use xml_rpc::server::Server;
-use xml_rpc::Value;
 
 pub type Frame = i32;
 
@@ -170,10 +166,13 @@ impl Blender {
         let output = Command::new(exec_path)
             .arg("-v")
             .output()
-            .map_err(|_| BlenderError::ExecutableInvalid)?;
+            .map_err(|e| {
+                eprintln!("Received output error(s)? {e:?}");
+                BlenderError::ExecutableInvalid
+            })?;
         let stdout = String::from_utf8(output.stdout).unwrap();
         match regex_captures!(
-            r"\(Blender (?<major>[0-9]).(?<minor>[0-9]).(?<patch>[0-9])\)",
+            r"Blender (?<major>[0-9]).(?<minor>[0-9]).(?<patch>[0-9])",
             &stdout
         ) {
             Some((_, major, minor, patch)) => {
@@ -184,7 +183,10 @@ impl Blender {
                 let blender = Self::new(exec_path.to_path_buf(), version);
                 Ok(blender)
             }
-            None => Err(BlenderError::ExecutableInvalid),
+            None => {
+                eprintln!("Found no regex matches! {stdout:?}");
+                Err(BlenderError::ExecutableInvalid)
+            },
         }
     }
 
@@ -332,16 +334,12 @@ impl Blender {
     pub async fn render(
         &self,
         args: Args,
-        // get_next_frame: Handler, // worry about IPC between blender and rust for future impl. Instead we want to render exactly what the argument is providing us.
     ) -> Result<Receiver<BlenderEvent>, BlenderError> {
-        let port = 8081;
-        let socket = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
-
         // I'm not even sure why we have two mpsc here for setup_listening_blender to use?
         let (signal, listener) = mpsc::channel::<BlenderEvent>();
 
-        let settings = args.parse_from(&self.version).to_owned();
-        self.setup_listening_server(settings, listener, &socket)
+        // let settings = args.parse_from(&self.version).to_owned();
+        let listening_handle = self.setup_listening_server(listener)
             .await?;
 
         let (rx, tx) = mpsc::channel::<BlenderEvent>();
@@ -349,10 +347,12 @@ impl Blender {
 
         spawn(async move {
             if let Err(e) = &blender
-                .setup_listening_blender(&args, rx, signal, &socket)
+                .setup_listening_blender(&args, rx, signal)
                 .await
             {
-                println!("{e:?}");
+                // where can we get this log info?
+                println!("Received blender error from setup listening blender logs {e:?}");
+                listening_handle.abort();
             }
         });
 
@@ -360,99 +360,32 @@ impl Blender {
         Ok(tx)
     }
 
+    #[inline]
     async fn setup_listening_server(
-        &self,
-        settings: BlenderConfiguration,
+        &self, 
         listener: Receiver<BlenderEvent>,
-        socket: &SocketAddrV4,
-        // _get_next_frame: Box<dyn FnMut(Params) -> XmlResponse + Send + Sync>,
-    ) -> Result<(), BlenderError> {
-        // Read here - https://en.wikipedia.org/wiki/XML-RPC#Usage
-        /*
-        In XML-RPC, a client performs an RPC by sending an HTTP request
-        to a server that implements XML-RPC and receives the HTTP response.
-
-        A call can have multiple parameters and one result.
-        The protocol defines a few data types for the parameters and result.
-        Some of these data types are complex, i.e. nested. For example,
-            you can have a parameter that is an array of five integers.
-
-        The parameters/result structure and the set of data types are meant to
-        mirror those used in common programming languages.
-
-        Identification of clients for authorization purposes can be achieved
-        using popular HTTP security methods. Basic access authentication
-        can be used for identification and authentication.
-
-        In comparison to RESTful protocols, where resource representations (documents)
-        are transferred, XML-RPC is designed to call methods. The practical difference
-        is just that XML-RPC is much more structured, which means common library code
-        can be used to implement clients and servers and there is less design and
-        documentation work for a specific application protocol.
-
-        [citation needed] One salient technical difference between typical RESTful
-        protocols and XML-RPC is that many RESTful protocols use the HTTP URI
-        for parameter information, whereas with XML-RPC, the URI just identifies the server.
-        */
-
-        let global_settings = Arc::new(settings);
-        // I think in order for me to make this working example, I need to create a struct that is memory bound to different threads, and read when available. This isolate mutation of variable and object that needs to be thread-safetly.
-        // TODO: remove expect() once we have this working again.
-        let mut server = Server::new(socket.port()).expect("Unable to open socket for xml_rpc!");
-
-        server.register(
-            "next_render_queue".to_owned(),
-            Box::new(|_| {
-                // where/how can I tell my render counts?
-                Ok(Value::Int(1).into())
-            }),
-        );
-        /*
-        server.register("next_render_queue".to_owned(), move |params| match get_next_frame() {
-            Some(frame) => Ok(frame),
-
-            // this is our only way to stop python script.
-            None => Err(Fault::new(1, "No more frames to render!")),
-        });
-        */
-
-        // let me understand this better.
-        // In this listening server, I'm setting up a xml-rpc server to listen to all of the blender python script.
-        // When blender calls fetch_info, we provide back the global_settings we have from job information.
-        server.register(
-            "fetch_info".to_owned(),
-            Box::new(move |_| {
-                // How come we're using unwrap? seems dangerous and sketchy
-                match serde_json::to_string(&*global_settings.clone()) {
-                    Ok(setting) => Ok(Value::String(setting).into()),
-                    Err(e) => Err(Value::fault(-1, e.to_string())),
-                }
-            }),
-        );
-
-        // spin up XML-RPC server
-        spawn(async move {
+    ) -> Result<JoinHandle<()>, BlenderError> {
+        let handle = spawn(async move {
             loop {
                 // TODO: The logic here doesn't make much sense for this class / program to handle and substitute the state. 
                 // I believe this function was design to stop the listening server if blender was completed or closed unexpected. 
                 // We don't have any other state to control and govern this threaded task.
                 // if the program shut down or if we've completed the render, then we should stop the server
-                match listener.try_recv() {
+                match listener.recv() {
                     Ok(BlenderEvent::Exit) => break,
-                    Err(e) => {
-                        // Received "Empty"?
-                        println!("Something happen? {e:?}");
-                        server.poll()
+                    Ok(status) => {
+                        println!("Listener received unconditionally: {status:?}");
                     }
-                    e => {
-                        println!("Listener received unconditionally: {e:?}");
-                        server.poll()
+                    Err(_e) => {
+                        // TODO: Find a way to switch on verbosity to print these kind of logs.
+                        // eprintln!("Received Error: {_e:?}");
+                        break;  
                     }
                 }
             }
         });
 
-        Ok(())
+        Ok(handle)
     }
 
     // setup xml-rpc listening server for blender's IPC
@@ -461,9 +394,10 @@ impl Blender {
         args: &Args,
         tx: Sender<BlenderEvent>,   // Transmission to Application subscribing to this class logger
         signal: Sender<BlenderEvent>,   // Used to stop the listening service.
-        socket: &SocketAddrV4,
     ) -> Result<(), BlenderError> {
-        let col = &args.file.setup_args(socket)?;
+        // TODO: Eventually in the future update, we can ask for the user's override version instead of blender file's last opened version.
+        let settings = args.parse_from(None);
+        let col = &args.file.setup_args(&settings)?;
         // TODO: Find a way to remove unwrap()
         // TODO: How do I know if the program has successfully exit? what is keeping the stream open?
         let stdout = Command::new(self.get_executable())
@@ -480,9 +414,10 @@ impl Blender {
         let mut frame: i32 = 0;
 
         reader.lines().for_each(|line| {
-            if let Ok(line) = line {
-                Self::handle_blender_stdio(line, &mut frame, &tx, &signal);
-            };
+            match line {
+                Ok(line) => Self::handle_blender_stdio(line, &mut frame, &tx, &signal),
+                Err(e) => eprintln!("Received error from Blender Bufreader: {e:?}"),
+            }
         });
 
         Ok(())
@@ -575,8 +510,6 @@ impl Blender {
                 } else {
                     tx.send(BlenderEvent::Log(line)).unwrap();
                 }
-                
-
             }
 
             // Blender prints out reading blender files, here we'll just log the info anyway (We already have the information)

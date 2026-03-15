@@ -12,10 +12,10 @@ import sys # used for argparse - does not work well with blender!
 from multiprocessing import cpu_count
 
 def eprint(msg):
-    print("EXCEPTION:" + str(msg) + "\n", flush=True)
+    print("EXCEPTION: %s\n" % str(msg), flush=True)
 
 def log(msg):
-    print("LOG:" + str(msg) + "\n", flush=True)
+    print("LOG: %s\n" % str(msg), flush=True)
 
 # Feature thing, For now keep it dynamic.
 # @dataclass
@@ -103,20 +103,21 @@ def setRenderSettings(scn, config):
 #Renders provided settings with id to path
 def renderFrame(scn, config):
     # Set frame and output
-    scn.frame_start = config["start"],
-    scn.frame_end = config["end"],
+    # ref: https://docs.blender.org/api/current/bpy.types.Scene.html#bpy.types.Scene.frame_start 
+    scn.frame_start = int(config["Start"])
+    scn.frame_end = int(config["End"])
     
     # We must override the output path to a valid known location
-    scn.render.filepath = config["Output"] + '/' + str(frame).zfill(5)
+    scn.render.filepath = config["Output"] + '''/#####''' 
 
     # Render
     id = str(config["TaskID"])
     # TODO: How do I stream this? Why do I have to "flush"?
-    print("RENDER_START: " + id + "\n", flush=True)
+    print("RENDER_START: %s\n" % id, flush=True)
     # TODO: Research what use_viewport does? What about animation?
     bpy.ops.render.render(animation=True, write_still=True, use_viewport=False)
     # TODO: How do I stream this? Why do I have to "flush"?
-    print("SUCCESS: " + id + "\n", flush=True)
+    print("SUCCESS: %s\n" % id, flush=True)
 
 def main(config) -> None:
     # proxy = xmlrpc.client.ServerProxy("http://%s:%s" % (ip, port))

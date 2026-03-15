@@ -2,6 +2,7 @@ use blender::blend_file::BlendFile;
 use blender::blender::Manager;
 use blender::models::{args::Args, event::BlenderEvent};
 use semver::Version;
+use std::fs;
 use std::path::PathBuf;
 
 async fn render_with_manager() {
@@ -35,7 +36,7 @@ async fn render_with_manager() {
     // Here we ask for the output path, for now we set our path in the same directory as our executable path.
     // This information will be display after render has been completed successfully.
     // TODO: BUG! This will save to root of C:/ on windows platform! Need to change this to current working dir
-    let output = PathBuf::from("./examples/assets/");
+    let output = fs::canonicalize( PathBuf::from("./examples/assets/")).expect("Must be able to collapse to absolute path!");
 
     // Create blender argument
     let args = Args::new(blend_file, output, 2, 10);
@@ -67,6 +68,7 @@ async fn render_with_manager() {
             }
             BlenderEvent::Exit => {
                 println!("[Exit]");
+                break;
             }
             _ => {
                 println!("Unhandled blender status! {:?}", status);

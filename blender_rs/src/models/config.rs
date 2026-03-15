@@ -1,8 +1,9 @@
+use crate::blender::Frame;
+
 use super::{
     args::HardwareMode,
     blender_scene::{BlenderScene, Sample},
     device::Processor,
-    engine::Engine,
     format::Format,
 };
 use serde::{Deserialize, Serialize};
@@ -22,8 +23,9 @@ pub struct BlenderConfiguration {
     processor: Processor,
     hardware_mode: HardwareMode,
     sample: Sample,
-    pub(crate) engine: Engine,
     format: Format,
+    start: Frame,
+    end: Frame,
     // Py:- Value assign to use_crop_to_border, additionally, false set film_transparent true
     crop: bool,
 }
@@ -35,8 +37,9 @@ impl BlenderConfiguration {
         processor: Processor,
         hardware_mode: HardwareMode,
         samples: Sample,
-        engine: Engine,
         format: Format,
+        start: Frame,
+        end: Frame,
     ) -> Self {
         let cores = match std::thread::available_parallelism() {
             Ok(f) => f.get(),
@@ -53,9 +56,10 @@ impl BlenderConfiguration {
             processor,
             hardware_mode,
             sample: samples,
-            engine,
             format,
             crop: false,
+            start,
+            end
         }
     }
 }

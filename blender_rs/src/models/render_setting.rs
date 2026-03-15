@@ -1,5 +1,5 @@
 use crate::blender::Frame;
-use super::{blender_scene::Sample, engine::Engine, format::Format, window::Window};
+use super::{blender_scene::Sample, /* engine::Engine, */ format::Format, window::Window};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -19,7 +19,7 @@ pub struct RenderSetting {
     #[serde(rename = "FPS")]
     pub fps: FrameRate,
     /// What render engine to use (Optix/CUDA)
-    pub engine: Engine,
+    // pub engine: Engine,
     /// Image format
     pub format: Format,
     /// Borders
@@ -31,14 +31,14 @@ pub struct RenderSetting {
 }
 
 impl RenderSetting {
-    pub fn new(output: PathBuf, width: Frame, height: Frame, sample: Sample, fps: FrameRate, engine: Engine, format: Format, border: Window ) -> Self {
+    pub fn new(output: PathBuf, width: Frame, height: Frame, sample: Sample, fps: FrameRate, /* engine: Engine,*/ format: Format, border: Window ) -> Self {
         Self {
             output,
             width,
             height,
             sample,
             fps,
-            engine,
+            // engine,
             format,
             border
         }
