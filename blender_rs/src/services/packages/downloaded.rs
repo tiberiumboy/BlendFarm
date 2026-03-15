@@ -1,10 +1,11 @@
 use crate::services::category::BlenderCategoryError;
 use crate::services::packages::bundle::Bundle;
-use crate::services::packages::package::PackageT;
+use crate::services::packages::package::{Package, PackageT};
 use crate::utils::MACOS_PATH;
 use crate::{services::packages::download_link::DownloadLink, utils::get_extension};
 use semver::Version;
 use serde::{Deserialize, Serialize};
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 use std::env::consts::OS;
 use std::io::Error as IoError;
 use std::path::{Path, PathBuf};
@@ -16,19 +17,29 @@ pub(crate) struct Downloaded {
 }
 
 impl Downloaded {
+    // return the path of execution entry point (mac specific)
     fn get_executable_path(&self) -> Result<PathBuf, BlenderCategoryError> {
+        let path = self.get_content_path()?;
+        // TODO: Need to make a decision on this;
+        // Do we want to return the absolute executable path, or path to application source?
+        #[cfg(target_os = "macos")]
+        return Ok(path.join("Blender.app").join(MACOS_PATH));
+        #[cfg(target_os = "linux")]
+        return Ok(path.join("blender"));
+        #[cfg(target_os = "windows")]
+        return Ok(path.join("Blender.exe"));
+    }
+
+    // return the destination of application source and bundle (mac specific)
+    fn get_content_path(&self) -> Result<PathBuf, BlenderCategoryError> {
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+        return Err(BlenderCategoryError::UnsupportedOS(OS.into()));
+
         let ext = get_extension()
             .map_err(|e| IoError::other(format!("Cannot run blender under this OS: {}!", e)))?;
-        let folder_name = self.origin.file_name.replace(&ext, ""); // remove the extension
-        let parent_folder = self.content.parent().unwrap().join(folder_name);
-
-        // per different operating system, we need to craft a path that points to blender executable. It various across all operating system.
-        match OS {
-            "macos" => Ok(parent_folder.join("Blender.app").join(MACOS_PATH)),
-            "linux" => Ok(parent_folder.join("blender")),
-            "windows" => Ok(parent_folder.join("Blender.exe")),
-            _ => Err(BlenderCategoryError::UnsupportedOS(OS.into())),
-        }
+        // A hack- get_extension does not include period, so we need to include the period to generate the folder name correctly
+        let folder_name = self.origin.file_name.replace(&format!(".{ext}"), ""); // remove the extension
+        Ok(self.content.parent().unwrap().join(folder_name))
     }
 
     // Currently being used for MacOS (I wonder if I need to do the same for windows?)
@@ -53,7 +64,7 @@ impl Downloaded {
     #[cfg(target_os = "linux")]
     fn extract_content(
         download_path: impl AsRef<Path>,
-        folder_name: &str,
+        folder_name: &str, // TODO: Change this to destination instead.
     ) -> Result<PathBuf, IoError> {
         use std::fs::File;
         use tar::Archive;
@@ -79,31 +90,30 @@ impl Downloaded {
         Ok(destination.join(folder_name).join("blender"))
     }
 
-    // TODO: Test this on macos
     /// Mounts dmg target to volume, then extract the contents to a new folder using the folder_name,
     /// lastly, provide a path to the blender executable inside the content.
     #[cfg(target_os = "macos")]
     fn extract_content(
         download_path: impl AsRef<Path>,
-        folder_name: &str,
+        destination: impl AsRef<Path>,
     ) -> Result<PathBuf, IoError> {
         use crate::utils::MACOS_PATH;
         use dmg::Attach;
         use std::fs;
+        const APP_NAME: &str = "Blender.app";
 
         let source = download_path.as_ref();
-        let dst = source // generate destination path
-            .parent()
-            .unwrap()
-            .join(folder_name)
-            .join("Blender.app");
+        let dst = destination.as_ref();
 
         if !dst.exists() {
             let _ = fs::create_dir_all(&dst)?;
         }
 
+        // now append the app name and set that as our unpack destination.
+        let dst = dst.join(APP_NAME);
+
         let dmg = Attach::new(&source).attach()?; // attach dmg to volume
-        let src = PathBuf::from(&dmg.mount_point.join("Blender.app")); // create source path from mount point
+        let src = PathBuf::from(&dmg.mount_point.join(APP_NAME)); // create source path from mount point
         Self::copy_dir_all(&src, &dst)?; // Extract content inside Blender.app to destination
         dmg.detach()?; // detach dmg volume
         Ok(dst.join(MACOS_PATH)) // return path with additional path to invoke blender directly
@@ -113,7 +123,7 @@ impl Downloaded {
     #[cfg(target_os = "windows")]
     fn extract_content(
         download_path: impl AsRef<Path>,
-        folder_name: &str,
+        folder_name: &str, // TODO: Change this to destination instead.
     ) -> Result<PathBuf, Error> {
         use std::fs::File;
         use zip::ZipArchive;
@@ -155,14 +165,21 @@ impl Downloaded {
         Err(self)
     }
 
-    pub fn extract(self, destination: PathBuf) -> Result<Bundle, IoError> {
-        let ext = get_extension()
-            .map_err(|e| IoError::other(format!("Cannot run blender under this OS: {}!", e)))?;
-        // create a target folder name to extract content to.
-        let name = &self.origin.file_name;
-        let folder_name = &name.replace(&ext, "");
-        let executable_path = Self::extract_content(destination, folder_name)?;
-        Ok(Bundle::new(self, executable_path))
+    pub fn extract(self) -> Package {
+        let destination = match self.get_content_path() {
+            Ok(path) => path,
+            Err(e) => {
+                eprintln!("Unable to find content path! {e:?}");
+                return Package::Downloaded(self);
+            }
+        };
+        match Self::extract_content(&self.content, destination) {
+            Ok(executable_path) => Package::Bundle(Bundle::new(self, executable_path)),
+            Err(e) => {
+                eprintln!("Unable to Extract Contents: {e:?}");
+                Package::Downloaded(self)
+            }
+        }
     }
 }
 

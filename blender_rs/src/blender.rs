@@ -65,10 +65,8 @@ use blend::Instance;
 use lazy_regex::regex_captures;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::env::consts;
 use std::num::ParseIntError;
 use std::process::{Command, Stdio};
-use tokio::task::JoinHandle;
 use std::{
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
@@ -76,6 +74,7 @@ use std::{
 };
 use thiserror::Error;
 use tokio::spawn;
+use tokio::task::JoinHandle;
 
 pub type Frame = i32;
 
@@ -98,12 +97,12 @@ pub enum BlenderError {
     ParseInt(#[from] ParseIntError),
 }
 
-// [Note] In the sense of PartialOrd, Ord - Blender's executable would not matter if the version is identical. 
+// [Note] In the sense of PartialOrd, Ord - Blender's executable would not matter if the version is identical.
 /// Blender structure to hold path to executable and version of blender installed.
 /// Pretend this is the wrapper to interface with the actual blender program.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Blender {
-    /// Path to blender executable on the system. 
+    /// Path to blender executable on the system.
     executable: PathBuf,
     /// Version of blender installed on the system.
     version: Version,
@@ -146,9 +145,7 @@ impl Blender {
 
     #[inline]
     fn handle_parse(names: &str) -> Result<u64, BlenderError> {
-        names
-            .parse()
-            .map_err(BlenderError::ParseInt)
+        names.parse().map_err(BlenderError::ParseInt)
     }
 
     /// Obtain the version by invoking version command to blender directly.
@@ -163,13 +160,10 @@ impl Blender {
     ///  This error also serves where the executable is unable to provide the blender version.
     fn check_version(executable_path: impl AsRef<Path>) -> Result<Self, BlenderError> {
         let exec_path = executable_path.as_ref();
-        let output = Command::new(exec_path)
-            .arg("-v")
-            .output()
-            .map_err(|e| {
-                eprintln!("Received output error(s)? {e:?}");
-                BlenderError::ExecutableInvalid
-            })?;
+        let output = Command::new(exec_path).arg("-v").output().map_err(|e| {
+            eprintln!("Received output error(s)? {e:?}");
+            BlenderError::ExecutableInvalid
+        })?;
         let stdout = String::from_utf8(output.stdout).unwrap();
         match regex_captures!(
             r"Blender (?<major>[0-9]).(?<minor>[0-9]).(?<patch>[0-9])",
@@ -186,7 +180,7 @@ impl Blender {
             None => {
                 eprintln!("Found no regex matches! {stdout:?}");
                 Err(BlenderError::ExecutableInvalid)
-            },
+            }
         }
     }
 
@@ -235,7 +229,7 @@ impl Blender {
     /// ```
     pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self, BlenderError> {
         use crate::utils::MACOS_PATH;
-        
+
         // check and verify that the executable exist.
         // first line for validating blender executable.
         let path = executable.as_ref();
@@ -243,8 +237,8 @@ impl Blender {
         // macOS is special. To invoke the blender application, I need to navigate inside Blender.app, which is an app bundle that contains stuff to run blender.
         // Command::Process needs to access the content inside app bundle to perform the operation correctly.
         // To do this - I need to append additional path args to correctly invoke the right application for this to work.
-        // TODO: Verify this works for Linux/window OS?
-        let path = if consts::OS == "macos" && !&path.ends_with(MACOS_PATH) {
+        #[cfg(target_os = "macos")]
+        let path = if !&path.ends_with(MACOS_PATH) {
             &path.join(MACOS_PATH)
         } else {
             path
@@ -331,25 +325,18 @@ impl Blender {
     /// ```
     // so instead of just returning the string of render result or blender error, we'll simply use the single producer to produce result from this class.
     // issue here is that we need to lock thread. If we are rendering, we need to be able to call abort.
-    pub async fn render(
-        &self,
-        args: Args,
-    ) -> Result<Receiver<BlenderEvent>, BlenderError> {
+    pub async fn render(&self, args: Args) -> Result<Receiver<BlenderEvent>, BlenderError> {
         // I'm not even sure why we have two mpsc here for setup_listening_blender to use?
         let (signal, listener) = mpsc::channel::<BlenderEvent>();
 
         // let settings = args.parse_from(&self.version).to_owned();
-        let listening_handle = self.setup_listening_server(listener)
-            .await?;
+        let listening_handle = self.setup_listening_server(listener).await?;
 
         let (rx, tx) = mpsc::channel::<BlenderEvent>();
         let blender = self.clone();
 
         spawn(async move {
-            if let Err(e) = &blender
-                .setup_listening_blender(&args, rx, signal)
-                .await
-            {
+            if let Err(e) = &blender.setup_listening_blender(&args, rx, signal).await {
                 // where can we get this log info?
                 println!("Received blender error from setup listening blender logs {e:?}");
                 listening_handle.abort();
@@ -362,13 +349,13 @@ impl Blender {
 
     #[inline]
     async fn setup_listening_server(
-        &self, 
+        &self,
         listener: Receiver<BlenderEvent>,
     ) -> Result<JoinHandle<()>, BlenderError> {
         let handle = spawn(async move {
             loop {
-                // TODO: The logic here doesn't make much sense for this class / program to handle and substitute the state. 
-                // I believe this function was design to stop the listening server if blender was completed or closed unexpected. 
+                // TODO: The logic here doesn't make much sense for this class / program to handle and substitute the state.
+                // I believe this function was design to stop the listening server if blender was completed or closed unexpected.
                 // We don't have any other state to control and govern this threaded task.
                 // if the program shut down or if we've completed the render, then we should stop the server
                 match listener.recv() {
@@ -379,7 +366,7 @@ impl Blender {
                     Err(_e) => {
                         // TODO: Find a way to switch on verbosity to print these kind of logs.
                         // eprintln!("Received Error: {_e:?}");
-                        break;  
+                        break;
                     }
                 }
             }
@@ -392,8 +379,8 @@ impl Blender {
     async fn setup_listening_blender(
         &self,
         args: &Args,
-        tx: Sender<BlenderEvent>,   // Transmission to Application subscribing to this class logger
-        signal: Sender<BlenderEvent>,   // Used to stop the listening service.
+        tx: Sender<BlenderEvent>, // Transmission to Application subscribing to this class logger
+        signal: Sender<BlenderEvent>, // Used to stop the listening service.
     ) -> Result<(), BlenderError> {
         // TODO: Eventually in the future update, we can ask for the user's override version instead of blender file's last opened version.
         let settings = args.parse_from(None);
@@ -413,11 +400,9 @@ impl Blender {
         // parse stdout for human to read
         let mut frame: i32 = 0;
 
-        reader.lines().for_each(|line| {
-            match line {
-                Ok(line) => Self::handle_blender_stdio(line, &mut frame, &tx, &signal),
-                Err(e) => eprintln!("Received error from Blender Bufreader: {e:?}"),
-            }
+        reader.lines().for_each(|line| match line {
+            Ok(line) => Self::handle_blender_stdio(line, &mut frame, &tx, &signal),
+            Err(e) => eprintln!("Received error from Blender Bufreader: {e:?}"),
         });
 
         Ok(())
@@ -429,7 +414,7 @@ impl Blender {
         line: String,
         frame: &mut i32,
         tx: &Sender<BlenderEvent>, // Transmission to Application subscribing events produce by this struct
-        signal: &Sender<BlenderEvent>,  // Signal for this class to listen and act upon.
+        signal: &Sender<BlenderEvent>, // Signal for this class to listen and act upon.
     ) {
         match line {
             // TODO: find a more elegant way to parse the string std out and handle invocation action.

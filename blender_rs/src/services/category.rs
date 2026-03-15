@@ -76,11 +76,12 @@ impl BlenderCategory {
         base_url: &Url,
         download_path: impl AsRef<Path>,
     ) -> Result<HashMap<Version, Package>, BlenderCategoryError> {
-        // this function is called everytime fetch is called. This seems to be slowing down the performance for this application usage.
-        let current_arch = get_valid_arch().map_err(BlenderCategoryError::InvalidArch)?;
-        let valid_ext = get_extension().map_err(BlenderCategoryError::UnsupportedOS)?;
+        let current_arch =
+            get_valid_arch().map_err(|e| BlenderCategoryError::InvalidArch(e.into()))?;
+        let valid_ext =
+            get_extension().map_err(|e| BlenderCategoryError::UnsupportedOS(e.into()))?;
 
-        // <a href="(?<url>\w*-(?<major>\d*).(?<minor>\d*).(?<patch>\d*.)-(?<os>\w.*)-(?<arch>\w*)\.(?<ext>.*))">
+        // The rule has changed. The extension will not include a period symbol. Additional period will be treated as extension of extension, e.g. tar.xz
         let iter = regex_captures_iter!(
             r#"<a href="(?<url>\w*-(?<major>\d*).(?<minor>\d*).(?<patch>\d*.)-(?<os>\w.*)-(?<arch>\w*)\.(?<ext>.*))">"#,
             &content
@@ -89,23 +90,24 @@ impl BlenderCategory {
             HashMap::new(),
             |mut map, (_, [url, major, minor, patch, os, arch, ext])| {
                 // Check and see if the extension is valid
-                if ext.ne(&valid_ext) {
+                if ext.ne(valid_ext) {
                     return map;
                 }
 
                 // Must match running operating system.
+                // TODO: Does this matter? We have arch and ext to validate against?
                 if os.ne(consts::OS) {
                     return map;
                 }
 
                 // Compatible with existing archtecture
-                if arch.ne(&current_arch) {
+                if arch.ne(current_arch) {
                     return map;
                 }
 
                 // *filter out any major version 3 or below. We will not be supporting legacy blender at the moment.
                 let major: u64 = match major.parse() {
-                    Ok(v) if v > 3 => v,
+                    Ok(v) if v >= 3 => v,
                     Ok(_) => return map,
                     Err(e) => {
                         eprintln!("{e:?}");
@@ -155,12 +157,7 @@ impl BlenderCategory {
         Ok(links)
     }
 
-    pub fn new(
-        base_url: Url,
-        major: u64,
-        minor: u64,
-        links: HashMap<Version, Package>    
-    ) -> Self {
+    pub fn new(base_url: Url, major: u64, minor: u64, links: HashMap<Version, Package>) -> Self {
         Self {
             base_url,
             major,
@@ -168,11 +165,6 @@ impl BlenderCategory {
             links,
         }
     }
-
-    // Only used in this state.
-    // fn get_parent(&self) -> String {
-    //     format!("Blender{}.{}", self.major, self.minor)
-    // }
 
     // fetch latest version of blender if it's available.
     // TODO: Refactor this class down.

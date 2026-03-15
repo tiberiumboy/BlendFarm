@@ -1,23 +1,39 @@
-use std::{env::consts, path::PathBuf};
+#[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+use std::env::consts::ARCH;
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+use std::env::consts::OS;
+use std::{path::PathBuf, sync::OnceLock};
 
-/// Return extension matching to the current operating system (Only display Windows(.zip), Linux(.tar.xz), or macos(.dmg)).
-// Rely on providing valid extension to use. This seems backward.
-pub(crate) fn get_extension() -> Result<String, String> {
-    match consts::OS {
-        "windows" => Ok(".zip".to_owned()),
-        "macos" => Ok(".dmg".to_owned()),
-        "linux" => Ok(".tar.xz".to_owned()),
-        os => Err(os.to_string()),
-    }
+static EXT: OnceLock<String> = OnceLock::new();
+static ARCH: OnceLock<String> = OnceLock::new();
+
+/// Return extension matching to the current operating system. Windows(zip), Linux(tar.xz), or MacOS(dmg)
+/// This will return extension name without the initial period. Any period is treated as extension of extension (e.g. tar.xz)
+#[inline]
+pub(crate) fn get_extension() -> Result<&'static str, &'static str> {
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    return Err(OS);
+    Ok(&EXT.get_or_init(|| {
+        #[cfg(target_os = "windows")]
+        return "zip".to_owned();
+        #[cfg(target_os = "macos")]
+        return "dmg".to_owned();
+        #[cfg(target_os = "linux")]
+        return "tar.xz".to_owned();
+    }))
 }
 
-/// fetch current architecture (Currently support x86_64 or aarch64 (apple silicon))
-pub(crate) fn get_valid_arch() -> Result<String, String> {
-    match consts::ARCH {
-        "x86_64" => Ok("x64".to_owned()),
-        "aarch64" => Ok("arm64".to_owned()),
-        arch => Err(arch.to_string()),
-    }
+/// Fetch Valid architecture. "x64" or "arm64"(apple silicon)
+#[inline]
+pub(crate) fn get_valid_arch() -> Result<&'static str, &'static str> {
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    return Err(ARCH);
+    Ok(&ARCH.get_or_init(|| {
+        #[cfg(target_arch = "x86_64")]
+        return "x64".to_owned();
+        #[cfg(target_arch = "aarch64")]
+        return "arm64".to_owned();
+    }))
 }
 
 /// Fetch the configuration path for blender.

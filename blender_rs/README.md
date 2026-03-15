@@ -9,12 +9,12 @@ This example demonstrate downloading a copy of blender from the blender foundati
 
 Run
 ```bash
-cargo run --example download <version> [install_path]
+cargo run --example manager exact-download <version>
 # e.g.
-cargo run --example download 4.1.0
+cargo run --example manager exact-download 4.1.0
 ```
 
-For more info, please read [here](./examples/download/README.md).
+For more info, please read [here](./examples/manager/README.md).
 
 ### Render
 This example will first check if you have blender installed, if not, it will ask you to run above examples. 

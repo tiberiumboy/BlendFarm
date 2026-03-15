@@ -4,6 +4,7 @@ use crate::services::packages::package::Package;
 use crate::{blender::ManagerError, page_cache::PageCache};
 use lazy_regex::regex_captures_iter;
 use semver::Version;
+use std::env::consts::{ARCH, OS};
 use std::path::{Path, PathBuf};
 use url::Url;
 
@@ -26,8 +27,21 @@ impl Portal {
         }
     }
 
+    // Only used in this state.
+    #[inline]
+    fn get_parent(major: u64, minor: u64) -> String {
+        format!("Blender{major}.{minor}")
+    }
+
     // function generator for closures in regex patterns.
-    fn generate_blender_category(parent: &Url, url: &str, major: &str, minor: &str, download_path: &Path, cache: &mut PageCache) -> Option<BlenderCategory> {
+    fn generate_blender_category(
+        parent: &Url,
+        url: &str,
+        major: &str,
+        minor: &str,
+        download_path: &Path,
+        cache: &mut PageCache,
+    ) -> Option<BlenderCategory> {
         // create the link for blender category location
         let url = match parent.join(url) {
             Ok(path) => path,
@@ -58,19 +72,25 @@ impl Portal {
             }
         };
 
+        // Append the download path to the category's folder path.
+        // E.g. ~/Downloads/Blender/Blender4.2/
+        let destination_path = download_path.join(Self::get_parent(major, minor));
+
         if let Ok(content) = &cache.fetch_or_update(&url) {
-            if let Ok(links) = BlenderCategory::parse_content(&content, &url, &download_path) {   
-                return Some(BlenderCategory::new(url, major, minor, links))
+            if let Ok(links) = BlenderCategory::parse_content(&content, &url, &destination_path) {
+                return Some(BlenderCategory::new(url, major, minor, links));
             }
         }
         None
     }
 
-    // TODO: Provide descriptions
+    /// This method will fetch the list of blender category that's listed under download.blender.org/releases webpage.
+    /// This helps prefetch information ahead of time for cache lookup. It does require a bit of initial setup to ensure
+    /// files are available and ready to be used. Note we will not download Blender until we receive user invocation to do so.
     pub fn fetch(
         download_path: impl AsRef<Path>,
         cache: &mut PageCache,
-    ) -> Result<Self, ManagerError> {   
+    ) -> Result<Self, ManagerError> {
         // TODO: Remove unwrap(). Could this be made into static/singleton/OnceCell?
         let parent = Url::parse(Self::ROOT_URL).unwrap();
 
@@ -89,7 +109,14 @@ impl Portal {
         let mut list = iter.map(|c| c.extract()).fold(
             Vec::new(),
             |mut map: Vec<BlenderCategory>, (_, [url, major, minor])| {
-                if let Some(category) = Portal::generate_blender_category(&parent, url, major, minor, download_path.as_ref(), cache) {
+                if let Some(category) = Portal::generate_blender_category(
+                    &parent,
+                    url,
+                    major,
+                    minor,
+                    download_path.as_ref(),
+                    cache,
+                ) {
                     map.push(category);
                 }
                 map
@@ -179,21 +206,23 @@ impl Portal {
     pub(crate) fn download_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
         // TODO: As a extra security measure, I would like to verify the hash of the content before extracting the files.
         // Main reason for fetching consts lib was to identify the host target hardware machine to provide extended diagnostic to manager for more info debugging through.
-        let arch = std::env::consts::ARCH.to_owned();
-        let os = std::env::consts::OS.to_owned();
         let download_path = &self.download_path.clone();
+
         let category =
             self.get_blender_state_by_version(version)
                 .ok_or(ManagerError::DownloadNotFound {
-                    arch,
-                    os,
+                    arch: ARCH.to_owned(),
+                    os: OS.to_owned(),
                     url: format!(
-                        "Blender version {}.{} was not found!",
-                        version.major, version.minor
+                        "Blender version {}.{} for {}-{} was not found!",
+                        version.major, version.minor, OS, ARCH
                     ),
                 })?;
+        // generate a destination for the folder path
+        // e.g. ~/Downloads/Blender/Blender4.3/
+        let destination = download_path.join(Self::get_parent(version.major, version.minor));
         category
-            .get_blender(download_path, &version)
+            .get_blender(destination, &version)
             .map_err(ManagerError::Category)
     }
 

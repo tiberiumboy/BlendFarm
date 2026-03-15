@@ -16,12 +16,12 @@ pub(crate) trait PackageT {
     fn get_version(&self) -> &Version;
 }
 
-/*  
+/*
     Package is thought of having a single source of truth to get blender specific versions.
     Depends on the phase, we would need to download if it's not found within local system.
     Otherwise, use the uncompressed version of the executable and treat as final source of truth.
     We have method implementations to gracefully fetch the package.
-*/ 
+*/
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Package {
     // Only contains download link
@@ -74,15 +74,8 @@ impl Package {
         destination: impl AsRef<Path>,
     ) -> Result<Package, BlenderCategoryError> {
         match self {
-            Package::Metadata(link) => {
-                let downloaded = link.download(&destination)?;
-                let bundle = downloaded.extract(destination.as_ref().to_path_buf())?;
-                Ok(Package::Bundle(bundle))
-            }
-            Package::Downloaded(link) => {
-                let bundle = link.extract(destination.as_ref().to_path_buf())?;
-                Ok(Package::Bundle(bundle))
-            }
+            Package::Metadata(link) => Ok(link.download(&destination)?.extract()),
+            Package::Downloaded(link) => Ok(link.extract()),
             // These two are ok since they were already ready to begin with
             // Package::Executable(..) => Ok(self),
             Package::Bundle(..) => Ok(self),

@@ -52,7 +52,6 @@ impl Default for ExpirationUnits {
         ExpirationUnits::Month(6)
     }
 }
-
 // Hide this for now,
 #[doc(hidden)]
 // rely the cache creation date on file metadata.
