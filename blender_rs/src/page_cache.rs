@@ -96,6 +96,7 @@ impl PageCache {
         fs::write(&self.inner, data)
     }
 
+    // TODO: See where and how we can utilize this validation process?
     #[allow(dead_code)]
     fn validate_cache(&mut self) {
         // Here we run a check of all of the cache we have stored, and then check the last modified date. If it exceed page cache's
@@ -139,67 +140,6 @@ impl PageCache {
         });
     }
 
-    /* 
-    // for future project, consider stream io input instead of read_to_string();
-    
-    fn read_skipping_ws(mut reader: impl Read) -> Result<u8> {
-        loop {
-            let mut byte = 0u8;
-            reader.read_exact(std::slice::from_mut(&mut byte))?;
-            if !byte.is_ascii_whitespace() {
-                return Ok(byte);
-            }
-        }
-    }
-
-    #[inline]
-    fn invalid_data(msg: &str) -> Error {
-        Error::new(ErrorKind::InvalidData, msg)
-    }
-
-    fn deserialize_single<T: DeserializeOwned, R: Read> (reader: R) -> Result<T> {
-        let next_obj = Deserializer::from_reader(reader).into_iter::<T>().next();
-        match next_obj {
-            Some(result) => result.map_err(Into::into),
-            None => Err(Self::invalid_data("premature EOF")),
-        }
-    }
-
-    fn yield_next_obj<T: DeserializeOwned, R: Read> (
-        mut reader: R,
-        at_start: &mut bool,
-    ) -> Result<Option<T>> {
-        if !*at_start {
-            *at_start = true;
-            if Self::read_skipping_ws(&mut reader)? == b'[' {
-                let peek = Self::read_skipping_ws(&mut reader)?;
-                if peek == b']' {
-                    Ok(None)
-                } else {
-                    // we're creating new cursor each yield objects?
-                    let obj = Self::deserialize_single(io::Cursor::new([peek]).chain(reader))?;
-                    Ok(Some(obj))
-                }
-            } else {
-                Err(Self::invalid_data("`[` not found"))
-            }
-        } else {
-            match Self::read_skipping_ws(&mut reader)? {
-                b',' => Self::deserialize_single(reader).map(Some),
-                b']' => Ok(None),
-                _ => Err(Self::invalid_data("`,` or `]` not found")),
-            }
-        }
-    }
-
-    fn iter_json_array<T: DeserializeOwned, R: Read>(
-        mut reader: R,
-    ) -> impl Iterator<Item = Result<T>> {
-        let mut at_start = false;
-        std::iter::from_fn(move || Self::yield_next_obj(&mut reader, &mut at_start).transpose())
-    }
-
-    */
     // suppressing this for now, I'm testing the program out without having to worry about invalidating cache files for now.
     // Currently used in commented code in PageCache::load() implementation.
     #[allow(dead_code)]
@@ -290,12 +230,6 @@ impl PageCache {
         let path = self.cache.get(url)?;
         fs::read_to_string(path).ok()
     }
-
-    // TODO: Maybe this isn't needed, but would like to know if there's a better way to do this? Look into IntoUrl?
-    // pub fn fetch_str(&mut self, url: &str) -> Result<String> {
-    //     let url = Url::parse(url).unwrap();
-    //     self.fetch(&url)
-    // }
 }
 
 impl Drop for PageCache {

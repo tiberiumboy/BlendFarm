@@ -1,5 +1,5 @@
-use crate::blender::Frame;
 use super::{blender_scene::Sample, /* engine::Engine, */ format::Format, window::Window};
+use crate::blender::Frame;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -12,7 +12,7 @@ pub struct RenderSetting {
     /// Render frame Width
     pub width: Frame, // Not to be confused with animation frame
     /// Render frame height
-    pub height: Frame,  // Not to be confused with animation frame
+    pub height: Frame, // Not to be confused with animation frame
     /// Samples capture from the scene
     pub sample: Sample,
     /// Frame per second
@@ -23,15 +23,19 @@ pub struct RenderSetting {
     /// Image format
     pub format: Format,
     /// Borders
-    pub border: Window
-    // Start Frame (timeline)
-    // pub frame_start: Frame,
-    // End Frame (timeline)
-    // pub frame_end: Frame,
+    pub border: Window,
 }
 
 impl RenderSetting {
-    pub fn new(output: PathBuf, width: Frame, height: Frame, sample: Sample, fps: FrameRate, /* engine: Engine,*/ format: Format, border: Window ) -> Self {
+    pub fn new(
+        output: PathBuf,
+        width: Frame,
+        height: Frame,
+        sample: Sample,
+        fps: FrameRate,
+        /* engine: Engine,*/ format: Format,
+        border: Window,
+    ) -> Self {
         Self {
             output,
             width,
@@ -40,11 +44,11 @@ impl RenderSetting {
             fps,
             // engine,
             format,
-            border
+            border,
         }
     }
 
-    pub fn set_output(mut self, output: PathBuf ) -> Self {
+    pub fn set_output(mut self, output: PathBuf) -> Self {
         self.output = output;
         self
     }
