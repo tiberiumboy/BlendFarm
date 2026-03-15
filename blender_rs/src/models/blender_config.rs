@@ -42,26 +42,6 @@ impl BlenderConfig {
             .join(SETTINGS_DIR)
     }
 
-    // pub fn new(blenders: Option<Vec<Blender>>, install_path: PathBuf) -> Self {
-    //     match blenders {
-    //         Some(vec) => Self {
-    //             blenders: vec.iter().fold(
-    //                 HashMap::with_capacity(vec.capacity()),
-    //                 |mut accumulator, element| {
-    //                     let version = element.get_version().to_owned();
-    //                     accumulator.insert(version, element.to_owned());
-    //                     accumulator
-    //                 },
-    //             ),
-    //             install_path: install_path.into(),
-    //         },
-    //         None => Self {
-    //             blenders: HashMap::new(),
-    //             install_path: install_path.into(),
-    //         },
-    //     }
-    // }
-
     pub fn get_config_path(&self) -> &PathBuf {
         &self.inner
     }
@@ -80,13 +60,11 @@ impl BlenderConfig {
 
     // Fetch best matching version of blender if provided, or latest version available if none was provided.
     pub fn get_latest_blender_available(&self, version: &Version) -> Option<&Blender> {
-        self
-                .get_blender(version)
-                .or_else(|| self.get_blender_partial(version.major, version.minor))
+        self.get_blender(version)
+            .or_else(|| self.get_blender_partial(version.major, version.minor))
     }
 
     /// Return matching exact blender version
-    // TODO: Can we make this private?
     pub(crate) fn get_blender(&self, version: &Version) -> Option<&Blender> {
         self.blenders.values().find(|x| x.get_version().eq(version))
     }
@@ -104,18 +82,16 @@ impl BlenderConfig {
 
     /// Return a reference to matching partial version, but uses latest patch
     /// Major must match, Minor will match if greater than 0. Patch will always be the latest version possible.
-    // TODO: Can we make this private?
     pub(crate) fn get_blender_partial(&self, major: u64, minor: u64) -> Option<&Blender> {
         self.blenders
             .values()
             .fold(None, |latest: Option<&Blender>, item| {
-                
                 let current_version = item.get_version();
-                
+
                 if current_version.major.ne(&major) {
                     return latest;
                 }
-                
+
                 // custom rule: If minor = 0 (default), use latest, otherwise compare all others.
                 if minor > 0 && current_version.minor.ne(&minor) {
                     return latest;
@@ -150,7 +126,6 @@ impl BlenderConfig {
     }
 }
 
-
 impl Default for BlenderConfig {
     fn default() -> Self {
         let install_path = dirs::download_dir()
@@ -162,9 +137,9 @@ impl Default for BlenderConfig {
         if let Err(e) = fs::create_dir_all(&install_path) {
             eprintln!("Unable to create {e:?}");
         }
-        
+
         Self {
-            inner: Self::get_default_config_path(), 
+            inner: Self::get_default_config_path(),
             blenders: Default::default(),
             install_path,
         }

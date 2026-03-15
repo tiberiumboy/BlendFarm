@@ -83,10 +83,6 @@ impl DownloadLink {
             content: target,
         })
     }
-
-    // pub fn get_parent(&self) -> String {
-    //     format!("Blender{}.{}", self.version.major, self.version.minor)
-    // }
 }
 
 impl PackageT for DownloadLink {

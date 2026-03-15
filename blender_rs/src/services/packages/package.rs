@@ -38,16 +38,6 @@ pub(crate) enum Package {
 }
 
 impl Package {
-    // pub fn get_version(&self) -> &Version {
-    //     match self {
-    //         Package::Metadata(link) => link.get_version(),
-    //         Package::Downloaded(content) => content.get_version(),
-    //         // Package::Executable(path) => path.get_version(),
-    //         Package::Bundle(bundle) => bundle.get_version(),
-    //         // Package::Malformed { origin, downloaded, executable } => todo!(),
-    //     }
-    // }
-
     // This is design to check internal source and verify the package is indeed correct, otherwise return the current state it failed in
     // we are only provided with a source.
     pub fn check_package(
@@ -79,6 +69,18 @@ impl Package {
             // These two are ok since they were already ready to begin with
             // Package::Executable(..) => Ok(self),
             Package::Bundle(..) => Ok(self),
+        }
+    }
+}
+
+impl PackageT for Package {
+    fn get_version(&self) -> &Version {
+        match self {
+            Package::Metadata(link) => link.get_version(),
+            Package::Downloaded(content) => content.get_version(),
+            // Package::Executable(path) => path.get_version(),
+            Package::Bundle(bundle) => bundle.get_version(),
+            // Package::Malformed { origin, downloaded, executable } => todo!(),
         }
     }
 }
