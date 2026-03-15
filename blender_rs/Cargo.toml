@@ -20,9 +20,6 @@ uuid = { version = "^1.21", features = ["serde", "v4"] }
 ureq = { version = "^3.0" }
 blend = "0.8.0"
 tokio = { version = "^1.49", features = ["full"] }
-# xml-rpc will merge into this project some day in the future, as it's just a http server protocol.
-# xml-rpc = { git = "https://github.com/tiberiumboy/xml-rpc-rs.git", branch = "main" }
-# xml-rpc = { path = "/home/oem/Documents/src/rust/xml-rpc-rs" }
 # TODO: Clap is only ever used in examples. Do not include clap for release mode build. Add a feature switch to include examples.
 clap = { version = "4.6.0", features = ["derive"] }
 
