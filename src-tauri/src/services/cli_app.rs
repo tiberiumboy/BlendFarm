@@ -25,27 +25,24 @@ use crate::{
     },
     network::controller::Controller,
 };
-use async_std::task::spawn;
 use blender::blend_file::BlendFile;
 use blender::blender::{Args, Blender, Manager as BlenderManager, ManagerError};
 use blender::models::event::BlenderEvent;
 use libp2p::{Multiaddr, PeerId};
 use semver::Version;
 use sqlx::{Pool, Sqlite};
-use tauri::async_runtime::Receiver;
-use tokio::task::JoinHandle;
 use std::{path::PathBuf, str::FromStr};
+use tauri::async_runtime::Receiver;
 use thiserror::Error;
 use tokio::sync::mpsc::{self, Sender};
-use tokio::select;
+use tokio::task::JoinHandle;
+use tokio::{select, spawn};
 use uuid::Uuid;
 
-// TODO: What was this for?
-#[allow(dead_code)]
+// this is invocation commands. Signal to start, stop, fetch blender information and relative info.
 enum CmdCommand {
-    // TODO: See where this can be used?
     Render(Task, Sender<BlenderEvent>),
-    Dial(PeerId, Multiaddr),
+    // Dial(PeerId, Multiaddr),
     RequestTask, // calls to host for more task.
 }
 
@@ -59,12 +56,20 @@ enum CliError {
     ManagerError(#[from] ManagerError),
 }
 
+/// The behaviour described in the Cli App can be summarize below:
+/// When running with listening server, client will spin a thread to listen for network messages.
+///     Cli as a listening server can accept Request Task from available host.
+///     The host can ask you about your task's progress, and how many image you've completed.
+///     Additionally, the host may also request the images from you.
+/// When running in pure cli mode, you can ask to fetch information and create new task from local machine.
+/// This will let cli mode run the job in batch mode, customized for your experience.
+/// and simply closes out.
+/// This will be useful for blender add-on interface, we want to be able to invoke client/host commands from blender application, as an alternative solution.
 pub struct CliApp {
     manager: BlenderManager,
 
-    // database
-    task_store: SqliteTaskStore,
-    render_store: SqliteRenderStore,
+    // database connection
+    db_conn: Pool<Sqlite>,
 
     // config
     settings: ServerSetting,
@@ -79,10 +84,14 @@ pub struct CliApp {
 }
 
 impl CliApp {
-
     // This function sends out a command request to the other thread to launch blender and render the given task.
     // In return, we should try to return the JohnHandler<()> so that we can gracefully abort the task.
-    async fn subscribe_to_render_job(&mut self, task: WithId<Task,Uuid>, event: &Sender<CmdCommand>, controller: &mut Controller, render_db: &SqliteRenderStore) {
+    async fn subscribe_to_render_job(
+        task: WithId<Task, Uuid>,
+        event: &Sender<CmdCommand>,
+        controller: &Controller,
+        render_db: &SqliteRenderStore,
+    ) {
         // why did this method get invoked twice?
         // This have code smells. I'm sending a request to another thread to start the rendering job, but that allows me to continue to listen for server updates.
         // if the host replied to cancel specific job, I must be able to acknowledge the request and act upon immediately without delay.
@@ -119,11 +128,11 @@ impl CliApp {
                                 if let Err(e) = &render_db.create_renders(render_info).await {
                                     eprintln!("Fail to create a new render entry to the database! {e:?}");
                                 }
-                                // sends a 
+                                // sends a
                                 let event = JobEvent::ImageCompleted {
                                     job_id: job_id.clone(),
                                     frame,
-                                    file_name: result.to_str().unwrap().to_owned()      
+                                    file_name: result.to_str().unwrap().to_owned()
                                 };
                                 controller.send_job_event(event).await;
                             },
@@ -149,19 +158,11 @@ impl CliApp {
     }
 
     // we could simplify this design by just asking for the database info?
-    pub(crate) fn new(
-        context: AppContext,
-        db: &Pool<Sqlite>
-    ) -> Self {
-
-        let task_store = SqliteTaskStore::new(db.clone());
-        let render_store = SqliteRenderStore::new(db.clone());
-
+    pub(crate) fn new(context: AppContext, db: &Pool<Sqlite>) -> Self {
         Self {
             settings: context.settings,
             manager: context.manager,
-            task_store,
-            render_store,
+            db_conn: db.clone(),
             handler: None,
             // TODO: why do I need to care about this?
             host: None, // no task assigned yet
@@ -245,6 +246,13 @@ impl CliApp {
     }
 
     // TODO: See where this was originally used, and see if we can remove this.
+    // Originally designed to be used to check blender version across network.
+    // TODO: Future work - Implement a pattern that
+    //  A) Search the network if exact version of blender exist.
+    //  B) If the network have similar or newer patches than target version
+    //  C) Check local if exact or newer version exist
+    //  D) Second to last resort: Download blender from internet
+    //  E) Throw error that no blender installation could be fetch or found for this task.
     #[allow(dead_code)]
     async fn check_for_blender(&self, version: &Version) -> Result<&Blender, CliError> {
         // this script below was our internal implementation of handling DHT fallback mode
@@ -302,7 +310,7 @@ impl CliApp {
     /// Invokes the render job. The task needs to be mutable for frame deque.
     async fn render_task(
         &mut self,
-        client: &mut Controller,
+        client: &Controller,
         task: &mut Task,
         sender: &mut Sender<BlenderEvent>,
     ) -> Result<(), CliError> {
@@ -324,7 +332,7 @@ impl CliApp {
 
         // get the ID of the task for parent directory name
         let id = AsRef::<Uuid>::as_ref(&task);
-        
+
         // Generate a new local destination path. Overriding scene's path to valid path location.
         // TODO: This will throw an error if the directory already exist?
         let output = self
@@ -332,8 +340,8 @@ impl CliApp {
             .await
             .map_err(CliError::Io)?;
 
-        let args = Args::new(blend_file.clone(),output, task.start, task.end);
-        
+        let args = Args::new(blend_file.clone(), output, task.start, task.end);
+
         // run the job!
         match blender.render(args).await.map_err(TaskError::BlenderError) {
             Ok(rx) => loop {
@@ -369,14 +377,20 @@ impl CliApp {
             },
             Err(e) => {
                 let err = JobError::TaskError(e);
-                client.send_job_event(JobEvent::Error(err.to_string())).await;
+                client
+                    .send_job_event(JobEvent::Error(err.to_string()))
+                    .await;
             }
         };
 
         Ok(())
     }
 
-    async fn handle_job_from_network(&mut self, client: &mut Controller, event: JobEvent) {
+    // TODO: this function doesn't really make sense. It's not cli responsibility to manage network state. Promote/relocate implementation to Network Services instead.
+    // Received network command. We're getting invoked by network users?
+    async fn handle_job_from_network(&mut self, client: &Controller, event: JobEvent) {
+        // with the sqlite connection we can create and establish database struct here.
+
         match event {
             // on render task received, we should store this in the database.
             JobEvent::Render(peer_id_str, mut task) => {
@@ -405,10 +419,11 @@ impl CliApp {
                 // scope containing using self. Need to close at the end of the scope for other method to use it as mutable state.
                 // do we need this right now?
                 // Need to make sure no other node work the same job here.
-                if let Err(e) = &self.task_store.add_task(task.clone()).await {
+                let task_store = SqliteTaskStore::new(self.db_conn.clone());
+
+                if let Err(e) = &task_store.add_task(task.clone()).await {
                     println!("Unable to add task! {e:?}");
                 }
-            
 
                 // println!("Begin printing task at this level!");
                 // let blend = match &self.manager.fetch_blender(&task.get_job().get_version()) {
@@ -484,7 +499,9 @@ impl CliApp {
             JobEvent::TaskComplete => {} // Ignored, we're treated as a client node, waiting for new job request.
             // Remove all task with matching job id.
             JobEvent::Remove(job_id) => {
-                let db = &self.task_store;
+                let task_store = SqliteTaskStore::new(self.db_conn.clone());
+
+                let db = &task_store;
                 if let Err(e) = db.delete_job_task(&job_id).await {
                     eprintln!("Unable to remove all task with matching job id! {e:?}");
                 }
@@ -495,7 +512,11 @@ impl CliApp {
     }
 
     // Handle network event (From network as user to operate this)
-    async fn handle_net_event(&mut self, client: &mut Controller, event: Event) {
+    async fn handle_net_event(
+        &mut self,
+        client: &Controller,
+        event: Event,
+    ) -> Result<(), NetworkError> {
         match event {
             // once we discover a peer, let's dial that peer.
             Event::Discovered(peer_id, multiaddr) => {
@@ -542,24 +563,30 @@ impl CliApp {
             Event::Channel(channel_status) => match channel_status {
                 ChannelStatus::Joined(peer_id, topic) => {
                     // if we are idle, we should send this peer a RequestTask message.
-                    // Hello peer_id, can I request a task from you?
-                },
-                ChannelStatus::Disconnected(peer_id, _) => {
-                    // Oh no, this peer disconnected! what shall we ever do!?
-                    eprintln!("TODO: See if we need this conditional branch?");
-                }
-            }
+                    println!("Peer {peer_id:?} has joined {topic:?}");
+                    // Hello peer_id! I'm sending you a request task package.
+                    //  only if I'm idle, waiting to work on a new job assignment.
+                } // ChannelStatus::Disconnected(_peer_id, _) => {
+                  //     // Oh no, this peer disconnected! what shall we ever do!?
+                  //     eprintln!("TODO: See if we need this conditional branch?");
+                  // }
+            },
             _ => println!("[CLI] Unhandled event from network: {event:?}"),
         }
+        Ok(())
     }
 
-    async fn handle_command(&mut self, client: &mut Controller, cmd: CmdCommand) {
+    async fn handle_command(
+        &mut self,
+        client: &Controller,
+        cmd: CmdCommand,
+    ) -> Result<(), NetworkError> {
+        // More to come soon. Just making it work for now is bare minimum.
         match cmd {
-            CmdCommand::Dial(peer_id, addr) => match client.dial(&peer_id, &addr).await {
-                Ok(_) => self.host = Some((peer_id, addr)),
-                Err(e) => eprintln!("{e:?}"),
-            },
-
+            // CmdCommand::Dial(peer_id, addr) => match client.dial(&peer_id, &addr).await {
+            //     Ok(_) => self.host = Some((peer_id, addr)),
+            //     Err(e) => eprintln!("{e:?}"),
+            // },
             CmdCommand::Render(mut task, mut sender) => {
                 // TODO: We should find a way to mark this node currently busy so we should unsubscribe any pending new jobs if possible?
                 // mutate this struct to skip listening for any new jobs.
@@ -575,27 +602,84 @@ impl CliApp {
                     }
                 }
             }
-
             CmdCommand::RequestTask => {
                 // or at least have this node look into job history and start working on jobs that are not completed yet.
                 let peer_id = client.public_id.to_base58();
                 let event = JobEvent::RequestTask(peer_id);
                 client.send_job_event(event).await;
             }
+        };
+        Ok(())
+    }
+
+    // TODO: Try to return Result<(), Error?> - Figure out what could be the error message.
+    async fn process_task(
+        task_store: &SqliteTaskStore,
+        render_store: &SqliteRenderStore,
+        event: &Sender<CmdCommand>,
+        controller: &Controller,
+    ) -> Option<()> {
+        let db = task_store;
+        let render_db = render_store;
+
+        match db.poll_task().await {
+            // if we have a pending task.
+            Ok(result) => match result {
+                Some(task) => {
+                    Some(Self::subscribe_to_render_job(task, &event, &controller, &render_db).await)
+                }
+                None => None,
+            },
+            // This means there's something wrong with this task?
+            Err(e) => {
+                eprintln!("Please handle these errors: {e:?}");
+                None
+            }
         }
+    }
+
+    fn start_background_worker(&mut self, event: Sender<CmdCommand>, controller: Controller) {
+        let task_db = SqliteTaskStore::new(self.db_conn.clone());
+        let render_db = SqliteRenderStore::new(self.db_conn.clone());
+
+        // background thread to handle blender invocation
+        // So this is where we can say that Cli is a state machine.
+        // TODO: Return the JoinHandler<()> for this thread. Once we go through the tauri_app we'll update this trait.
+        let worker_handler = spawn(async move {
+            // loop until we have no more task left to work on.
+            loop {
+                // TODO: think I have too many nested conditions here? Is it possible to break apart this component into smaller snippet
+                // Yes it's always possible to break this up. I don't think we need to repeatively ask the host for requesting task.
+                // The plan is
+                //      A) break up the responsibility.
+                //      B) Cli should work on pending task. Once exhausted all queue - Send RequestTask out.
+                //      C) Also Send RequestTask out to newly discovered node.
+                if Self::process_task(&task_db, &render_db, &event, &controller)
+                    .await
+                    .is_none()
+                {
+                    break;
+                }
+            }
+
+            // Once we've exhausted all of the task here, we should send out Request Task message.
+            if let Err(e) = event.send(CmdCommand::RequestTask).await {
+                eprintln!("Unable to send Request Task! {e:?}");
+            }
+        });
+        self.handler = Some(worker_handler);
     }
 }
 
 #[async_trait::async_trait]
 impl BlendFarm for CliApp {
-
-    /* 
+    /*
         Some thoughts:
 
         The Cli App mode should be stateless, e.g. no Idle state. The services that BlendFarm runs on should utilize the necessary components to run blender from network request.
         The Cli must have a switch to listen for server connection to become state machines. (TODO: E.g. provide IP and Port)
-        
-    */ 
+
+    */
 
     /// This program will run into this following state machine:
     /// It will continue to poll task from the database and work on the given assignments.
@@ -605,90 +689,31 @@ impl BlendFarm for CliApp {
     /// The background network services will update and monitor the database connection, as well as governs the task lifetime handlers.
     ///     E.g. A job cancellation notice should terminate ongoing task jobs. Needs a way to interface ongoing thread and abort before resuming next task.
     /// Future work: The node can be in a "Paused" state, given under circumstances, that it should await for host's further instructions.
-    ///     E.g. Downloading blender in background. 
+    ///     E.g. Downloading blender in background.
+    /// The run command will launch two processes. One process will monitor and receive Blender activity.
+    /// The other process handles network events.
     async fn run(
         mut self,
-        mut client: Controller,
+        client: Controller,
         mut event_receiver: Receiver<Event>,
     ) -> Result<(), NetworkError> {
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
         // we will have one thread to process blender and queue, but I must have access to database.
 
         let (event, mut command) = mpsc::channel(32);
-        let taskdb = self.task_store;
-        let render_db = self.render_store;
+        self.start_background_worker(event.clone(), client.clone());
 
-        let mut alter_controller = client.clone();
-
-        // background thread to handle blender invocation
-        // So this is where we can say that Cli is a state machine.
-        // TODO: Return the JoinHandler<()> for this thread. Once we go through the tauri_app we'll update this trait.
-        let _worker_handler = spawn(async move {
-
-            // there are two loops? break the loops up
-            loop {
-                // get reference to task database
-                // let db = taskdb.write().await;
-                let db = taskdb;
-
-                // TODO: think I have too many nested conditions here? Is it possible to break apart this component into smaller snippet
-                // Yes it's always possible to break this up. I don't think we need to repeatively ask the host for requesting task.
-                // The plan is 
-                //      A) break up the responsibility. 
-                //      B) Cli should work on pending task. Once exhausted all queue - Send RequestTask out. 
-                //      C) Also Send RequestTask out to newly discovered node.
-                match db.poll_task().await {
-                    // if we have a pending task.
-                    Ok(result) => {
-                        match result {
-                            // this begins the render job.
-                            Some(task_record) => {
-                                // TODO: Future work Add a handler hook. 
-                                // Update itself, and assign a job handler.
-                                self.subscribe_to_render_job(task_record, &event, &mut alter_controller, &render_db).await;
-                            }
-                            None => {
-                                if let Err(e) = event.send(CmdCommand::RequestTask).await {
-                                    eprintln!("Error fail to send command to backend! {e:?}");
-                                }
-                                break;
-                            },
-                        }
-                    }
-                    Err(e) => {
-                        // This means there's something wrong with this task?
-                        todo!("Please handle these errors: {e:?}");
-                        // match &event.send(CmdCommand::RequestTask).await {
-                        //     Ok(_) => {
-                        //         sleep(Duration::from_secs(5u64)).await;
-                        //     }
-                        //     Err(e) => {
-                        //         eprintln!("Fail to send command to network! {e:?}");
-                        //     }
-                        // }
-                    }
-                };
-            }
-        });
-
-        // run cli mode in loop
-        // let service_handler = 
+        // Process commands inputs
         loop {
             select! {
                 net_event = event_receiver.recv() => match net_event {
-                    Some(event) => {
-                        &self.handle_net_event(&mut client, event).await;
-                        ()
-                    },
+                    Some(event) => self.handle_net_event(&client, event).await?,
                     None => return Err(NetworkError::Invalid),
                 },
                 msg = command.recv() => match msg {
-                    Some(cmd) => {
-                        &self.handle_command(&mut client, cmd).await;
-                        ()
-                    },
-                    _ => (),
-                }
+                    Some(cmd) => self.handle_command(&client, cmd).await?,
+                    None => (),
+                },
             }
         }
     }

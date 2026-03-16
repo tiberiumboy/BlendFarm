@@ -391,9 +391,11 @@ impl Service {
             gossipsub::Event::Subscribed { peer_id, topic } => {
                 // what are the peer_id and topic?
                 // Maybe it's the user who joined the network, we can send a RequestTask if we're idle?
-                let update = ChannelStatus::Joined( peer_id, topic );
+                let update = ChannelStatus::Joined(peer_id, topic);
                 let event = Event::Channel(update);
-                self.sender.send(event).await;
+                if let Err(e) = self.sender.send(event).await {
+                    eprintln!("Fail to send subscribed notification! {e:?}");
+                }
             }
             // I should be logging info from other event from gossip... wonder what they got to say?
             // TODO: Log and verify if we need to handle other gossip events.

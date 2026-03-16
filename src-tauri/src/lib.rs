@@ -31,16 +31,13 @@ use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use libp2p::Multiaddr;
 use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
-use sqlx::{Pool, Sqlite};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::path::{Path, PathBuf};
-use tokio::sync::mpsc::Receiver;
 use tokio::spawn;
 
 use crate::constant::{JOB_TOPIC, NODE_TOPIC};
 use crate::models::server_setting::ServerSetting;
 use crate::network::controller::Controller;
-use crate::network::message::{Event, NetworkError};
 use crate::services::app_context::AppContext;
 
 pub mod constant;
@@ -63,9 +60,7 @@ enum Commands {
     Client,
 }
 
-async fn config_sqlite_db(
-    path: impl AsRef<Path>,
-) -> Result<SqlitePool, sqlx::Error> {
+async fn config_sqlite_db(path: impl AsRef<Path>) -> Result<SqlitePool, sqlx::Error> {
     let options = SqliteConnectOptions::new()
         .filename(path)
         .create_if_missing(true);
@@ -88,25 +83,6 @@ async fn setup_connection(controller: &mut Controller) -> Result<(), Error> {
     controller.start_listening(tcp).await;
     controller.start_listening(udp).await;
     Ok(())
-}
-
-#[inline]
-async fn setup_client_mode(context: AppContext, db: Pool<Sqlite>, controller: Controller, receiver: Receiver<Event>) -> Result<(), NetworkError> {
-    // here the client wants database connection to task table. Why not provide database connection instead?
-    CliApp::new(context, &db)
-        .run(controller, receiver)
-        .await
-}
-
-#[inline]
-async fn setup_manager_mode(context: AppContext, db: Pool<Sqlite>, controller: Controller, receiver: Receiver<Event>) -> Result<(), NetworkError> {
-    TauriApp::new(context.manager, &db)
-            .await
-            // we're clearing workers?
-            .clear_workers_collection()
-            .await
-            .run(controller, receiver)
-            .await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -140,20 +116,28 @@ pub async fn run() {
         server.run().await;
     });
 
-    setup_connection(&mut controller).await;
+    if let Err(e) = setup_connection(&mut controller).await {
+        eprintln!("Fail to setup connection! {e:?}");
+    }
 
     let config = Some(blend_config_path); // expects a config path to load from.
     let manager = BlenderManager::load(config).expect("Must have blender configuration to load!");
-    
+
     let server_settings = ServerSetting::load();
     let context = AppContext::new(manager, server_settings);
 
     // TODO: Restructure this to allow running client from GUI mode.
     let result = match cli.command {
         // run as client mode.
-        Some(Commands::Client) => setup_client_mode(context, db, controller, receiver).await,
+        Some(Commands::Client) => CliApp::new(context, &db).run(controller, receiver).await,
         // run as GUI mode.
-        _ => setup_manager_mode(context, db, controller, receiver).await,
+        _ => {
+            TauriApp::new(context.manager, &db)
+                .clear_workers_collection()
+                .await
+                .run(controller, receiver)
+                .await
+        }
     };
 
     if let Err(e) = result {

@@ -78,8 +78,7 @@ use tokio::task::JoinHandle;
 
 pub type Frame = i32;
 
-// TODO: Why does this enum needs to be serialize?
-#[derive(Debug, Error)] // Serialize, Deserialize
+#[derive(Debug, Error)]
 pub enum BlenderError {
     #[error("Unable to call blender!")]
     ExecutableInvalid,

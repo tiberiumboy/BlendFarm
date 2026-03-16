@@ -35,7 +35,7 @@ impl TaskDAO {
         let job_id = Uuid::from_str(&self.job_id).expect("job_id was mutated");
         let job = serde_json::from_str::<Job>(&self.job).expect("job record was malformed!");
         let start = self.start as i32;
-        let end=  self.end as i32;
+        let end = self.end as i32;
 
         // at this point here, we shouldn't have to worry about Job's original rendering mode,
         let job_record = WithId {
@@ -57,14 +57,20 @@ impl TaskStore for SqliteTaskStore {
             .expect("Should be able to convert job into json");
 
         let job_id = AsRef::<Uuid>::as_ref(&task).to_string();
-        
+
         // todo see if there's a better way to handle sqlite query?
         let _ = query!(
             r"INSERT INTO tasks(id, job_id, job, start, end) 
-            VALUES($1, $2, $3, $4, $5)", id, job_id, job, task.start, task.end )
-            .execute(&self.conn)
-            .await
-            .map_err(|e| TaskError::DatabaseError(e.to_string()))?;
+            VALUES($1, $2, $3, $4, $5)",
+            id,
+            job_id,
+            job,
+            task.start,
+            task.end
+        )
+        .execute(&self.conn)
+        .await
+        .map_err(TaskError::DatabaseError)?;
 
         Ok(WithId { id, item: task })
     }
@@ -73,17 +79,14 @@ impl TaskStore for SqliteTaskStore {
     async fn poll_task(&self) -> Result<Option<CreatedTaskDto>, TaskError> {
         // fetch next available task to work on
         // TODO: Implement creation date to order by
-        let result = query_as!( TaskDAO,
-                r"SELECT id, job_id, job, start, end FROM tasks LIMIT 1"
-            )
-            .fetch_optional(&self.conn)
-            .await
-            .map_err(|e| TaskError::DatabaseError(e.to_string()))?;
-
-        match result {
-            Some(data) => Ok(Some(data.dto_to_task())),
-            None => Ok(None),
-        }
+        let result = query_as!(
+            TaskDAO,
+            r"SELECT id, job_id, job, start, end FROM tasks LIMIT 1"
+        )
+        .fetch_optional(&self.conn)
+        .await
+        .map_err(TaskError::DatabaseError)?;
+        Ok(result.map(|d| Some(d.dto_to_task())).unwrap_or(None))
     }
 
     async fn list_tasks(&self) -> Result<Option<Vec<CreatedTaskDto>>, TaskError> {
@@ -100,7 +103,7 @@ impl TaskStore for SqliteTaskStore {
 
         match result {
             Ok(list) => Ok(Some(list.iter().map(|d| d.clone().dto_to_task()).collect())),
-            Err(e) => Err(TaskError::DatabaseError(e.to_string())),
+            Err(e) => Err(TaskError::DatabaseError(e)),
         }
     }
 

@@ -58,7 +58,7 @@ impl Controller {
     }
 
     pub(crate) async fn dial(
-        &mut self,
+        &self,
         peer_id: &PeerId,
         peer_addr: &Multiaddr,
     ) -> Result<(), Box<dyn Error + Send>> {
@@ -80,14 +80,14 @@ impl Controller {
     }
 
     // send job event to all connected node
-    pub async fn send_job_event(&mut self, event: JobEvent) {
+    pub async fn send_job_event(&self, event: JobEvent) {
         self.sender
             .send(Command::JobStatus(event))
             .await
             .expect("Command should not be dropped");
     }
 
-    pub(crate) async fn file_service(&mut self, command: FileCommand) {
+    pub(crate) async fn file_service(&self, command: FileCommand) {
         self.sender
             .send(Command::FileService(command))
             .await
@@ -97,7 +97,7 @@ impl Controller {
     /// file_name are broadcasted with the extensions included, but not the directory it's located in. E.g. "test.blend"
     // I need to use some kind of enumeration to help make this process flexible with rules..
     pub(crate) async fn start_providing(
-        &mut self,
+        &self,
         provider: &ProviderRule,
     ) -> Result<(), NetworkError> {
         let cmd = match provider {
@@ -184,11 +184,7 @@ impl Controller {
     }
 
     // TODO: Come back to this one and see how this one gets invoked.
-    pub(crate) async fn respond_file(
-        &mut self,
-        file: Vec<u8>,
-        channel: ResponseChannel<FileResponse>,
-    ) {
+    pub(crate) async fn respond_file(&self, file: Vec<u8>, channel: ResponseChannel<FileResponse>) {
         let cmd = Command::FileService(FileCommand::RespondFile { file, channel });
         if let Err(e) = self.sender.send(cmd).await {
             println!("Command should not be dropped: {e:?}");

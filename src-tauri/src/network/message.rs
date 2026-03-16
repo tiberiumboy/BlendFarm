@@ -125,9 +125,9 @@ pub enum StatusEvent {
 }
 
 #[derive(Debug)]
-pub(crate) enum ChannelStatus {
+pub enum ChannelStatus {
     Joined(PeerId, TopicHash),
-    Disconnected(PeerId, TopicHash),
+    // Disconnected(PeerId, TopicHash),
 }
 
 // Received network events.

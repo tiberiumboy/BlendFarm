@@ -127,7 +127,7 @@ impl TauriApp {
         self
     }
 
-    pub async fn new(manager: BlenderManager, pool: &Pool<Sqlite>) -> Self {
+    pub fn new(manager: BlenderManager, pool: &Pool<Sqlite>) -> Self {
         Self {
             peers: Default::default(),
             worker_store: SqliteWorkerStore::new(pool.clone()),
@@ -155,7 +155,7 @@ impl TauriApp {
     fn generate_tasks(job: &CreatedJobDto, chunks: i32) -> Vec<Task> {
         // mode may be removed soon, we'll see?
         let (time_start, time_end) = match AsRef::<RenderMode>::as_ref(&job.item) {
-            RenderMode::Animation{ start, end} => (start, end),
+            RenderMode::Animation { start, end } => (start, end),
             RenderMode::Frame(frame) => (frame, frame),
         };
 
@@ -689,7 +689,7 @@ impl BlendFarm for TauriApp {
 
 #[cfg(test)]
 mod test {
-    use blender::models::blender_config::BlenderConfig;
+    // use blender::models::blender_config::BlenderConfig;
 
     use super::*;
     use crate::{config_sqlite_db, constant::DATABASE_FILE_NAME};
@@ -700,9 +700,9 @@ mod test {
         pool.expect("Assert above should force this to be ok()")
     }
 
-    async fn get_mockup_config() -> BlenderConfig {
-        todo!("Implement a mock up unit test for this blender config");
-    }
+    // async fn get_mockup_config() -> BlenderConfig {
+    //     todo!("Implement a mock up unit test for this blender config");
+    // }
 
     async fn get_mockup_manager() -> BlenderManager {
         todo!("Implement a mock up blender manager");
@@ -713,7 +713,7 @@ mod test {
         let pool = get_sqlite_conn().await;
         // let config = get_mockup_config().await;
         let manager = get_mockup_manager().await;
-        let app = TauriApp::new(manager, &pool).await;
+        let app = TauriApp::new(manager, &pool);
 
         let app = app.clear_workers_collection().await;
         assert!(
