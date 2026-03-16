@@ -46,4 +46,5 @@ pub(crate) fn get_config_path() -> PathBuf {
 // TODO: this is ugly, and I want to get rid of this. How can I improve this?
 // Backstory: Win and linux can be invoked via their direct app link. However, MacOS .app is just a bundle, which contains the executable inside.
 // To run process::Command, I must properly reference the executable path inside the blender.app on MacOS, using the hardcoded path below.
+#[cfg(target_os="macos")]
 pub(crate) const MACOS_PATH: &str = "Contents/MacOS/Blender";

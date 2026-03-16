@@ -1,6 +1,7 @@
 use crate::services::category::BlenderCategoryError;
 use crate::services::packages::bundle::Bundle;
 use crate::services::packages::package::{Package, PackageT};
+#[cfg(target_os="macos")]
 use crate::utils::MACOS_PATH;
 use crate::{services::packages::download_link::DownloadLink, utils::get_extension};
 use semver::Version;
@@ -64,7 +65,7 @@ impl Downloaded {
     #[cfg(target_os = "linux")]
     fn extract_content(
         download_path: impl AsRef<Path>,
-        folder_name: &str, // TODO: Change this to destination instead.
+        destination: impl AsRef<Path>,
     ) -> Result<PathBuf, IoError> {
         use std::fs::File;
         use tar::Archive;
@@ -80,14 +81,13 @@ impl Downloaded {
         // unarchive content from decompressed file
         let mut archive = Archive::new(tar);
 
-        // generate destination path
-        let destination = path.parent().unwrap();
+        let destination = destination.as_ref();
 
         // extract content to destination
         archive.unpack(destination)?;
 
         // return extracted executable path
-        Ok(destination.join(folder_name).join("blender"))
+        Ok(destination.join("blender"))
     }
 
     /// Mounts dmg target to volume, then extract the contents to a new folder using the folder_name,

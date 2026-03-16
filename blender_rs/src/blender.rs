@@ -227,6 +227,7 @@ impl Blender {
     /// let blender = Blender::from_executable(Pathbuf::from("../examples/")).unwrap();
     /// ```
     pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self, BlenderError> {
+        #[cfg(target_os="macos")]
         use crate::utils::MACOS_PATH;
 
         // check and verify that the executable exist.
