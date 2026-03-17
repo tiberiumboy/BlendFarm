@@ -1,11 +1,30 @@
-use maud::html;
-use tauri::command;
+use maud::{PreEscaped, html};
+use tauri::{State, command};
+use tokio::sync::Mutex;
 use crate::constant::WORKPLACE;
+use crate::models::app_state::AppState;
+use crate::routes::job::{cmd_list_jobs, cmd_fetch_job, render_list_job, render_job_detail_page};
 
 // separate this?
-#[command]
-pub fn index() -> String {
-    html! (
+#[command(async)]
+pub async fn index(state: State<'_,Mutex<AppState>>) -> Result<String, String> {
+    // Design to load content and page for the index.
+    let mut app_state = state.lock().await;
+    let jobs = cmd_list_jobs(&mut app_state).await;
+    let list_job_render = render_list_job(&jobs);
+    
+    let job_detail = match &jobs {
+        Some(job_list) => {
+            match job_list.first() {
+                Some(job) => cmd_fetch_job(&mut app_state, job.id.clone() ).await,
+                None => None
+            }
+        },
+        None => None 
+    };
+    let front_page_render = render_job_detail_page(&job_detail);
+
+    Ok(html! (
         div {
             div class="sidebar" {
                 nav {
@@ -27,9 +46,9 @@ pub fn index() -> String {
                         "Import"
                     };
 
-                    // Is there a way to select the first item on the list by default?
-                    // TODO: Take a look into hx-swap-oob on how we can refresh when a record is deleted or added
-                    div class="group" id="joblist" tauri-invoke="list_jobs" hx-trigger="load" hx-target="this";
+                    div class="group" id="joblist" {
+                        (PreEscaped(list_job_render));
+                    };
                 }
 
                 // div {
@@ -40,6 +59,8 @@ pub fn index() -> String {
             };
 
         }
-        main id=(WORKPLACE);
-    ).0
+        main id=(WORKPLACE) {
+            (PreEscaped(front_page_render))
+        };
+    ).0)
 }

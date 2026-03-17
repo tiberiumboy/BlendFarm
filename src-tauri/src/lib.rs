@@ -99,20 +99,25 @@ pub async fn run() {
     let blend_config_path = cli
         .config_path
         .unwrap_or(BlenderConfig::get_default_config_path());
+
+    // This program rely on BlenderManager. The user can override this path by providing config_path argument.
+    let blender_config = BlenderConfig::load(blend_config_path).expect("Must have blender configuration to load!");
+    
+    // TODO: Add database_path to BlenderConfig struct
     let db_path = BlenderConfig::get_default_config_dir().join(constant::DATABASE_FILE_NAME);
 
-    // initialize database connection
+    // initialize database connection (We need a place to store persistent storage)
     let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db(db_path)
         .await
         .expect("Must have database connection!");
 
-    // must have working network services
+    // setup network services
     let (mut controller, receiver, server) = network::new(secret_key)
         .await
         .expect("Fail to start network service");
 
-    // Network service is spun up on separate thread.
-    spawn(async move {
+    // Run Network service on separate thread.
+    let network_thread = spawn(async move {
         server.run().await;
     });
 
@@ -120,9 +125,10 @@ pub async fn run() {
         eprintln!("Fail to setup connection! {e:?}");
     }
 
-    let config = Some(blend_config_path); // expects a config path to load from.
-    let manager = BlenderManager::load(config).expect("Must have blender configuration to load!");
+    let manager = BlenderManager::initialize(blender_config).expect("Must have blender configuration to load!");
 
+    // This server settings is different than blender config.
+    // Server Settings is used for Manager client only, to help organize and arrange file structure for completed render image results.
     let server_settings = ServerSetting::load();
     let context = AppContext::new(manager, server_settings);
 
@@ -143,6 +149,9 @@ pub async fn run() {
     if let Err(e) = result {
         eprintln!("Received Network Error! {e:?}");
     }
+
+    // abort network thread after closing.
+    network_thread.abort();
 }
 
 #[cfg(test)]

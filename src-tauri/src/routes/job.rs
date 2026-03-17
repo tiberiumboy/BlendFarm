@@ -30,7 +30,7 @@ async fn cmd_create_job(state: &mut AppState, job: Job) -> Result<CreatedJobDto,
 }
 
 /// used to send command to backend service to fetch for the job list.
-async fn cmd_list_jobs(state: &mut AppState) -> Option<Vec<CreatedJobDto>> {
+pub(crate) async fn cmd_list_jobs(state: &mut AppState) -> Option<Vec<CreatedJobDto>> {
     let (sender, mut receiver) = mpsc::channel(0);
     let cmd = UiCommand::Job(JobAction::All(sender));
     if let Err(e) = state.invoke.send(cmd).await {
@@ -41,7 +41,7 @@ async fn cmd_list_jobs(state: &mut AppState) -> Option<Vec<CreatedJobDto>> {
 }
 
 /// command to fetch the job from backend service.
-async fn cmd_fetch_job(state: &mut AppState, job_id: Uuid) -> Option<CreatedJobDto> {
+pub(crate) async fn cmd_fetch_job(state: &mut AppState, job_id: Uuid) -> Option<CreatedJobDto> {
     let (sender, mut receiver) = mpsc::channel(0);
     let cmd = UiCommand::Job(JobAction::Find(job_id, sender));
     if let Err(e) = state.invoke.send(cmd).await {
@@ -52,7 +52,7 @@ async fn cmd_fetch_job(state: &mut AppState, job_id: Uuid) -> Option<CreatedJobD
 }
 
 /// Used to render the job list on teh side of the app.
-fn render_list_job(collection: &Option<Vec<CreatedJobDto>>) -> String {
+pub(crate) fn render_list_job(collection: &Option<Vec<CreatedJobDto>>) -> String {
     match collection { 
         Some(list) => {
             html! {
@@ -82,7 +82,7 @@ fn render_list_job(collection: &Option<Vec<CreatedJobDto>>) -> String {
 }
 
 /// Render the full job description and detail page.
-fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
+pub(crate) fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
     match job {
         Some(job) => {
             let result = fetch_img_result(&job.item.as_ref());
