@@ -53,6 +53,8 @@ struct Cli {
     config_path: Option<PathBuf>,
     #[command(subcommand)]
     command: Option<Commands>,
+    #[arg(short, long, default_value=None)]
+    secret_key: Option<u8>
 }
 
 #[derive(Subcommand)]
@@ -92,9 +94,6 @@ pub async fn run() {
     // to collect user inputs for custom user preferences
     let cli = Cli::parse();
 
-    // TODO: Ask Cli for the secret_key
-    let secret_key = None;
-
     // If the user overrides a configuration path, then we'll use that, otherwise use default config directory location instead.
     let blend_config_path = cli
         .config_path
@@ -103,7 +102,7 @@ pub async fn run() {
     // This program rely on BlenderManager. The user can override this path by providing config_path argument.
     let blender_config = BlenderConfig::load(blend_config_path).expect("Must have blender configuration to load!");
     
-    // TODO: Add database_path to BlenderConfig struct
+    // TODO: figure out how we can handle database path?
     let db_path = BlenderConfig::get_default_config_dir().join(constant::DATABASE_FILE_NAME);
 
     // initialize database connection (We need a place to store persistent storage)
@@ -112,7 +111,7 @@ pub async fn run() {
         .expect("Must have database connection!");
 
     // setup network services
-    let (mut controller, receiver, server) = network::new(secret_key)
+    let (mut controller, receiver, server) = network::new(cli.secret_key)
         .await
         .expect("Fail to start network service");
 
@@ -133,6 +132,7 @@ pub async fn run() {
     let context = AppContext::new(manager, server_settings);
 
     // TODO: Restructure this to allow running client from GUI mode.
+    // TODO: Handle Receiver input here.
     let result = match cli.command {
         // run as client mode.
         Some(Commands::Client) => CliApp::new(context, &db).run(controller, receiver).await,
