@@ -65,7 +65,7 @@ fn main() {
     // retrieve the sub command the user wants to invoke
     // let args: Vec<String> = std::env::args().collect::<Vec<String>>();
     let args = Args::parse();
-    let mut manager = Manager::load(args.config).expect(&format!(
+    let mut manager = Manager::load_from_path(args.config).expect(&format!(
         "Unable to launch manager, must have valid config!"
     ));
 

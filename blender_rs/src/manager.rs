@@ -92,11 +92,27 @@ impl Manager {
         }
     }
 
+    // Initialize Manager
+    pub fn initialize(config: BlenderConfig) -> Result<Self, ManagerError> {
+        // TODO: figure out what to do with PageCache? Another BlenderConfig entry?
+        let mut page_cache = PageCache::load().expect("TODO: ?");
+        
+        let portal = Portal::fetch(&config.install_path, &mut page_cache)?;
+        if let Err(e) = page_cache.save() {
+            eprintln!("Unable to save the cache configuration! {e:?}");
+        }
+
+        Ok(Self {
+            config,
+            portal,
+            page_cache,
+        })
+    }
+
     /// Load the manager data from the config file.
-    pub fn load(config_path: Option<PathBuf>) -> Result<Self, ManagerError> {
-        let path = config_path.unwrap_or(BlenderConfig::get_default_config_path());
+    pub fn load_from_path(config_path: impl AsRef<Path>) -> Result<Self, ManagerError> {
         // if the config file does not exist on the system, create a new one and return a new struct instead.
-        let config = BlenderConfig::load(path).unwrap_or(BlenderConfig::default());
+        let config = BlenderConfig::load(config_path).unwrap_or(BlenderConfig::default());
         let download_path = &config.install_path;
 
         // TODO: we'll load cache services here

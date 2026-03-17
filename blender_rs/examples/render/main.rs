@@ -1,5 +1,6 @@
 use blender::blend_file::BlendFile;
 use blender::blender::Manager;
+use blender::models::blender_config::BlenderConfig;
 use blender::models::{args::Args, event::BlenderEvent};
 use semver::Version;
 use std::fs;
@@ -18,7 +19,7 @@ async fn render_with_manager() {
 
     // Get latest blender installed, or install latest blender from web.
     let mut manager =
-        Manager::load(None).expect("Must be able to launch manager to get blender");
+        Manager::load_from_path(BlenderConfig::get_default_config_path()).expect("Must be able to launch manager to get blender");
 
     // Retrieve last blender version opened/used. Only contains major and minor, no patch. Rely on latest patch if possible.
     let (max, min) = blend_file.get_partial_version();
