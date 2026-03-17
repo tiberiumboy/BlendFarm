@@ -8,6 +8,9 @@ use std::env::consts::{ARCH, OS};
 use std::path::{Path, PathBuf};
 use url::Url;
 
+// I want this struct to remain private for now. 
+// This struct should be used as an component to fetch from reliable resources.
+// alternatively, I could swap this out and use my own custom storage solution.
 #[derive(Debug)]
 pub(crate) struct Portal {
     // list of category on download.blender.org
