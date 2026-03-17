@@ -7,5 +7,3 @@ Frame will let the user pick a frame from the project file and start a rendering
 
 Feature:
 Find a way to load project information for which camera/frame to select from?
-
-Bug:
