@@ -19,7 +19,7 @@ use libp2p::{
     kad::{self, QueryId},
 };
 use libp2p_request_response::OutboundRequestId;
-use std::collections::{HashMap, HashSet, hash_map};
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::PathBuf;
 use tokio::select;
@@ -277,7 +277,7 @@ impl Service {
                     &self.pending_job_event.push(event);
                 }
             }
-            Command::NodeStatus(status) => {
+            Command::ServerStatus(status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
                 let data = serde_json::to_string(&status).unwrap();
                 let topic = IdentTopic::new(NODE_TOPIC);
@@ -336,10 +336,11 @@ impl Service {
         match event {
             mdns::Event::Discovered(peers) => {
                 for (peer_id, address) in peers {
-                    println!("Discovered [{peer_id:?}] {address:?}");
-
-                    // when I process this, how do I know where dialers is used?
-                    let event = Event::Discovered(peer_id, address);
+                    // println!("Discovered [{peer_id:?}] {address:?}");
+                    
+                    // create a discovery notification to the subscribers
+                    let event = Event::Discovered(peer_id, address.clone());
+                    // if this errors out, we should gracefully hang up?
                     if let Err(e) = self.sender.send(event).await {
                         eprintln!("sender should not drop! {e:?}");
                     }
@@ -353,10 +354,10 @@ impl Service {
 
                     // // add the discover node to kademlia list.
                     // why would I want to do this?
-                    // self.swarm
-                    //     .behaviour_mut()
-                    //     .kad
-                    //     .add_address(&peer_id, address.clone());
+                    self.swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .add_address(&peer_id, address.clone());
                 }
             }
             mdns::Event::Expired(..) => {

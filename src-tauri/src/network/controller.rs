@@ -50,8 +50,8 @@ impl Controller {
         self.sender.send(cmd).await
     }
 
-    pub(crate) async fn send_node_status(&self, status: ServerEvent) {
-        if let Err(e) = self.sender.send(Command::NodeStatus(status)).await {
+    pub(crate) async fn send_server_status(&self, status: ServerEvent) {
+        if let Err(e) = self.sender.send(Command::ServerStatus(status)).await {
             eprintln!("Failed to send node status to network service: {e:?}");
         }
     }

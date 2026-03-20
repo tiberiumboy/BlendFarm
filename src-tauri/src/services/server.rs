@@ -7,8 +7,10 @@ Feature request:
     - receive command to properly reboot computer when possible?
 */
 use super::blend_farm::BlendFarm;
+use crate::domains::render_store::RenderStore;
 use crate::domains::ticket_store::{TicketError, TicketStore};
 use crate::models::computer_spec::ComputerSpec;
+use crate::models::job::JobId;
 use crate::network::PeerIdString;
 use crate::network::message::{self, Event, NetworkError};
 use crate::network::provider_rule::ProviderRule;
@@ -28,11 +30,11 @@ use blender::models::event::BlenderEvent;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::async_runtime::Receiver;
 use thiserror::Error;
-use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::{mpsc, oneshot};
 use tokio::{select, spawn};
 use uuid::Uuid;
 
@@ -43,7 +45,7 @@ enum ServerCommand {
     DeleteTask(Uuid),
     CheckBlender(String),  // Name of the blender in compressed package enum. (e.g. "blender-5.0.0-linux-x64.tar.xz")
     // this function seems confusing. Refine this a bit letter.
-    Fetch(Sender<HashSet<Frame, PathBuf>>),
+    Fetch(JobId, oneshot::Sender<HashMap<Frame, PathBuf>>),
     Abort,
 }
 
@@ -58,7 +60,6 @@ pub enum ServerEvent {
         reason: Option<String>,
     },
     Rendering(Uuid),
-    DownloadingBlender(Version),
     BlenderStatus(BlenderEvent),
     Idle,   // waiting for task
 }
@@ -156,8 +157,11 @@ impl Server {
                 &job.get_file_name_expected()
             );
 
-            let providers = client.get_providers(job.get_file_name_expected().clone()).await;
+            let file_name = job.get_file_name_expected().clone().to_str().expect("Must have a string!");
+            let providers = client.get_providers(file_name).await;
 
+            // TODO: Find a way to implement network partition to break up files chunks for parallel network transfer.
+            
 
             let search_directory = project_file_path
                 .parent()
@@ -318,15 +322,23 @@ impl Server {
         match cmd {
             ServerCommand::AddTask(ticket) => {
                 let ticket_db = SqliteTicketStore::new(self.db_conn.clone());
-                ticket_db.add_task(ticket).await; 
+                ticket_db.add_ticket(ticket).await; 
             },
             // how does abort works? We'll come back to this later.
             ServerCommand::Abort => {
                 // An abort was called. Stop blender.
-                
+                todo!("Impl. cancellation token");
             },
 
-            ServerCommand::Fetch(sender) => todo!(),
+            ServerCommand::Fetch(job_id, sender) => {
+                // returns a hashset of all render frames from matching job. 
+                // Inner join tasks inner join renders
+                // basically providing basic information to client what frames have been completed.
+                let render_db = SqliteRenderStore::new(self.db_conn.clone());
+                if let Ok(result) = render_db.find(Some(job_id)).await {
+                    sender.send(result);
+                }
+            },
             ServerCommand::Start => {
                 self.process_tickets(&client);
                 ()
@@ -351,50 +363,61 @@ impl Server {
         controller: &NetworkController,
     ) -> Result<Receiver<BlenderEvent>, TicketError> {
         // run the service here.
-                let ticket_db = SqliteTicketStore::new(self.db_conn.clone());
-                // let render_db = SqliteRenderStore::new(self.db_conn.clone());
+        let ticket_db = SqliteTicketStore::new(self.db_conn.clone());
+        // let render_db = SqliteRenderStore::new(self.db_conn.clone());
 
-                loop {
-                    select! {
-                        pending_task = ticket_db.poll_ticket() => match pending_task {
-                            Ok(query) => match query {
-                                Some(record) => {
-                                    let mut ticket = record.item;
-                                    
-                                    // Skip this for now. We'll work on DHT at another time.
-                                    // TODO: validate and make sure that we have the files locally stored ready to be used.
-                                    // let project_file = match self.validate_project_file(client, &task).await {
-                                    //     Ok(path) => path,
-                                    //     Err(e) => {
-                                    //         eprintln!("Fail to validate project file! {e:?}");
-                                    //         return;
-                                    //     }
-                                    // };
-                                    // let project_file = task.get_job().get_project_path();
+        loop {
+            select! {
+                pending_task = &ticket_db.poll_ticket() => match pending_task {
+                    Ok(query) => match query {
+                        Some(record) => {
+                            let mut ticket = record.item;
+                            
+                            // Skip this for now. We'll work on DHT at another time.
+                            // TODO: validate and make sure that we have the files locally stored ready to be used.
+                            // let project_file = match self.validate_project_file(client, &task).await {
+                            //     Ok(path) => path,
+                            //     Err(e) => {
+                            //         eprintln!("Fail to validate project file! {e:?}");
+                            //         return;
+                            //     }
+                            // };
+                            // let project_file = task.get_job().get_project_path();
 
-                                    let version = &ticket.job.blender_version;
-                                    // TODO: I want to find a way to utilize intranet DHT services to fetch installation from other computer node. It wouldn't make a lot of sense re-download the same version from source multiple of times.
-                                    let blender = match self.manager.have_blender(version) {
-                                        Some(blender) => blender,
-                                        None => {
-                                            &controller.
-                                            // Here, we'd like to try and fetch from client first, before we can download.
-                                            // &self.manager
-                                            //     .fetch_blender(&version)
-                                            //     .map_err(TicketError::Manager)?
-                                        }
-                                    };
+                            let version = &ticket.job.blender_version;
+                            // TODO: I want to find a way to utilize intranet DHT services to fetch installation from other computer node. It wouldn't make a lot of sense re-download the same version from source multiple of times.
+                            let blender = match self.manager.have_blender(version) {
+                                Some(blender) => blender,
+                                None => {
+                                    // Update ticket status to "Error" -> Do not re-run this again until the issue has been resolved.
+                                    ticket_db.update();
 
-                                    // we will get to the part of handling receiver, but I wanted to make sure this works so far.
-                                    let _receiver = ticket.render(&blender).await?;
-                                    ()
+                                    // let (sender, receiver) = mpsc::<>channel();
+                                    todo!("mute the rest to focus on lint issue");
+                                    // &controller.
+                                    // Here, we'd like to try and fetch from client first, before we can download.
+                                    // &self.manager
+                                    //     .fetch_blender(&version)
+                                    //     .map_err(TicketError::Manager)?
                                 }
-                                None => (),
-                            },
-                            Err(e) => ()
+                            };
+
+                            // we will get to the part of handling receiver, but I wanted to make sure this works so far.
+                            let _receiver = ticket.render(&blender).await?;
+                            ()
                         }
+                        None => {
+                            println!("No more task found! Setting to idle!");
+                            ()
+                        },
+                    },
+                    Err(e) => {
+                        println!("Something went wrong {e:?}");
+                        ()
                     }
                 }
+            }
+        }
         
     }
 }
@@ -443,12 +466,27 @@ impl BlendFarm for Server {
             // loop until we have no more task left to work on.
             loop {
                 select! {
-                    blender_event = self.process_task(&blender_controller).await => self.handle_blender_event(blender_event),                
+                    blender_event = &mut self.process_tickets(&blender_controller) => match blender_event {
+                        Ok(receiver) => while let Some(message) = receiver.recv().await {
+                            // if receiver.
+                            // BlenderEvent::
+                            // match message {
+                            //     BlenderEvent::Quit
+                            // }
+                            print!("Processing tickets: {message:?}");
+                        },
+                        Err(e) => {
+                            // let server_event = ServerEvent::
+                            // client.send_node_status(server_event).await;
+                            eprintln!("Something broke: {e:?}");
+                            break;
+                        }
+                    },                
                 }
             }
 
             // Once we've exhausted all of the task here, we should send out Request Task message.
-            blender_controller.send_node_status(ServerEvent::Idle).await;
+            blender_controller.send_server_status(ServerEvent::Idle).await;
         });
 
         // Process commands inputs
@@ -471,10 +509,11 @@ impl BlendFarm for Server {
                         }
                         Event::ServerStatus(event) => {
                             match event {
+
                                 ServerEvent::Online(peer_id, spec) => {
                                     // peer connected with specs.
-
-                                    peer_id
+                                    // Once a computer becomes online, do nothing?
+                                    
                                     println!("Peer connected with specs provided : {peer_id:?}\n{spec:?}");
                                     // if we are not connected to host, connect to this one. await further instructions.
                                     // TODO: See where my multiaddr went?
@@ -486,14 +525,14 @@ impl BlendFarm for Server {
                                     // let status = NodeEvent::Hello(public_ip, computer_spec);
                                     // client.send_node_status(status).await;
                                 }
-                                // ServerEvent::Disconnected { peer_id, reason } => match reason {
-                                //     Some(err) => {
-                                //         // Reporting that we lost connection to peer_id by a connection IO error 
-                                //         println!("Peer Disconnected with reason [{peer_id:?}] {err}");
-                                //         // what shall the server ever do? Do we care? No?
-                                //     }
-                                //     None => println!("Peer Disconnected without reason! [{peer_id:?}]"),
-                                // },
+                                ServerEvent::Disconnected { peer_id, reason } => match reason {
+                                    Some(err) => {
+                                        // Reporting that we lost connection to peer_id by a connection IO error 
+                                        println!("Peer Disconnected with reason [{peer_id:?}] {err}");
+                                        // what shall the server ever do? Do we care? No?
+                                    }
+                                    None => println!("Peer Disconnected without reason! [{peer_id:?}]"),
+                                },
                                 ServerEvent::BlenderStatus(_blender_event) => {
                                     // println!("[Blender Status] {blender_event:?}");
                                     // probably doesn't matter, but shouldn't spam the network with this info yet...

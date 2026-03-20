@@ -97,8 +97,9 @@ pub enum Command {
     // TODO: More documentation to explain below
     // These are signal to use to send out message and forget.
     // May expect a respoonse back potentially requesting this node to work new jobs.
-    NodeStatus(ServerEvent), // broadcast node activity changed
-    JobStatus(JobEvent),
+    ServerStatus(ServerEvent), // broadcast node activity changed
+    // don't think I need this anymore?
+    // JobStatus(JobEvent),
     FileService(FileCommand),
 }
 

@@ -15,16 +15,16 @@ pub struct SqliteWorkerStore {
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
 struct WorkerDTO {
-    machine_id: String,
+    peer_id: String,
     // TODO: find a way to use #[sqlx(json)]?
     spec: String, // deserialize/serialize as json
 }
 
 impl WorkerDTO {
     pub fn dto_to_obj(&self) -> Worker {
-        let id = PeerId::from_str(&self.machine_id).expect("ID was mutated!");
+        let peer_id = PeerId::from_str(&self.peer_id).expect("ID was mutated!");
         let spec = serde_json::from_str::<ComputerSpec>(&self.spec).expect("spec was mutated!");
-        Worker { id, spec }
+        Worker { peer_id, spec }
     }
 }
 
@@ -40,7 +40,7 @@ impl WorkerStore for SqliteWorkerStore {
     async fn list_worker(&self) -> Result<Vec<Worker>, WorkerError> {
         // we'll add a limit here for now.
         let result: Vec<WorkerDTO> =
-            sqlx::query_as!(WorkerDTO, r"SELECT machine_id, spec FROM workers")
+            sqlx::query_as!(WorkerDTO, r"SELECT peer_id, spec FROM workers")
                 .fetch_all(&self.conn)
                 .await
                 .map_err(|e| WorkerError::Database(e.to_string()))?;
@@ -76,7 +76,7 @@ impl WorkerStore for SqliteWorkerStore {
         // Is there a way I could do optional instead of result?
         let result: Result<WorkerDTO, sqlx::Error> = sqlx::query_as!(
             WorkerDTO,
-            r#"SELECT machine_id, spec FROM workers WHERE machine_id=$1"#,
+            r#"SELECT peer_id, spec FROM workers WHERE peer_id=$1"#,
             peer_id
         )
         .fetch_one(&self.conn)
@@ -97,7 +97,7 @@ impl WorkerStore for SqliteWorkerStore {
     async fn delete_worker(&mut self, id: &PeerId) -> Result<(), WorkerError> {
         let peer_id = id.to_base58();
         // TODO: mark the worker inactive instead.
-        let _ = sqlx::query!(r"DELETE FROM workers WHERE machine_id = $1", peer_id)
+        let _ = sqlx::query!(r"DELETE FROM workers WHERE peer_id = $1", peer_id)
             // my mind goes on a brainfart moment overcomplicating simplification and data requirement.
             // should status be a enum type, then should it be a string instead?
             // let _ = sqlx::query!("UPDATE workers SET status=false,  ")

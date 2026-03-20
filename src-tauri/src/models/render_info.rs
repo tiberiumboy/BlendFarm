@@ -8,8 +8,13 @@ pub type NewRenderInfoDto = RenderInfo;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, Eq, PartialEq)]
 pub struct RenderInfo {
+    // what job this render image belongs to
     pub job_id: Uuid,
+    
+    // which frame
     pub frame: i32,
+
+    // path to final image
     pub render_path: PathBuf,
 }
 

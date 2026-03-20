@@ -1,4 +1,7 @@
-use crate::models::render_info::{CreatedRenderInfoDto, NewRenderInfoDto, RenderInfo};
+use std::{collections::HashMap, path::PathBuf};
+
+use crate::models::{job::JobId, render_info::{CreatedRenderInfoDto, NewRenderInfoDto, RenderInfo}};
+use blender::blender::Frame;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -12,12 +15,11 @@ pub enum RenderError {
 
 #[async_trait::async_trait]
 pub trait RenderStore {
-    async fn list_renders(&self) -> Result<Vec<CreatedRenderInfoDto>, RenderError>;
-    async fn create_renders(
+    async fn find(&self, filter: Option<JobId>) -> Result<HashMap<Frame, PathBuf>, RenderError>;
+    async fn update(&mut self, render_info: RenderInfo) -> Result<(), RenderError>;
+    async fn create(
         &self,
         render_info: NewRenderInfoDto,
     ) -> Result<CreatedRenderInfoDto, RenderError>;
-    async fn read_renders(&self, id: &Uuid) -> Result<CreatedRenderInfoDto, RenderError>;
-    async fn update_renders(&mut self, render_info: RenderInfo) -> Result<(), RenderError>;
-    async fn delete_renders(&mut self, id: &Uuid) -> Result<(), RenderError>;
+    async fn kill(&mut self, id: &Uuid) -> Result<(), RenderError>;
 }

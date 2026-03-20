@@ -3,7 +3,7 @@ use crate::{
     domains::ticket_store::TicketError,
     models::{job::Job, with_id::WithId},
 };
-use blender::{blend_file::BlendFile, blender::{Args, Blender, Frame}, manager::Manager as BlenderManager, models::event::BlenderEvent};
+use blender::{blend_file::BlendFile, blender::{Args, Blender, Frame}, models::event::BlenderEvent};
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::Receiver;
 use std::{
@@ -11,7 +11,7 @@ use std::{
 };
 use uuid::Uuid;
 
-pub type CreatedTaskDto = WithId<Ticket, Uuid>;
+pub type CreatedTicketDto = WithId<Ticket, Uuid>;
 
 // pub enum TaskStatus {
     // use this to describe what's going on with this task.

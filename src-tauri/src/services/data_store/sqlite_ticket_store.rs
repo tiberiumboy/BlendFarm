@@ -2,7 +2,7 @@ use crate::{
     domains::ticket_store::{TicketError, TicketStore},
     models::{
         job::Job,
-        ticket::{CreatedTaskDto, Ticket},
+        ticket::{CreatedTicketDto, Ticket},
         with_id::WithId,
     },
 };
@@ -26,6 +26,7 @@ struct TicketDAO {
     id: String,
     job_id: String,
     job: String,
+    // TODO: See why we can't use Frame (i32). Sqlite impose using i64?
     start: i64,
     end: i64,
 }
@@ -51,7 +52,7 @@ impl TicketDAO {
 
 #[async_trait::async_trait]
 impl TicketStore for SqliteTicketStore {
-    async fn add_task(&self, task: Ticket) -> Result<CreatedTaskDto, TicketError> {
+    async fn add_ticket(&self, task: Ticket) -> Result<CreatedTicketDto, TicketError> {
         // let sql = ;
         let id = Uuid::new_v4();
         let job = serde_json::to_string::<Job>(task.as_ref())
@@ -77,9 +78,10 @@ impl TicketStore for SqliteTicketStore {
     }
 
     // Poll next available task if there any.
-    async fn poll_ticket(&self) -> Result<Option<CreatedTaskDto>, TicketError> {
+    async fn poll_ticket(&self) -> Result<Option<CreatedTicketDto>, TicketError> {
         // fetch next available task to work on
-        // TODO: Implement creation date to order by
+        // TODO: rely on id instead
+        // TODO: Implement safeguard logic checks to pull only the tickets that haven't complete the range of renders yet.
         let result = query_as!(
             TicketDAO,
             r"SELECT id, job_id, job, start, end FROM ticket LIMIT 1"
@@ -90,14 +92,14 @@ impl TicketStore for SqliteTicketStore {
         Ok(result.map(|d| Some(d.dto_to_task())).unwrap_or(None))
     }
 
-    async fn list_tickets(&self) -> Result<Option<Vec<CreatedTaskDto>>, TicketError> {
+    async fn list_tickets(&self) -> Result<Option<Vec<CreatedTicketDto>>, TicketError> {
         let result = sqlx::query_as!(
             TicketDAO,
             r"
-            SELECT id, job_id, job, start, end
-            FROM ticket 
-            LIMIT 10
-        "
+                SELECT id, job_id, job, start, end
+                FROM ticket
+                LIMIT 10
+            "
         )
         .fetch_all(&self.conn)
         .await;

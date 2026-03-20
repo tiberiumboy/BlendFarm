@@ -445,7 +445,14 @@ impl TauriApp {
     // commands received from network
     async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
-            Event::Discovered(..) => todo!(),
+            Event::Discovered(peer_id, mutitaddr) => {
+                // Here should try to join the topic hash before sending message out in case it doesn't work?
+                let peer_id = client.public_id;
+                let spec = ComputerSpec::new();
+                let server_status = ServerEvent::Online(peer_id, spec);
+                client.send_server_status(server_status).await
+            },
+            // what does inbound request do?
             Event::InboundRequest { .. } => todo!(),
             Event::ServerStatus(..) => todo!(),
             Event::JobUpdate(..) => todo!(),
@@ -511,9 +518,9 @@ impl BlendFarm for TauriApp {
 
                     event = event_receiver.recv() => match event {
                         Some(net_event) => match net_event {
-                            Event::ServerStatus(node_status) => match node_status {
+                            Event::ServerStatus(server_status) => match server_status {
                                 ServerEvent::Hello(peer_id_string, spec) => {
-                                    // a new node acknowledge your greets.
+                                    // a new node acknowledges your activity. Revealing available server on the network.
                                     // this node now listens to you, and has provided info to communicate back
                                     let peer_id =
                                         PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
