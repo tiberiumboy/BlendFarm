@@ -164,6 +164,25 @@ impl Portal {
         result
     }
 
+    pub fn check_compressed_blender_by_file_name(&self, zip_file_name: &str) -> Option<PathBuf> {
+        self.list.iter().fold(None, |_ , category| {
+            category.get_packages().iter().find_map(|package| {
+                let path = match package {
+                    Package::Downloaded(downloaded) => Some(downloaded.content.clone()),
+                    Package::Bundle(bundle) => Some(bundle.content.content.clone()),
+                    _ => None,
+                };
+
+                if let Some(zip) = &path {
+                    if zip.eq(zip_file_name) {
+                        return path;
+                    }
+                }
+                None
+            })
+        })
+    }
+
     /// retrieve the blender executable if it's already downloaded, otherwise download the executable and return Blender instance.
     /// Should we download the blender instances from the internet?
     #[deprecated(note = "This is not used? Is this true?")]

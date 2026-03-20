@@ -8,7 +8,7 @@ use tokio::sync::mpsc::Receiver;
 
 #[async_trait]
 pub trait BlendFarm {
-    // TODO: Simplify this further down to accept commands from Network / Frontend interfaces through this command channel instead of piping network here?
+    // TODO: Return mpsc stream for event notifications and system relays.
     async fn run(
         mut self,
         client: NetworkController,
@@ -17,7 +17,6 @@ pub trait BlendFarm {
 
     // could we use this inside the blendfarm as a base class?
     async fn handle_inbound_request(
-        &mut self,
         client: &NetworkController,
         request: String,
         channel: ResponseChannel<FileResponse>,

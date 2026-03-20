@@ -1,5 +1,5 @@
 use crate::{
-    domains::task_store::TaskError,
+    domains::ticket_store::TicketError,
     models::job::{CreatedJobDto, NewJobDto},
 };
 // use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ pub enum JobError {
     #[error("Received Database errors! {0}")]
     DatabaseError(String),
     #[error("Task error")]
-    TaskError(#[from] TaskError),
+    TaskError(#[from] TicketError),
     #[error("Command error: {0}")]
     Send(String),
 }

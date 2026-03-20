@@ -30,7 +30,7 @@ use blender::models::blender_config::BlenderConfig;
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use libp2p::Multiaddr;
-use services::{blend_farm::BlendFarm, cli_app::CliApp, tauri_app::TauriApp};
+use services::{blend_farm::BlendFarm, server::Server, tauri_app::TauriApp};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::path::{Path, PathBuf};
 use tokio::spawn;
@@ -135,7 +135,7 @@ pub async fn run() {
     // TODO: Handle Receiver input here.
     let result = match cli.command {
         // run as client mode.
-        Some(Commands::Client) => CliApp::new(context, &db).run(controller, receiver).await,
+        Some(Commands::Client) => Server::new(context, &db).run(controller, receiver).await,
         // run as GUI mode.
         _ => {
             TauriApp::new(context.manager, &db)

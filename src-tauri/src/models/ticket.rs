@@ -1,17 +1,17 @@
 use super::job::CreatedJobDto;
 use crate::{
-    domains::task_store::TaskError,
+    domains::ticket_store::TicketError,
     models::{job::Job, with_id::WithId},
 };
-use blender::{blender::Frame, constant::MIN_THRESHOLD_FETCH};
+use blender::{blend_file::BlendFile, blender::{Args, Blender, Frame}, manager::Manager as BlenderManager, models::event::BlenderEvent};
 use serde::{Deserialize, Serialize};
+use std::sync::mpsc::Receiver;
 use std::{
-    ops::Range,
-    path::PathBuf,
+    collections::HashMap, path::PathBuf
 };
 use uuid::Uuid;
 
-pub type CreatedTaskDto = WithId<Task, Uuid>;
+pub type CreatedTaskDto = WithId<Ticket, Uuid>;
 
 // pub enum TaskStatus {
     // use this to describe what's going on with this task.
@@ -22,19 +22,21 @@ pub type CreatedTaskDto = WithId<Task, Uuid>;
     this can be customize to determine what and how many frames to render.
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Task {
+pub struct Ticket {
     // status: 
 
     /// Id used to identify the job
     job_id: Uuid,
 
-    /// job reference. // May no longer needed?
     /// This really should expand out to the required info to run the job such as blender file, version, frames, etc.
-    job: Job,
+    pub(crate) job: Job,
 
     // temp output destination - used to hold render image in temp on client machines
     // this should not be visible/present for host to obtain.
     temp_output: PathBuf,
+
+    /// collection of completed render images
+    renders: HashMap<Frame, PathBuf>,
 
     /// Render range frame to perform the task
     pub(crate) start: Frame,
@@ -43,73 +45,47 @@ pub struct Task {
 
 // To better understand Task, this is something that will be save to the database and maintain a record copy for data recovery
 // This act as a pending work order to fulfill when resources are available.
-impl Task {
+impl Ticket {
     // private method, less validation.
     fn new(job_id: Uuid, job: Job, temp_output: PathBuf, start: i32, end: i32 ) -> Self {
         Self {
             job_id,
             job,
             temp_output,
+            renders: HashMap::new(),
             start,
             end
         }
     }
 
-    pub fn from(job: CreatedJobDto, start: i32, end: i32) -> Result<Self, TaskError> {
+    pub fn from(job: CreatedJobDto, start: i32, end: i32) -> Result<Self, TicketError> {
         match dirs::cache_dir() {
-            Some(tmp) => Ok(Task::new(job.id, job.item, tmp, start, end)),
-            None => Err(TaskError::CacheError),
+            Some(tmp) => Ok(Ticket::new(job.id, job.item, tmp, start, end)),
+            None => Err(TicketError::CacheError),
         }
     }
-
-    // TODO: Instead
-    /// The behaviour of this function returns the percentage of the remaining jobs in poll.
-    /// E.g. 102 (out of 255- 80%) of 120 remaining would return 96 end frames.
-    /// TODO: Allow other node or host to fetch end frames from this task and distribute to other requesting workers.
-    pub fn fetch_end_frames(&mut self, percentage: u8) -> Option<Range<i32>> {
-        // Here we'll determine how many franes left, and then pass out percentage of that frames back.
-        let perc = percentage as f32 / u8::MAX as f32;
-        let end = self.end;
-        let delta = (end - self.start) as f32;
-        let trunc = (perc * (delta.powf(2.0)).sqrt()).floor() as usize;
-
-        if trunc <= MIN_THRESHOLD_FETCH {
-            return None;
-        }
-
-        let start = end - trunc as i32;
-        let range = Range { start, end };
-        self.end = start - 1; // Update end value accordingly.
-        Some(range)
-    }
-
-
-    // not currently in used, was originally using this for blender advance batch render feedback system
-    #[cfg(test)]
-    fn get_next_frame(&mut self) -> Option<i32> {
-        // we will use this to generate a temporary frame record on database for now.
-        if self.start < (self.end + 1) {
-            let value = Some(self.start);
-            self.start = self.start + 1;
-            value
-        } else {
-            None
-        }
-    }
+    
+    pub async fn render(&mut self, blender: &Blender) -> Result<Receiver<BlenderEvent>, TicketError> {
+        let job = &self.job;
+        let blend_file = AsRef::<BlendFile>::as_ref(&job);
+        let args = Args::new(blend_file.clone(), self.temp_output.clone(), self.start, self.end);
+        blender.render(args).await.map_err(TicketError::BlenderError)
+    }    
 }
 
-impl AsRef<Uuid> for Task {
+impl AsRef<Uuid> for Ticket {
     fn as_ref(&self) -> &Uuid {
         &self.job_id
     }
 }
 
-impl AsRef<Job> for Task {
+impl AsRef<Job> for Ticket {
     fn as_ref(&self) -> &Job {
         &self.job
     }
 }
 
+/* 
 #[cfg(test)]
 mod test {
     use super::*;
@@ -153,3 +129,4 @@ mod test {
         assert!(data.is_none());
     }
 }
+*/

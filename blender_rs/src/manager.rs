@@ -92,6 +92,10 @@ impl Manager {
         }
     }
 
+    pub fn check_compressed_by_file_name(&self, zip_file_name: &str) -> Option<PathBuf> {
+        self.portal.check_compressed_blender_by_file_name(zip_file_name)
+    }
+
     // Initialize Manager
     pub fn initialize(config: BlenderConfig) -> Result<Self, ManagerError> {
         // TODO: figure out what to do with PageCache? Another BlenderConfig entry?

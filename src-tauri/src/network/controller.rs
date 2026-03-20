@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
@@ -6,7 +5,8 @@ use std::{
 
 use crate::models::behaviour::FileResponse;
 use crate::models::job::JobEvent;
-use crate::network::message::{Command, FileCommand, NetworkError, NodeEvent};
+use crate::services::server::ServerEvent;
+use crate::network::message::{Command, FileCommand, NetworkError};
 use crate::network::provider_rule::ProviderRule;
 use futures::channel::oneshot::{self};
 use libp2p::{Multiaddr, PeerId};
@@ -50,19 +50,21 @@ impl Controller {
         self.sender.send(cmd).await
     }
 
-    #[allow(dead_code)]
-    pub(crate) async fn send_node_status(&mut self, status: NodeEvent) {
+    pub(crate) async fn send_node_status(&self, status: ServerEvent) {
         if let Err(e) = self.sender.send(Command::NodeStatus(status)).await {
             eprintln!("Failed to send node status to network service: {e:?}");
         }
     }
 
+    // Not in used?
+    /* 
     pub(crate) async fn dial(
         &self,
         peer_id: &PeerId,
         peer_addr: &Multiaddr,
     ) -> Result<(), Box<dyn Error + Send>> {
         let (sender, receiver) = oneshot::channel();
+        // we thread locked here. Awaiting for dial to come back successfully, which means we're establishing connection to exchange information.
         self.sender
             .send(Command::Dial {
                 peer_id: peer_id.clone(),
@@ -78,6 +80,7 @@ impl Controller {
         }
         Ok(())
     }
+    */
 
     // send job event to all connected node
     pub async fn send_job_event(&self, event: JobEvent) {

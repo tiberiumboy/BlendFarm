@@ -7,7 +7,7 @@ pub(crate) mod constant;
 pub mod error;
 pub(crate) mod job;
 pub(crate) mod render_info;
-pub(crate) mod task;
+pub(crate) mod ticket;
 pub(crate) mod server_setting;
 pub mod with_id;
 pub mod worker;

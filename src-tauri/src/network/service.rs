@@ -1,7 +1,8 @@
 use crate::constant::{JOB_TOPIC, NODE_TOPIC};
 use crate::models::behaviour::{BlendFarmBehaviourEvent, FileRequest, FileResponse};
 use crate::models::job::JobEvent;
-use crate::network::message::{ChannelStatus, FileCommand, NodeEvent};
+use crate::network::message::{ChannelStatus, FileCommand, ServerEvent};
+use crate::services::server::ServerEvent;
 use crate::{
     models::behaviour::BlendFarmBehaviour,
     network::message::{Command, Event},
@@ -45,6 +46,8 @@ pub struct Service {
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pending_request_file:
         HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
+
+    pending_job_event: Vec<JobEvent>
 }
 
 // network service will be used to handle and receive network signal. It will also transmit network package over lan
@@ -64,14 +67,14 @@ impl Service {
             providing_files: Default::default(),
             pending_get_providers: Default::default(),
             pending_request_file: Default::default(),
+            pending_job_event: Default::default()
         }
     }
 
     /*
-       From my understanding about this method implementation is that we wanted to be able to broadcast
-       all of the potential files out there and sponsor what's available.
-       I think this methodology will change because we wanted the host to ask the client if there's any files available
-       or completed by this machine, and then reply back to the host.
+       From my understanding about this method implementation: broadcast all potential files and sponsor what's available.
+       This methodology will change: The host will ask the client for task information that matches Job ID.
+       This client will reply back to the host with list of matching task(s) information.
 
        I need to setup a network diagram to make this network layer protocol clear and understand,
        as well as easy to debug, test, and identify potential issues.
@@ -153,6 +156,19 @@ impl Service {
         };
     }
 
+    // TODO: Will need to return Result<MessageId, PublishError>... For now let's keep it as-is.
+    async fn send_job_status(&mut self, event: &JobEvent) {
+        let data = serde_json::to_string(&event).unwrap();
+        let topic = IdentTopic::new(JOB_TOPIC);
+        // we should wait until we successfully subscribed to the various topics filter.
+        // The only reason why I'm getting failed to send job message is because we are not subscribed to the topic yet.
+        match self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+            // TODO: Print log verbosity
+            Ok(_) => println!("Job Status Sent!\n{event:?}"),
+            Err(e) => eprintln!("Fail to send job message! {e:?}"),
+        };
+    }
+
     // send command
     // Receive commands from foreign invocation.
     async fn handle_command(&mut self, cmd: Command) {
@@ -179,6 +195,7 @@ impl Service {
                 }
             }
 
+            /* 
             Command::Dial {
                 peer_id,
                 peer_addr,
@@ -189,7 +206,8 @@ impl Service {
                         .behaviour_mut()
                         .kademlia
                         .add_address(&peer_id, peer_addr.clone());
-
+                    
+                    // TODO: give me a reason why we need to dial?
                     match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
                         Ok(()) => {
                             e.insert(sender);
@@ -202,6 +220,7 @@ impl Service {
                     eprintln!("Already dialing the peer!");
                 }
             }
+            */
 
             // use this to advertise files. On app startup we should broadcast blender apps as well.
             Command::StartProviding { file_name, sender } => {
@@ -245,22 +264,19 @@ impl Service {
             Command::FileService(service) => self.process_file_service(service).await,
 
             // received job status. invoke commands
-            // we should only send command if we are subscribed.
+            // TODO: we should only send command if we are subscribed.
             Command::JobStatus(event) => {
+                // I will have to make a queue until we have subscribers.
                 // I want to send a message only if we have active subscribers.
                 // which means I need to create my own list of peers I think may be listening on the network
                 // convert data into json format.
                 // The foreign request is asking for the Job Status -> Reply back to the user directly.
-                let data = serde_json::to_string(&event).unwrap();
-                let topic = IdentTopic::new(JOB_TOPIC);
-                // we should wait until we successfully subscribed to the various topics filter.
-                // The only reason why I'm getting failed to send job message is because we are not subscribed to the topic yet.
-                // how can I wait until we're subscribed to the topic?
-                match self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                    // TODO: Print log verbosity
-                    Ok(_) => println!("Job Status Sent!\n{event:?}"),
-                    Err(e) => eprintln!("Fail to send job message! {e:?}"),
-                };
+                if self.dialers.capacity().gt(&0) {
+                    &self.send_job_status(&event);
+                } else {
+                    // TODO: impl Arc<RwLock<T>>>
+                    &self.pending_job_event.push(event);
+                }
             }
             Command::NodeStatus(status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
@@ -371,9 +387,9 @@ impl Service {
                     }
                 },
                 // Node based event awareness
-                NODE_TOPIC => match serde_json::from_slice::<NodeEvent>(&message.data) {
+                NODE_TOPIC => match serde_json::from_slice::<ServerEvent>(&message.data) {
                     Ok(node_event) => {
-                        if let Err(e) = self.sender.send(Event::NodeStatus(node_event)).await {
+                        if let Err(e) = self.sender.send(Event::ServerStatus(node_event)).await {
                             eprintln!("Something failed? {e:?}");
                         }
                     }
@@ -483,8 +499,7 @@ impl Service {
         }
     }
 
-    // Process incoming network events - Treat this as receiving new orders.
-    async fn handle_event(&mut self, event: SwarmEvent<BlendFarmBehaviourEvent>) {
+    async fn handle_swarm_event(&mut self, event: SwarmEvent<BlendFarmBehaviourEvent>) {
         match event {
             SwarmEvent::Behaviour(behaviour) => match behaviour {
                 // RequestResponse?
@@ -504,30 +519,38 @@ impl Service {
                     self.process_kademlia_event(event).await;
                 }
             },
-            // So how does the established works?
+            // Another swarm established to you.
             SwarmEvent::ConnectionEstablished {
                 peer_id, endpoint, ..
             } => {
-                println!("Connection Established: {peer_id:?}\n{endpoint:?}");
-
+                // TODO: Could we stream io?
+                // TODO: Toggle verbosity mode?
+                // println!("Connection Established: {peer_id:?}\n{endpoint:?}");
                 if endpoint.is_dialer() {
                     if let Some(sender) = self.pending_dial.remove(&peer_id) {
+                        // Eventually we can remove this. I don't think this is necessary anymore?
+                        // register active session. peer_id and remote address stored.
                         self.dialers
                             .entry(peer_id)
                             .and_modify(|f| *f = endpoint.get_remote_address().clone());
+                        
+                        // TODO: Where are we sending Ok(()) to?
                         let _ = sender.send(Ok(()));
                     }
                 }
             }
+            // why does it report I/O error? What does it mean closed by peer?
             // This was called when client starts while manager is running. "Connection error: I/O error: closed by peer: 0"
-            // TODO: Read what ConnectionClosed does?
+            // Lost connection to peer_id
             SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
                 let reason = cause.and_then(|f| Some(f.to_string()));
-                let node = NodeEvent::Disconnected {
+
+                // Are we using ServerEvent correctly?
+                let node = ServerEvent::Disconnected {
                     peer_id: peer_id.to_base58(),
                     reason,
                 };
-                let event = Event::NodeStatus(node);
+                let event = Event::ServerStatus(node);
                 if let Err(e) = self.sender.send(event).await {
                     eprintln!("Fail to send event on connection closed! {e:?}");
                 }
@@ -589,9 +612,9 @@ impl Service {
     pub(crate) async fn run(mut self) {
         loop {
             select! {
-                event = self.swarm.select_next_some() => self.handle_event(event).await,
-                command = self.receiver.recv() => match command {
-                    Some(c) => self.handle_command(c).await,
+                event = self.swarm.select_next_some() => self.handle_swarm_event(event).await,
+                pending_command = self.receiver.recv() => match pending_command {
+                    Some(command) => self.handle_command(command).await,
                     None => return,
                 },
             }

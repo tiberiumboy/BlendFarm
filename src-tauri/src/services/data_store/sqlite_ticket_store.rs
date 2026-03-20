@@ -1,8 +1,8 @@
 use crate::{
-    domains::task_store::{TaskError, TaskStore},
+    domains::ticket_store::{TicketError, TicketStore},
     models::{
         job::Job,
-        task::{CreatedTaskDto, Task},
+        ticket::{CreatedTaskDto, Ticket},
         with_id::WithId,
     },
 };
@@ -10,18 +10,19 @@ use sqlx::{FromRow, SqlitePool, query, query_as, types::Uuid};
 use std::str::FromStr;
 
 // Is this how we can make this connection arc across threads?
-pub struct SqliteTaskStore {
+#[derive(Debug)]
+pub struct SqliteTicketStore {
     conn: SqlitePool,
 }
 
-impl SqliteTaskStore {
+impl SqliteTicketStore {
     pub fn new(conn: SqlitePool) -> Self {
         Self { conn }
     }
 }
 
 #[derive(Debug, Clone, FromRow)]
-struct TaskDAO {
+struct TicketDAO {
     id: String,
     job_id: String,
     job: String,
@@ -29,8 +30,8 @@ struct TaskDAO {
     end: i64,
 }
 
-impl TaskDAO {
-    fn dto_to_task(self) -> WithId<Task, Uuid> {
+impl TicketDAO {
+    fn dto_to_task(self) -> WithId<Ticket, Uuid> {
         let id = Uuid::from_str(&self.id).expect("id was mutated");
         let job_id = Uuid::from_str(&self.job_id).expect("job_id was mutated");
         let job = serde_json::from_str::<Job>(&self.job).expect("job record was malformed!");
@@ -43,14 +44,14 @@ impl TaskDAO {
             item: job,
         };
         // TODO: Find a way to handle expect()
-        let item = Task::from(job_record, start, end).expect("Malformed data detected!");
+        let item = Ticket::from(job_record, start, end).expect("Malformed data detected!");
         WithId { id, item }
     }
 }
 
 #[async_trait::async_trait]
-impl TaskStore for SqliteTaskStore {
-    async fn add_task(&self, task: Task) -> Result<CreatedTaskDto, TaskError> {
+impl TicketStore for SqliteTicketStore {
+    async fn add_task(&self, task: Ticket) -> Result<CreatedTaskDto, TicketError> {
         // let sql = ;
         let id = Uuid::new_v4();
         let job = serde_json::to_string::<Job>(task.as_ref())
@@ -60,7 +61,7 @@ impl TaskStore for SqliteTaskStore {
 
         // todo see if there's a better way to handle sqlite query?
         let _ = query!(
-            r"INSERT INTO tasks(id, job_id, job, start, end) 
+            r"INSERT INTO ticket(id, job_id, job, start, end) 
             VALUES($1, $2, $3, $4, $5)",
             id,
             job_id,
@@ -70,31 +71,31 @@ impl TaskStore for SqliteTaskStore {
         )
         .execute(&self.conn)
         .await
-        .map_err(TaskError::DatabaseError)?;
+        .map_err(TicketError::DatabaseError)?;
 
         Ok(WithId { id, item: task })
     }
 
     // Poll next available task if there any.
-    async fn poll_task(&self) -> Result<Option<CreatedTaskDto>, TaskError> {
+    async fn poll_ticket(&self) -> Result<Option<CreatedTaskDto>, TicketError> {
         // fetch next available task to work on
         // TODO: Implement creation date to order by
         let result = query_as!(
-            TaskDAO,
-            r"SELECT id, job_id, job, start, end FROM tasks LIMIT 1"
+            TicketDAO,
+            r"SELECT id, job_id, job, start, end FROM ticket LIMIT 1"
         )
         .fetch_optional(&self.conn)
         .await
-        .map_err(TaskError::DatabaseError)?;
+        .map_err(TicketError::DatabaseError)?;
         Ok(result.map(|d| Some(d.dto_to_task())).unwrap_or(None))
     }
 
-    async fn list_tasks(&self) -> Result<Option<Vec<CreatedTaskDto>>, TaskError> {
+    async fn list_tickets(&self) -> Result<Option<Vec<CreatedTaskDto>>, TicketError> {
         let result = sqlx::query_as!(
-            TaskDAO,
+            TicketDAO,
             r"
             SELECT id, job_id, job, start, end
-            FROM tasks 
+            FROM ticket 
             LIMIT 10
         "
         )
@@ -103,20 +104,20 @@ impl TaskStore for SqliteTaskStore {
 
         match result {
             Ok(list) => Ok(Some(list.iter().map(|d| d.clone().dto_to_task()).collect())),
-            Err(e) => Err(TaskError::DatabaseError(e)),
+            Err(e) => Err(TicketError::DatabaseError(e)),
         }
     }
 
-    async fn delete_task(&self, id: &Uuid) -> Result<(), TaskError> {
-        let _ = sqlx::query(r"DELETE FROM tasks WHERE id = $1")
+    async fn delete_ticket(&self, id: &Uuid) -> Result<(), TicketError> {
+        let _ = sqlx::query(r"DELETE FROM ticket WHERE id = $1")
             .bind(id.to_string())
             .execute(&self.conn)
             .await;
         Ok(())
     }
 
-    async fn delete_job_task(&self, job_id: &Uuid) -> Result<(), TaskError> {
-        let _ = sqlx::query(r"DELETE FROM tasks WHERE job_id = $1")
+    async fn delete_job_ticket(&self, job_id: &Uuid) -> Result<(), TicketError> {
+        let _ = sqlx::query(r"DELETE FROM ticket WHERE job_id = $1")
             .bind(job_id.to_string())
             .execute(&self.conn)
             .await;
