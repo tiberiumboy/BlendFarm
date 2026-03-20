@@ -1,5 +1,10 @@
-use crate::models::worker::{Worker, WorkerError};
+use crate::models::worker::Worker;
 use libp2p::PeerId;
+
+#[derive(Debug)]
+pub enum WorkerError {
+    Database(String),
+}
 
 #[async_trait::async_trait]
 pub trait WorkerStore {

@@ -5,7 +5,7 @@ use futures::{SinkExt, StreamExt};
 use libp2p::PeerId;
 use maud::html;
 use serde_json::json;
-use tauri::{command, State};
+use tauri::{State, command};
 use tokio::sync::Mutex;
 
 use crate::constant::WORKPLACE;
@@ -28,7 +28,7 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
                 _ => html! {
                     @for worker in data {
                         div {
-                            table tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.id.to_base58() })) hx-target=(format!("#{WORKPLACE}")) {
+                            table tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.peer_id.to_base58() })) hx-target=(format!("#{WORKPLACE}")) {
                                 tbody {
                                     tr {
                                         td style="width:100%" {

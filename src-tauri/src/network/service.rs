@@ -1,7 +1,7 @@
 use crate::constant::{JOB_TOPIC, NODE_TOPIC};
 use crate::models::behaviour::{BlendFarmBehaviourEvent, FileRequest, FileResponse};
 use crate::models::job::JobEvent;
-use crate::network::message::{ChannelStatus, FileCommand, ServerEvent};
+use crate::network::message::FileCommand;
 use crate::services::server::ServerEvent;
 use crate::{
     models::behaviour::BlendFarmBehaviour,
@@ -47,7 +47,7 @@ pub struct Service {
     pending_request_file:
         HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
 
-    pending_job_event: Vec<JobEvent>
+    pending_job_event: Vec<JobEvent>,
 }
 
 // network service will be used to handle and receive network signal. It will also transmit network package over lan
@@ -67,7 +67,7 @@ impl Service {
             providing_files: Default::default(),
             pending_get_providers: Default::default(),
             pending_request_file: Default::default(),
-            pending_job_event: Default::default()
+            pending_job_event: Default::default(),
         }
     }
 
@@ -195,7 +195,7 @@ impl Service {
                 }
             }
 
-            /* 
+            /*
             Command::Dial {
                 peer_id,
                 peer_addr,
@@ -206,7 +206,7 @@ impl Service {
                         .behaviour_mut()
                         .kademlia
                         .add_address(&peer_id, peer_addr.clone());
-                    
+
                     // TODO: give me a reason why we need to dial?
                     match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
                         Ok(()) => {
@@ -221,7 +221,6 @@ impl Service {
                 }
             }
             */
-
             // use this to advertise files. On app startup we should broadcast blender apps as well.
             Command::StartProviding { file_name, sender } => {
                 // TODO: Find a way to get around expect()!
@@ -404,14 +403,15 @@ impl Service {
                     eprintln!("Intercepted unhandled signal here: {topic}");
                 }
             },
-            gossipsub::Event::Subscribed { peer_id, topic } => {
+            // TODO: Don't think I need this yet? suppressing this for now
+            gossipsub::Event::Subscribed { .. /*peer_id, topic*/ } => {
                 // what are the peer_id and topic?
                 // Maybe it's the user who joined the network, we can send a RequestTask if we're idle?
-                let update = ChannelStatus::Joined(peer_id, topic);
-                let event = Event::Channel(update);
-                if let Err(e) = self.sender.send(event).await {
-                    eprintln!("Fail to send subscribed notification! {e:?}");
-                }
+                
+                // let event = Event::JobUpdate(());
+                // if let Err(e) = self.sender.send(event).await {
+                //     eprintln!("Fail to send subscribed notification! {e:?}");
+                // }
             }
             // I should be logging info from other event from gossip... wonder what they got to say?
             // TODO: Log and verify if we need to handle other gossip events.
@@ -533,7 +533,7 @@ impl Service {
                         self.dialers
                             .entry(peer_id)
                             .and_modify(|f| *f = endpoint.get_remote_address().clone());
-                        
+
                         // TODO: Where are we sending Ok(()) to?
                         let _ = sender.send(Ok(()));
                     }

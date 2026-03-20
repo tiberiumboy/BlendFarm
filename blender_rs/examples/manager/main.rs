@@ -7,7 +7,7 @@ use std::path::PathBuf;
 // TODO: I only want to use clap for examples, but not include with the whole library itself.
 use clap::{Parser, Subcommand};
 
-use blender::{blender::Blender, manager::Manager};
+use blender::{blender::Blender, manager::Manager, models::blender_config::BlenderConfig};
 use semver::Version;
 // use semver::Version;
 
@@ -65,7 +65,13 @@ fn main() {
     // retrieve the sub command the user wants to invoke
     // let args: Vec<String> = std::env::args().collect::<Vec<String>>();
     let args = Args::parse();
-    let mut manager = Manager::load_from_path(args.config).expect(&format!(
+
+    let config_path = match args.config {
+        Some(path) => path,
+        None => BlenderConfig::get_default_config_path(),
+    };
+
+    let mut manager = Manager::load_from_path(config_path).expect(&format!(
         "Unable to launch manager, must have valid config!"
     ));
 

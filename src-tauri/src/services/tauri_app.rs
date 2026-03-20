@@ -183,7 +183,8 @@ impl TauriApp {
 
             // TODO: Find a way to handle this error.
             // It should only error if we don't have permission to temp cache storage location
-            let task = Ticket::from(job.clone(), start, end).expect("Should be able to create task!");
+            let task =
+                Ticket::from(job.clone(), start, end).expect("Should be able to create task!");
             tasks.push(task);
         }
 
@@ -444,11 +445,11 @@ impl TauriApp {
     // commands received from network
     async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
-            Event::Discovered(peer_id, multiaddr) => todo!(),
-            Event::InboundRequest { request, channel } => todo!(),
-            Event::ServerStatus(server_event) => todo!(),
-            Event::JobUpdate(job_event) => todo!(),
-            Event::ReceivedFileData(outbound_request_id, items) => todo!(),
+            Event::Discovered(..) => todo!(),
+            Event::InboundRequest { .. } => todo!(),
+            Event::ServerStatus(..) => todo!(),
+            Event::JobUpdate(..) => todo!(),
+            Event::ReceivedFileData(..) => todo!(),
         }
     }
 }
@@ -507,7 +508,7 @@ impl BlendFarm for TauriApp {
             loop {
                 select! {
                     msg = command.select_next_some() => self.handle_command(&mut client, msg).await,
-                    
+
                     event = event_receiver.recv() => match event {
                         Some(net_event) => match net_event {
                             Event::ServerStatus(node_status) => match node_status {
@@ -561,7 +562,7 @@ impl BlendFarm for TauriApp {
                             // a network sent us a inbound request - reply back with the file data in channel.
                             // yeah I wonder why we can't move this inside network class?
                             Event::InboundRequest { request, channel } => {
-                                self.handle_inbound_request(client, request, channel).await;
+                                Self::handle_inbound_request(&client, request, channel).await;
                             }
 
                             Event::JobUpdate(job_event) => match job_event {

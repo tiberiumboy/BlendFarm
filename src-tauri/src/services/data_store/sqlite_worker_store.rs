@@ -5,11 +5,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 
 use crate::{
-    domains::worker_store::WorkerStore,
-    models::{
-        computer_spec::ComputerSpec,
-        worker::{Worker, WorkerError},
-    },
+    domains::worker_store::{WorkerError, WorkerStore},
+    models::{computer_spec::ComputerSpec, worker::Worker},
 };
 
 pub struct SqliteWorkerStore {
@@ -53,7 +50,7 @@ impl WorkerStore for SqliteWorkerStore {
 
     // Create
     async fn add_worker(&mut self, worker: Worker) -> Result<(), WorkerError> {
-        let id = worker.id.to_base58();
+        let id = worker.peer_id.to_base58();
         let spec = serde_json::to_string(&worker.spec).expect("Fail to parse specs");
         // TODO: Update the record if it exist by marking it status "Active", relearn SQL again?
         if let Err(e) = sqlx::query(
@@ -75,8 +72,8 @@ impl WorkerStore for SqliteWorkerStore {
 
     // Read
     async fn get_worker(&self, id: &PeerId) -> Option<Worker> {
-        // so this panic when there's no record?
         let peer_id = id.to_base58();
+        // Is there a way I could do optional instead of result?
         let result: Result<WorkerDTO, sqlx::Error> = sqlx::query_as!(
             WorkerDTO,
             r#"SELECT machine_id, spec FROM workers WHERE machine_id=$1"#,
