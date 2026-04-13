@@ -15,13 +15,13 @@ use tokio::sync::Mutex;
 
 const SETTING: &str= "settings";
 
-#[command]
+#[command]  // could this accept PathBuf?
 pub fn open_dir(path: &str) -> Result<(),()> {
     // macos is special, the path link inside app bundle, but cannot access via file explore/finder
-    let path = PathBuf::from_str(path).unwrap();
+    let path = PathBuf::from_str(path).map_err(|_| ())?;
     let result = match env::consts::OS {
         "windows" => Ok("explorer"),
-        "macos" => Ok("open"),  
+        "macos" => Ok("open"),
         "linux" => Ok("xdg-open"),
         _ => Err(())
     };
@@ -56,7 +56,7 @@ pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result
                     }
                 };
                 td {
-                    button tauri-invoke="open_dir" hx-vals=(json!({"path":blend.link()})) {
+                    button tauri-invoke="open_dir" hx-vals=(json!({"path":blend.parent_dir()})) {
                         r"📁"
                     }
                     button tauri-invoke="delete_blender" hx-vals=(json!({"path":blend.link() })) 
