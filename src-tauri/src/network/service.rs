@@ -19,7 +19,7 @@ use libp2p::{
     kad::{self, QueryId},
 };
 use libp2p_request_response::OutboundRequestId;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map};
 use std::error::Error;
 use std::path::PathBuf;
 use tokio::select;
@@ -46,8 +46,6 @@ pub struct Service {
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pending_request_file:
         HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
-
-    pending_job_event: Vec<JobEvent>,
 }
 
 // network service will be used to handle and receive network signal. It will also transmit network package over lan
@@ -67,7 +65,6 @@ impl Service {
             providing_files: Default::default(),
             pending_get_providers: Default::default(),
             pending_request_file: Default::default(),
-            pending_job_event: Default::default(),
         }
     }
 
@@ -157,6 +154,7 @@ impl Service {
     }
 
     // TODO: Will need to return Result<MessageId, PublishError>... For now let's keep it as-is.
+    /* 
     async fn send_job_status(&mut self, event: &JobEvent) {
         let data = serde_json::to_string(&event).unwrap();
         let topic = IdentTopic::new(JOB_TOPIC);
@@ -168,6 +166,7 @@ impl Service {
             Err(e) => eprintln!("Fail to send job message! {e:?}"),
         };
     }
+    */
 
     // send command
     // Receive commands from foreign invocation.
@@ -195,19 +194,44 @@ impl Service {
                 }
             }
 
-            /*
+            Command::StopListening => {
+                // :think: Need more information before implementing behaviour. Do we want to stop one listener or all listeners?
+                // TODO: Read note above, need to refactor this to make sense it's implementation described.
+                todo!("Tell swarm to stop listening. stop all listener once lint is working again.");
+            },
+
             Command::Dial {
-                peer_id,
-                peer_addr,
+                mut peer_addr,
                 sender,
             } => {
+
+                // I would expect peer_id contain multiaddress.
+                let last = peer_addr.pop();
+                let peer_id = match last {
+                    Some(Protocol::P2p(peer_id)) => {
+                        peer_id  
+                    }
+                    Some(_) | None => {
+                        println!("No peer id found in multi-address! skipping! Must include '.../p2p/peer_id'!");
+                        return;
+                    }
+                };
+
                 if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
+                    
+                    // I would expect the multiaddr have peer_id attached.
+                    
+
+                    
                     self.swarm
                         .behaviour_mut()
                         .kademlia
                         .add_address(&peer_id, peer_addr.clone());
 
-                    // TODO: give me a reason why we need to dial?
+                    // The main reason why I need to dial this node is so I can
+                    //  1. Knows which node I'm talking to.
+                    //  2. Distribute render files, blend files, and executables
+                    //  3. Performance monitor / Activity Logs
                     match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
                         Ok(()) => {
                             e.insert(sender);
@@ -217,10 +241,11 @@ impl Service {
                         }
                     }
                 } else {
-                    eprintln!("Already dialing the peer!");
+                    // TODO: A bruteforce attempt could be made to break this system integrity. Consider rate limiting?
+                    eprintln!("Already dialing the peer! Please be patient!");
                 }
             }
-            */
+            
             // use this to advertise files. On app startup we should broadcast blender apps as well.
             Command::StartProviding { file_name, sender } => {
                 // TODO: Find a way to get around expect()!
@@ -232,6 +257,13 @@ impl Service {
                     .expect("No store value");
                 self.pending_start_providing.insert(query_id, sender);
             }
+
+            Command::StopProviding { file_name } => {
+                let key = file_name.into_bytes();
+                self.swarm.behaviour_mut().kademlia.stop_providing(&key.into());
+                // TODO: I want to clear any pending providing, I need to find a way to fetch query ID before stop file providing. 
+                // self.pending_start_providing.remove_entry(&key);
+            },
 
             Command::GetProviders { file_name, sender } => {
                 let query_id = self
@@ -264,19 +296,19 @@ impl Service {
 
             // received job status. invoke commands
             // TODO: we should only send command if we are subscribed.
-            Command::JobStatus(event) => {
-                // I will have to make a queue until we have subscribers.
-                // I want to send a message only if we have active subscribers.
-                // which means I need to create my own list of peers I think may be listening on the network
-                // convert data into json format.
-                // The foreign request is asking for the Job Status -> Reply back to the user directly.
-                if self.dialers.capacity().gt(&0) {
-                    &self.send_job_status(&event);
-                } else {
-                    // TODO: impl Arc<RwLock<T>>>
-                    &self.pending_job_event.push(event);
-                }
-            }
+            // Command::JobStatus(event) => {
+            //     // I will have to make a queue until we have subscribers.
+            //     // I want to send a message only if we have active subscribers.
+            //     // which means I need to create my own list of peers I think may be listening on the network
+            //     // convert data into json format.
+            //     // The foreign request is asking for the Job Status -> Reply back to the user directly.
+            //     if self.dialers.capacity().gt(&0) {
+            //         &self.send_job_status(&event);
+            //     } else {
+            //         // TODO: impl Arc<RwLock<T>>>
+            //         &self.pending_job_event.push(event);
+            //     }
+            // }
             Command::ServerStatus(status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
                 let data = serde_json::to_string(&status).unwrap();
