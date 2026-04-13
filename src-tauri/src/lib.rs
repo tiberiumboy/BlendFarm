@@ -147,7 +147,7 @@ pub async fn run() {
     };
 
     if let Err(e) = result {
-        eprintln!("Received Network Error! {e:?}");
+        eprintln!("BlendFarm Error! {e:?}");
     }
 
     // abort network thread after closing.
