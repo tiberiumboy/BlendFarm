@@ -1,4 +1,3 @@
-pub mod advertise;
 pub mod app_state;
 pub mod behaviour;
 pub(crate) mod common;
