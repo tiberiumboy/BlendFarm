@@ -10,8 +10,9 @@ use super::{
     blend_farm::BlendFarm,
     data_store::{sqlite_job_store::SqliteJobStore, sqlite_worker_store::SqliteWorkerStore},
 };
-use crate::network::controller::Controller as NetworkController;
-use crate::network::message::{Event, NetworkError, ServerEvent};
+use crate::services::blend_farm::BlendFarmError;
+use crate::network::{message::Event, controller::Controller as NetworkController};
+use crate::services::server::ServerEvent;
 use crate::network::provider_rule::ProviderRule;
 use crate::{
     domains::{
@@ -45,6 +46,7 @@ use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use tauri::{self, Url};
 use tokio::sync::mpsc::Receiver;
 use tokio::{select, spawn, sync::Mutex};
+use async_trait::async_trait;
 
 bitflags::bitflags! {
     #[derive(Debug, PartialEq)]
@@ -79,6 +81,20 @@ impl BlenderQuery {
             // TODO: Find a way to resolve expect()
             Origin::Local(path) => path.to_str().expect("Should be valid").to_owned(),
             Origin::Online(url) => url.to_string().to_owned(),
+        }
+    }
+
+    pub fn parent_dir(&self) -> String {
+        match &self.origin {
+            Origin::Local(path) => path.parent().and_then(|f| {
+                Some(f
+                    .as_os_str()
+                    .to_str()
+                    .unwrap()
+                    .to_owned()
+                )
+            }).unwrap_or_else(|| "".to_owned()),
+            Origin::Online(_) => "".to_owned(),
         }
     }
 }
@@ -230,12 +246,14 @@ impl TauriApp {
                 if let Err(e) = self.job_store.delete_job(&job_id).await {
                     eprintln!("Receiver/sender should not be dropped! {e:?}");
                 }
-                client.send_job_event(JobEvent::Remove(job_id)).await;
+                let server_event = ServerEvent::RemoveJob(job_id);
+                client.send_server_status(server_event).await;
             }
+            // TODO: Figure out how we can handle/process this command. How does this get sent out? Do we ask when the user loads the job information or request an update?
             JobAction::AskForCompletedList(job_id) => {
-                // here we will try and send out network node asking for any available client for the list of completed frame images.
-                let event = JobEvent::AskForCompletedJobFrameList(job_id);
-                client.send_job_event(event).await;
+                // How do I send out a broadcast signal, but don't send it to myself? (Exclude loopback messages?)
+                let server_event = ServerEvent::RequestJobInfo(job_id);
+                client.send_server_status(server_event).await;
             }
             JobAction::All(mut sender) => {
                 /*
@@ -265,6 +283,7 @@ impl TauriApp {
             }
 
             // Nothing is calling this yet???
+            // this seems to be a server thing?
             JobAction::Advertise(job_id) =>
             // Here we will simply add the job to the database, and let client poll them!
             {
@@ -445,29 +464,31 @@ impl TauriApp {
     // commands received from network
     async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
-            Event::Discovered(peer_id, mutitaddr) => {
+            // A node was recently discovered from the network.
+            Event::Discovered(..) => {
                 // Here should try to join the topic hash before sending message out in case it doesn't work?
-                let peer_id = client.public_id;
+                let multiaddr = client.multiaddr.clone();
                 let spec = ComputerSpec::new();
-                let server_status = ServerEvent::Online(peer_id, spec);
+                // We replied back to the discovered node "Hello, this is my specs, so call me maybe?"
+                let server_status = ServerEvent::Online(multiaddr, spec);
                 client.send_server_status(server_status).await
             },
-            // what does inbound request do?
             Event::InboundRequest { .. } => todo!(),
-            Event::ServerStatus(..) => todo!(),
+            // Listen to what the server update are happening on the network.
+            Event::ServerStatus(event) => println!("Picked up Server Status: {event:?}"),
             Event::JobUpdate(..) => todo!(),
             Event::ReceivedFileData(..) => todo!(),
         }
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl BlendFarm for TauriApp {
     async fn run(
         mut self,
         mut client: NetworkController,
         mut event_receiver: Receiver<Event>,
-    ) -> Result<(), NetworkError> {
+    ) -> Result<(), BlendFarmError> {
         // this channel is used to send command to the network, and receive network notification back.
         // ok where is this used?
         let (event, mut command) = mpsc::channel(32);
@@ -517,30 +538,61 @@ impl BlendFarm for TauriApp {
                     msg = command.select_next_some() => self.handle_command(&mut client, msg).await,
 
                     event = event_receiver.recv() => match event {
+                        // TODO: We have handle_net_event() class, why aren't we using this?
                         Some(net_event) => match net_event {
                             Event::ServerStatus(server_status) => match server_status {
-                                ServerEvent::Hello(peer_id_string, spec) => {
-                                    // a new node acknowledges your activity. Revealing available server on the network.
-                                    // this node now listens to you, and has provided info to communicate back
-                                    let peer_id =
-                                        PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
+                                // ServerEvent::Hello(peer_id_string, spec) => {
+                                //     // a new node acknowledges your activity. Revealing available server on the network.
+                                //     // this node now listens to you, and has provided info to communicate back
+                                //     let peer_id =
+                                //         PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
 
-                                    // We'll tag this node as a worker.
-                                    let worker = Worker::new(peer_id.clone(), spec.clone());
+                                //     // We'll tag this node as a worker.
+                                //     let worker = Worker::new(peer_id.clone(), spec.clone());
 
-                                    // append new worker to database store
-                                    if let Err(e) = self.worker_store.add_worker(worker).await {
-                                        eprintln!("Error adding worker to database! {e:?}");
-                                    }
+                                //     // append new worker to database store
+                                //     if let Err(e) = self.worker_store.add_worker(worker).await {
+                                //         eprintln!("Error adding worker to database! {e:?}");
+                                //     }
 
-                                    println!("New worker added!");
-                                    self.peers.insert(peer_id, spec);
+                                //     println!("New worker added!");
+                                //     self.peers.insert(peer_id, spec);
 
-                                    // let handle = app_handle.write().await;
-                                    // emit a signal to query the data.
-                                    // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
-                                    // let _ = handle.emit("worker_update");
-                                }
+                                //     // let handle = app_handle.write().await;
+                                //     // emit a signal to query the data.
+                                //     // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
+                                //     // let _ = handle.emit("worker_update");
+                                // }
+
+                                ServerEvent::NewTickets(peer_id_str) => {
+                                    // This node have new tickets available
+                                    // should we send out and request tickets?
+                                    // should tauri app cares?
+                                    println!("[{peer_id_str}] have new tickets available!");
+                                },
+                                ServerEvent::RequestTicket(peer_id_str) => {
+                                    // this node is requesting new tickets
+                                    println!("[{peer_id_str}] is idle and asking for new tickets");
+                                },
+                                // which node?
+                                ServerEvent::Rendering(uuid) => {
+                                    // we received a node update that they're now rendering this uuid.
+                                    println!("A node is working on {uuid}!");
+                                },
+                                ServerEvent::RequestJobInfo(job_id) => {
+                                    println!("A node is requesting job information that matches id {job_id}");
+                                    // a node is asking for job information that matches this target id
+                                },
+                                ServerEvent::RemoveJob(job_id) => {
+                                    // received a signal to remove target job id.
+                                    println!("Received orders to remove job that matches id {job_id}");
+                                },
+                                ServerEvent::Online(peer_id_str, spec ) => {
+                                    // discovered a node.
+                                    let name = spec.host;
+                                    // let peer_id = PeerId::from_str(&peer_id_str).expect("Received invalid peer_id string!");
+                                    println!("[{peer_id_str}] {name} is online.");
+                                },
                                 // concerning - this String could be anything?
                                 // TODO: Find a better way to get around this.
                                 ServerEvent::Disconnected { peer_id, reason } => {
@@ -642,8 +694,9 @@ impl BlendFarm for TauriApp {
                                     }
                                 }
                                 // when a task is complete, check the poll for next available job queue?
-                                JobEvent::TicketComplete => {
-                                    println!("Received Task Completed! Do something about this!");
+                                JobEvent::TicketComplete(job_id, frame) => {
+                                    println!("A node have completed frame {frame} for job id {job_id}");
+                                    // I don't understand why I got the frame?
                                 }
 
                                 // TODO: how do we handle error from node? What kind of errors are we expecting here and what can the host do about it?
@@ -659,21 +712,22 @@ impl BlendFarm for TauriApp {
                                         "Host received a Render Job - Contact client and provide info about this job. Read on how Rust micromange services?"
                                     );
                                 }
-                                JobEvent::RequestTask(peer_id_str) => {
+                                // Not in used?
+                                JobEvent::RequestTask => {
                                     // a node is requesting task.
-
-                                    let jobs = self.job_store.list_all().await.expect("Should have jobs?");
-                                    if let Some(job) = jobs.first() {
-                                        // how do I reply back for this task then?
-                                        // use the peer_id_string.
-                                        match job.item.clone().generate_task(job.id) {
-                                            Some(task) => {
-                                                let event = JobEvent::Render(peer_id_str, task);
-                                                client.send_job_event(event).await;
-                                            }
-                                            None => return,
-                                        }
-                                    }
+                                    todo!("Where is this being called from? I tried looking up reference and found this to be the only place used");
+                                    // let jobs = self.job_store.list_all().await.expect("Should have jobs?");
+                                    // if let Some(job) = jobs.first() {
+                                    //     // how do I reply back for this task then?
+                                    //     // use the peer_id_string.
+                                    //     match job.item.clone().generate_task(job.id) {
+                                    //         Some(task) => {
+                                    //             let event = JobEvent::Render(peer_id_str, task);
+                                    //             client.send_job_event(event).await;
+                                    //         }
+                                    //         None => return,
+                                    //     }
+                                    // }
                                 }
                                 // this will soon go away
                                 JobEvent::Failed(msg) => {
@@ -709,6 +763,7 @@ mod test {
 
     use super::*;
     use crate::{config_sqlite_db, constant::DATABASE_FILE_NAME};
+    // use async_trait::async_trait;
 
     async fn get_sqlite_conn() -> Pool<Sqlite> {
         let pool = config_sqlite_db(DATABASE_FILE_NAME).await;

@@ -56,27 +56,29 @@ pub enum FileCommand {
 }
 
 // Send commands to network.
+// TODO: Make two different kind of message, one use for broadcast and the other for direct communication.
 #[derive(Debug)]
 pub enum Command {
-    /* 
     Dial {
-        peer_id: PeerId,
         peer_addr: Multiaddr,
         sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
     },
-    */
     Subscribe {
         topic: String,
     },
-    // TODO: figure out a way to get around the Box<dyn Error + Send> traits!
     StartListening {
         addr: Multiaddr,
+        // TODO: figure out a way to get around the Box<dyn Error + Send> traits!
         sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
     },
     // TODO: Find a way to get around the string type! This expects a copy!
     StartProviding {
         file_name: String,
         sender: oneshot::Sender<()>,
+    },
+    StopListening,
+    StopProviding {
+        file_name: String,
     },
 
     GetProviders {
@@ -86,6 +88,7 @@ pub enum Command {
     RequestFile {
         file_name: String,
         peer: PeerId,
+        // TODO: figure out a way to get around the Box<dyn Error + Send> traits!
         sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
     },
     RespondFile {
@@ -98,8 +101,6 @@ pub enum Command {
     // These are signal to use to send out message and forget.
     // May expect a respoonse back potentially requesting this node to work new jobs.
     ServerStatus(ServerEvent), // broadcast node activity changed
-    // don't think I need this anymore?
-    // JobStatus(JobEvent),
     FileService(FileCommand),
 }
 

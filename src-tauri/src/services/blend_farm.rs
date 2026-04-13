@@ -1,10 +1,21 @@
+use crate::domains::ticket_store::TicketError;
 use crate::models::behaviour::FileResponse;
 use crate::network::controller::Controller as NetworkController;
 use crate::network::message::{Event, FileCommand, NetworkError};
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use libp2p_request_response::ResponseChannel;
+use thiserror::Error;
 use tokio::sync::mpsc::Receiver;
+
+#[derive(Debug, Error)]
+pub enum BlendFarmError {
+    // TODO: List out all possible error this program could produce.
+    #[error("Ticket error: {0}")]
+    TicketError(#[from] TicketError),
+    #[error("Network error: {0}")]
+    NetworkERror(#[from] NetworkError),
+}
 
 #[async_trait]
 pub trait BlendFarm {
@@ -13,7 +24,7 @@ pub trait BlendFarm {
         mut self,
         client: NetworkController,
         event_receiver: Receiver<Event>,
-    ) -> Result<(), NetworkError>;
+    ) -> Result<(), BlendFarmError>;
 
     // could we use this inside the blendfarm as a base class?
     async fn handle_inbound_request(

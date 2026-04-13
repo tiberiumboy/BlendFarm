@@ -4,10 +4,10 @@ use std::{
 };
 
 use crate::models::behaviour::FileResponse;
-use crate::models::job::JobEvent;
 use crate::services::server::ServerEvent;
 use crate::network::message::{Command, FileCommand, NetworkError};
 use crate::network::provider_rule::ProviderRule;
+use std::error::Error;
 use futures::channel::oneshot::{self};
 use libp2p::{Multiaddr, PeerId};
 use libp2p_request_response::ResponseChannel;
@@ -18,15 +18,15 @@ use tokio::sync::mpsc::error::SendError;
 #[derive(Clone)]
 pub struct Controller {
     sender: Sender<Command>, // send net commands
-    pub public_id: PeerId,
+    pub multiaddr: Multiaddr,
     pub hostname: String,
 }
 
 impl Controller {
-    pub(crate) fn new(sender: Sender<Command>, peer_id: PeerId, hostname: String) -> Self {
+    pub(crate) fn new(sender: Sender<Command>, multiaddr: Multiaddr, hostname: String) -> Self {
         Self {
             sender,
-            public_id: peer_id,
+            multiaddr,
             hostname,
         }
     }
@@ -56,18 +56,42 @@ impl Controller {
         }
     }
 
-    // Not in used?
     /* 
+    #[allow(dead_code)]
+    fn strip_peer_id(addr: &mut Multiaddr) {
+        let last = addr.pop();
+        match last {
+            Some(Protocol::P2p(peer_id)) => {
+                let mut addr = Multiaddr::empty();
+                addr.push(Protocol::P2p(peer_id));
+                println!("Removing peer id [{addr}] so this address can be dialed by rust-libp2p");
+            }
+            Some(other) => addr.push(other),
+            _ => {}
+        }
+    }
+
+    #[allow(dead_code)]
+    fn parse_legacy_multiaddr(text: &str) -> Result<Multiaddr, Box<dyn Error>> {
+        let sanitized = text
+            .split('/')
+            .map(|part| if part == "ipfs" { "p2p" } else { part })
+            .collect::<Vec<_>>()
+            .join("/");
+        let mut res = Multiaddr::from_str(&sanitized)?;
+        Self::strip_peer_id(&mut res);
+        Ok(res)
+    }
+    */
+
     pub(crate) async fn dial(
         &self,
-        peer_id: &PeerId,
         peer_addr: &Multiaddr,
     ) -> Result<(), Box<dyn Error + Send>> {
         let (sender, receiver) = oneshot::channel();
         // we thread locked here. Awaiting for dial to come back successfully, which means we're establishing connection to exchange information.
         self.sender
             .send(Command::Dial {
-                peer_id: peer_id.clone(),
                 peer_addr: peer_addr.clone(),
                 sender,
             })
@@ -78,17 +102,19 @@ impl Controller {
         if let Err(e) = receiver.await {
             eprintln!("Should not error? {e:?}");
         }
+
+        println!("Connection established with [{peer_addr}]");
         Ok(())
     }
-    */
 
     // send job event to all connected node
-    pub async fn send_job_event(&self, event: JobEvent) {
-        self.sender
-            .send(Command::JobStatus(event))
-            .await
-            .expect("Command should not be dropped");
-    }
+    // pub async fn send_job_event(&self, event: JobEvent) {
+    //     let server_event = ServerEvent::RemoveJob(())
+    //     self.sender
+    //             .send(Command::ServerStatus(event))
+    //         .await
+    //         .expect("Command should not be dropped");
+    // }
 
     pub(crate) async fn file_service(&self, command: FileCommand) {
         self.sender

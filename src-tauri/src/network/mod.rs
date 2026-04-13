@@ -7,7 +7,7 @@ use crate::{
         service::Service,
     },
 };
-use libp2p::{StreamProtocol, SwarmBuilder, gossipsub, identity, kad, mdns, noise, tcp, yamux};
+use libp2p::{Multiaddr, StreamProtocol, SwarmBuilder, gossipsub, identity, kad, mdns, multiaddr::Protocol, noise, tcp, yamux};
 use libp2p_request_response::ProtocolSupport;
 use machine_info::Machine;
 use std::{/*hash::DefaultHasher,*/ time::Duration};
@@ -27,8 +27,7 @@ pub type PeerIdString = String;
 pub async fn new(
     secret_key_seed: Option<u8>,
 ) -> Result<(Controller, Receiver<Event>, Service), NetworkError> {
-    // wonder why we have a connection timeout of 60 seconds? Why not uint::MAX?
-
+    // Maximum time allowed for established stream connections.
     let duration = Duration::from_secs(60);
     // is there a reason for the secret key seed?
     let id_keys = match secret_key_seed {
@@ -114,8 +113,10 @@ pub async fn new(
     let (event_sender, event_receiver) = mpsc::channel::<Event>(32);
 
     let public_id = swarm.local_peer_id().clone();
+    let mut multiaddr = Multiaddr::empty();
+    multiaddr.push(Protocol::P2p(public_id));
 
-    let controller = Controller::new(sender, public_id, Machine::new().system_info().hostname);
+    let controller = Controller::new(sender, multiaddr, Machine::new().system_info().hostname);
 
     let service = Service::new(
         swarm,
