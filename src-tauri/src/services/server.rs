@@ -6,7 +6,6 @@ Feature request:
     - See how we can treat this application process as service mode so that it can be initialize and start on machine reboot?
     - receive command to properly reboot computer when possible?
 */
-use async_trait::async_trait;
 use super::blend_farm::BlendFarm;
 use crate::domains::render_store::RenderStore;
 use crate::domains::ticket_store::{TicketError, TicketStore};
@@ -20,13 +19,11 @@ use crate::services::blend_farm::BlendFarmError;
 use crate::services::data_store::sqlite_renders_store::SqliteRenderStore;
 use crate::services::data_store::sqlite_ticket_store::SqliteTicketStore;
 use crate::{
-    models::{
-        job::Job,
-        server_setting::ServerSetting,
-        ticket::Ticket,
-    },
+    models::{job::Job, server_setting::ServerSetting, ticket::Ticket},
     network::controller::Controller as NetworkController,
 };
+use async_lock::RwLock;
+use async_trait::async_trait;
 use blender::blender::{Frame, Manager as BlenderManager, ManagerError};
 use blender::models::event::BlenderEvent;
 use libp2p::{Multiaddr, PeerId};
@@ -34,12 +31,11 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc};
-use async_lock::RwLock;
+use std::sync::Arc;
 use tauri::async_runtime::Receiver;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
-use tokio::{select, /* spawn */};
+use tokio::{select /* spawn */};
 use uuid::Uuid;
 
 // this is invocation commands. Signal to start, stop, fetch blender information and relative info.
@@ -48,7 +44,7 @@ enum ServerCommand {
     Start,
     AddTicket(Ticket),
     DeleteTicket(Uuid),
-    CheckBlender(PeerId, String),  // Name of the blender in compressed package enum. (e.g. "blender-5.0.0-linux-x64.tar.xz")
+    CheckBlender(PeerId, String), // Name of the blender in compressed package enum. (e.g. "blender-5.0.0-linux-x64.tar.xz")
     // this function seems confusing. Refine this a bit letter.
     Fetch(JobId, oneshot::Sender<HashMap<Frame, PathBuf>>),
     Abort,
@@ -73,7 +69,7 @@ pub enum ServerEvent {
     RequestJobInfo(JobId),
     RemoveJob(JobId),
     RequestTicket(Multiaddr),
-    NewTickets(Multiaddr), 
+    NewTickets(Multiaddr),
 }
 
 #[derive(Debug, Error)]
@@ -85,7 +81,7 @@ enum ServerError {
     #[error("Manager Error: {0}")]
     ManagerError(#[from] ManagerError),
     #[error("Task Error: {0}")]
-    TaskError(#[from] TicketError)
+    TaskError(#[from] TicketError),
 }
 
 /// The behaviour described in the Cli App can be summarize below:
@@ -113,7 +109,6 @@ pub struct Server {
 // cli app should really be a stateless machine. A listener would just receive order from the network and proceed the ticket given queued.
 // This program should close after completing the ticket queue, in non-listening mode
 impl Server {
-
     pub(crate) fn new(context: AppContext, db: &Pool<Sqlite>) -> Self {
         Self {
             settings: context.settings,
@@ -189,8 +184,8 @@ impl Server {
 
         Ok(project_file_path)
     }
-    
-    /* 
+
+    /*
     async fn verify_and_check_render_output_path(
         &self,
         id: &Uuid,
@@ -210,12 +205,12 @@ impl Server {
     //  D) Second to last resort: Download blender from internet
     //  E) Throw error that no blender installation could be fetch or found for this task.
     // #[allow(dead_code)]
-    /* 
+    /*
     async fn check_for_blender(&self, version: &Version) -> Result<&Blender, ServerError> {
         // this script below was our internal implementation of handling DHT fallback mode
         // save this for future feature updates
         let mut_manager = self.manager.clone().get_mut().unwrap();
-        
+
         let blender = match mut_manager.have_blender(version) {
             Some(blend) => blend,
             None => {
@@ -265,10 +260,10 @@ impl Server {
     */
 
     // TODO: This will change. We will treat network user as end point of cli interfaces to this app.
-    // Received network command. 
+    // Received network command.
     // Obsolete. We should not rely on network asking us to render.
     // not yet?
-    /* 
+    /*
     async fn handle_job_from_network(&mut self, client: &Controller, event: JobEvent) {
         // with the sqlite connection we can create and establish database struct here.
 
@@ -282,11 +277,11 @@ impl Server {
                         return;
                     }
                 };
-                
+
                 if client.public_id.ne(&peer_id) {
                     return;
                 }
-                
+
                 // TODO: Does this kick off a background job? How do we let this program continue without hang? Threads?
                 if let Err(e) = &self.handle_render(&peer_id, &mut task, &client).await {
                     eprintln!("Received Error! {e:?}");
@@ -321,7 +316,7 @@ impl Server {
     //     // used to interface cli background workers
     //     caller: Sender<ServerCommand>
     // ) -> Result<(), NetworkError> {
-    //     match event 
+    //     match event
     //     Ok(())
     // }
 
@@ -337,16 +332,16 @@ impl Server {
                 let ticket_db = SqliteTicketStore::new(self.db_conn.clone());
                 if let Err(e) = ticket_db.add_ticket(ticket).await {
                     eprintln!("Unable to add ticket to database! {e:?}");
-                } 
-            },
+                }
+            }
             // how does abort works? We'll come back to this later.
             ServerCommand::Abort => {
                 // An abort was called. Stop blender.
                 todo!("Impl. cancellation token");
-            },
+            }
 
             ServerCommand::Fetch(job_id, sender) => {
-                // returns a hashset of all render frames from matching job. 
+                // returns a hashset of all render frames from matching job.
                 // Inner join tasks inner join renders
                 // basically providing basic information to client what frames have been completed.
                 let render_db = SqliteRenderStore::new(self.db_conn.clone());
@@ -355,9 +350,15 @@ impl Server {
                         eprintln!("unable to send fetch result! {e:?}");
                     }
                 }
-            },
+            }
             ServerCommand::Start => {
-                match Self::start_worker_service(self.db_conn.clone(), self.manager.clone(), &client ).await {
+                match Self::start_worker_service(
+                    self.db_conn.clone(),
+                    self.manager.clone(),
+                    &client,
+                )
+                .await
+                {
                     Ok(..) => {
                         todo!("Handle event_receiver here!");
                     }
@@ -366,17 +367,17 @@ impl Server {
                         ()
                     }
                 }
-            },
+            }
             ServerCommand::DeleteTicket(id) => {
                 let ticket_db = SqliteTicketStore::new(self.db_conn.clone());
                 if let Err(e) = ticket_db.delete_ticket(&id).await {
                     eprintln!("Unable to delete ticket from database! {e:?}");
                 }
-            },
+            }
             ServerCommand::CheckBlender(peer_id, zip_file_name) => {
                 // ok so we get manager and fetch the package that matches file name asking
                 let mut_manager = self.manager.write().await;
-                
+
                 if let Some(path) = mut_manager.check_compressed_by_file_name(&zip_file_name) {
                     let provider = ProviderRule::Custom(zip_file_name, path);
                     if let Err(e) = client.start_providing(&provider).await {
@@ -385,7 +386,7 @@ impl Server {
                     // TODO: reply back to the caller
                     todo!("How do I reply back to this peer? {peer_id:?}");
                 }
-            },
+            }
         };
         Ok(())
     }
@@ -402,7 +403,7 @@ impl Server {
             select! {
                 Ok(Some(record)) = ticket_db.poll_ticket() => {
                     let mut ticket = record.item.clone();
-                            
+
                     // Skip this for now. We'll work on DHT at another time.
                     // TODO: validate and make sure that we have the files locally stored ready to be used.
                     // let project_file = match self.validate_project_file(client, &task).await {
@@ -427,7 +428,7 @@ impl Server {
                             if let Err(e) = ticket_db.delete_ticket(&record.id).await {
                                 eprintln!("Unable to delete the ticket! {e:?}");
                             }
-                            
+
                             &mut_manager.fetch_blender(version).expect("Blendfarm must have permission to download and install blender!")
                             // let (sender, receiver) = mpsc::<>channel();
                             // &controller.
@@ -440,10 +441,10 @@ impl Server {
 
                     // we will get to the part of handling receiver, but I wanted to make sure this works so far.
                     let _receiver = ticket.render(&blender).await?;
-                    
+
                 }
             }
-        };
+        }
     }
 }
 
@@ -470,15 +471,14 @@ impl BlendFarm for Server {
         client: NetworkController,
         mut event_receiver: Receiver<Event>,
     ) -> Result<(), BlendFarmError> {
-
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
         // we will have one thread to process blender and queue, but I must have access to database.
         // where is this event suppose to be used for?
         let (_event, mut command) = mpsc::channel(32);
-        
+
         // background thread to handle blender invocation
         // let blender_controller = client.clone();
-        
+
         // if we exit early, how do we restart this service?
         let ticket_db = SqliteTicketStore::new(self.db_conn.clone());
         // let render_db = SqliteRenderStore::new(self.db_conn.clone());
@@ -505,7 +505,10 @@ impl BlendFarm for Server {
         //     blender_controller.send_server_status(ServerEvent::Idle).await;
         // });
 
-        let event = Server::start_worker_service(self.db_conn.clone(), self.manager.clone(), &client).await.map_err(BlendFarmError::TicketError);
+        let event =
+            Server::start_worker_service(self.db_conn.clone(), self.manager.clone(), &client)
+                .await
+                .map_err(BlendFarmError::TicketError);
 
         // Process pending inputs commands from foreign function interface
         loop {
@@ -556,12 +559,12 @@ impl BlendFarm for Server {
                                 ServerEvent::Online(peer_addr, spec) => {
                                     // peer connected with specs.
                                     // Once a computer becomes online, do nothing?
-                                    
+
                                     println!("Peer connected with specs provided : {peer_addr:?}\n{spec:?}");
                                     // if we are not connected to host, connect to this one. await further instructions.
                                     // TODO: See where my multiaddr went?
                                     // self.host = Some((PeerIdStr::from(peer_id), multiaddr));
-                                    
+
                                     // let public_ip = client.public_id.to_base58();
                                     // let mut machine = Machine::new();
                                     // let computer_spec = ComputerSpec::new(&mut machine);
@@ -570,7 +573,7 @@ impl BlendFarm for Server {
                                 }
                                 ServerEvent::Disconnected { peer_id, reason } => match reason {
                                     Some(err) => {
-                                        // Reporting that we lost connection to peer_id by a connection IO error 
+                                        // Reporting that we lost connection to peer_id by a connection IO error
                                         println!("Peer Disconnected with reason [{peer_id:?}] {err}");
                                         // what shall the server ever do? Do we care? No?
                                     }
@@ -593,7 +596,7 @@ impl BlendFarm for Server {
 
                                     if let Ok(jobs) = result {
                                         let data = serde_json::to_string(&jobs);
-                                        dbg!(data);
+                                        let _ = dbg!(data);
                                         // TODO: How can I dial back the requestor who ask for this job info?
                                         // let server_event = ServerEvent::
                                         // client.send_server_status(server_event).await;
@@ -608,7 +611,7 @@ impl BlendFarm for Server {
                         // TODO: See how we can gracefully shutdown?
                         ()
                     }
-        
+
                 },
                 // can I send this command to net event?
                 msg = command.recv() => match msg {
