@@ -20,14 +20,8 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FilePath;
 use tokio::sync::Mutex;
 
-// TODO: where is this function called?
+// function is called from available_versions
 async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
-    // TODO: see if there's a better way to get around this problematic function
-    /*
-       Issues: I'm noticing a significant delay of behaviour event happening here when connected online.
-       When connected online, BlenderManager seems to hold up to approximately 2-3 seconds before the remaining content fills in.
-       Offline loads instant, which is exactly the kind of behaviour I expect to see from this application.
-    */
     let (sender, mut receiver) = mpsc::channel(1);
     let event = UiCommand::Blender(BlenderAction::List(
         sender,
@@ -38,8 +32,7 @@ async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
         return Vec::new();
     }
 
-    let res = receiver.select_next_some().await;
-    match res {
+    match receiver.select_next_some().await {
         // Clone operation used here. might be expensive? See if there's another way to get aorund this.
         Some(list) => list
             .iter()
@@ -74,7 +67,6 @@ async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
 }
 
 /// List all of the available blender version.
-// TODO: not used in the function yet?
 #[command(async)]
 pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let mut server = state.lock().await;
@@ -138,6 +130,7 @@ pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<Stri
     // validate file path.
     let blend_file = BlendFile::new(&path).map_err(|e| e.to_string())?;
     let data = blend_file.peek_response(None);
+    let file_path = path.to_str().unwrap();
 
     let content = html! {
         div id="modal" _="on closeModal add .closing then wait for animationend then remove me" {
@@ -184,6 +177,8 @@ pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<Stri
                                 td style="width:33%" {
                                     input class="form-input" name="end" type="number" value=(data.frame_end);
                                 };
+
+                                input name="path" type="hidden" value=(file_path);
                             };
                         };
                     };
