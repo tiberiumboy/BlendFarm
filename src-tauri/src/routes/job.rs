@@ -154,7 +154,6 @@ pub async fn create_job(
     let job_created = cmd_create_job(&mut app_state, job).await.map_err(|e| e.to_string())?;
     let list = cmd_list_jobs(&mut app_state).await;
 
-    // TODO: Utilize hx-swap-oob to update the list, then we'll update the portal to display selected job.
     let list = render_list_job(&list);
     let detail = render_job_detail_page(&Some(job_created));
     
