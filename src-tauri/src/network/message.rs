@@ -96,11 +96,12 @@ pub enum Command {
         file: Vec<u8>,
         channel: ResponseChannel<FileResponse>,
     },
-
+    // Message this peer with server events. (Consider looking into receiving NetworkRequest enum?)
+    Message(Option<PeerId>, ServerEvent),
     // TODO: More documentation to explain below
     // These are signal to use to send out message and forget.
-    // May expect a respoonse back potentially requesting this node to work new jobs.
-    ServerStatus(ServerEvent), // broadcast node activity changed
+    // May receive a response back, using the direct message above.
+    BroadcastMessage(ServerEvent), // broadcast node activity changed
     FileService(FileCommand),
 }
 

@@ -50,9 +50,16 @@ impl Controller {
         self.sender.send(cmd).await
     }
 
-    pub(crate) async fn send_server_status(&self, status: ServerEvent) {
-        if let Err(e) = self.sender.send(Command::ServerStatus(status)).await {
+    // this is to broadcast message.
+    pub(crate) async fn send_broadcast_message(&self, status: ServerEvent) {
+        if let Err(e) = self.sender.send(Command::Message(None, status)).await {
             eprintln!("Failed to send node status to network service: {e:?}");
+        }
+    }
+
+    pub(crate) async fn send_peer_message(&self, peer_id: &PeerId, status: ServerEvent) {
+        if let Err(e) = self.sender.send(Command::Message(Some(peer_id.clone()), status)).await {
+            eprintln!("Failed to send direct message to [{peer_id}]! {e:?}");
         }
     }
 

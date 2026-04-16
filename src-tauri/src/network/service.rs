@@ -309,7 +309,18 @@ impl Service {
             //         &self.pending_job_event.push(event);
             //     }
             // }
-            Command::ServerStatus(status) => {
+            Command::Message(Some(peer_id), status) =>  {
+                let data = serde_json::to_string(&status).unwrap();
+                // let topic = IdentTopic::new(NODE_TOPIC);
+                // if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+                //     eprintln!("Fail to publish gossip message: {e:?}");
+                // }
+                // Here we have the option to dial a peer directly and send the status in private. 
+                // We can exchange ticket information, blender availability, and render contents.
+                // TODO: Figure out how we can dial our peers
+                self.swarm.dial(opts)
+            }
+            Command::Message(_, status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
                 let data = serde_json::to_string(&status).unwrap();
                 let topic = IdentTopic::new(NODE_TOPIC);
@@ -623,7 +634,7 @@ impl Service {
             } => {
                 // Incoming connection? How do I accept?
                 eprintln!("Incoming connection: {connection_id} | {local_addr} | {send_back_addr}");
-
+                // send a message out of the service to inform other subscriber that someone joined the network.
                 // I'm assuming this is reply from dial?
                 // what does it mean to have incoming connection here?
                 // self.dialers.entry()

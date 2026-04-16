@@ -68,7 +68,7 @@ pub enum ServerEvent {
     // Request list of completed renders by job id.
     RequestJobInfo(JobId),
     RemoveJob(JobId),
-    RequestTicket(Multiaddr),
+    RequestTicket,
     NewTickets(Multiaddr),
 }
 
@@ -400,49 +400,48 @@ impl Server {
         let ticket_db = SqliteTicketStore::new(db_conn.clone());
 
         loop {
-            select! {
-                Ok(Some(record)) = ticket_db.poll_ticket() => {
-                    let mut ticket = record.item.clone();
+            if let Ok(Some(record)) = ticket_db.poll_ticket().await {
+                let mut ticket = record.item.clone();
 
-                    // Skip this for now. We'll work on DHT at another time.
-                    // TODO: validate and make sure that we have the files locally stored ready to be used.
-                    // let project_file = match self.validate_project_file(client, &task).await {
-                    //     Ok(path) => path,
-                    //     Err(e) => {
-                    //         eprintln!("Fail to validate project file! {e:?}");
-                    //         return;
-                    //     }
-                    // };
-                    // let project_file = task.get_job().get_project_path();
+                // Skip this for now. We'll work on DHT at another time.
+                // TODO: validate and make sure that we have the files locally stored ready to be used.
+                // let project_file = match self.validate_project_file(client, &task).await {
+                //     Ok(path) => path,
+                //     Err(e) => {
+                //         eprintln!("Fail to validate project file! {e:?}");
+                //         return;
+                //     }
+                // };
+                // let project_file = task.get_job().get_project_path();
 
-                    let version = &ticket.job.blender_version;
+                let version = &ticket.job.blender_version;
 
-                    let mut mut_manager = manager.write().await;
+                let mut mut_manager = manager.write().await;
 
-                    // TODO: I want to find a way to utilize intranet DHT services to fetch installation from other computer node. It wouldn't make a lot of sense re-download the same version from source multiple of times.
-                    let blender = match mut_manager.have_blender(version) {
-                        Some(blender) => blender,
-                        None => {
-                            // Update ticket status to "Error" -> Do not re-run this again until the issue has been resolved.
-                            // Server had issue with this job - Send notification broadcast, and delete ticket.
-                            if let Err(e) = ticket_db.delete_ticket(&record.id).await {
-                                eprintln!("Unable to delete the ticket! {e:?}");
-                            }
-
-                            &mut_manager.fetch_blender(version).expect("Blendfarm must have permission to download and install blender!")
-                            // let (sender, receiver) = mpsc::<>channel();
-                            // &controller.
-                            // Here, we'd like to try and fetch from client first, before we can download.
-                            // &self.manager
-                            //     .fetch_blender(&version)
-                            //     .map_err(TicketError::Manager)?
+                // TODO: I want to find a way to utilize intranet DHT services to fetch installation from other computer node. It wouldn't make a lot of sense re-download the same version from source multiple of times.
+                let blender = match mut_manager.have_blender(version) {
+                    Some(blender) => blender,
+                    None => {
+                        // Update ticket status to "Error" -> Do not re-run this again until the issue has been resolved.
+                        // Server had issue with this job - Send notification broadcast, and delete ticket.
+                        if let Err(e) = ticket_db.delete_ticket(&record.id).await {
+                            eprintln!("Unable to delete the ticket! {e:?}");
                         }
-                    };
 
-                    // we will get to the part of handling receiver, but I wanted to make sure this works so far.
-                    let _receiver = ticket.render(&blender).await?;
+                        &mut_manager.fetch_blender(version).expect("Blendfarm must have permission to download and install blender!")
+                        // let (sender, receiver) = mpsc::<>channel();
+                        // &controller.
+                        // Here, we'd like to try and fetch from client first, before we can download.
+                        // &self.manager
+                        //     .fetch_blender(&version)
+                        //     .map_err(TicketError::Manager)?
+                    }
+                };
 
-                }
+                // we will get to the part of handling receiver, but I wanted to make sure this works so far.
+                let _receiver = ticket.render(&blender).await?;
+            } else {
+                break Ok(())
             }
         }
     }
@@ -474,7 +473,7 @@ impl BlendFarm for Server {
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
         // we will have one thread to process blender and queue, but I must have access to database.
         // where is this event suppose to be used for?
-        let (_event, mut command) = mpsc::channel(32);
+        let (event, mut command) = mpsc::channel(32);
 
         // background thread to handle blender invocation
         // let blender_controller = client.clone();
@@ -505,7 +504,7 @@ impl BlendFarm for Server {
         //     blender_controller.send_server_status(ServerEvent::Idle).await;
         // });
 
-        let event =
+        let _event =
             Server::start_worker_service(self.db_conn.clone(), self.manager.clone(), &client)
                 .await
                 .map_err(BlendFarmError::TicketError);
@@ -516,8 +515,22 @@ impl BlendFarm for Server {
                 pending_event = event_receiver.recv() => match pending_event {
                     Some(network_event) => match network_event {
                         Event::Discovered(peer_id, multiaddr) => {
-                            // I don't think I need to care about this?
                             println!("Discovered peer! {peer_id} | {multiaddr}");
+                            
+                            // Perform a check. If we have exhausted our ticket queue, we should send this discover peer a RequestTicket message.
+                            if let Ok(Some(remains)) = ticket_db.list_tickets().await {
+                                if remains.len().gt(&0) {
+
+                                    // Why do I need to create a new spec everytime? I would expect parts do not change while active?
+                                    let spec = ComputerSpec::new();
+                                    let multiaddr = &client
+                                    client.send_peer_message(&peer_id, ServerEvent::Online(, spec) );
+                                    continue;   // stop here. we have work to do. we do not need to ask this discovered peer for more work!
+                                }
+                            }
+
+                            // now we will just simply ask 
+                            client.send_peer_message( &peer_id, ServerEvent::RequestTicket).await;                            
                         }
                         Event::JobUpdate(job_event) => {
                             println!("Received Job Event: {job_event:?}")
@@ -535,7 +548,7 @@ impl BlendFarm for Server {
                                     }
                                 }
 
-                                ServerEvent::RequestTicket(peer_addr_str) => {
+                                ServerEvent::RequestTicket => {
                                     // a node on the network requesting new tickets.
                                     // should this node distribute job workflow or should that be a front_end side of job task?
                                     // what should the server do? Should I distribute the pending ticket I have?
@@ -609,14 +622,17 @@ impl BlendFarm for Server {
                     None => {
                         // pipe was closed, begin shut down.
                         // TODO: See how we can gracefully shutdown?
-                        ()
+                        break Ok(())
                     }
 
                 },
                 // can I send this command to net event?
                 msg = command.recv() => match msg {
                     Some(cmd) => self.handle_command(&client, cmd).await?,
-                    None => (),
+                    None => {
+                        println!("None was received, continue?"); 
+                        break Ok(())
+                    },
                 },
             }
         }

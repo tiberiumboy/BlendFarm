@@ -243,13 +243,13 @@ impl TauriApp {
                     eprintln!("Receiver/sender should not be dropped! {e:?}");
                 }
                 let server_event = ServerEvent::RemoveJob(job_id);
-                client.send_server_status(server_event).await;
+                client.send_broadcast_message(server_event).await;
             }
             // TODO: Figure out how we can handle/process this command. How does this get sent out? Do we ask when the user loads the job information or request an update?
             JobAction::AskForCompletedList(job_id) => {
                 // How do I send out a broadcast signal, but don't send it to myself? (Exclude loopback messages?)
                 let server_event = ServerEvent::RequestJobInfo(job_id);
-                client.send_server_status(server_event).await;
+                client.send_broadcast_message(server_event).await;
             }
             JobAction::All(mut sender) => {
                 /*
@@ -468,7 +468,7 @@ impl TauriApp {
                 let spec = ComputerSpec::new();
                 // We replied back to the discovered node "Hello, this is my specs, so call me maybe?"
                 let server_status = ServerEvent::Online(multiaddr, spec);
-                client.send_server_status(server_status).await
+                client.send_broadcast_message(server_status).await
             }
             Event::InboundRequest { .. } => todo!(),
             // Listen to what the server update are happening on the network.
