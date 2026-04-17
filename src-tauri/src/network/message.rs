@@ -97,11 +97,9 @@ pub enum Command {
         channel: ResponseChannel<FileResponse>,
     },
     // Message this peer with server events. (Consider looking into receiving NetworkRequest enum?)
-    Message(Option<PeerId>, ServerEvent),
-    // TODO: More documentation to explain below
     // These are signal to use to send out message and forget.
     // May receive a response back, using the direct message above.
-    BroadcastMessage(ServerEvent), // broadcast node activity changed
+    Message(Option<Multiaddr>, ServerEvent),
     FileService(FileCommand),
 }
 

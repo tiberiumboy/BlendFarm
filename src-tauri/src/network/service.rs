@@ -1,6 +1,5 @@
-use crate::constant::{JOB_TOPIC, NODE_TOPIC};
+use crate::constant::NODE_TOPIC;
 use crate::models::behaviour::{BlendFarmBehaviourEvent, FileRequest, FileResponse};
-use crate::models::job::JobEvent;
 use crate::network::message::FileCommand;
 use crate::services::server::ServerEvent;
 use crate::{
@@ -15,7 +14,7 @@ use libp2p::mdns;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::SwarmEvent;
 use libp2p::{
-    Multiaddr, PeerId, Swarm,
+    PeerId, Swarm,
     kad::{self, QueryId},
 };
 use libp2p_request_response::OutboundRequestId;
@@ -32,13 +31,10 @@ pub struct Service {
     swarm: Swarm<BlendFarmBehaviour>,
 
     // receive Network command
-    receiver: Receiver<Command>,
+    command_receiver: Receiver<Command>,
 
     // Send Network event to subscribers.
-    sender: Sender<Event>,
-
-    // connection established
-    dialers: HashMap<PeerId, Multiaddr>,
+    event_sender: Sender<Event>,
 
     pending_start_providing: HashMap<QueryId, oneshot::Sender<()>>,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
@@ -57,9 +53,8 @@ impl Service {
     ) -> Self {
         Self {
             swarm,
-            receiver,
-            sender,
-            dialers: Default::default(),
+            command_receiver: receiver,
+            event_sender: sender,
             pending_start_providing: Default::default(),
             pending_dial: Default::default(),
             providing_files: Default::default(),
@@ -295,22 +290,9 @@ impl Service {
             Command::FileService(service) => self.process_file_service(service).await,
 
             // received job status. invoke commands
-            // TODO: we should only send command if we are subscribed.
-            // Command::JobStatus(event) => {
-            //     // I will have to make a queue until we have subscribers.
-            //     // I want to send a message only if we have active subscribers.
-            //     // which means I need to create my own list of peers I think may be listening on the network
-            //     // convert data into json format.
-            //     // The foreign request is asking for the Job Status -> Reply back to the user directly.
-            //     if self.dialers.capacity().gt(&0) {
-            //         &self.send_job_status(&event);
-            //     } else {
-            //         // TODO: impl Arc<RwLock<T>>>
-            //         &self.pending_job_event.push(event);
-            //     }
-            // }
-            Command::Message(Some(peer_id), status) =>  {
-                let data = serde_json::to_string(&status).unwrap();
+            Command::Message(Some(peer_addr), status) =>  {
+                    
+                // let data = serde_json::to_string(&status).unwrap();
                 // let topic = IdentTopic::new(NODE_TOPIC);
                 // if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                 //     eprintln!("Fail to publish gossip message: {e:?}");
@@ -318,8 +300,15 @@ impl Service {
                 // Here we have the option to dial a peer directly and send the status in private. 
                 // We can exchange ticket information, blender availability, and render contents.
                 // TODO: Figure out how we can dial our peers
-                self.swarm.dial(opts)
+
+                
+                // dial doesn't work with P2p? I need to strip them before dialing don't I?
+                // let peer_addr = Self::
+                if let Err(e) = self.swarm.dial(peer_addr ) {
+                    eprintln!("Unable to dial! {e:?}");
+                }
             }
+            // Received broadcast signal
             Command::Message(_, status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
                 let data = serde_json::to_string(&status).unwrap();
@@ -342,7 +331,7 @@ impl Service {
                 libp2p_request_response::Message::Request {
                     request, channel, ..
                 } => {
-                    self.sender
+                    self.event_sender
                         .send(Event::InboundRequest {
                             request: request.0,
                             channel,
@@ -384,7 +373,7 @@ impl Service {
                     // create a discovery notification to the subscribers
                     let event = Event::Discovered(peer_id, address.clone());
                     // if this errors out, we should gracefully hang up?
-                    if let Err(e) = self.sender.send(event).await {
+                    if let Err(e) = self.event_sender.send(event).await {
                         eprintln!("sender should not drop! {e:?}");
                     }
 
@@ -417,34 +406,26 @@ impl Service {
     async fn process_gossip_event(&mut self, event: gossipsub::Event) {
         match event {
             // what is propagation source? can we use this somehow?
-            gossipsub::Event::Message { message, .. } => match message.topic.as_str() {
+            gossipsub::Event::Message { message, .. } => {
                 // if the topic is JOB related, assume data as JobEvent
-                JOB_TOPIC => match serde_json::from_slice::<JobEvent>(&message.data) {
-                    Ok(job_event) => {
-                        if let Err(e) = self.sender.send(Event::JobUpdate(job_event)).await {
-                            eprintln!("Something failed? {e:?}");
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Fail to parse Job topic data! {e:?}");
-                    }
-                },
+                // JOB_TOPIC => match serde_json::from_slice::<JobEvent>(&message.data) {
+                //     Ok(job_event) => {
+                //         if let Err(e) = self.event_sender.send(Event::JobUpdate(job_event)).await {
+                //             eprintln!("Something failed? {e:?}");
+                //         }
+                //     }
+                //     Err(e) => {
+                //         eprintln!("Fail to parse Job topic data! {e:?}");
+                //     }
+                // },
                 // Node based event awareness
-                NODE_TOPIC => match serde_json::from_slice::<ServerEvent>(&message.data) {
+                match serde_json::from_slice::<ServerEvent>(&message.data) {
                     Ok(node_event) => {
-                        if let Err(e) = self.sender.send(Event::ServerStatus(node_event)).await {
+                        if let Err(e) = self.event_sender.send(Event::ServerStatus(node_event)).await {
                             eprintln!("Something failed? {e:?}");
                         }
                     }
                     Err(e) => eprintln!("fail to parse Node topic data! {e:?}"),
-                },
-
-                // Garbage collector - Treat this as a grain of salt. Do not execute any data from this scope
-                // should only be used to display logs and info, things for us to identify unusual activity going on outside our domain specification.
-                _ => {
-                    // I received Mac.lan from message.topic?
-                    let topic = message.topic.as_str();
-                    eprintln!("Intercepted unhandled signal here: {topic}");
                 }
             },
             // TODO: Don't think I need this yet? suppressing this for now
@@ -563,23 +544,17 @@ impl Service {
                     self.process_kademlia_event(event).await;
                 }
             },
-            // Another swarm established to you.
+            // Network swarm connects to you.
             SwarmEvent::ConnectionEstablished {
                 peer_id, endpoint, ..
             } => {
                 // TODO: Could we stream io?
                 // TODO: Toggle verbosity mode?
                 // println!("Connection Established: {peer_id:?}\n{endpoint:?}");
-                if endpoint.is_dialer() {
-                    if let Some(sender) = self.pending_dial.remove(&peer_id) {
-                        // Eventually we can remove this. I don't think this is necessary anymore?
-                        // register active session. peer_id and remote address stored.
-                        self.dialers
-                            .entry(peer_id)
-                            .and_modify(|f| *f = endpoint.get_remote_address().clone());
-
-                        // TODO: Where are we sending Ok(()) to?
-                        let _ = sender.send(Ok(()));
+                if endpoint.is_dialer() 
+                    && let Some(sender) = self.pending_dial.remove(&peer_id) {
+                    if let Err(e) = sender.send(Ok(())) {
+                        eprintln!("Unable to respond back, ignoring! {e:?}");
                     }
                 }
             }
@@ -595,7 +570,7 @@ impl Service {
                     reason,
                 };
                 let event = Event::ServerStatus(node);
-                if let Err(e) = self.sender.send(event).await {
+                if let Err(e) = self.event_sender.send(event).await {
                     eprintln!("Fail to send event on connection closed! {e:?}");
                 }
             }
@@ -657,7 +632,7 @@ impl Service {
         loop {
             select! {
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event).await,
-                pending_command = self.receiver.recv() => match pending_command {
+                pending_command = self.command_receiver.recv() => match pending_command {
                     Some(command) => self.handle_command(command).await,
                     None => return,
                 },
@@ -665,6 +640,7 @@ impl Service {
         }
     }
 }
+
 
 #[cfg(test)]
 pub mod test {

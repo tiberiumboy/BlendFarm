@@ -26,6 +26,7 @@ use async_lock::RwLock;
 use async_trait::async_trait;
 use blender::blender::{Frame, Manager as BlenderManager, ManagerError};
 use blender::models::event::BlenderEvent;
+use libp2p::multiaddr::Protocol;
 use libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
@@ -504,6 +505,8 @@ impl BlendFarm for Server {
         //     blender_controller.send_server_status(ServerEvent::Idle).await;
         // });
 
+        let public_addr = Multiaddr::empty();
+
         let _event =
             Server::start_worker_service(self.db_conn.clone(), self.manager.clone(), &client)
                 .await
@@ -515,7 +518,7 @@ impl BlendFarm for Server {
                 pending_event = event_receiver.recv() => match pending_event {
                     Some(network_event) => match network_event {
                         Event::Discovered(peer_id, multiaddr) => {
-                            println!("Discovered peer! {peer_id} | {multiaddr}");
+                            println!("Discovered peer! {} | {}", &peer_id, &multiaddr);
                             
                             // Perform a check. If we have exhausted our ticket queue, we should send this discover peer a RequestTicket message.
                             if let Ok(Some(remains)) = ticket_db.list_tickets().await {
@@ -523,14 +526,17 @@ impl BlendFarm for Server {
 
                                     // Why do I need to create a new spec everytime? I would expect parts do not change while active?
                                     let spec = ComputerSpec::new();
-                                    let multiaddr = &client
-                                    client.send_peer_message(&peer_id, ServerEvent::Online(, spec) );
+                                    let peer_addr = match multiaddr.with_p2p(peer_id.clone()) {
+                                        Ok(r) => r,
+                                        Err(r) => r,
+                                    };
+                                    client.send_peer_message(&peer_addr, ServerEvent::Online(public_addr.clone(), spec));
                                     continue;   // stop here. we have work to do. we do not need to ask this discovered peer for more work!
                                 }
                             }
 
                             // now we will just simply ask 
-                            client.send_peer_message( &peer_id, ServerEvent::RequestTicket).await;                            
+                            client.send_broadcast_message(ServerEvent::RequestTicket).await;                            
                         }
                         Event::JobUpdate(job_event) => {
                             println!("Received Job Event: {job_event:?}")
@@ -550,9 +556,15 @@ impl BlendFarm for Server {
 
                                 ServerEvent::RequestTicket => {
                                     // a node on the network requesting new tickets.
+                                    // how do I get the caller info?
                                     // should this node distribute job workflow or should that be a front_end side of job task?
-                                    // what should the server do? Should I distribute the pending ticket I have?
-                                    eprintln!("[TODO]: Peer [{peer_addr_str}] have exhausted ticket queue and becomes broadcast available");
+                                    // if let Ok(Some(remains)) = ticket_db.list_tickets().await {
+                                    //     if remains.len().gt(&3) {
+                                    //         let  remains.last()
+                                    //     }
+                                    // }
+                                    // From a service point of view, should we be smart enough to allow this node to distribute pending tickets?
+                                    
                                 },
                                 ServerEvent::NewTickets(peer_addr_str) => {
                                     // if we do not have a job, then we can request ticke to this target peer_id.

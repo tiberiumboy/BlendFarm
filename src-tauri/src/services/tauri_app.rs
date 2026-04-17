@@ -572,9 +572,11 @@ impl BlendFarm for TauriApp {
                                 // should tauri app cares?
                                 println!("[{peer_id_str}] have new tickets available!");
                             },
-                            ServerEvent::RequestTicket(peer_id_str) => {
+                            ServerEvent::RequestTicket => {
                                 // this node is requesting new tickets
-                                println!("[{peer_id_str}] is idle and asking for new tickets");
+                                println!("A node is idle and asking for new tickets");
+                                // How do I check my job and see if I have any pending tickets/pending jobs to work on?
+                                // self.job_store
                             },
                             // which node?
                             ServerEvent::Rendering(uuid) => {

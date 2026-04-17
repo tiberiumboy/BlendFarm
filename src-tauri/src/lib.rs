@@ -35,7 +35,7 @@ use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::path::{Path, PathBuf};
 use tokio::spawn;
 
-use crate::constant::{JOB_TOPIC, NODE_TOPIC};
+use crate::constant::NODE_TOPIC;
 use crate::models::server_setting::ServerSetting;
 use crate::network::controller::Controller;
 use crate::services::app_context::AppContext;
@@ -78,7 +78,6 @@ async fn setup_connection(controller: &mut Controller) -> Result<(), Error> {
 
     // let's automatically listen to the topics mention above.
     // all network interference must subscribe to these topics!
-    controller.subscribe(JOB_TOPIC).await?;
     controller.subscribe(NODE_TOPIC).await?;
 
     // can we subscribe first before we listen?
