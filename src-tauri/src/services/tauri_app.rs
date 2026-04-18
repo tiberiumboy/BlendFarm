@@ -576,7 +576,21 @@ impl BlendFarm for TauriApp {
                                 // this node is requesting new tickets
                                 println!("A node is idle and asking for new tickets");
                                 // How do I check my job and see if I have any pending tickets/pending jobs to work on?
-                                // self.job_store
+                                let new_job = match self.job_store.list_all().await {
+                                    Ok(list) => list.iter().fold(None, |result, item| {
+                                        if result.is_some() {
+                                            return result
+                                        }
+                                        
+                                        // now how do I know if the job is completed or not?
+                                        if item
+                                        
+                                        Some(item)
+                                    }),
+                                    _ => return ()
+                                };
+                                
+
                             },
                             // which node?
                             ServerEvent::Rendering(uuid) => {

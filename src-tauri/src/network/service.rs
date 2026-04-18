@@ -289,8 +289,8 @@ impl Service {
             }
             Command::FileService(service) => self.process_file_service(service).await,
 
-            // received job status. invoke commands
-            Command::Message(Some(peer_addr), status) =>  {
+            // received server status. Can invoke commands from this broadcast event.
+            Command::Message(Some(peer_addr), _status) =>  {
                     
                 // let data = serde_json::to_string(&status).unwrap();
                 // let topic = IdentTopic::new(NODE_TOPIC);
@@ -300,7 +300,6 @@ impl Service {
                 // Here we have the option to dial a peer directly and send the status in private. 
                 // We can exchange ticket information, blender availability, and render contents.
                 // TODO: Figure out how we can dial our peers
-
                 
                 // dial doesn't work with P2p? I need to strip them before dialing don't I?
                 // let peer_addr = Self::
