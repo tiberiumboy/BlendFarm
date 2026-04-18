@@ -11,7 +11,6 @@ pub enum RenderMode {
     // JSON: "Animation": {"start":"i32", "end":"i32"}
     // contains the target start frame to the end target frame.
     Animation { start: i32, end: i32 },
-
     // future project - allow network node to only render section of the frame instead of whole to visualize realtime rendering view solution.
     // JSON: "Section": {"frame":"i32", "coord":{"i32", "i32"}, "size": {"i32", "i32"} }
     // Section {
@@ -25,7 +24,7 @@ impl RenderMode {
     pub fn new(start: i32, end: i32) -> RenderMode {
         let mut start = start;
         let mut end = end;
-        
+
         // start needs to be the lowest number of all. If it's backward, flip it around.
         if start > end {
             (start, end) = (end, start);
@@ -34,7 +33,7 @@ impl RenderMode {
         if start + 1 == end {
             RenderMode::Frame(start)
         } else {
-            RenderMode::Animation{ start, end }
+            RenderMode::Animation { start, end }
         }
     }
 
@@ -44,5 +43,5 @@ impl RenderMode {
         let end = end.parse::<i32>()?;
 
         Ok(RenderMode::new(start, end))
-    } 
+    }
 }
