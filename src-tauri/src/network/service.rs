@@ -603,15 +603,16 @@ impl Service {
 
             SwarmEvent::IncomingConnection {
                 connection_id,
-                local_addr,
                 send_back_addr,
+                ..
             } => {
                 // Incoming connection? How do I accept?
-                eprintln!("Incoming connection: {connection_id} | {local_addr} | {send_back_addr}");
+                eprintln!("Incoming connection: {connection_id} | {send_back_addr}");
                 // send a message out of the service to inform other subscriber that someone joined the network.
                 // I'm assuming this is reply from dial?
                 // what does it mean to have incoming connection here?
                 // self.dialers.entry()
+                
             } // Suppressing logs
 
             // Suppressing logs

@@ -106,13 +106,17 @@ pub enum Command {
 // Received network events.
 #[derive(Debug)]
 pub enum Event {
+    // When the node becomes available on the network.
     Discovered(PeerId, Multiaddr),  
+    // this is used for file transfer protocol
     InboundRequest {
         request: String,
         channel: ResponseChannel<FileResponse>,
     },
-
+    // may not actually need this?
     ServerStatus(ServerEvent),
+    // may not actually need this?
     JobUpdate(JobEvent),
+    // Used to exchange file data
     ReceivedFileData(OutboundRequestId, Vec<u8>),
 }

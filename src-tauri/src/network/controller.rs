@@ -63,7 +63,7 @@ impl Controller {
         }
     }
 
-    /* 
+/* 
     #[allow(dead_code)]
     fn strip_peer_id(addr: &mut Multiaddr) {
         let last = addr.pop();
@@ -91,28 +91,29 @@ impl Controller {
     }
     */
 
-    pub(crate) async fn dial(
-        &self,
-        peer_addr: &Multiaddr,
-    ) -> Result<(), Box<dyn Error + Send>> {
-        let (sender, receiver) = oneshot::channel();
-        // we thread locked here. Awaiting for dial to come back successfully, which means we're establishing connection to exchange information.
-        self.sender
-            .send(Command::Dial {
-                peer_addr: peer_addr.clone(),
-                sender,
-            })
-            .await
-            .expect("Should not drop");
+    // TODO: Plan on using this call to dial peer for intracommunication protocol. 
+    // pub(crate) async fn dial(
+    //     &self,
+    //     peer_addr: &Multiaddr,
+    // ) -> Result<(), Box<dyn Error + Send>> {
+    //     let (sender, receiver) = oneshot::channel();
+    //     // we thread locked here. Awaiting for dial to come back successfully, which means we're establishing connection to exchange information.
+    //     self.sender
+    //         .send(Command::Dial {
+    //             peer_addr: peer_addr.clone(),
+    //             sender,
+    //         })
+    //         .await
+    //         .expect("Should not drop");
 
-        // so at this point we're waiting for connection established.
-        if let Err(e) = receiver.await {
-            eprintln!("Should not error? {e:?}");
-        }
+    //     // so at this point we're waiting for connection established.
+    //     if let Err(e) = receiver.await {
+    //         eprintln!("Should not error? {e:?}");
+    //     }
 
-        println!("Connection established with [{peer_addr}]");
-        Ok(())
-    }
+    //     println!("Connection established with [{peer_addr}]");
+    //     Ok(())
+    // }
 
     // send job event to all connected node
     // pub async fn send_job_event(&self, event: JobEvent) {

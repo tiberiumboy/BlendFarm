@@ -68,9 +68,11 @@ pub enum ServerEvent {
     BlenderStatus(BlenderEvent),
     // Request list of completed renders by job id.
     RequestJobInfo(JobId),
+    // Broadcast to remove target job id
     RemoveJob(JobId),
-    RequestTicket,
-    NewTickets(Multiaddr),
+    // Broadcast requesting a ticket, multiaddr is the requestor
+    RequestTicket(Multiaddr),
+    NewTickets(Ticket),
 }
 
 #[derive(Debug, Error)]
@@ -517,26 +519,21 @@ impl BlendFarm for Server {
             select! {
                 pending_event = event_receiver.recv() => match pending_event {
                     Some(network_event) => match network_event {
-                        Event::Discovered(peer_id, multiaddr) => {
-                            println!("Discovered peer! {} | {}", &peer_id, &multiaddr);
+                        Event::Discovered(peer_addr) => {
+                            println!("Peer Discovered: {}", &peer_addr);
                             
                             // Perform a check. If we have exhausted our ticket queue, we should send this discover peer a RequestTicket message.
                             if let Ok(Some(remains)) = ticket_db.list_tickets().await {
-                                if remains.len().gt(&0) {
-
-                                    // Why do I need to create a new spec everytime? I would expect parts do not change while active?
-                                    let spec = ComputerSpec::new();
-                                    let peer_addr = match multiaddr.with_p2p(peer_id.clone()) {
-                                        Ok(r) => r,
-                                        Err(r) => r,
-                                    };
-                                    client.send_peer_message(&peer_addr, ServerEvent::Online(public_addr.clone(), spec));
-                                    continue;   // stop here. we have work to do. we do not need to ask this discovered peer for more work!
+                                if remains.len().eq(&0) {
+                                    // now we will just simply ask 
+                                    let local_addr = &client.multiaddr;
+                                    client.send_peer_message(&peer_addr, ServerEvent::RequestTicket(local_addr.clone())).await;
                                 }
                             }
-
-                            // now we will just simply ask 
-                            client.send_broadcast_message(ServerEvent::RequestTicket).await;                            
+                            
+                            let spec = ComputerSpec::new();
+                            // We'll say I'm online instead of requesting ticket.
+                            client.send_peer_message(&peer_addr, ServerEvent::Online(public_addr.clone(), spec)).await;
                         }
                         Event::JobUpdate(job_event) => {
                             println!("Received Job Event: {job_event:?}")
@@ -554,32 +551,30 @@ impl BlendFarm for Server {
                                     }
                                 }
 
-                                ServerEvent::RequestTicket => {
-                                    // a node on the network requesting new tickets.
-                                    // how do I get the caller info?
-                                    // should this node distribute job workflow or should that be a front_end side of job task?
-                                    // if let Ok(Some(remains)) = ticket_db.list_tickets().await {
-                                    //     if remains.len().gt(&3) {
-                                    //         let  remains.last()
-                                    //     }
-                                    // }
+                                ServerEvent::NewTickets(ticket) => {
+                                    if let Err(e) = ticket_db.add_ticket(ticket).await {
+                                        eprintln!("Fail to add new ticket to database! {e:?}");
+                                    }
+                                }
+                                
+                                ServerEvent::RequestTicket(peer_addr) => {
                                     // From a service point of view, should we be smart enough to allow this node to distribute pending tickets?
-                                    
-                                },
-                                ServerEvent::NewTickets(peer_addr_str) => {
+                                    // TODO Make this display via verbose/debug options
+                                    println!("Peer [{peer_addr}] is requesting a ticket.");
                                     // if we do not have a job, then we can request ticke to this target peer_id.
                                     if let Ok(query) = ticket_db.list_tickets().await {
                                         if let Some(col) = query {
-                                            if col.len().gt(&0) {
+                                            if col.len().gt(&3) {
                                                 continue;
                                             }
                                         }
                                     }
 
-                                    let peer_address = Multiaddr::from(peer_addr_str);
-                                    if let Err(e) = client.dial(&peer_address).await {
-                                        eprintln!("Unable to dial! {e:?}");
-                                    }
+                                    println!("I should contact this peer_addr and send them a new ticket.")
+                                    // Ok so if we dial, what are we doing here?
+                                    // if let Err(e) = client.dial(&peer_addr).await {
+                                    //     eprintln!("Unable to dial! {e:?}");
+                                    // }
                                 },
                                 ServerEvent::Online(peer_addr, spec) => {
                                     // peer connected with specs.

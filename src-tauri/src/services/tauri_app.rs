@@ -40,7 +40,7 @@ use futures::{
     SinkExt, StreamExt,
     channel::mpsc::{self, Sender},
 };
-use libp2p::PeerId;
+use libp2p::{PeerId, multiaddr::Protocol};
 use semver::Version;
 use sqlx::{Pool, Sqlite};
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
@@ -537,65 +537,66 @@ impl BlendFarm for TauriApp {
                         // TODO: We have handle_net_event() class, why aren't we using this?
 
                         Event::ServerStatus(server_status) => match server_status {
-                            // ServerEvent::Hello(peer_id_string, spec) => {
-                            //     // a new node acknowledges your activity. Revealing available server on the network.
-                            //     // this node now listens to you, and has provided info to communicate back
-                            //     let peer_id =
-                            //         PeerId::from_str(&peer_id_string).expect("Peer id should be valid");
-
-                            //     // We'll tag this node as a worker.
-                            //     let worker = Worker::new(peer_id.clone(), spec.clone());
-
-                            //     // append new worker to database store
-                            //     if let Err(e) = self.worker_store.add_worker(worker).await {
-                            //         eprintln!("Error adding worker to database! {e:?}");
-                            //     }
-
-                            //     println!("New worker added!");
-                            //     self.peers.insert(peer_id, spec);
-
-                            //     // let handle = app_handle.write().await;
-                            //     // emit a signal to query the data.
-                            //     // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
-                            //     // let _ = handle.emit("worker_update");
-                            // }
-                            ServerEvent::Online(peer_id_str, spec ) => {
-                                // discovered a node.
-                                let name = spec.host;
-                                // let peer_id = PeerId::from_str(&peer_id_str).expect("Received invalid peer_id string!");
-                                println!("[{peer_id_str}] {name} is online.");
-
+                            // a node introduce themselves upon your discovery.
+                            ServerEvent::Online(mut peer_addr, spec ) => {
+                                let name = &spec.host;
+                                println!("[{}] {name} is online (May be busy).", &peer_addr);
+                                // TODO: We could send this information to the front end?
+                                // We'll tag this node as a worker.
+                                let last = peer_addr.pop();
+                                if let Some(Protocol::P2p(peer_id)) = last {
+                                    // If we haven't previously met...
+                                    if self.peers.contains_key(&peer_id) {
+                                        continue;
+                                    }
+                                    
+                                    let worker = Worker::new(peer_id.clone(), spec.clone());
+                                    
+                                    // append new worker to database store
+                                    if let Err(e) = self.worker_store.add_worker(worker).await {
+                                        eprintln!("Error adding worker to database! {e:?}");
+                                    }
+                                    
+                                    self.peers.insert(peer_id, spec);
+                                    // let handle = app_handle.write().await;
+    
+                                    // emit a signal to query the data.
+                                    // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
+                                    // let _ = handle.emit("worker_update");
+                                }
                             },
+                            ServerEvent::NewTickets(_) => {
+                                // I'm not sure why someone ask us to do the work from tauri app???
+                                println!("I want you to contact the developer and explain why you want the client facing app receive a new ticket job?");
+                            }
 
-                            ServerEvent::NewTickets(peer_id_str) => {
-                                // This node have new tickets available
-                                // should we send out and request tickets?
-                                // should tauri app cares?
-                                println!("[{peer_id_str}] have new tickets available!");
-                            },
-                            ServerEvent::RequestTicket => {
-                                // this node is requesting new tickets
-                                println!("A node is idle and asking for new tickets");
+                            ServerEvent::RequestTicket(peer_addr) => {
+                                // TODO: Display this info based on verbose/debugger cli options
+                                println!("Peer [{peer_addr}] is asking you for new ticket(s)");
+
                                 // How do I check my job and see if I have any pending tickets/pending jobs to work on?
-                                let new_ticket = match self.job_store.list_all().await {
+                                let query = match self.job_store.list_all().await {
                                     Ok(list) => list.iter().fold(None, |result, item| {
                                         if result.is_some() {
                                             return result
                                         }
-
-                                        // Todo; how do I check and see what's missing and what ticket has been created to fill in the missing ticket jobs.
-                                        // do we want to ask the other node to give up some of the ticket frame counts to other node pending for new work to do?
-                                        let start = 1;
-                                        let end = 10;
-                                        let ticket = Ticket::from(item.clone(), start, end);
-
-                                        Some(ticket)
+                                        
+                                        // now how do I know if the job is completed or not?
+                                        let (start, end) = &item.item.get_range();
+                                        match Ticket::from(item.clone(), start.clone(), end.clone()) {
+                                            Ok(task) => Some(task),
+                                            Err(e) => {
+                                                println!("Unable to make task? {e:?}");
+                                                None
+                                            }
+                                        }
                                     }),
                                     _ => return ()
                                 };
 
-                                // Ok so how do I reply back to the client who requested tickets? How do I connect that client?
-                                dbg!(&new_ticket);
+                                if let Some(ticket) = query {
+                                    client.send_peer_message(&peer_addr, ServerEvent::NewTickets(ticket)).await;
+                                }  
                             },
                             // which node?
                             ServerEvent::Rendering(uuid) => {
