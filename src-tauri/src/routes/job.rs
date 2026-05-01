@@ -95,18 +95,28 @@ pub(crate) fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
             // }
 
             let project_file = AsRef::<BlendFile>::as_ref(&job.item).to_path();
-            let output = AsRef::<Output>::as_ref(&job.item);
+            let output = AsRef::<Output>::as_ref(&job.item).to_str().unwrap();
             let version = AsRef::<Version>::as_ref(&job.item);
+            let job_info = job.item.clone();
+            let (start, end) = job_info.get_range();
 
             html!(
                 div class="content" {
-                    h2 { "Job Detail" };
+                    h2 { "Job Detail: " ( project_file.file_name().unwrap().to_string_lossy() ) };
 
-                    button tauri-invoke="open_dir" hx-vals=(json!({"path": project_file.to_string_lossy()})) { (  project_file.to_string_lossy() ) };
+                    div { 
+                        button tauri-invoke="open_dir" hx-vals=(json!({"path": project_file.to_string_lossy()})) { "File path:" }; 
+                        ( project_file.to_string_lossy() )
+                    }
                     
-                    div { ( output.to_str().unwrap() ) };
+                    div { 
+                        button tauri-invoke="open_dir" hx-vals=(json!({"path": output})) { "Output:" }; 
+                        ( output )
+                    }
                     
-                    div { ( version.to_string() ) };
+                    div { "Target Blender Version: " ( version.to_string() ) };
+
+                    div { "Start: " (start) " | End: " (end) }
                     
                     button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job.id})) hx-target="#workplace" { "Delete Job" };
                     
