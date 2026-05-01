@@ -149,34 +149,13 @@ impl Job {
         }
     }
 
-    // Hmm Risky. Would consider promoting to higher application layer services.
-    pub fn generate_ticket(&mut self, job_id: Uuid) -> Option<Ticket> {
-        // Identify missing frames and generate a ticket.
-        // If we have already generate a ticket for another job, and there's no remaining left, we return none, or previous ticket?
-        // in the future we will find a better mechanism to partition the frames up and distributed across network nodes.
-        // If we have node requesting for new task, but we've completed exhaust the query range, we should check other nodes
-        // and ask the highest queue frame for some of the frame counts instead, until we've reached to a certain water overflow threshold.
-        let (start, end) = match &self.mode {
+    pub fn get_range(&self) -> (Frame, Frame) {
+        match &self.mode {
             RenderMode::Frame(v) => (v.to_owned(), v.to_owned()),
-            RenderMode::Animation { start, end } => (start.to_owned(), end.to_owned()),
-        };
-
-        // let remaining = self.
-
-        let job_record = WithId {
-            id: job_id,
-            item: self.clone(),
-        };
-
-        match Ticket::from(job_record, start, end) {
-            Ok(task) => Some(task.clone()),
-            Err(e) => {
-                println!("Unable to make task? {e:?}");
-                None
-            }
+            RenderMode::Animation{start, end} => (start.to_owned(), end.to_owned()),
         }
     }
-
+    
     pub fn get_file_name_expected(&self) -> &OsStr {
         self.blend_file
             .to_path()
