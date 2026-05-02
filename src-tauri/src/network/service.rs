@@ -10,7 +10,7 @@ use futures::StreamExt;
 use futures::channel::oneshot;
 use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::kad::RecordKey;
-use libp2p::mdns;
+use libp2p::{Multiaddr, mdns};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::SwarmEvent;
 use libp2p::{
@@ -290,7 +290,7 @@ impl Service {
             Command::FileService(service) => self.process_file_service(service).await,
 
             // received server status. Can invoke commands from this broadcast event.
-            Command::Message(Some(peer_addr), _status) =>  {
+            Command::Message(Some(mut peer_addr), _status) =>  {
                     
                 // let data = serde_json::to_string(&status).unwrap();
                 // let topic = IdentTopic::new(NODE_TOPIC);
@@ -299,19 +299,33 @@ impl Service {
                 // }
                 // Here we have the option to dial a peer directly and send the status in private. 
                 // We can exchange ticket information, blender availability, and render contents.
-                // TODO: Figure out how we can dial our peers
                 
-                // dial doesn't work with P2p? I need to strip them before dialing don't I?
-                // let peer_addr = Self::
+                let last = peer_addr.pop();
+                match last {
+                    Some(Protocol::P2p(peer_id)) => {
+                        let mut addr = Multiaddr::empty();
+                        addr.push(Protocol::P2p(peer_id));
+                        println!("Removing peer id [{addr}] so this address can be dialed by rust-libp2p");
+                    }
+                    Some(other) => peer_addr.push(other),
+                    _ => {}
+                };
+                
+                println!("Dialed {}...", &peer_addr);
+
+                // the method goes is that we need the self.swarm to implement the behaviour of communicating 
                 if let Err(e) = self.swarm.dial(peer_addr ) {
                     eprintln!("Unable to dial! {e:?}");
                 }
+                // Ok so I dialed this peer? how can I send this peer a message?
+                // Maybe this is where we can utilize mcps oneshot callback when dial is open for stream/communication
             }
             // Received broadcast signal
             Command::Message(_, status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
                 let data = serde_json::to_string(&status).unwrap();
                 let topic = IdentTopic::new(NODE_TOPIC);
+                // so a relay server would be utilized here? we communicate to the peer by their id?
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     eprintln!("Fail to publish gossip message: {e:?}");
                 }

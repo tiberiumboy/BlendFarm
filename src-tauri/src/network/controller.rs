@@ -7,7 +7,6 @@ use crate::models::behaviour::FileResponse;
 use crate::services::server::ServerEvent;
 use crate::network::message::{Command, FileCommand, NetworkError};
 use crate::network::provider_rule::ProviderRule;
-use std::error::Error;
 use futures::channel::oneshot::{self};
 use libp2p::{Multiaddr, PeerId};
 use libp2p_request_response::ResponseChannel;
@@ -65,20 +64,6 @@ impl Controller {
 
 /* 
     #[allow(dead_code)]
-    fn strip_peer_id(addr: &mut Multiaddr) {
-        let last = addr.pop();
-        match last {
-            Some(Protocol::P2p(peer_id)) => {
-                let mut addr = Multiaddr::empty();
-                addr.push(Protocol::P2p(peer_id));
-                println!("Removing peer id [{addr}] so this address can be dialed by rust-libp2p");
-            }
-            Some(other) => addr.push(other),
-            _ => {}
-        }
-    }
-
-    #[allow(dead_code)]
     fn parse_legacy_multiaddr(text: &str) -> Result<Multiaddr, Box<dyn Error>> {
         let sanitized = text
             .split('/')
@@ -124,6 +109,7 @@ impl Controller {
     //         .expect("Command should not be dropped");
     // }
 
+    // received file service command.
     pub(crate) async fn file_service(&self, command: FileCommand) {
         self.sender
             .send(Command::FileService(command))

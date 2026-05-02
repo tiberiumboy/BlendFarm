@@ -26,7 +26,6 @@ use async_lock::RwLock;
 use async_trait::async_trait;
 use blender::blender::{Frame, Manager as BlenderManager, ManagerError};
 use blender::models::event::BlenderEvent;
-use libp2p::multiaddr::Protocol;
 use libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
@@ -519,7 +518,7 @@ impl BlendFarm for Server {
             select! {
                 pending_event = event_receiver.recv() => match pending_event {
                     Some(network_event) => match network_event {
-                        Event::Discovered(peer_addr) => {
+                        Event::Discovered( _, peer_addr ) => {
                             println!("Peer Discovered: {}", &peer_addr);
                             
                             // Perform a check. If we have exhausted our ticket queue, we should send this discover peer a RequestTicket message.
@@ -527,11 +526,14 @@ impl BlendFarm for Server {
                                 if remains.len().eq(&0) {
                                     // now we will just simply ask 
                                     let local_addr = &client.multiaddr;
+                                    println!("Sending discovered peer a request ticket message.");
                                     client.send_peer_message(&peer_addr, ServerEvent::RequestTicket(local_addr.clone())).await;
                                 }
                             }
                             
+                            // TODO: See if we can avoid instantiating a new Computer spec, cache this somewhere, in a struct
                             let spec = ComputerSpec::new();
+                            println!("Sending discovered peer a online status message.");
                             // We'll say I'm online instead of requesting ticket.
                             client.send_peer_message(&peer_addr, ServerEvent::Online(public_addr.clone(), spec)).await;
                         }

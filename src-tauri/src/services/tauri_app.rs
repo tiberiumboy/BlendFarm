@@ -121,8 +121,6 @@ pub enum UiCommand {
 }
 
 pub struct TauriApp {
-    // I need the peer's address? I don't think I need the PeerId, but will hold onto it just in case.
-    // we may ultimately change this to rely on the computer name instead of PeerId?
     peers: HashMap<PeerId, ComputerSpec>,
     worker_store: SqliteWorkerStore,
     job_store: SqliteJobStore,
@@ -538,6 +536,7 @@ impl BlendFarm for TauriApp {
 
                         Event::ServerStatus(server_status) => match server_status {
                             // a node introduce themselves upon your discovery.
+                            // why did I not receive this?
                             ServerEvent::Online(mut peer_addr, spec ) => {
                                 let name = &spec.host;
                                 println!("[{}] {name} is online (May be busy).", &peer_addr);
