@@ -27,11 +27,13 @@ async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
         sender,
         QueryMode::ONLINE | QueryMode::LOCAL,
     ));
+    // Send a request to backend services to fetch the query.
     if let Err(e) = app_state.invoke.send(event).await {
         eprintln!("Fail to send event! {e:?}");
         return Vec::new();
     }
 
+    // await until we receive the response back.
     match receiver.select_next_some().await {
         // Clone operation used here. might be expensive? See if there's another way to get aorund this.
         Some(list) => list
@@ -40,30 +42,6 @@ async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
             .collect::<Vec<Version>>(),
         None => Vec::new(),
     }
-
-    // let mut versions = Vec::new();
-
-    // // fetch local installation first.
-    // let mut local = manager
-    //     .get_blenders()
-    //     .iter()
-    //     .map(|b| b.get_version().clone())
-    //     .collect::<Vec<Version>>();
-
-    // if !local.is_empty() {
-    //     versions.append(&mut local);
-    // }
-
-    // // then display the rest of the download list
-    // if let Some(downloads) = manager.fetch_download_list() {
-    //     let mut item = downloads
-    //         .iter()
-    //         .map(|d| d.get_version().clone())
-    //         .collect::<Vec<Version>>();
-    //     versions.append(&mut item);
-    // };
-
-    // versions
 }
 
 /// List all of the available blender version.

@@ -227,7 +227,7 @@ impl Blender {
     /// let blender = Blender::from_executable(Pathbuf::from("../examples/")).unwrap();
     /// ```
     pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self, BlenderError> {
-        #[cfg(target_os="macos")]
+        #[cfg(target_os = "macos")]
         use crate::utils::MACOS_PATH;
 
         // check and verify that the executable exist.
@@ -365,7 +365,9 @@ impl Blender {
                     }
                     Err(_e) => {
                         // TODO: Find a way to switch on verbosity to print these kind of logs.
-                        // eprintln!("Received Error: {_e:?}");
+                        // if verbosity == Debug {
+                        eprintln!("Received Error: {_e:?}");
+                        // }
                         break;
                     }
                 }
@@ -382,7 +384,6 @@ impl Blender {
         tx: Sender<BlenderEvent>, // Transmission to Application subscribing to this class logger
         signal: Sender<BlenderEvent>, // Used to stop the listening service.
     ) -> Result<(), BlenderError> {
-        // TODO: Eventually in the future update, we can ask for the user's override version instead of blender file's last opened version.
         let settings = args.parse_from(None);
         let col = &args.file.setup_args(&settings)?;
         // TODO: Find a way to remove unwrap()

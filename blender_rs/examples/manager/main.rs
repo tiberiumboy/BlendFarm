@@ -9,7 +9,6 @@ use clap::{Parser, Subcommand};
 
 use blender::{blender::Blender, manager::Manager, models::blender_config::BlenderConfig};
 use semver::Version;
-// use semver::Version;
 
 #[derive(Subcommand, Debug)]
 enum Command {

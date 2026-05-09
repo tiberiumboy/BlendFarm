@@ -93,14 +93,14 @@ impl Manager {
     }
 
     pub fn check_compressed_by_file_name(&self, zip_file_name: &str) -> Option<PathBuf> {
-        self.portal.check_compressed_blender_by_file_name(zip_file_name)
+        self.portal
+            .check_compressed_blender_by_file_name(zip_file_name)
     }
 
     // Initialize Manager
     pub fn initialize(config: BlenderConfig) -> Result<Self, ManagerError> {
-        // TODO: figure out what to do with PageCache? Another BlenderConfig entry?
         let mut page_cache = PageCache::load().expect("TODO: ?");
-        
+
         let portal = Portal::fetch(&config.install_path, &mut page_cache)?;
         if let Err(e) = page_cache.save() {
             eprintln!("Unable to save the cache configuration! {e:?}");
@@ -127,7 +127,7 @@ impl Manager {
         Ok(Self::new(config, portal, page_cache))
     }
 
-    // Save the configuration, and restore to Unmodified state
+    // Save the configuration
     pub fn save(&self) -> Result<(), ManagerError> {
         let data = serde_json::to_string(&self.config).map_err(ManagerError::SerdeJson)?;
         fs::write(self.config.get_config_path(), data).map_err(ManagerError::IoError)
@@ -153,22 +153,19 @@ impl Manager {
         self.portal
             .get_downloads()
             .iter()
-            .map(|package| {
-                match package {
-                    Package::Metadata(download_link) => (
-                        download_link.download_url.to_owned(),
-                        download_link.get_version().to_owned(),
-                    ),
-                    Package::Downloaded(downloaded) => (
-                        downloaded.origin.download_url.to_owned(),
-                        downloaded.get_version().to_owned(),
-                    ),
-                    Package::Bundle(bundle) => (
-                        bundle.content.origin.download_url.to_owned(),
-                        bundle.get_version().to_owned(),
-                    ), // Package::Executable(custom) => ,
-                }
-                // (package.get_version())
+            .map(|package| match package {
+                Package::Metadata(download_link) => (
+                    download_link.download_url.to_owned(),
+                    download_link.get_version().to_owned(),
+                ),
+                Package::Downloaded(downloaded) => (
+                    downloaded.origin.download_url.to_owned(),
+                    downloaded.get_version().to_owned(),
+                ),
+                Package::Bundle(bundle) => (
+                    bundle.content.origin.download_url.to_owned(),
+                    bundle.get_version().to_owned(),
+                ),
             })
             .collect::<Vec<(Url, Version)>>()
     }
@@ -191,10 +188,8 @@ impl Manager {
     }
 
     /// Add a new blender installation to the manager list.
-    // would require consuming manager.
     /// Returns old blender value that was replaced by the new updated value.
     pub fn add_blender(&mut self, blender: &Blender) -> Result<Option<Blender>, ManagerError> {
-        // make sure it doesn't exist already.
         // Returns None if previously doesn't exist, or Some(old_value) when the record has been updated.
         Ok(self.config.insert_blender(blender))
     }
