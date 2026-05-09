@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "blendfarm/Task/Features.md",
+                "file": "blendfarm/TODO/Squash history stack from.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Features"
+              "title": "Squash history stack from"
             }
           }
         ]
@@ -162,6 +162,12 @@
   },
   "active": "1610ed8efcefe535",
   "lastOpenFiles": [
+    "blendfarm/Bugs/Buglist.md",
+    "blendfarm/TODO/Squash history stack from.md",
+    "blendfarm/TODO",
+    "blendfarm/Architecture/Portal.md",
+    "blendfarm/README.md",
+    "blendfarm/Task/Features.md",
     "blendfarm/Pages/Settings.md",
     "blendfarm/Pages/Pagelist.md",
     "blendfarm/Pages/Remote Render.md",
@@ -176,9 +182,6 @@
     "blendfarm/Bugs/Unable to discover localhost with no internet connection is established or provided..md",
     "blendfarm/Bugs/Node identification not store in database.md",
     "blendfarm/Bugs/Deleting Blender from UI cause app to crash..md",
-    "blendfarm/Bugs/Buglist.md",
-    "blendfarm/Architecture/Portal.md",
-    "blendfarm/Task/Features.md",
     "blendfarm/Task/Task.md",
     "blendfarm/Task/TODO.md",
     "blendfarm/Context.md",
