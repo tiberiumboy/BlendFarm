@@ -36,7 +36,6 @@ use std::path::{Path, PathBuf};
 use tokio::spawn;
 
 use crate::constant::NODE_TOPIC;
-use crate::models::server_setting::ServerSetting;
 use crate::network::controller::Controller;
 use crate::services::app_context::AppContext;
 
@@ -54,7 +53,7 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
     #[arg(short, long, default_value=None)]
-    secret_key: Option<u8>
+    secret_key: Option<u8>,
 }
 
 #[derive(Subcommand)]
@@ -99,8 +98,9 @@ pub async fn run() {
         .unwrap_or(BlenderConfig::get_default_config_path());
 
     // This program rely on BlenderManager. The user can override this path by providing config_path argument.
-    let blender_config = BlenderConfig::load(blend_config_path).expect("Must have blender configuration to load!");
-    
+    let blender_config =
+        BlenderConfig::load(blend_config_path).expect("Must have blender configuration to load!");
+
     // TODO: figure out how we can handle database path?
     let db_path = BlenderConfig::get_default_config_dir().join(constant::DATABASE_FILE_NAME);
 
@@ -123,12 +123,12 @@ pub async fn run() {
         eprintln!("Fail to setup connection! {e:?}");
     }
 
-    let manager = BlenderManager::initialize(blender_config).expect("Must have blender configuration to load!");
+    let manager = BlenderManager::initialize(blender_config)
+        .expect("Must have blender configuration to load!");
 
     // This server settings is different than blender config.
     // Server Settings is used for Manager client only, to help organize and arrange file structure for completed render image results.
-    let server_settings = ServerSetting::load();
-    let context = AppContext::new(manager, server_settings);
+    let context = AppContext::new(manager);
 
     // TODO: Restructure this to allow running client from GUI mode.
     // TODO: Handle Receiver input here.
