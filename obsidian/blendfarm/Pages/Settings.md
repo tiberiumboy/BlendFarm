@@ -14,4 +14,9 @@ Add from local storage lets the user of the machine to locally point to Blender 
 
 Install version expose all of blender's latest version available from the website, and install Blender automatically for the user.
 
-The list below display all known blender installation the program can utilize and access. This list will only appear after validating Blender's executable path. (Feature - Allow user to run blender from here?)
+The list below display all known blender installation the program can utilize and access. This list will only appear after validating Blender's executable path.
+
+There are three buttons per each row - 
+The first left most button will allow user to open blender of that specific version. 
+The second middle button opens the directory where the blender is install.
+The third right most button deletes blender installation from your computer and remove the entry from the list.
