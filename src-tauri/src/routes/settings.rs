@@ -51,8 +51,10 @@ pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result
         @for blend in list {
             tr {
                 td {
-                    label title=(blend.link()) {
-                        (blend.version.to_string())
+                    button tauri-invoke="open_dir" hx-vals=(json!({"path": blend.link()})) {
+                        label title=(blend.link()) {
+                            (blend.version.to_string())
+                        }
                     }
                 };
                 td {
@@ -71,24 +73,26 @@ pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result
 }
 
 /// Add a new blender entry to the system, but validate it first!
+// TODO: Refactor this as this function doens't make a lot of sense and prone to problems.
 #[command(async)]
 pub async fn add_blender_installation(
     handle: State<'_, Mutex<AppHandle>>,
     state: State<'_, Mutex<AppState>>, 
-) -> Result<(), ()> { // TODO: Need to change this to string, string?
+) -> Result<(), String> {
     let app = handle.lock().await;
-    let path = match app.dialog().file().blocking_pick_file() {
-        Some(file_path) => match file_path {
-            FilePath::Path(path) => path,
-            FilePath::Url(url) => url.to_file_path().unwrap(),
-        },
-        None => return Err(()),
-    };
+    app.dialog().file().pick_file(|result| {
+        if let Some(file_path) = result {
+            let path = match file_path {
+                FilePath::Path(path) => path,
+                FilePath::Url(url) => url.to_file_path().unwrap(),
+            };
+            let mut app_state = state.lock().await;
+            if let Err(e) = app_state.invoke.send(UiCommand::Blender(BlenderAction::Add(path))).await {
+                eprintln!("Fail to send data back! {e:?}");
+            };
+        }
+    });
 
-    let mut app_state = state.lock().await;
-    if let Err(e) = app_state.invoke.send(UiCommand::Blender(BlenderAction::Add(path))).await {
-        eprintln!("Fail to send data back! {e:?}");
-    }
     Ok(())
 }
 
