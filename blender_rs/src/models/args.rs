@@ -12,13 +12,15 @@
     Do note that blender is open source - it's not impossible to create FFI that interfaces blender directly, but rather, there's no support to perform this kind of action (yet).
 */
 // May Subject to change.
+use super::device::Processor;
 use crate::{
-    blend_file::BlendFile, blender::Frame, models::{config::BlenderConfiguration, /* engine::Engine, */ format::Format, peek_response::PeekResponse}
+    blend_file::BlendFile,
+    blender::Frame,
+    models::{config::BlenderConfiguration, format::Format, peek_response::PeekResponse},
 };
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use super::device::Processor;
 
 // Blender 4.2 introduce a new enum called BLENDER_EEVEE_NEXT, which is currently handle in python file atm.
 // const EEVEE_SWITCH: Version = Version::new(4, 2, 0);
@@ -52,7 +54,7 @@ impl Args {
             mode: HardwareMode::CPU,
             format: Format::default(),
             start,
-            end
+            end,
         }
     }
 
@@ -67,33 +69,13 @@ impl Args {
             info.current.render_setting.sample,
             info.current.render_setting.format,
             self.start,
-            self.end
+            self.end,
         )
     }
 }
 
-
+// TODO: Find a way to write unit test for this.
 #[cfg(test)]
 mod tests {
-    // use super::*;
-
-    // TODO: Need to write a unit test to ensure the correct engine is used per blender version.
-    #[test]
-    fn blender_test_eevee_engine_enum_switch() {
-        // let file = 
-        // TODO: How can I mock up a blendfile for unit test?
-        // reference it from blendfile?
-        todo!("Because we can't explicitly define the engine enum anymore, we'll have to make a mock file instead. Otherwise this unit test will become meaningless.");
-        /* 
-        let path_to_blend_file = PathBuf::from("./examples/assets/test.blend");
-        // TODO: Create a mock blendfile for unit testing purposes.
-        let file = BlendFile::new(&path_to_blend_file).expect("Must have a valid blend file!");
-        let output = PathBuf::new();
-        let args = Args::new(file, output, 1,1 );
-        let parsed = args.parse_from(&Version::new(4,1,0));
-        assert_ne!(parsed.engine, engine);
-        let parsed = args.parse_from(&EEVEE_SWITCH);
-        assert_eq!(parsed.engine, engine);
-        */
-    }
+    use super::*;
 }

@@ -14,7 +14,7 @@ use uuid::Uuid;
 #[serde(rename_all = "PascalCase")]
 // TODO: could rename this to something else?
 pub struct BlenderConfiguration {
-    #[serde(rename = "TaskID")]
+    #[serde(rename = "TicketID")]
     id: Uuid,
     // output various
     output: PathBuf,
@@ -59,7 +59,31 @@ impl BlenderConfiguration {
             format,
             crop: false,
             start,
-            end
+            end,
+        }
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use crate::models::blender_scene::tests::mock_blender_scene;
+
+    pub fn mock_blender_configuration() -> BlenderConfiguration {
+        let blender_scene = mock_blender_scene();
+
+        BlenderConfiguration {
+            id: Uuid::new_v4(),
+            output: PathBuf::new(),
+            scene_info: blender_scene,
+            cores: 1,
+            processor: Processor::NONE,
+            hardware_mode: HardwareMode::CPU,
+            sample: 100,
+            format: Format::default(),
+            start: 1,
+            end: 2,
+            crop: false,
         }
     }
 }

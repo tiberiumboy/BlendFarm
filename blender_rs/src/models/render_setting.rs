@@ -1,4 +1,4 @@
-use super::{blender_scene::Sample, /* engine::Engine, */ format::Format, window::Window};
+use super::{blender_scene::Sample, format::Format, window::Window};
 use crate::blender::Frame;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -18,8 +18,6 @@ pub struct RenderSetting {
     /// Frame per second
     #[serde(rename = "FPS")]
     pub fps: FrameRate,
-    /// What render engine to use (Optix/CUDA)
-    // pub engine: Engine,
     /// Image format
     pub format: Format,
     /// Borders
@@ -33,7 +31,7 @@ impl RenderSetting {
         height: Frame,
         sample: Sample,
         fps: FrameRate,
-        /* engine: Engine,*/ format: Format,
+        format: Format,
         border: Window,
     ) -> Self {
         Self {
@@ -42,7 +40,6 @@ impl RenderSetting {
             height,
             sample,
             fps,
-            // engine,
             format,
             border,
         }
@@ -55,5 +52,22 @@ impl RenderSetting {
 
     pub fn get_output(&self) -> &PathBuf {
         &self.output
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    pub fn mock_rendering_setting() -> RenderSetting {
+        RenderSetting {
+            output: PathBuf::new(),
+            width: 1280,
+            height: 720,
+            sample: 100,
+            fps: 30,
+            format: Format::default(),
+            border: Window::default(),
+        }
     }
 }

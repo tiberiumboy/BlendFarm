@@ -1,12 +1,11 @@
 use crate::models::{app_state::AppState, server_setting::ServerSetting};
 use crate::models::blender_action::BlenderAction;
 use crate::models::setting_action::SettingsAction;
-use crate::services::tauri_app::{QueryMode, UiCommand};
+use crate::services::tauri_app::{BlenderQuery, QueryMode, UiCommand};
 use std::{env, path::PathBuf, str::FromStr, process::Command};
 use blender::blender::Blender;
 use futures::{channel::mpsc, SinkExt, StreamExt};
 use maud::html;
-use semver::Version;
 use serde_json::json;
 use tauri::{command, AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
@@ -46,8 +45,20 @@ pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result
     }
 
     let list = receiver.select_next_some().await.expect("Should expect data back!");
+    Ok(render_list_blenders(list))
+}
 
-    Ok(html! {
+fn render_list_blenders(list: Vec<BlenderQuery>) -> String { 
+    if list.len() == 0 {
+        return html!(
+
+            div {
+                "Found no blender installation installed on this machine! Please download or add blender installation!"
+            }
+        ).0
+    }
+
+    html! {
         @for blend in list {
             tr {
                 td {
@@ -69,29 +80,31 @@ pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result
             };
         };
     }
-    .0)
+    .0
 }
 
 /// Add a new blender entry to the system, but validate it first!
 // TODO: Refactor this as this function doens't make a lot of sense and prone to problems.
+// Error: Unhandled Promise Rejection: state not managed for field `handle` on command `add_blender_installation`. 
+// You must call `.manage()` before using this command
 #[command(async)]
 pub async fn add_blender_installation(
     handle: State<'_, Mutex<AppHandle>>,
     state: State<'_, Mutex<AppState>>, 
 ) -> Result<(), String> {
     let app = handle.lock().await;
-    app.dialog().file().pick_file(|result| {
-        if let Some(file_path) = result {
-            let path = match file_path {
+    let path = match app.dialog().file().blocking_pick_file() {
+        
+        Some(file_path) => match file_path {
                 FilePath::Path(path) => path,
                 FilePath::Url(url) => url.to_file_path().unwrap(),
-            };
-            let mut app_state = state.lock().await;
-            if let Err(e) = app_state.invoke.send(UiCommand::Blender(BlenderAction::Add(path))).await {
-                eprintln!("Fail to send data back! {e:?}");
-            };
-        }
-    });
+            },
+        None => return Err("No file selected!".to_owned()),
+    };
+    let mut app_state = state.lock().await;
+    if let Err(e) = app_state.invoke.send(UiCommand::Blender(BlenderAction::Add(path))).await {
+        eprintln!("Fail to send data back! {e:?}");
+    };
 
     Ok(())
 }
@@ -101,14 +114,23 @@ pub async fn add_blender_installation(
 pub async fn install_from_internet(
     _handle: State<'_, Mutex<AppHandle>>,
     _state: State<'_, Mutex<AppState>>
-) -> Result<(), ()>{
+) -> Result<String, ()>{
     print!("Show me what the internet still have?");
     // in this case, I need to return a maud layout of the dialog pop up using htmx
-    Err(())
+    // TODO: Finish implementing this feature.
+    // If we successfully install a new installation of blender, then we need to target the list of blender installation with an updated version of the list. 
+    Ok(
+        html!(
+            div {
+                "Hello World!"
+            }
+        ).0
+    )
 }
 
 // So this can no longer be a valid api call?
 // TODO: Reconsider refactoring this so that it's not a public api call. Deprecate/remove asap
+/*
 #[command(async)]
 pub async fn fetch_blender_installation(
     state: State<'_, Mutex<AppState>>,
@@ -151,6 +173,7 @@ pub async fn fetch_blender_installation(
         None => Err(())
     }
 }
+*/
 
 /// Permanently delete blender from the system using the file path given
 #[command(async)]
@@ -286,6 +309,8 @@ pub fn setting_page() -> String {
             h3 { "Blender Installation" };
             
             button tauri-invoke="add_blender_installation" { "Add from Local Storage" };
+            // the idea behind this is to provide a list of version available to download from the internet.
+            // If we are not connected to the internet, then softly report "Unable to fetch online, are you connected?"
             button tauri-invoke="install_from_internet" { "Install version" };
             
             div class="group" {

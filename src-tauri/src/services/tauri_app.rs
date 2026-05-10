@@ -519,7 +519,6 @@ impl BlendFarm for TauriApp {
                 list_blender_installed,
                 disconnect_blender_installation,
                 delete_blender,
-                fetch_blender_installation,
             ])
             .manage(mut_app_state)
             .build(tauri::generate_context!("tauri.conf.json"))
@@ -548,17 +547,17 @@ impl BlendFarm for TauriApp {
                                     if self.peers.contains_key(&peer_id) {
                                         continue;
                                     }
-                                    
+
                                     let worker = Worker::new(peer_id.clone(), spec.clone());
-                                    
+
                                     // append new worker to database store
                                     if let Err(e) = self.worker_store.add_worker(worker).await {
                                         eprintln!("Error adding worker to database! {e:?}");
                                     }
-                                    
+
                                     self.peers.insert(peer_id, spec);
                                     // let handle = app_handle.write().await;
-    
+
                                     // emit a signal to query the data.
                                     // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
                                     // let _ = handle.emit("worker_update");
@@ -579,7 +578,7 @@ impl BlendFarm for TauriApp {
                                         if result.is_some() {
                                             return result
                                         }
-                                        
+
                                         // now how do I know if the job is completed or not?
                                         let (start, end) = &item.item.get_range();
                                         match Ticket::from(item.clone(), start.clone(), end.clone()) {
@@ -595,7 +594,7 @@ impl BlendFarm for TauriApp {
 
                                 if let Some(ticket) = query {
                                     client.send_peer_message(&peer_addr, ServerEvent::NewTickets(ticket)).await;
-                                }  
+                                }
                             },
                             // which node?
                             ServerEvent::Rendering(uuid) => {

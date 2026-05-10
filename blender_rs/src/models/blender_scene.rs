@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::render_setting::RenderSetting;
+use serde::{Deserialize, Serialize};
 
 pub type SceneName = String;
 pub type Camera = String;
@@ -16,14 +16,26 @@ pub struct BlenderScene {
 }
 
 impl BlenderScene {
-    pub fn new(
-        scene: SceneName,
-        camera: Camera,
-        render_setting: RenderSetting,
-    ) -> Self {
+    pub fn new(scene: SceneName, camera: Camera, render_setting: RenderSetting) -> Self {
         Self {
             scene,
             camera,
+            render_setting,
+        }
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use crate::models::render_setting::tests::mock_rendering_setting;
+
+    pub fn mock_blender_scene() -> BlenderScene {
+        // TODO: why do I have another render settings that can be different than the other render settiings?
+        let render_setting = mock_rendering_setting();
+        BlenderScene {
+            scene: "Test".to_owned(),
+            camera: "Camera01".to_owned(),
             render_setting,
         }
     }

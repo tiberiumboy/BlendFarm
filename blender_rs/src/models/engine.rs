@@ -1,3 +1,5 @@
+/*
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -10,3 +12,5 @@ pub enum Engine {
     CYCLES,
     OPTIX,
 }
+
+*/
