@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{FromRow, SqlitePool, types::Json};
 
 use crate::{
     domains::worker_store::{WorkerError, WorkerStore},
@@ -16,15 +16,16 @@ pub struct SqliteWorkerStore {
 #[derive(FromRow, Serialize, Deserialize, Debug)]
 struct WorkerDTO {
     peer_id: String,
-    // TODO: find a way to use #[sqlx(json)]?
-    spec: String, // deserialize/serialize as json
+    spec: Json<ComputerSpec>,
 }
 
 impl WorkerDTO {
     pub fn dto_to_obj(&self) -> Worker {
-        let peer_id = PeerId::from_str(&self.peer_id).expect("ID was mutated!");
-        let spec = serde_json::from_str::<ComputerSpec>(&self.spec).expect("spec was mutated!");
-        Worker { peer_id, spec }
+        Worker {
+            // TODO: Should this be multi-address instead?
+            peer_id: PeerId::from_str(&self.peer_id).expect("ID was mutated!"),
+            spec: self.spec.0.clone(),
+        }
     }
 }
 
@@ -39,13 +40,20 @@ impl WorkerStore for SqliteWorkerStore {
     // List
     async fn list_worker(&self) -> Result<Vec<Worker>, WorkerError> {
         // we'll add a limit here for now.
-        let result: Vec<WorkerDTO> =
-            sqlx::query_as!(WorkerDTO, r"SELECT peer_id, spec FROM workers")
-                .fetch_all(&self.conn)
-                .await
-                .map_err(|e| WorkerError::Database(e.to_string()))?;
+        let mut result: Vec<WorkerDTO> = sqlx::query_as!(
+            WorkerDTO,
+            r#"SELECT peer_id, spec as "spec: Json<ComputerSpec>" FROM workers"#
+        )
+        .fetch_all(&self.conn)
+        .await
+        .map_err(|e| WorkerError::Database(e.to_string()))?;
 
-        Ok(result.iter().map(|e| e.dto_to_obj()).collect())
+        let list = result.iter_mut().fold(Vec::new(), |mut list, element| {
+            list.push(element.dto_to_obj());
+            list
+        });
+
+        Ok(list)
     }
 
     // Create
@@ -76,7 +84,7 @@ impl WorkerStore for SqliteWorkerStore {
         // Is there a way I could do optional instead of result?
         let result: Result<WorkerDTO, sqlx::Error> = sqlx::query_as!(
             WorkerDTO,
-            r#"SELECT peer_id, spec FROM workers WHERE peer_id=$1"#,
+            r#"SELECT peer_id, spec as "spec: Json<ComputerSpec>" FROM workers WHERE peer_id=$1"#,
             peer_id
         )
         .fetch_one(&self.conn)
