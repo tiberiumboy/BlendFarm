@@ -139,6 +139,7 @@ mod tests {
         let scene_info = mock_scene_info();
         let render_setting = mock_rendering_setting();
         BlendFile {
+            // TODO: Find a way to reference relative path to ./blender_rs/examples/assets/test.blend?
             inner: PathBuf::new(),
             major: 4,
             minor: 2,
