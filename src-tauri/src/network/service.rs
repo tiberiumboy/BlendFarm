@@ -604,32 +604,42 @@ impl Service {
             /* #region vv verbose events vv */
             SwarmEvent::OutgoingConnectionError { peer_id: None, .. } => {}
 
-            SwarmEvent::NewListenAddr { address, .. } => {
-                // println!("[New Listener Address]: {address}");
-                let local_peer_id = *self.swarm.local_peer_id();
-                eprintln!(
-                    "Listening @ {:?}",
-                    address.with(Protocol::P2p(local_peer_id))
-                );
-            }
-
             SwarmEvent::Dialing { .. } => {}
 
             SwarmEvent::IncomingConnection {
-                connection_id,
+                // connection_id,
                 send_back_addr,
                 ..
             } => {
+                eprintln!("Incoming connection: {send_back_addr}");
+                
+                
+                // match send_back_addr {
+                //     Protocol::P2p(peer_id) => {
+
+                //     }
+                //     _ => ()
+                // }
                 // Incoming connection? How do I accept?
-                eprintln!("Incoming connection: {connection_id} | {send_back_addr}");
                 // send a message out of the service to inform other subscriber that someone joined the network.
                 // I'm assuming this is reply from dial?
                 // what does it mean to have incoming connection here?
                 // self.dialers.entry()
+                // self.swarm.add_peer_address(peer_id, send_back_addr);
                 
             } // Suppressing logs
 
             // Suppressing logs
+            SwarmEvent::NewListenAddr { /* address, */ .. } => {
+                // println!("[New Listener Address]: {address}");
+                // let local_peer_id = *self.swarm.local_peer_id();
+                // TODO: Find a way to make this as verbose option
+                // eprintln!(
+                //     "Listening @ {:?}",
+                //     address
+                //     // address.with(Protocol::P2p(local_peer_id))
+                // );
+            }
             SwarmEvent::NewExternalAddrOfPeer { .. } => {}
             SwarmEvent::IncomingConnectionError { .. } => {} // I recognize this and do want to display result below.
             SwarmEvent::ExpiredListenAddr { .. } => {}
@@ -659,4 +669,10 @@ impl Service {
 #[cfg(test)]
 pub mod test {
     // TODO: perform some service test. How can I get the service up and running for this?
+
+    // successful test
+    #[test]
+    fn success_new_service() {
+        
+    }
 }
