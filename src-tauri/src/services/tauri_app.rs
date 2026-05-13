@@ -335,8 +335,8 @@ impl TauriApp {
                 let mut versions = Vec::new();
 
                 if flags.contains(QueryMode::LOCAL) {
-                    let mut localblenders = self
-                        .manager
+                    let config = self.manager.get_config();
+                    let mut localblenders = config
                         .get_blenders()
                         .iter()
                         .map(|b| BlenderQuery {

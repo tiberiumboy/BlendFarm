@@ -1,6 +1,5 @@
 use blender::blend_file::BlendFile;
 use blender::blender::Manager;
-use blender::models::blender_config::BlenderConfig;
 use blender::models::{args::Args, event::BlenderEvent};
 use semver::Version;
 use std::fs;
@@ -18,8 +17,8 @@ async fn render_with_manager() {
     let blend_file = BlendFile::new(&blend_path).expect("Expects a valid blend file to continue!");
 
     // Get latest blender installed, or install latest blender from web.
-    let mut manager =
-        Manager::load_from_path(BlenderConfig::get_default_config_path()).expect("Must be able to launch manager to get blender");
+    let manager =
+        Manager::load().expect("Must be able to launch manager to get blender");
 
     // Retrieve last blender version opened/used. Only contains major and minor, no patch. Rely on latest patch if possible.
     let (max, min) = blend_file.get_partial_version();
@@ -29,8 +28,9 @@ async fn render_with_manager() {
 
     // Fetch latest local version that meets the requirement version. We will not try to install,
     // so we will stop here and ask the user to load blender into configuration initially.
-    let blender = manager
-        .latest_local_avail(&version)
+    let config = manager.get_config();
+    let blender = config
+        .get_latest_blender_available(&version)
         .expect("No local blender installation found! Must have at least one blender installed!");
     println!("Prepare blender configuration...");
 

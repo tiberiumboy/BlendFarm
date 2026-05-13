@@ -3,56 +3,33 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    fs,
-    io::Error,
-    path::{Path, PathBuf},
+    path::PathBuf
 };
 
-const SETTINGS_DIR: &str = "BlendFarm/";
-const SETTINGS_NAME: &str = "BlenderManager.json";
-
-// rename this to manager config somehow?
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlenderConfig {
-    #[serde(skip)]
-    inner: PathBuf,
-
     /// List of installed blenders
-    blenders: HashMap<Version, Blender>,
+    pub blenders: HashMap<Version, Blender>,
 
     /// Installation path. By default set to `$HOME/Downloads/Blender`
     pub install_path: PathBuf,
-    // cache dir?
-    // cache_dir: PathBuf,
 }
 
 impl BlenderConfig {
-    // this path should always be fixed and stored under machine specific.
-    // this path should not be shared across machines.
-    #[inline]
-    pub fn get_default_config_path() -> PathBuf {
-        // This is stored under the library usage of dirs::config_dir() + "BlendFarm" - the application name by default.
-        // This ensure directory must exist before returning PathBuf, else report back as permission issue. We must have a place to save the files to.
-        Self::get_default_config_dir().join(SETTINGS_NAME)
-    }
+    // pub fn load(file_path: impl AsRef<Path>) -> Result<BlenderConfig, Error> {
+    //     let settings = Self::load();
+    //     let mut config =
+    //         settings.try_deserialize::<BlenderConfig>().unwrap();
 
-    pub fn get_default_config_dir() -> PathBuf {
-        dirs::config_dir()
-            .expect("Must have access to config directory for application persistent storage")
-            .join(SETTINGS_DIR)
-    }
+    //     // let content = fs::read_to_string(&file_path)?;
+    //     // let mut config = serde_json::from_str::<BlenderConfig>(&content)?;
+    //     config.remove_invalid_blender();
 
-    pub fn get_config_path(&self) -> &PathBuf {
-        &self.inner
-    }
-
-    pub fn load(file_path: impl AsRef<Path>) -> Result<BlenderConfig, Error> {
-        let content = fs::read_to_string(&file_path)?;
-        let mut config = serde_json::from_str::<BlenderConfig>(&content)?;
-        config.remove_invalid_blender();
-        config.inner = file_path.as_ref().to_path_buf();
-        Ok(config)
-    }
+    //     // TODO: Maybe we don't need this anymore if we're using config?
+    //     // Look into watcher?
+    //     config.inner = file_path.as_ref().to_path_buf();
+    //     Ok(config)
+    // }
 
     pub fn get_download_destination(&self, category_folder_name: &str) -> PathBuf {
         self.install_path.join(category_folder_name)
@@ -65,13 +42,13 @@ impl BlenderConfig {
     }
 
     /// Return matching exact blender version
-    pub(crate) fn get_blender(&self, version: &Version) -> Option<&Blender> {
+    pub fn get_blender(&self, version: &Version) -> Option<&Blender> {
         self.blenders.values().find(|x| x.get_version().eq(version))
     }
 
     // return a immutable reference list of installed blender.
     // useful to display on website of some sort.
-    pub(crate) fn get_blenders(&self) -> Vec<&Blender> {
+    pub fn get_blenders(&self) -> Vec<&Blender> {
         self.blenders
             .iter()
             .fold(Vec::new(), |mut map, (_, blender)| {
@@ -126,25 +103,26 @@ impl BlenderConfig {
     }
 }
 
+/* 
 impl Default for BlenderConfig {
     fn default() -> Self {
         let install_path = dirs::download_dir()
-            .expect("Must have place to download!")
-            .join(SETTINGS_DIR);
-
-        // ensure path location must exist to save and store to
-        // - we've been given a place with permission access.
-        if let Err(e) = fs::create_dir_all(&install_path) {
-            eprintln!("Unable to create {e:?}");
-        }
-
-        Self {
-            inner: Self::get_default_config_path(),
-            blenders: Default::default(),
-            install_path,
-        }
+        .expect("Must have place to download!")
+        .join(SETTINGS_DIR);
+    
+    // ensure path location must exist to save and store to
+    // - we've been given a place with permission access.
+    if let Err(e) = fs::create_dir_all(&install_path) {
+        eprintln!("Unable to create {e:?}");
+    }
+    
+    Self {
+        blenders: Default::default(),
+        install_path,
     }
 }
+}
+*/
 
 impl Into<PathBuf> for BlenderConfig {
     fn into(self) -> PathBuf {

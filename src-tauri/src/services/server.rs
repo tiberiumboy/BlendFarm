@@ -422,8 +422,10 @@ impl Server {
 
                 let mut mut_manager = manager.write().await;
 
+                let config = mut_manager.get_config();
+
                 // TODO: I want to find a way to utilize intranet DHT services to fetch installation from other computer node. It wouldn't make a lot of sense re-download the same version from source multiple of times.
-                let blender = match mut_manager.have_blender(version) {
+                let blender = match config.get_blender(version) {
                     Some(blender) => blender,
                     None => {
                         // Update ticket status to "Error" -> Do not re-run this again until the issue has been resolved.

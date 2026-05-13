@@ -22,6 +22,7 @@ blend = "0.8.0"
 tokio = { version = "^1.49", features = ["full"] }
 # TODO: Clap is only ever used in examples. Do not include clap for release mode build. Add a feature switch to include examples.
 clap = { version = "4.6.0", features = ["derive"] }
+figment = { version = "^0.10", features = ["json", "yaml", "toml", "env"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 zip = "^8.1"

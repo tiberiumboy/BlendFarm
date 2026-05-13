@@ -24,11 +24,15 @@ use crate::services::category;
 use crate::services::packages::package::{Package, PackageT};
 use crate::services::portal::Portal;
 
+use figment::{Figment, providers::{Format, /* Toml, Yaml, */ Json, Env}};
 use semver::Version;
 use std::path::Path;
+use std::sync::{OnceLock, RwLock};
 use std::{fs, path::PathBuf};
 use thiserror::Error;
 use url::Url;
+
+const SETTINGS_PATH: &str = "BlendFarm/BlenderManager.json";
 
 // I would like this to be a feature only crate. blender by itself should be lightweight and interface with the program directly.
 // could also implement serde as optionals?
@@ -52,6 +56,8 @@ pub enum ManagerError {
     RequestError(String),
     #[error("IO Error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Config Error: {0}")]
+    FigmentError(#[from] figment::Error),
     #[error("Serde_Json: {0}")]
     SerdeJson(#[from] serde_json::Error),
     #[error("Category error: {0}")]
@@ -72,11 +78,11 @@ pub enum ManagerError {
 pub struct Manager {
     /// Store all known installation of blender directory information
     /// Manager's rulebook. Should only be available in this struct scope
-    config: BlenderConfig,
-    // Online interface (Download blender, look up version, etc)
-    portal: Portal, // Todo this will get extracted away, leaving only blender configs.
+    // Soon to be replaced using Figment library
+    config: RwLock<BlenderConfig>,
+    portal: RwLock<Portal>,
     // page cache
-    page_cache: PageCache,
+    // page_cache: RwLock<PageCache>,
 }
 
 // I have a config file, which contains list of local installed blender
@@ -84,73 +90,61 @@ pub struct Manager {
 
 // Manager should only govern local installed blenders (Or blenders that was added by users)
 impl Manager {
-    fn new(config: BlenderConfig, portal: Portal, page_cache: PageCache) -> Self {
+
+    fn cache() -> &'static RwLock<PageCache> {
+        static CACHE: OnceLock<RwLock<PageCache>> = OnceLock::new();
+        CACHE.get_or_init(|| {
+            let cache = PageCache::load().expect("Unable to load Page Cache!");
+            RwLock::new(cache)
+        })
+    }
+
+    fn new(config: BlenderConfig, portal: Portal) -> Self {
         Manager {
-            config,
-            portal,
-            page_cache,
+            config: RwLock::new(config),
+            portal: RwLock::new(portal),
+            // page_cache: RwLock::new(page_cache),
         }
     }
 
     pub fn check_compressed_by_file_name(&self, zip_file_name: &str) -> Option<PathBuf> {
-        self.portal
+        self.portal.read().unwrap()
             .check_compressed_blender_by_file_name(zip_file_name)
     }
 
-    // Initialize Manager
-    pub fn initialize(config: BlenderConfig) -> Result<Self, ManagerError> {
-        let mut page_cache = PageCache::load().expect("TODO: ?");
-
-        let portal = Portal::fetch(&config.install_path, &mut page_cache)?;
-        if let Err(e) = page_cache.save() {
-            eprintln!("Unable to save the cache configuration! {e:?}");
-        }
-
-        Ok(Self {
-            config,
-            portal,
-            page_cache,
-        })
-    }
-
     /// Load the manager data from the config file.
-    pub fn load_from_path(config_path: impl AsRef<Path>) -> Result<Self, ManagerError> {
+    pub fn load() -> Result<Self, ManagerError> {        
         // if the config file does not exist on the system, create a new one and return a new struct instead.
-        let config = BlenderConfig::load(config_path).unwrap_or(BlenderConfig::default());
+        let config = Figment::new()
+            // .merge(Toml::file(SETTINGS_PATH))
+            // .merge(Yaml::file(SETTINGS_PATH))
+            .merge(Env::prefixed("BlendFarm_"))
+            .join(Json::file(SETTINGS_PATH))
+            .extract::<BlenderConfig>()?;
+        
         let download_path = &config.install_path;
 
         // TODO: we'll load cache services here
         // let cache_path = &config.cache_dir;
-        let mut page_cache = PageCache::load().expect("Had issue loading PageCache!");
-        let portal = Portal::fetch(&download_path, &mut page_cache)?;
-        page_cache.save()?;
-        Ok(Self::new(config, portal, page_cache))
+        // let mut page_cache = PageCache::load().expect("Had issue loading PageCache!");
+        let mut cache = Self::cache().write().unwrap();
+        let portal = Portal::fetch(&download_path, &mut cache)?;
+        cache.save()?;
+        Ok(Self::new(config, portal))
     }
 
     // Save the configuration
     pub fn save(&self) -> Result<(), ManagerError> {
-        let data = serde_json::to_string(&self.config).map_err(ManagerError::SerdeJson)?;
-        fs::write(self.config.get_config_path(), data).map_err(ManagerError::IoError)
-    }
-
-    #[deprecated(note = "Provide me an example where this would be useful?")]
-    #[allow(dead_code)]
-    fn set_config(self, config: BlenderConfig) -> Manager {
-        Self {
-            config: config,
-            portal: self.portal,
-            page_cache: self.page_cache,
-        }
-    }
-
-    /// Return a reference to the vector list of all known blender installations
-    pub fn get_blenders(&self) -> Vec<&Blender> {
-        self.config.get_blenders()
+        todo!("Missing implementation for saving BlenderConfig back to file using Figment");
+        // TODO: Use Yaml instead of json
+        // let data = serde_json::to_string(&self.config).map_err(ManagerError::SerdeJson)?;
+        // fs::write(self.config.get_config_path(), data).map_err(ManagerError::IoError)
     }
 
     /// Returns a list of url path to download and version (For UI models)
     pub fn get_online_version(&self) -> Vec<(Url, Version)> {
         self.portal
+            .read().unwrap()
             .get_downloads()
             .iter()
             .map(|package| match package {
@@ -171,27 +165,24 @@ impl Manager {
     }
 
     // It's used to display the information on the website.
-    pub fn get_install_path(&self) -> &Path {
-        &self.config.install_path
+    // pub fn get_install_path(&self) -> &Path {
+    //     &self.config.read().unwrap().install_path
+    // }
+    pub fn get_config(&self) -> BlenderConfig {
+        self.config.read().unwrap().clone()
     }
 
     /// Set path for blender download and installation
-    pub fn set_install_path(mut self, new_path: &Path) -> Manager {
+    pub fn set_install_path(&self, new_path: &Path) {
         // Consider the design behind this. Should we move blender installations to new path?
-        self.config.install_path = new_path.to_path_buf().clone();
-
-        Self {
-            config: self.config,
-            portal: self.portal,
-            page_cache: self.page_cache,
-        }
+        self.config.write().unwrap().install_path = new_path.to_path_buf().clone();
     }
 
     /// Add a new blender installation to the manager list.
     /// Returns old blender value that was replaced by the new updated value.
-    pub fn add_blender(&mut self, blender: &Blender) -> Result<Option<Blender>, ManagerError> {
+    pub fn add_blender(&self, blender: &Blender) -> Result<Option<Blender>, ManagerError> {
         // Returns None if previously doesn't exist, or Some(old_value) when the record has been updated.
-        Ok(self.config.insert_blender(blender))
+        Ok(self.config.write().unwrap().insert_blender(blender))
     }
 
     // This is weird and a hack. We should let people try to give us valid blender struct. That's all we care about.
@@ -216,8 +207,8 @@ impl Manager {
     // }
 
     /// Remove blender installation from the manager list.
-    pub fn remove_blender(&mut self, blender: &Blender) -> Result<(), ManagerError> {
-        let _ = self.config.remove_blender(blender);
+    pub fn remove_blender(&self, blender: &Blender) -> Result<(), ManagerError> {
+        let _ = self.config.write().unwrap().remove_blender(blender);
         Ok(())
     }
 
@@ -226,7 +217,7 @@ impl Manager {
     // If this is a dangerous function, we should instead make this private and handle it carefully.
     // TODO: Limiting scope visibility until we can make it private. I'm not sure where it's used atm, but making it work atm. 1 hour work
     #[allow(dead_code)]
-    pub(crate) fn delete_blender(&mut self, blender: &Blender) -> Result<(), ManagerError> {
+    pub(crate) fn delete_blender(&self, blender: &Blender) -> Result<(), ManagerError> {
         // this deletes blender from the system. You have been warn!
         // BEWARE - MacOS is special that the executable path is referencing inside the bundle. I would need to get the app path instead of the bundle inside.
         if std::env::consts::OS == "macos" {
@@ -244,10 +235,10 @@ impl Manager {
 
     /// This will first check if blender is installed locally, otherwise download the version online.
     pub fn fetch_blender(&mut self, version: &Version) -> Result<Blender, ManagerError> {
-        match self.config.get_blender(version) {
+        match self.config.read().unwrap().get_blender(version) {
             Some(blender) => Ok(blender.clone()),
             None => {
-                let blender = self.portal.download_blender(version)?;
+                let blender = self.portal.write().unwrap().download_blender(version)?;
                 // Expects no history previously stored due to match conditions above. If it breaks, something is seriously wrong.
                 if let Some(old_value) = self.add_blender(&blender)? {
                     panic!("Record contain existing record, but filter above assure we didn't have it? {old_value:?}\n{:?}", &blender);
@@ -255,27 +246,6 @@ impl Manager {
                 Ok(blender)
             }
         }
-    }
-
-    pub fn have_blender(&self, version: &Version) -> Option<&Blender> {
-        self.config.get_blender(version)
-    }
-
-    pub fn have_blender_partial(&self, major: u64, minor: u64) -> Option<&Blender> {
-        self.config.get_blender_partial(major, minor)
-    }
-
-    /// Fetch the latest version available on this local machine
-    pub fn latest_local_avail(&mut self, version: &Version) -> Option<&Blender> {
-        // in this case I need to contact Manager class or BlenderDownloadLink somewhere and fetch the latest blender information
-        // I think the data is already sorted to begin with? No need to resort this list again.
-        self.config.get_latest_blender_available(version)
-    }
-}
-
-impl AsRef<PathBuf> for Manager {
-    fn as_ref(&self) -> &PathBuf {
-        &self.config.install_path
     }
 }
 

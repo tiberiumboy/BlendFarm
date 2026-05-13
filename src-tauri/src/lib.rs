@@ -26,13 +26,12 @@ Developer blog:
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow::Error;
 use blender::manager::Manager as BlenderManager;
-use blender::models::blender_config::BlenderConfig;
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use libp2p::Multiaddr;
 use services::{blend_farm::BlendFarm, server::Server, tauri_app::TauriApp};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::spawn;
 
 use crate::constant::NODE_TOPIC;
@@ -48,8 +47,6 @@ pub mod services;
 
 #[derive(Parser)]
 struct Cli {
-    #[arg(short, long, default_value=None)]
-    config_path: Option<PathBuf>,
     #[command(subcommand)]
     command: Option<Commands>,
     #[arg(short, long, default_value=None)]
@@ -92,17 +89,9 @@ pub async fn run() {
     // to collect user inputs for custom user preferences
     let cli = Cli::parse();
 
-    // If the user overrides a configuration path, then we'll use that, otherwise use default config directory location instead.
-    let blend_config_path = cli
-        .config_path
-        .unwrap_or(BlenderConfig::get_default_config_path());
-
-    // This program rely on BlenderManager. The user can override this path by providing config_path argument.
-    let blender_config =
-        BlenderConfig::load(blend_config_path).expect("Must have blender configuration to load!");
-
     // TODO: figure out how we can handle database path?
-    let db_path = BlenderConfig::get_default_config_dir().join(constant::DATABASE_FILE_NAME);
+    let config_path = dirs::config_dir().unwrap().join("BlendFarm");
+    let db_path = config_path.join(constant::DATABASE_FILE_NAME);
 
     // initialize database connection (We need a place to store persistent storage)
     let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db(db_path)
@@ -123,7 +112,7 @@ pub async fn run() {
         eprintln!("Fail to setup connection! {e:?}");
     }
 
-    let manager = BlenderManager::initialize(blender_config)
+    let manager = BlenderManager::load()
         .expect("Must have blender configuration to load!");
 
     // This server settings is different than blender config.
