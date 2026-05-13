@@ -61,6 +61,8 @@ pub enum ServerEvent {
         peer_id: PeerIdString,
         reason: Option<String>,
     },
+    // I wonder if we want to send notification stating that this client join the server.
+    Joined(PeerIdString), // should we care which topic this peer id joined?
     // TODO: Rendering... what?
     Rendering(Uuid),
     // Receive blender status information
@@ -430,7 +432,9 @@ impl Server {
                             eprintln!("Unable to delete the ticket! {e:?}");
                         }
 
-                        &mut_manager.fetch_blender(version).expect("Blendfarm must have permission to download and install blender!")
+                        &mut_manager.fetch_blender(version).expect(
+                            "Blendfarm must have permission to download and install blender!",
+                        )
                         // let (sender, receiver) = mpsc::<>channel();
                         // &controller.
                         // Here, we'd like to try and fetch from client first, before we can download.
@@ -443,7 +447,7 @@ impl Server {
                 // we will get to the part of handling receiver, but I wanted to make sure this works so far.
                 let _receiver = ticket.render(&blender).await?;
             } else {
-                break Ok(())
+                break Ok(());
             }
         }
     }
@@ -520,17 +524,17 @@ impl BlendFarm for Server {
                     Some(network_event) => match network_event {
                         Event::Discovered( _, peer_addr ) => {
                             println!("Peer Discovered: {}", &peer_addr);
-                            
+
                             // Perform a check. If we have exhausted our ticket queue, we should send this discover peer a RequestTicket message.
                             if let Ok(Some(remains)) = ticket_db.list_tickets().await {
                                 if remains.len().eq(&0) {
-                                    // now we will just simply ask 
+                                    // now we will just simply ask
                                     let local_addr = &client.multiaddr;
                                     println!("Sending discovered peer a request ticket message.");
                                     client.send_peer_message(&peer_addr, ServerEvent::RequestTicket(local_addr.clone())).await;
                                 }
                             }
-                            
+
                             // TODO: See if we can avoid instantiating a new Computer spec, cache this somewhere, in a struct
                             let spec = ComputerSpec::new();
                             println!("Sending discovered peer a online status message.");
@@ -547,18 +551,19 @@ impl BlendFarm for Server {
                         }
                         Event::ServerStatus(event) => {
                             match event {
+                                ServerEvent::Joined(peer_id) => {
+                                    println!("A peer [{:?}] has joined the channel", peer_id);
+                                },
                                 ServerEvent::RemoveJob(job_id) => {
                                     if let Err(e) = ticket_db.delete_job_ticket(&job_id).await {
                                         eprintln!("Fail to remove ticket with matching job id {job_id} | {e:?}");
                                     }
-                                }
-
+                                },
                                 ServerEvent::NewTickets(ticket) => {
                                     if let Err(e) = ticket_db.add_ticket(ticket).await {
                                         eprintln!("Fail to add new ticket to database! {e:?}");
                                     }
-                                }
-                                
+                                },
                                 ServerEvent::RequestTicket(peer_addr) => {
                                     // From a service point of view, should we be smart enough to allow this node to distribute pending tickets?
                                     // TODO Make this display via verbose/debug options
@@ -639,7 +644,7 @@ impl BlendFarm for Server {
                 msg = command.recv() => match msg {
                     Some(cmd) => self.handle_command(&client, cmd).await?,
                     None => {
-                        println!("None was received, continue?"); 
+                        println!("None was received, continue?");
                         break Ok(())
                     },
                 },

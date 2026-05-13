@@ -563,6 +563,9 @@ impl BlendFarm for TauriApp {
                                     // let _ = handle.emit("worker_update");
                                 }
                             },
+                            ServerEvent::Joined(peer_id) => {
+                                println!("A peer [{:?}] has joined the channel", peer_id);
+                            }
                             ServerEvent::NewTickets(_) => {
                                 // I'm not sure why someone ask us to do the work from tauri app???
                                 println!("I want you to contact the developer and explain why you want the client facing app receive a new ticket job?");

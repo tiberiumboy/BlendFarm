@@ -129,13 +129,13 @@ impl Into<SceneInfo> for BlendFile {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::models::config::tests::mock_blender_configuration;
     use crate::models::render_setting::tests::mock_rendering_setting;
     use crate::models::scene_info::tests::mock_scene_info;
 
-    fn mock_blendfile() -> BlendFile {
+    pub(crate) fn mock_blend_file() -> BlendFile {
         let scene_info = mock_scene_info();
         let render_setting = mock_rendering_setting();
         BlendFile {
@@ -153,7 +153,7 @@ mod tests {
         // here we will test the argument and verify that this is the correct cli usage to call blender application.
         // In this method imoplementation it will verify that the python file exist before running blender application.
         // Ensure the python script exist at the end of the test.
-        let mock_blend_file = mock_blendfile();
+        let mock_blend_file = mock_blend_file();
         let mock_blend_config = mock_blender_configuration();
         let args = mock_blend_file.setup_args(&mock_blend_config);
         assert!(args.is_ok());

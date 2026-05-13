@@ -74,8 +74,20 @@ impl Args {
     }
 }
 
-// TODO: Find a way to write unit test for this.
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blend_file::tests::mock_blend_file;
+
+    #[test]
+    fn success_args_builder() {
+        let mock_blend_file = mock_blend_file();
+        // Must have blendfile exist and verify integrity usage.
+        let output = PathBuf::new(); // TOOD: Find a way to reference ./blender_rs/examples/assets/test.blend without reference/abs path chaoticness
+        let args = Args::new(mock_blend_file.clone(), output.clone(), 1, 2);
+        assert_eq!(args.file, mock_blend_file);
+        assert_eq!(args.output, output);
+        assert_eq!(args.start, 1);
+        assert_eq!(args.end, 2);
+    }
 }

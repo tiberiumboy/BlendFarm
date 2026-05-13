@@ -381,10 +381,12 @@ impl Service {
         match event {
             mdns::Event::Discovered(peers) => {
                 for (peer_id, address) in peers {
+                    // find a way to reveal this information via verbose logs
                     // println!("Discovered [{peer_id:?}] {address:?}");
                     
                     // create a discovery notification to the subscribers
                     let event = Event::Discovered(peer_id, address.clone());
+                    
                     // if this errors out, we should gracefully hang up?
                     if let Err(e) = self.event_sender.send(event).await {
                         eprintln!("sender should not drop! {e:?}");
@@ -432,6 +434,7 @@ impl Service {
                 //     }
                 // },
                 // Node based event awareness
+                println!("Received gossipsub message! {:?}", &message.data);
                 match serde_json::from_slice::<ServerEvent>(&message.data) {
                     Ok(node_event) => {
                         if let Err(e) = self.event_sender.send(Event::ServerStatus(node_event)).await {
@@ -442,17 +445,16 @@ impl Service {
                 }
             },
             // TODO: Don't think I need this yet? suppressing this for now
-            gossipsub::Event::Subscribed { .. /*peer_id, topic*/ } => {
-                // what are the peer_id and topic?
-                // Maybe it's the user who joined the network, we can send a RequestTask if we're idle?
-                
-                // let event = Event::JobUpdate(());
-                // if let Err(e) = self.sender.send(event).await {
-                //     eprintln!("Fail to send subscribed notification! {e:?}");
-                // }
+            gossipsub::Event::Subscribed { peer_id, .. } => {
+                // topic hash does not implement the behavior for serializer.deserialize implementations.
+                // Instead assume there's only one topic to subscribed and it's global.
+                let message = ServerEvent::Joined(peer_id.to_base58());
+                if let Err(e) = self.event_sender.send(Event::ServerStatus(message)).await {
+                    eprintln!("Fail to send subscribed notification! {e:?}");
+                }
             }
             // I should be logging info from other event from gossip... wonder what they got to say?
-            // TODO: Log and verify if we need to handle other gossip events.
+            // TODO: Implement verbosity logging information here.
             any => {
                 println!("[Unhandled Gossipsub]{any:?}");
             }
