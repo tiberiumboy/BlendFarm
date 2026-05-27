@@ -24,10 +24,7 @@ use crate::services::category;
 use crate::services::packages::package::{Package, PackageT};
 use crate::services::portal::Portal;
 
-use figment::{
-    providers::{Env, Format, /* Toml, Yaml, */ Json},
-    Figment,
-};
+use figment::{Figment, providers::{Format, Toml, Yaml, Json, Env}};
 use semver::Version;
 use std::path::Path;
 use std::sync::{OnceLock, RwLock};
@@ -35,8 +32,11 @@ use std::{fs, path::PathBuf};
 use thiserror::Error;
 use url::Url;
 
-// I know I added toml/yaml path here beside json...? Did I not pull down the updates?
-pub(crate) const SETTINGS_PATH: &str = "BlendFarm/BlenderManager.json";
+// TODO: find a way to simplify this with a base keyword.
+const SETTINGS_PATH_JSON: &str = "BlendFarm/BlenderManager.json";
+const SETTINGS_PATH_TOML: &str = "BlendFarm/BlenderManager.toml";
+const SETTINGS_PATH_YAML: &str = "BlendFarm/BlenderManager.yaml";
+
 // I would like this to be a feature only crate. blender by itself should be lightweight and interface with the program directly.
 // could also implement serde as optionals?
 #[derive(Debug, Error)]
@@ -117,23 +117,15 @@ impl Manager {
     }
 
     /// Load the manager data from the config file.
-    pub fn load() -> Result<Self, ManagerError> {
-        // if the config file does not exist on the system, create a new one and return a new struct instead.
-        // TODO: Figure out where Figment is loading the config path from?
-        let config = match Figment::new()
-            // .merge(Toml::file(SETTINGS_PATH))
-            // .merge(Yaml::file(SETTINGS_PATH))
+    pub fn load() -> Result<Self, ManagerError> {        
+        let config_path = dirs::config_dir().expect("Must have a valid config location!");
+        let config = Figment::new()
+            .merge(Toml::file(config_path.join(SETTINGS_PATH_TOML)))
+            .merge(Yaml::file(config_path.join(SETTINGS_PATH_YAML)))
             .merge(Env::prefixed("BlendFarm_"))
-            .join(Json::file(SETTINGS_PATH))
-            .extract::<BlenderConfig>()
-        {
-            Ok(config) => config,
-            Err(e) => {
-                eprintln!("Unable to extract figment! {e:?}");
-                BlenderConfig::default()
-            }
-        };
-
+            .join(Json::file(config_path.join(SETTINGS_PATH_JSON)))
+            .extract::<BlenderConfig>()?;
+        
         let download_path = &config.install_path;
 
         // TODO: we'll load cache services here
