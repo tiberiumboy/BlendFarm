@@ -9,7 +9,6 @@ use crate::{
 use futures::StreamExt;
 use futures::channel::oneshot;
 use libp2p::gossipsub::{self, IdentTopic};
-use libp2p::kad::RecordKey;
 use libp2p::{Multiaddr, mdns};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::SwarmEvent;
@@ -26,6 +25,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 // Network service module to handle invocation commands to send to network service,
 // as well as handling network event from other peers
+// TODO: Rename this to EventLoop
 pub struct Service {
     // swarm behaviour - interface to the network
     swarm: Swarm<BlendFarmBehaviour>,
@@ -91,6 +91,70 @@ impl Service {
     // here we will deviate handling the file service command.
     async fn process_file_service(&mut self, cmd: FileCommand) {
         match cmd {
+            FileCommand::Dial {
+                mut peer_addr,
+                sender,
+            } => {
+
+                // I would expect peer_id contain multiaddress.
+                let last = peer_addr.pop();
+                let peer_id = match last {
+                    Some(Protocol::P2p(peer_id)) => {
+                        peer_id  
+                    }
+                    Some(_) | None => {
+                        println!("No peer id found in multi-address! skipping! Must include '.../p2p/peer_id'!");
+                        return;
+                    }
+                };
+
+                if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
+                    
+                    // I would expect the multiaddr have peer_id attached.
+                    
+
+                    
+                    self.swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .add_address(&peer_id, peer_addr.clone());
+
+                    // The main reason why I need to dial this node is so I can
+                    //  1. Knows which node I'm talking to.
+                    //  2. Distribute render files, blend files, and executables
+                    //  3. Performance monitor / Activity Logs
+                    match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
+                        Ok(()) => {
+                            e.insert(sender);
+                        }
+                        Err(e) => {
+                            sender.send(Err(Box::new(e))).expect("Should not drop");
+                        }
+                    }
+                } else {
+                    // TODO: A bruteforce attempt could be made to break this system integrity. Consider rate limiting?
+                    eprintln!("Already dialing the peer! Please be patient!");
+                }
+            }
+            
+            // use this to advertise files. On app startup we should broadcast blender apps as well.
+            FileCommand::StartProviding { file_name, sender } => {
+                // TODO: Find a way to get around expect()!
+                let query_id = self
+                    .swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .start_providing(file_name.into_bytes().into())
+                    .expect("No store value");
+                self.pending_start_providing.insert(query_id, sender);
+            }
+
+            FileCommand::StopProviding (file_name ) => {
+                let key = file_name.into_bytes();
+                self.swarm.behaviour_mut().kademlia.stop_providing(&key.into());
+                // TODO: I want to clear any pending providing, I need to find a way to fetch query ID before stop file providing. 
+                // self.pending_start_providing.remove_entry(&key);
+            },
             FileCommand::RequestFile {
                 peer_id,
                 file_name,
@@ -121,22 +185,17 @@ impl Service {
                 let query_id = self.swarm.behaviour_mut().kademlia.get_providers(key);
                 self.pending_get_providers.insert(query_id, sender);
             }
-            FileCommand::StartProviding(keyword, file_path) => {
-                let key = keyword.clone().into_bytes().into();
-                // could we make use of this query ID?
-                let _query_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .start_providing(key)
-                    .expect("No store error.");
-                self.providing_files.insert(keyword, file_path);
-            }
-            FileCommand::StopProviding(keyword) => {
-                let key = RecordKey::new(&keyword.as_bytes());
-                self.swarm.behaviour_mut().kademlia.stop_providing(&key);
-                self.providing_files.remove(&keyword);
-            }
+            // FileCommand::StartProviding(keyword, file_path) => {
+            //     let key = keyword.clone().into_bytes().into();
+            //     // could we make use of this query ID?
+            //     let _query_id = self
+            //         .swarm
+            //         .behaviour_mut()
+            //         .kademlia
+            //         .start_providing(key)
+            //         .expect("No store error.");
+            //     self.providing_files.insert(keyword, file_path);
+            // }
             FileCommand::RequestFilePath { keyword, sender } => {
                 let result = self
                     .providing_files
@@ -195,98 +254,6 @@ impl Service {
                 todo!("Tell swarm to stop listening. stop all listener once lint is working again.");
             },
 
-            Command::Dial {
-                mut peer_addr,
-                sender,
-            } => {
-
-                // I would expect peer_id contain multiaddress.
-                let last = peer_addr.pop();
-                let peer_id = match last {
-                    Some(Protocol::P2p(peer_id)) => {
-                        peer_id  
-                    }
-                    Some(_) | None => {
-                        println!("No peer id found in multi-address! skipping! Must include '.../p2p/peer_id'!");
-                        return;
-                    }
-                };
-
-                if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
-                    
-                    // I would expect the multiaddr have peer_id attached.
-                    
-
-                    
-                    self.swarm
-                        .behaviour_mut()
-                        .kademlia
-                        .add_address(&peer_id, peer_addr.clone());
-
-                    // The main reason why I need to dial this node is so I can
-                    //  1. Knows which node I'm talking to.
-                    //  2. Distribute render files, blend files, and executables
-                    //  3. Performance monitor / Activity Logs
-                    match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
-                        Ok(()) => {
-                            e.insert(sender);
-                        }
-                        Err(e) => {
-                            sender.send(Err(Box::new(e))).expect("Should not drop");
-                        }
-                    }
-                } else {
-                    // TODO: A bruteforce attempt could be made to break this system integrity. Consider rate limiting?
-                    eprintln!("Already dialing the peer! Please be patient!");
-                }
-            }
-            
-            // use this to advertise files. On app startup we should broadcast blender apps as well.
-            Command::StartProviding { file_name, sender } => {
-                // TODO: Find a way to get around expect()!
-                let query_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .start_providing(file_name.into_bytes().into())
-                    .expect("No store value");
-                self.pending_start_providing.insert(query_id, sender);
-            }
-
-            Command::StopProviding { file_name } => {
-                let key = file_name.into_bytes();
-                self.swarm.behaviour_mut().kademlia.stop_providing(&key.into());
-                // TODO: I want to clear any pending providing, I need to find a way to fetch query ID before stop file providing. 
-                // self.pending_start_providing.remove_entry(&key);
-            },
-
-            Command::GetProviders { file_name, sender } => {
-                let query_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .get_providers(file_name.into_bytes().into());
-                self.pending_get_providers.insert(query_id, sender);
-            }
-            Command::RequestFile {
-                file_name,
-                peer,
-                sender,
-            } => {
-                let request_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_request(&peer, FileRequest(file_name));
-                self.pending_request_file.insert(request_id, sender);
-            }
-            Command::RespondFile { file, channel } => {
-                self.swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_response(channel, FileResponse(file))
-                    .expect("Connection to peer should be still open");
-            }
             Command::FileService(service) => self.process_file_service(service).await,
 
             // received server status. Can invoke commands from this broadcast event.

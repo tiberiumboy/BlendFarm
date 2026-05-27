@@ -32,9 +32,8 @@ use sqlx::{Pool, Sqlite};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::async_runtime::Receiver;
 use thiserror::Error;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc::{self, Receiver}, oneshot};
 use tokio::{select /* spawn */};
 use uuid::Uuid;
 
@@ -85,7 +84,7 @@ enum ServerError {
     #[error("Manager Error: {0}")]
     ManagerError(#[from] ManagerError),
     #[error("Task Error: {0}")]
-    TaskError(#[from] TicketError),
+    BlendFarmError(#[from] BlendFarmError),
 }
 
 /// The behaviour described in the Cli App can be summarize below:
@@ -179,11 +178,9 @@ impl Server {
             let file_name = job.get_file_name_expected().to_string_lossy();
 
             // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
-            let path = client
-                .get_file_from_peers(&file_name, search_directory)
+            return Self::handle_get_file(client, &file_name, &search_directory.to_path_buf())
                 .await
-                .map_err(ServerError::NetworkError)?;
-            return Ok(path);
+                .map_err(ServerError::BlendFarmError)
         }
 
         Ok(project_file_path)
@@ -382,8 +379,8 @@ impl Server {
                 // ok so we get manager and fetch the package that matches file name asking
                 let mut_manager = self.manager.write().await;
 
-                if let Some(path) = mut_manager.check_compressed_by_file_name(&zip_file_name) {
-                    let provider = ProviderRule::Custom(zip_file_name, path);
+                if let Some(_path) = mut_manager.check_compressed_by_file_name(&zip_file_name) {
+                    let provider = ProviderRule::Custom(zip_file_name); // _path
                     if let Err(e) = client.start_providing(&provider).await {
                         eprintln!("Unable to provide files! {e:?}");
                     }
@@ -522,8 +519,7 @@ impl BlendFarm for Server {
         // Process pending inputs commands from foreign function interface
         loop {
             select! {
-                pending_event = event_receiver.recv() => match pending_event {
-                    Some(network_event) => match network_event {
+                Some(pending_event) = event_receiver.recv() => match pending_event {
                         Event::Discovered( _, peer_addr ) => {
                             println!("Peer Discovered: {}", &peer_addr);
 
@@ -634,13 +630,6 @@ impl BlendFarm for Server {
                             }
                         }
                         _ => println!("[Server] Unhandled event received from network: {event:?}"),
-                    },
-                    None => {
-                        // pipe was closed, begin shut down.
-                        // TODO: See how we can gracefully shutdown?
-                        break Ok(())
-                    }
-
                 },
                 // can I send this command to net event?
                 msg = command.recv() => match msg {

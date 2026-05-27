@@ -1,12 +1,15 @@
+use std::path::PathBuf;
+
 use crate::domains::ticket_store::TicketError;
 use crate::models::behaviour::FileResponse;
 use crate::network::controller::Controller as NetworkController;
 use crate::network::message::{Event, FileCommand, NetworkError};
+use tokio::sync::mpsc::Receiver;
 use async_trait::async_trait;
+use futures::FutureExt;
 use futures::channel::oneshot;
 use libp2p_request_response::ResponseChannel;
 use thiserror::Error;
-use tokio::sync::mpsc::Receiver;
 
 #[derive(Debug, Error)]
 pub enum BlendFarmError {
@@ -14,7 +17,9 @@ pub enum BlendFarmError {
     #[error("Ticket error: {0}")]
     TicketError(#[from] TicketError),
     #[error("Network error: {0}")]
-    NetworkERror(#[from] NetworkError),
+    NetworkError(#[from] NetworkError),
+    #[error("Io error: {0}")]
+    IoError(#[from] std::io::Error)
 }
 
 #[async_trait]
@@ -41,6 +46,7 @@ pub trait BlendFarm {
 
         // once we received the data signal - process the remaining with the information obtained.
         if let Some(path) = receiver.await.expect("Sender should not be dropped") {
+            // TODO: Remove/handle unwrap()
             let file = async_std::fs::read(path).await.unwrap();
             client.respond_file(file, channel).await;
         } else {
@@ -48,5 +54,23 @@ pub trait BlendFarm {
                 "This local service does not have any matching request providing! Do something about the ResponseChannel?"
             );
         }
+    }
+
+    async fn handle_get_file(client: &mut NetworkController, file_name: &str, destination: &PathBuf) -> 
+        Result<PathBuf, BlendFarmError> 
+    {
+        let providers = client.get_providers(&file_name).await;
+        let file_path = destination.join(file_name);
+
+        let requests = providers.into_iter().map(|p| {
+            let mut network_client = client.clone();
+            async move { network_client.request_file(&p, file_name).await }.boxed()
+        });
+
+        let file_content = futures::future::select_ok(requests).await.map_err(|_| NetworkError::NoPeerProviderFound)?
+            .0;
+
+        async_std::fs::write(file_path.clone(), file_content).await.map_err(BlendFarmError::IoError)?;
+        Ok(file_path)
     }
 }

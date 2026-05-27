@@ -1,9 +1,5 @@
-use std::{
-    collections::HashSet,
-    path::{Path, PathBuf},
-};
-
-use crate::models::behaviour::FileResponse;
+use std::collections::HashSet;
+use crate::{models::behaviour::FileResponse, network::message::FileData};
 use crate::services::server::ServerEvent;
 use crate::network::message::{Command, FileCommand, NetworkError};
 use crate::network::provider_rule::ProviderRule;
@@ -100,15 +96,6 @@ impl Controller {
     //     Ok(())
     // }
 
-    // send job event to all connected node
-    // pub async fn send_job_event(&self, event: JobEvent) {
-    //     let server_event = ServerEvent::RemoveJob(())
-    //     self.sender
-    //             .send(Command::ServerStatus(event))
-    //         .await
-    //         .expect("Command should not be dropped");
-    // }
-
     // received file service command.
     pub(crate) async fn file_service(&self, command: FileCommand) {
         self.sender
@@ -123,29 +110,30 @@ impl Controller {
         &self,
         provider: &ProviderRule,
     ) -> Result<(), NetworkError> {
+        let (sender, receiver) = oneshot::channel();
         let cmd = match provider {
             ProviderRule::Default(path_buf) => {
                 // TODO: remove .expect(), .to_str(), and .to_owned()
-                match path_buf.file_name() {
-                    Some(file_name) => {
-                        let keyword = file_name
-                            .to_str()
-                            .expect("Must be able to convert OsStr to Str!");
+                let file_name = path_buf.file_name().ok_or(NetworkError::BadInput)?;
+                let keyword = file_name
+                        .to_str()
+                        .expect("Must be able to convert OsStr to Str!");
 
-                        FileCommand::StartProviding(keyword.into(), path_buf.into())
-                    }
-                    None => return Err(NetworkError::BadInput),
+                FileCommand::StartProviding{ file_name: keyword.into(), sender }
+            },
+            ProviderRule::Custom(keyword, .. ) => {
+                FileCommand::StartProviding{ 
+                    file_name: keyword.to_owned(), 
+                    sender
                 }
-            }
-            ProviderRule::Custom(keyword, path_buf) => {
-                FileCommand::StartProviding(keyword.to_owned(), path_buf.to_owned())
             }
         };
 
         if let Err(e) = self.sender.send(Command::FileService(cmd)).await {
             eprintln!("How did this happen? {e:?}");
         }
-        Ok(())
+
+        receiver.await.map_err(|e| NetworkError::SendError(e.to_string()))
     }
 
     pub async fn get_providers(&mut self, file_name: &str) -> HashSet<PeerId> {
@@ -154,56 +142,38 @@ impl Controller {
             file_name: file_name.to_string(),
             sender,
         });
-        self.sender
+        match self.sender
             .send(cmd)
             .await
-            .expect("Command receiver should not be dropped");
-        receiver.await.unwrap_or(HashSet::new())
-    }
-
-    // client request file from peers.
-    // I feel like we should make this as fetching data from network? Some sort of stream?
-    pub async fn get_file_from_peers<T: AsRef<Path>>(
-        &mut self,
-        file_name: &str,
-        destination: T,
-    ) -> Result<PathBuf, NetworkError> {
-        let providers = self.get_providers(&file_name).await;
-        match providers.iter().next() {
-            Some(peer_id) => {
-                self.request_file(peer_id, file_name, destination.as_ref())
-                    .await
+            {
+                Err(e) => {
+                    eprintln!("Unable to send internal message! {e:?}");
+                    HashSet::new()
+                }
+                _ => receiver.await.unwrap_or(HashSet::new()),
             }
-            None => Err(NetworkError::NoPeerProviderFound),
-        }
     }
 
-    async fn request_file(
+    pub(crate) async fn request_file(
         &mut self,
         peer_id: &PeerId,
         file_name: &str,
-        destination: &Path,
-    ) -> Result<PathBuf, NetworkError> {
+    ) -> Result<FileData, NetworkError> {
         let (sender, receiver) = oneshot::channel();
-        let cmd = Command::FileService(FileCommand::RequestFile {
+        let file_command = FileCommand::RequestFile {
             peer_id: *peer_id,
             file_name: file_name.into(),
             sender,
-        });
+        };
         self.sender
-            .send(cmd)
+            .send(Command::FileService(file_command))
             .await
             .expect("Command should not be dropped");
-        let content = receiver
+
+        receiver
             .await
             .expect("Should not be closed?")
-            .or_else(|e| Err(NetworkError::UnableToSave(e.to_string())))?;
-
-        let file_path = destination.join(file_name);
-        match async_std::fs::write(file_path.clone(), content).await {
-            Ok(_) => Ok(file_path),
-            Err(e) => Err(NetworkError::UnableToSave(e.to_string())),
-        }
+            .map_err(|e| NetworkError::UnableToSave(e.to_string()))
     }
 
     // TODO: Come back to this one and see how this one gets invoked.
