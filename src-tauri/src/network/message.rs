@@ -31,10 +31,27 @@ pub enum NetworkError {
 
 pub type KeywordSearch = String;
 
+// TODO: Find a way to handle errors properly
+pub type CommandError = Box<dyn Error + Send>;
+
+// TODO: Find a way to cast this as FileStruct?
+pub type FileData = Vec<u8>;
+
+pub type FileResult<T> = Result<T, CommandError>;
+
 // to make things simple, we'll create a file service command to handle file service.
 #[derive(Debug)]
 pub enum FileCommand {
-    StartProviding(KeywordSearch, PathBuf), // update kademlia service to provide a new file. Must have a file name and a extension! Cannot be a directory!
+    Dial {
+        peer_addr: Multiaddr,
+        sender: oneshot::Sender<FileResult<()>>,
+    },
+    // TODO: Find a way to get around the string type! This expects a copy!
+    StartProviding {
+        file_name: KeywordSearch,
+        sender: oneshot::Sender<()>,
+    },
+    // StartProviding(KeywordSearch, PathBuf), // update kademlia service to provide a new file. Must have a file name and a extension! Cannot be a directory!
     StopProviding(KeywordSearch),           // update kademlia service to stop providing the file.
     GetProviders {
         file_name: String,
@@ -43,10 +60,10 @@ pub enum FileCommand {
     RequestFile {
         peer_id: PeerId,
         file_name: String,
-        sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
+        sender: oneshot::Sender<FileResult<FileData>>,
     },
     RespondFile {
-        file: Vec<u8>,
+        file: FileData,
         channel: ResponseChannel<FileResponse>,
     },
     RequestFilePath {
@@ -67,43 +84,15 @@ pub enum Direct {}
 // TODO: Make two different kind of message, one use for broadcast and the other for direct communication.
 #[derive(Debug)]
 pub enum Command {
-    Dial {
-        peer_addr: Multiaddr,
-        sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
-    },
     Subscribe {
         topic: String,
     },
+    // Keep this command here instead of FileCommand and use this as general command instead?
     StartListening {
         addr: Multiaddr,
-        // TODO: figure out a way to get around the Box<dyn Error + Send> traits!
-        sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
-    },
-    // TODO: Find a way to get around the string type! This expects a copy!
-    StartProviding {
-        file_name: String,
-        sender: oneshot::Sender<()>,
+        sender: oneshot::Sender<FileResult<()>>,
     },
     StopListening,
-    StopProviding {
-        file_name: String,
-    },
-
-    GetProviders {
-        file_name: String,
-        sender: oneshot::Sender<HashSet<PeerId>>,
-    },
-    RequestFile {
-        file_name: String,
-        peer: PeerId,
-        // TODO: figure out a way to get around the Box<dyn Error + Send> traits!
-        sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
-    },
-    RespondFile {
-        // what is file?
-        file: Vec<u8>,
-        channel: ResponseChannel<FileResponse>,
-    },
     // Message this peer with server events. (Consider looking into receiving NetworkRequest enum?)
     // These are signal to use to send out message and forget.
     // May receive a response back, using the direct message above.

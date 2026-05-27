@@ -680,31 +680,33 @@ impl BlendFarm for TauriApp {
                                 frame: _,
                                 file_name,
                             } => {
+                                // first and check to see if the job id belongs to us.
+                                // if it does, then proceed to download the image if we have not already done so.
+
                                 // create a destination with respective job id path.
                                 let destination = self.settings.render_dir.join(job_id.to_string());
                                 if let Err(e) = async_std::fs::create_dir_all(destination.clone()).await {
                                     println!("Issue creating temp job directory! {e:?}");
                                 }
 
-                                /*  send update to ui
-                                let handle = app_handle.write().await;
-                                if let Err(e) = handle.emit(
-                                    "frame_update",
-                                    FrameUpdatePayload {
-                                        id,
-                                        frame,
-                                        file_name: file_name.clone(),
-                                    },
-                                ) {
-                                    eprintln!("Unable to send emit to app handler\n{e:?}");
-                                }
-                                */
-
-                                // Fetch the completed image file from the network
-                                match client.get_file_from_peers(&file_name, &destination).await {
+                                match Self::handle_get_file(&mut client, &file_name, &destination).await {
+                                    // Fetch the completed image file from the network
                                     Ok(file) => {
                                         println!("File stored at {file:?}");
-                                        // let handle = app_handle.write().await;
+
+                                        /*  send update to ui
+                                        let handle = app_handle.write().await;
+                                        if let Err(e) = handle.emit(
+                                            "frame_update",
+                                            FrameUpdatePayload {
+                                                id,
+                                                frame,
+                                                file_name: file_name.clone(),
+                                            },
+                                        ) {
+                                            eprintln!("Unable to send emit to app handler\n{e:?}");
+                                        }
+                                        */
                                         // if let Err(e) = handle.emit("job_image_complete", (job_id, frame, file)) {
                                         //     eprintln!("Fail to publish image completion emit to front end! {e:?}");
                                         // }
