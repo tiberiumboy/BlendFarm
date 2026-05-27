@@ -1,4 +1,4 @@
-use crate::{blender::Blender, manager::SETTINGS_PATH};
+use crate::blender::Blender;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::PathBuf};
@@ -102,9 +102,10 @@ impl BlenderConfig {
 
 impl Default for BlenderConfig {
     fn default() -> Self {
+        // TODO: Change this so it's not always depends on download_dir() by default. For now, default to download location.
         let install_path = dirs::download_dir()
             .expect("Must have place to download!")
-            .join(SETTINGS_PATH);
+            .join("BlendFarm/Blenders");
 
         // ensure path location must exist to save and store to
         // - we've been given a place with permission access.
