@@ -45,7 +45,6 @@ WARN:
         A:You may not have the required blender system dependencies. Easiest way to cover them all is to just run `apt-get install blender` to fetch them all.
             (It does not have to be an up2date blender package, its just for dependencies)
 
-TODO:
     Q: My Blendfile requires special addons to be active while rendering, can I add these?
     A: Blendfarm has its own versions of Blender in the BlenderData directory, and it runs
         these versions always in factory startup, thus without any added addons. This is done
@@ -259,54 +258,44 @@ impl Blender {
     fn explore_value<'a>(obj: &Instance<'a>) {
         for i in &obj.fields {
             match i.1.is_primitive {
-                true => {
-                    match i.1.info {
-                        blend::parsers::field::FieldInfo::Value => {
-                            match i.1.type_name.as_str() {
-                                "int" => {
-                                    println!("{}: {} = {} ", i.0, i.1.type_name, &obj.get_i32(i.0));
-                                }
-                                "short" => {
-                                    println!("{}: {} = {} ", i.0, i.1.type_name, &obj.get_u16(i.0));
-                                }
-                                "char" => {
-                                    println!(
-                                        "{}: {} = {} ",
-                                        i.0,
-                                        i.1.type_name,
-                                        &obj.get_string(i.0)
-                                    );
-                                }
-                                "float" => {
-                                    println!("{}: {} = {}", i.0, i.1.type_name, &obj.get_f32(i.0));
-                                }
-                                "uint64_t" => {
-                                    println!("{}: {} = {}", i.0, i.1.type_name, &obj.get_u64(i.0));
-                                }
-                                _ => println!("Unhandle value for {} | {}", i.1.type_name, i.0),
-                            };
-                        }
-                        blend::parsers::field::FieldInfo::ValueArray { .. } => {
-                            match i.1.type_name.as_str() {
-                                "char" => {
-                                    println!("{}: String = {}", i.0, &obj.get_string(i.0));
-                                }
-                                "float" => {
-                                    println!("{}: vec<f32> = {:?}", i.0, &obj.get_f32_vec(i.0));
-                                }
-                                _ => {
-                                    println!("Unhandle Value Array for {} | {}", i.1.type_name, i.0)
-                                }
+                true => match i.1.info {
+                    blend::parsers::field::FieldInfo::Value => {
+                        match i.1.type_name.as_str() {
+                            "int" => {
+                                println!("{}: {} = {} ", i.0, i.1.type_name, &obj.get_i32(i.0));
+                            }
+                            "short" => {
+                                println!("{}: {} = {} ", i.0, i.1.type_name, &obj.get_u16(i.0));
+                            }
+                            "char" => {
+                                println!("{}: {} = {} ", i.0, i.1.type_name, &obj.get_string(i.0));
+                            }
+                            "float" => {
+                                println!("{}: {} = {}", i.0, i.1.type_name, &obj.get_f32(i.0));
+                            }
+                            "uint64_t" => {
+                                println!("{}: {} = {}", i.0, i.1.type_name, &obj.get_u64(i.0));
+                            }
+                            _ => println!("Unhandle value for {} | {}", i.1.type_name, i.0),
+                        };
+                    }
+                    blend::parsers::field::FieldInfo::ValueArray { .. } => {
+                        match i.1.type_name.as_str() {
+                            "char" => {
+                                println!("{}: String = {}", i.0, &obj.get_string(i.0));
+                            }
+                            "float" => {
+                                println!("{}: vec<f32> = {:?}", i.0, &obj.get_f32_vec(i.0));
+                            }
+                            _ => {
+                                println!("Unhandle Value Array for {} | {}", i.1.type_name, i.0)
                             }
                         }
-                        // blend::parsers::field::FieldInfo::PointerArray { .. } => todo!(),
-                        // blend::parsers::field::FieldInfo::Pointer { indirection_count } => todo!(),
-                        // blend::parsers::field::FieldInfo::FnPointer => todo!(),
-                        _ => {
-                            println!("Unhandle: {} | {} ", i.0, i.1.type_name)
-                        }
                     }
-                }
+                    _ => {
+                        println!("Unhandle: {} | {} ", i.0, i.1.type_name)
+                    }
+                },
                 false => {
                     println!("{}: TYPE = {}", i.0, i.1.type_name);
                 }

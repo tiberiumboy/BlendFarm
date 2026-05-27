@@ -18,15 +18,13 @@ pub struct FileResponse(pub Vec<u8>);
 pub struct BlendFarmBehaviour {
     // file transfer response protocol
     pub request_response: cbor::Behaviour<FileRequest, FileResponse>,
-    
+
     // broadcast message to listening node (chat relay)
     pub gossipsub: gossipsub::Behaviour,
-    
+
     // self discovery network service
     pub mdns: mdns::tokio::Behaviour,
-    
+
     // used to provide file availability
-    // TODO: See if we can use sqlite? 
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
 }
-

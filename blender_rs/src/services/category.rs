@@ -95,7 +95,6 @@ impl BlenderCategory {
                 }
 
                 // Must match running operating system.
-                // TODO: Does this matter? We have arch and ext to validate against?
                 if os.ne(consts::OS) {
                     return map;
                 }
@@ -200,7 +199,6 @@ impl BlenderCategory {
     //     Ok(blender)
     // }
 
-    // for the sake of this, we will trust that the user wants Blender from this.
     // Function renamed from retrieve
     /// Retrieve blender if it already installed, otherwise install from known source and return blender.
     pub fn get_blender(

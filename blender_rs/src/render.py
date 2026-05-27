@@ -1,6 +1,5 @@
 # TODO: Sybren mention that Cycle will perform better if the render was sent out as 
 # a batch instead of individual renders. Consider using Range()
-# TODO: See if there's a way to adjust blender render batch if possible?
 # TODO: What's the earliest python version blender supports? Wanted to make sure we are compilance with older version to use supported built-in library stacks.
 
 import bpy # type: ignore

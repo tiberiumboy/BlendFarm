@@ -24,7 +24,10 @@ use crate::services::category;
 use crate::services::packages::package::{Package, PackageT};
 use crate::services::portal::Portal;
 
-use figment::{Figment, providers::{Format, /* Toml, Yaml, */ Json, Env}};
+use figment::{
+    providers::{Env, Format, /* Toml, Yaml, */ Json},
+    Figment,
+};
 use semver::Version;
 use std::path::Path;
 use std::sync::{OnceLock, RwLock};
@@ -32,8 +35,8 @@ use std::{fs, path::PathBuf};
 use thiserror::Error;
 use url::Url;
 
-const SETTINGS_PATH: &str = "BlendFarm/BlenderManager.json";
-
+// I know I added toml/yaml path here beside json...? Did I not pull down the updates?
+pub(crate) const SETTINGS_PATH: &str = "BlendFarm/BlenderManager.json";
 // I would like this to be a feature only crate. blender by itself should be lightweight and interface with the program directly.
 // could also implement serde as optionals?
 #[derive(Debug, Error)]
@@ -90,7 +93,6 @@ pub struct Manager {
 
 // Manager should only govern local installed blenders (Or blenders that was added by users)
 impl Manager {
-
     fn cache() -> &'static RwLock<PageCache> {
         static CACHE: OnceLock<RwLock<PageCache>> = OnceLock::new();
         CACHE.get_or_init(|| {
@@ -108,20 +110,30 @@ impl Manager {
     }
 
     pub fn check_compressed_by_file_name(&self, zip_file_name: &str) -> Option<PathBuf> {
-        self.portal.read().unwrap()
+        self.portal
+            .read()
+            .unwrap()
             .check_compressed_blender_by_file_name(zip_file_name)
     }
 
     /// Load the manager data from the config file.
-    pub fn load() -> Result<Self, ManagerError> {        
+    pub fn load() -> Result<Self, ManagerError> {
         // if the config file does not exist on the system, create a new one and return a new struct instead.
-        let config = Figment::new()
+        // TODO: Figure out where Figment is loading the config path from?
+        let config = match Figment::new()
             // .merge(Toml::file(SETTINGS_PATH))
             // .merge(Yaml::file(SETTINGS_PATH))
             .merge(Env::prefixed("BlendFarm_"))
             .join(Json::file(SETTINGS_PATH))
-            .extract::<BlenderConfig>()?;
-        
+            .extract::<BlenderConfig>()
+        {
+            Ok(config) => config,
+            Err(e) => {
+                eprintln!("Unable to extract figment! {e:?}");
+                BlenderConfig::default()
+            }
+        };
+
         let download_path = &config.install_path;
 
         // TODO: we'll load cache services here
@@ -144,7 +156,8 @@ impl Manager {
     /// Returns a list of url path to download and version (For UI models)
     pub fn get_online_version(&self) -> Vec<(Url, Version)> {
         self.portal
-            .read().unwrap()
+            .read()
+            .unwrap()
             .get_downloads()
             .iter()
             .map(|package| match package {
@@ -184,27 +197,6 @@ impl Manager {
         // Returns None if previously doesn't exist, or Some(old_value) when the record has been updated.
         Ok(self.config.write().unwrap().insert_blender(blender))
     }
-
-    // This is weird and a hack. We should let people try to give us valid blender struct. That's all we care about.
-    /// Check and add a local installation of blender to manager's registry of blender version to use from.
-    // #[deprecated(
-    //     note = "Consider asking for valid blender struct. Let the client try to get blender working first"
-    // )]
-    // pub fn add_blender_path(&mut self, path: &impl AsRef<Path>) -> Result<Blender, ManagerError> {
-    //     // Here is where we verify the integrity of blender before adding to manager collection.
-    //     let blender =
-    //         Blender::from_executable(path).map_err(|e| ManagerError::BlenderError { source: e })?;
-
-    //     if let Some(_old_value) = self.add_blender(&blender)? {
-    //         eprintln!("Record updated");
-    //     }
-
-    //     // TODO: This is a hack - Would prefer to understand why program does not auto save file after closing.
-    //     // Or look into better saving mechanism than this.
-
-    //     // let _ = self.save()?;
-    //     Ok(blender)
-    // }
 
     /// Remove blender installation from the manager list.
     pub fn remove_blender(&self, blender: &Blender) -> Result<(), ManagerError> {

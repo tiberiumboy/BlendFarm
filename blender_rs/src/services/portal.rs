@@ -8,7 +8,7 @@ use std::env::consts::{ARCH, OS};
 use std::path::{Path, PathBuf};
 use url::Url;
 
-// I want this struct to remain private for now. 
+// I want this struct to remain private for now.
 // This struct should be used as an component to fetch from reliable resources.
 // alternatively, I could swap this out and use my own custom storage solution.
 #[derive(Debug)]
@@ -94,8 +94,8 @@ impl Portal {
         download_path: impl AsRef<Path>,
         cache: &mut PageCache,
     ) -> Result<Self, ManagerError> {
-        // TODO: Remove unwrap(). Could this be made into static/singleton/OnceCell?
-        let parent = Url::parse(Self::ROOT_URL).unwrap();
+        let parent = Url::parse(Self::ROOT_URL)
+            .map_err(|e| return ManagerError::UrlParseError(e.to_string()))?;
 
         // we fetch the content from the website above.
         let content = cache
@@ -165,7 +165,7 @@ impl Portal {
     }
 
     pub fn check_compressed_blender_by_file_name(&self, zip_file_name: &str) -> Option<PathBuf> {
-        self.list.iter().fold(None, |_ , category| {
+        self.list.iter().fold(None, |_, category| {
             category.get_packages().iter().find_map(|package| {
                 let path = match package {
                     Package::Downloaded(downloaded) => Some(downloaded.content.clone()),

@@ -1,7 +1,7 @@
 use crate::services::category::BlenderCategoryError;
 use crate::services::packages::bundle::Bundle;
 use crate::services::packages::package::{Package, PackageT};
-#[cfg(target_os="macos")]
+#[cfg(target_os = "macos")]
 use crate::utils::MACOS_PATH;
 use crate::{services::packages::download_link::DownloadLink, utils::get_extension};
 use semver::Version;
@@ -21,7 +21,6 @@ impl Downloaded {
     // return the path of execution entry point (mac specific)
     fn get_executable_path(&self) -> Result<PathBuf, BlenderCategoryError> {
         let path = self.get_content_path()?;
-        // TODO: Need to make a decision on this;
         // Do we want to return the absolute executable path, or path to application source?
         #[cfg(target_os = "macos")]
         return Ok(path.join("Blender.app").join(MACOS_PATH));

@@ -59,6 +59,7 @@ impl WorkerStore for SqliteWorkerStore {
     // Create
     async fn add_worker(&mut self, worker: Worker) -> Result<(), WorkerError> {
         let id = worker.peer_id.to_base58();
+        // TODO replace this on using sqlx::json
         let spec = serde_json::to_string(&worker.spec).expect("Fail to parse specs");
         // TODO: Update the record if it exist by marking it status "Active", relearn SQL again?
         if let Err(e) = sqlx::query(

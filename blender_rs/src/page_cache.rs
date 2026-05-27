@@ -160,11 +160,11 @@ impl PageCache {
         // if file exist and provides duration date.
         if let Ok(duration) = current.duration_since(created_date) {
             // must be within valid window timeframe.
-            if duration.as_secs() < MAX_VALID_DAYS * Self::SECONDS_TO_HOUR * Self::HOURS_TO_DAY { // TODO: Magic values. Try to define them as constexpr
-                // logger
+            if duration.as_secs() < MAX_VALID_DAYS * Self::SECONDS_TO_HOUR * Self::HOURS_TO_DAY { 
+                // TODO: Enable via verbosity option     
                 println!(
                     "Time still valid: Remaining {}hrs",
-                    duration.as_secs() / Self::SECONDS_TO_HOUR - (MAX_VALID_DAYS * Self::HOURS_TO_DAY)   // TODO: Magic values. Try to define them as constexpr
+                    duration.as_secs() / Self::SECONDS_TO_HOUR - (MAX_VALID_DAYS * Self::HOURS_TO_DAY)   
                 );
                 return true;
             }

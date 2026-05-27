@@ -124,8 +124,8 @@ impl Job {
     fn new(
         mode: RenderMode,
         blend_file: BlendFile,
-        blender_version: Version, // TODO: see if we can validate if this job uses the correct blender version
-        output: Output,           // must be a valid directory
+        blender_version: Version,
+        output: Output, // must be a valid directory
     ) -> Self {
         Self {
             mode,
@@ -152,10 +152,10 @@ impl Job {
     pub fn get_range(&self) -> (Frame, Frame) {
         match &self.mode {
             RenderMode::Frame(v) => (v.to_owned(), v.to_owned()),
-            RenderMode::Animation{start, end} => (start.to_owned(), end.to_owned()),
+            RenderMode::Animation { start, end } => (start.to_owned(), end.to_owned()),
         }
     }
-    
+
     pub fn get_file_name_expected(&self) -> &OsStr {
         self.blend_file
             .to_path()

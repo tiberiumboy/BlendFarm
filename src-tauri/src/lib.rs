@@ -17,9 +17,6 @@ Developer blog:
 [F] - consider using channel to stream data https://v2.tauri.app/develop/calling-frontend/#channels
 [F] - Before release - find a way to add updater  https://v2.tauri.app/plugin/updater/
 */
-// TODO: Create a miro diagram structure of how this application suppose to work
-// Need a mapping to explain how network should perform over intranet
-// Need a mapping to explain how blender manager is used and invoked for the job
 
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 // it might be interesting and useful if there's a debug mode enabled?
@@ -112,8 +109,7 @@ pub async fn run() {
         eprintln!("Fail to setup connection! {e:?}");
     }
 
-    let manager = BlenderManager::load()
-        .expect("Must have blender configuration to load!");
+    let manager = BlenderManager::load().expect("Must have blender configuration to load!");
 
     // This server settings is different than blender config.
     // Server Settings is used for Manager client only, to help organize and arrange file structure for completed render image results.

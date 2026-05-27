@@ -1,10 +1,7 @@
-use crate::blender::Blender;
+use crate::{blender::Blender, manager::SETTINGS_PATH};
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    path::PathBuf
-};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlenderConfig {
@@ -103,26 +100,24 @@ impl BlenderConfig {
     }
 }
 
-/* 
 impl Default for BlenderConfig {
     fn default() -> Self {
         let install_path = dirs::download_dir()
-        .expect("Must have place to download!")
-        .join(SETTINGS_DIR);
-    
-    // ensure path location must exist to save and store to
-    // - we've been given a place with permission access.
-    if let Err(e) = fs::create_dir_all(&install_path) {
-        eprintln!("Unable to create {e:?}");
-    }
-    
-    Self {
-        blenders: Default::default(),
-        install_path,
+            .expect("Must have place to download!")
+            .join(SETTINGS_PATH);
+
+        // ensure path location must exist to save and store to
+        // - we've been given a place with permission access.
+        if let Err(e) = fs::create_dir_all(&install_path) {
+            eprintln!("Unable to create {e:?}");
+        }
+
+        Self {
+            blenders: Default::default(),
+            install_path,
+        }
     }
 }
-}
-*/
 
 impl Into<PathBuf> for BlenderConfig {
     fn into(self) -> PathBuf {

@@ -78,9 +78,7 @@ impl PackageT for Package {
         match self {
             Package::Metadata(link) => link.get_version(),
             Package::Downloaded(content) => content.get_version(),
-            // Package::Executable(path) => path.get_version(),
             Package::Bundle(bundle) => bundle.get_version(),
-            // Package::Malformed { origin, downloaded, executable } => todo!(),
         }
     }
 }
@@ -90,7 +88,6 @@ impl BlenderPath for Package {
     fn get_blender(&self) -> Option<Blender> {
         match self {
             Package::Bundle(bundle) => bundle.get_blender(),
-            // Package::Executable(custom) => custom.get_blender(),
             _ => None,
         }
     }

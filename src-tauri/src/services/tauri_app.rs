@@ -58,10 +58,12 @@ bitflags::bitflags! {
 
 #[derive(Debug, PartialEq)]
 pub enum Origin {
+    /// pathbuf is always guarantee to have a valid blender location.
     Local(PathBuf),
     Online(Url),
 }
 
+// TODO: Explain why I need this? How does Origin comes to play here? Why can't we use package instead?
 #[derive(Debug)]
 pub struct BlenderQuery {
     pub version: Version,
@@ -79,8 +81,8 @@ impl BlenderQuery {
     pub fn link(&self) -> String {
         match &self.origin {
             // TODO: Find a way to resolve expect()
-            Origin::Local(path) => path.to_str().expect("Should be valid").to_owned(),
-            Origin::Online(url) => url.to_string().to_owned(),
+            Origin::Local(path) => path.to_str().unwrap_or_default().to_string(),
+            Origin::Online(url) => url.to_string(),
         }
     }
 

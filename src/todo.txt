@@ -11,8 +11,6 @@
     - Client is not receiving network event from host. It receives connection established, but no network data exchanged yet?
 E.g. 
 %> Sending task Task { job_id: f5f3af8b-4a74-4729-84e1-d25c4da4f4dc, blender_version: Version { major: 4, minor: 1, patch: 0 }, blend_file_name: "test.blend", range: 1..10 } to the gossip channel
-    - Deleting job does not clear entry from the job list
-    - Unable to open import_blend dialog
 
     - client does not send message while the job is running, I thought this was done async? what's going on?
         - only at the end of the task does it ever notify host?
@@ -26,7 +24,6 @@ Progress:
     Still having problem with network code. 
         - read more into libp2p and run examples.
     Got UI working again
-        - Provided buttons to open directory on setting page
         - Job now display render image from output directory.
             - See about how we can customize view from image tile to list
             - [Feature] See about ffmpeg integration. Blender doesn't have ffmpeg
