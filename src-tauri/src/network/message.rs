@@ -55,6 +55,14 @@ pub enum FileCommand {
     },
 }
 
+// A enum used to distribute message broadcast.
+#[derive(Debug)]
+pub enum Broadcast {}
+
+// a direct enum is used to communicate p2p mode.
+#[derive(Debug)]
+pub enum Direct {}
+
 // Send commands to network.
 // TODO: Make two different kind of message, one use for broadcast and the other for direct communication.
 #[derive(Debug)]
@@ -107,7 +115,7 @@ pub enum Command {
 #[derive(Debug)]
 pub enum Event {
     // When the node becomes available on the network.
-    Discovered(PeerId, Multiaddr),  
+    Discovered(PeerId, Multiaddr),
     // this is used for file transfer protocol
     InboundRequest {
         request: String,
