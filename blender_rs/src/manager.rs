@@ -126,7 +126,7 @@ impl Manager {
             .join(Json::file(config_path.join(SETTINGS_PATH_JSON)))
             .extract::<BlenderConfig>()?;
         
-        let download_path = &config.install_path;
+        let download_path: &PathBuf = &config.into();
 
         // TODO: we'll load cache services here
         // let cache_path = &config.cache_dir;
@@ -178,9 +178,9 @@ impl Manager {
     }
 
     /// Set path for blender download and installation
-    pub fn set_install_path(&self, new_path: &Path) {
+    pub fn set_install_path(&mut self, new_path: &Path) {
         // Consider the design behind this. Should we move blender installations to new path?
-        self.config.write().unwrap().install_path = new_path.to_path_buf().clone();
+        self.config.write().unwrap().set_install_path(new_path);
     }
 
     /// Add a new blender installation to the manager list.
@@ -235,7 +235,22 @@ impl Manager {
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
+    use super::*;
+    use crate::models::blender_config::tests::mock_blender_config;
+    use crate::services::portal::tests::mock_portal;
+    
+    pub fn mock_manager() -> Manager {
+        let config = mock_blender_config();
+        let config = RwLock::new(config);
+
+        let portal = mock_portal();
+        let portal = RwLock::new(portal);
+        
+        Manager {
+            config,
+            portal
+        }
+    }
 
     #[test]
     fn should_pass() {

@@ -1,33 +1,19 @@
 use crate::blender::Blender;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::HashMap, fs, path::{Path, PathBuf}};
 
+    // could I use this to describe in a TOML/YAML/JSON file?
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlenderConfig {
     /// List of installed blenders
-    pub blenders: HashMap<Version, Blender>,
+    blenders: HashMap<Version, Blender>,
 
     /// Installation path. By default set to `$HOME/Downloads/Blender`
-    pub install_path: PathBuf,
+    install_path: PathBuf,
 }
 
 impl BlenderConfig {
-    // pub fn load(file_path: impl AsRef<Path>) -> Result<BlenderConfig, Error> {
-    //     let settings = Self::load();
-    //     let mut config =
-    //         settings.try_deserialize::<BlenderConfig>().unwrap();
-
-    //     // let content = fs::read_to_string(&file_path)?;
-    //     // let mut config = serde_json::from_str::<BlenderConfig>(&content)?;
-    //     config.remove_invalid_blender();
-
-    //     // TODO: Maybe we don't need this anymore if we're using config?
-    //     // Look into watcher?
-    //     config.inner = file_path.as_ref().to_path_buf();
-    //     Ok(config)
-    // }
-
     pub fn get_download_destination(&self, category_folder_name: &str) -> PathBuf {
         self.install_path.join(category_folder_name)
     }
@@ -52,6 +38,10 @@ impl BlenderConfig {
                 map.push(blender);
                 map
             })
+    }
+
+    pub fn set_install_path(&mut self, new_path: impl AsRef<Path>) {
+        self.install_path = new_path.as_ref().to_path_buf();
     }
 
     /// Return a reference to matching partial version, but uses latest patch
@@ -123,5 +113,21 @@ impl Default for BlenderConfig {
 impl Into<PathBuf> for BlenderConfig {
     fn into(self) -> PathBuf {
         self.install_path
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    pub fn mock_blender_config() -> BlenderConfig {
+        // TODO: Find a way to mock these properties?
+        let blenders = HashMap::new();
+        // TODO: Find a way to mock these properties?
+        let install_path = PathBuf::new();
+        BlenderConfig {
+           blenders,
+           install_path
+        }
     }
 }
