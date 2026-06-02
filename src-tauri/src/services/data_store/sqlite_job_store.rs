@@ -27,8 +27,10 @@ impl SqliteJobStore {
 #[derive(Debug, Clone, FromRow)]
 struct JobDAO {
     id: String,
+    // TODO: Convert this into serde::json?
     mode: String,
     project_file: String,
+    // This is Version (major.minor.patch)
     blender_version: String,
     output_path: String,
 }
