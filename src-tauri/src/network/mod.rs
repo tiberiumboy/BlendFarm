@@ -10,9 +10,10 @@ use crate::{
 use libp2p::{Multiaddr, StreamProtocol, SwarmBuilder, gossipsub, identity, kad, mdns, multiaddr::Protocol, noise, tcp, yamux};
 use libp2p_request_response::ProtocolSupport;
 use machine_info::Machine;
+use futures::{channel::mpsc::{self, Receiver}};
 use std::{/*hash::DefaultHasher,*/ time::Duration};
 use tokio::io;
-use tokio::sync::mpsc::{self, Receiver};
+// use tokio::sync::mpsc;
 pub mod controller;
 pub mod message;
 pub(crate) mod provider_rule;
@@ -26,7 +27,7 @@ pub type PeerIdString = String;
 // Receiver<NetCommand> receive network events
 pub async fn new(
     secret_key_seed: Option<u8>,
-) -> Result<(Controller, Receiver<Event>, Service), NetworkError> {
+) -> Result<(Controller, Receiver<Event>/*impl Stream<Item = Event>*/, Service), NetworkError> {
     // Maximum time allowed for established stream connections.
     let duration = Duration::from_secs(60);
     // is there a reason for the secret key seed?
@@ -107,10 +108,10 @@ pub async fn new(
         .set_mode(Some(kad::Mode::Server));
 
     // the command sender is used for outside method to send message commands to network queue
-    let (sender, receiver) = mpsc::channel::<Command>(32);
+    let (sender, receiver) = mpsc::channel::<Command>(8);
 
     // the event sender is used to handle incoming network message. E.g. RunJob
-    let (event_sender, event_receiver) = mpsc::channel::<Event>(32);
+    let (event_sender, event_receiver) = mpsc::channel::<Event>(8);
 
     let public_id = swarm.local_peer_id().clone();
     let mut multiaddr = Multiaddr::empty();

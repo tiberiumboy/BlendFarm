@@ -38,14 +38,13 @@ use blender::{
 };
 use futures::{
     SinkExt, StreamExt,
-    channel::mpsc::{self, Sender},
+    channel::mpsc::{self, Sender, Receiver}
 };
 use libp2p::{PeerId, multiaddr::Protocol};
 use semver::Version;
 use sqlx::{Pool, Sqlite};
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use tauri::{self, Url};
-use tokio::sync::mpsc::Receiver;
 use tokio::{select, spawn, sync::Mutex};
 
 bitflags::bitflags! {
@@ -529,10 +528,8 @@ impl BlendFarm for TauriApp {
         // background thread to handle network process
         spawn(async move {
             loop {
-                select! {
-                    msg = command.select_next_some() => self.handle_command(&mut client, msg).await,
-
-                    Some(net_event) = event_receiver.recv() => match net_event {
+                if let Some(net_event) = event_receiver.next().await { 
+                    match net_event {
                         // TODO: We have handle_net_event() class, why aren't we using this?
 
                         Event::ServerStatus(server_status) => match server_status {
@@ -642,7 +639,7 @@ impl BlendFarm for TauriApp {
                         // a network sent us a inbound request - reply back with the file data in channel.
                         // yeah I wonder why we can't move this inside network class?
                         Event::InboundRequest { request, channel } => {
-                            Self::handle_inbound_request(&client, request, channel).await;
+                            Self::handle_inbound_request(&mut client, request, channel).await;
                         }
 
                         Event::JobUpdate(job_event) => match job_event {
@@ -767,6 +764,10 @@ impl BlendFarm for TauriApp {
                         e => println!("Unhandled Network Event {e:?}")
                     }
                 }
+
+                select! {
+                    msg = command.select_next_some() => self.handle_command(&mut client, msg).await,
+                }
             }
         });
 
@@ -778,6 +779,8 @@ impl BlendFarm for TauriApp {
 #[cfg(test)]
 mod test {
     // use blender::models::blender_config::BlenderConfig;
+    use blender::manager::tests::mock_manager;
+    use tokio::sync::RwLock;
 
     use super::*;
     use crate::{config_sqlite_db, constant::DATABASE_FILE_NAME};
@@ -793,15 +796,11 @@ mod test {
     //     todo!("Implement a mock up unit test for this blender config");
     // }
 
-    async fn get_mockup_manager() -> BlenderManager {
-        todo!("Implement a mock up blender manager");
-    }
-
     #[tokio::test]
     async fn clear_workers_success() {
         let pool = get_sqlite_conn().await;
         // let config = get_mockup_config().await;
-        let manager = get_mockup_manager().await;
+        let manager = mock_manager();
         let app = TauriApp::new(manager, &pool);
 
         let app = app.clear_workers_collection().await;

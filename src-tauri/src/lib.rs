@@ -71,7 +71,7 @@ async fn setup_connection(controller: &mut Controller) -> Result<(), Error> {
 
     // let's automatically listen to the topics mention above.
     // all network interference must subscribe to these topics!
-    controller.subscribe(NODE_TOPIC).await?;
+    controller.subscribe(NODE_TOPIC).await;
 
     // can we subscribe first before we listen?
     controller.start_listening(tcp).await;

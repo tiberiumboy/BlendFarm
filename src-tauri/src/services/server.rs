@@ -27,13 +27,14 @@ use async_trait::async_trait;
 use blender::blender::{Frame, Manager as BlenderManager, ManagerError};
 use blender::models::event::BlenderEvent;
 use libp2p::{Multiaddr, PeerId};
+use futures::channel::mpsc::Receiver;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::{mpsc::{self, Receiver}, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use tokio::{select /* spawn */};
 use uuid::Uuid;
 
@@ -324,7 +325,7 @@ impl Server {
     // Take action from interface. (CLI mode)
     async fn handle_command(
         &mut self,
-        client: &NetworkController,
+        client: &mut NetworkController,
         cmd: ServerCommand,
     ) -> Result<(), NetworkError> {
         // More to come soon. Just making it work for now is bare minimum.
@@ -472,7 +473,7 @@ impl BlendFarm for Server {
     /// The other process handles network events.
     async fn run(
         mut self,
-        client: NetworkController,
+        mut client: NetworkController,
         mut event_receiver: Receiver<Event>,
     ) -> Result<(), BlendFarmError> {
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
@@ -519,7 +520,7 @@ impl BlendFarm for Server {
         // Process pending inputs commands from foreign function interface
         loop {
             select! {
-                Some(pending_event) = event_receiver.recv() => match pending_event {
+                Ok(pending_event) = event_receiver.recv() => match pending_event {
                         Event::Discovered( _, peer_addr ) => {
                             println!("Peer Discovered: {}", &peer_addr);
 
@@ -545,7 +546,7 @@ impl BlendFarm for Server {
                             //self.handle_job_from_network(client, job_event).await,
                         },
                         Event::InboundRequest { request, channel } => {
-                            Self::handle_inbound_request(&client, request, channel).await
+                            Self::handle_inbound_request(&mut client, request, channel).await
                         }
                         Event::ServerStatus(event) => {
                             match event {
@@ -633,7 +634,7 @@ impl BlendFarm for Server {
                 },
                 // can I send this command to net event?
                 msg = command.recv() => match msg {
-                    Some(cmd) => self.handle_command(&client, cmd).await?,
+                    Some(cmd) => self.handle_command(&mut client, cmd).await?,
                     None => {
                         println!("None was received, continue?");
                         break Ok(())

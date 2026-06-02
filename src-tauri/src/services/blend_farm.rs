@@ -4,9 +4,9 @@ use crate::domains::ticket_store::TicketError;
 use crate::models::behaviour::FileResponse;
 use crate::network::controller::Controller as NetworkController;
 use crate::network::message::{Event, FileCommand, NetworkError};
-use tokio::sync::mpsc::Receiver;
 use async_trait::async_trait;
 use futures::FutureExt;
+use futures::channel::mpsc::Receiver;
 use futures::channel::oneshot;
 use libp2p_request_response::ResponseChannel;
 use thiserror::Error;
@@ -33,7 +33,7 @@ pub trait BlendFarm {
 
     // could we use this inside the blendfarm as a base class?
     async fn handle_inbound_request(
-        client: &NetworkController,
+        client: &mut NetworkController,
         request: String,
         channel: ResponseChannel<FileResponse>,
     ) {

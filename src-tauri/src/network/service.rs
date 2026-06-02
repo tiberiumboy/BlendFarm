@@ -1,13 +1,15 @@
 use crate::constant::NODE_TOPIC;
 use crate::models::behaviour::{BlendFarmBehaviourEvent, FileRequest, FileResponse};
-use crate::network::message::FileCommand;
+use crate::network::message::{FileCommand, FileData, FileResult};
 use crate::services::server::ServerEvent;
 use crate::{
     models::behaviour::BlendFarmBehaviour,
     network::message::{Command, Event},
 };
+use futures::SinkExt;
 use futures::StreamExt;
 use futures::channel::oneshot;
+use futures::channel::mpsc::{Receiver, Sender};
 use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::{Multiaddr, mdns};
 use libp2p::multiaddr::Protocol;
@@ -21,7 +23,6 @@ use std::collections::{HashMap, HashSet, hash_map};
 use std::error::Error;
 use std::path::PathBuf;
 use tokio::select;
-use tokio::sync::mpsc::{Receiver, Sender};
 
 // Network service module to handle invocation commands to send to network service,
 // as well as handling network event from other peers
@@ -29,6 +30,8 @@ use tokio::sync::mpsc::{Receiver, Sender};
 pub struct Service {
     // swarm behaviour - interface to the network
     swarm: Swarm<BlendFarmBehaviour>,
+
+    // peers: HashSet<PeerId>,
 
     // receive Network command
     command_receiver: Receiver<Command>,
@@ -41,7 +44,7 @@ pub struct Service {
     providing_files: HashMap<String, PathBuf>,
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pending_request_file:
-        HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
+        HashMap<OutboundRequestId, oneshot::Sender<FileResult<FileData>>>,
 }
 
 // network service will be used to handle and receive network signal. It will also transmit network package over lan
@@ -53,6 +56,7 @@ impl Service {
     ) -> Self {
         Self {
             swarm,
+            // peers: Default::default(),
             command_receiver: receiver,
             event_sender: sender,
             pending_start_providing: Default::default(),
@@ -96,44 +100,35 @@ impl Service {
                 sender,
             } => {
 
-                // I would expect peer_id contain multiaddress.
-                let last = peer_addr.pop();
-                let peer_id = match last {
-                    Some(Protocol::P2p(peer_id)) => {
-                        peer_id  
-                    }
-                    Some(_) | None => {
-                        println!("No peer id found in multi-address! skipping! Must include '.../p2p/peer_id'!");
-                        return;
-                    }
+                // Expect peer_id contain multiaddress otherwise return early
+                let Some(Protocol::P2p(peer_id)) = peer_addr.pop() else {
+                    println!("No peer id found in multi-address! skipping! Must include '.../p2p/peer_id'!");
+                    return;
                 };
-
-                if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
-                    
+                
+                let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) else {                    
                     // I would expect the multiaddr have peer_id attached.
-                    
-
-                    
-                    self.swarm
-                        .behaviour_mut()
-                        .kademlia
-                        .add_address(&peer_id, peer_addr.clone());
-
-                    // The main reason why I need to dial this node is so I can
-                    //  1. Knows which node I'm talking to.
-                    //  2. Distribute render files, blend files, and executables
-                    //  3. Performance monitor / Activity Logs
-                    match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
-                        Ok(()) => {
-                            e.insert(sender);
-                        }
-                        Err(e) => {
-                            sender.send(Err(Box::new(e))).expect("Should not drop");
-                        }
-                    }
-                } else {
                     // TODO: A bruteforce attempt could be made to break this system integrity. Consider rate limiting?
                     eprintln!("Already dialing the peer! Please be patient!");
+                    return;
+                };
+
+                self.swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .add_address(&peer_id, peer_addr.clone());
+
+                // The main reason why I need to dial this node is so I can
+                //  1. Knows which node I'm talking to.
+                //  2. Distribute render files, blend files, and executables
+                //  3. Performance monitor / Activity Logs
+                match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
+                    Ok(()) => {
+                        e.insert(sender);
+                    }
+                    Err(e) => {
+                        sender.send(Err(Box::new(e))).expect("Should not drop");
+                    }
                 }
             }
             
@@ -510,7 +505,7 @@ impl Service {
         match event {
             SwarmEvent::Behaviour(behaviour) => match behaviour {
                 // RequestResponse?
-                BlendFarmBehaviourEvent::RequestResponse(event) => {
+            BlendFarmBehaviourEvent::RequestResponse(event) => {
                     self.process_response_event(event).await;
                 }
                 // Gossipsub used to spread message across
@@ -533,8 +528,11 @@ impl Service {
                 // TODO: Could we stream io?
                 // TODO: Toggle verbosity mode?
                 // println!("Connection Established: {peer_id:?}\n{endpoint:?}");
-                if endpoint.is_dialer() 
-                    && let Some(sender) = self.pending_dial.remove(&peer_id) {
+                if endpoint.is_dialer() {
+                    let Some(sender) = self.pending_dial.remove(&peer_id) else {
+                        eprintln!("Unable to find matching peer id from known pending dial!");
+                        return;
+                    };
                     if let Err(e) = sender.send(Ok(())) {
                         eprintln!("Unable to respond back, ignoring! {e:?}");
                     }
@@ -552,7 +550,7 @@ impl Service {
                     reason,
                 };
                 let event = Event::ServerStatus(node);
-                if let Err(e) = self.event_sender.send(event).await {
+                if let Err(e) = self.event_sender.try_send(event) {
                     eprintln!("Fail to send event on connection closed! {e:?}");
                 }
             }
@@ -562,7 +560,9 @@ impl Service {
                 ..
             } => {
                 if let Some(sender) = self.pending_dial.remove(&peer_id) {
-                    let _ = sender.send(Err(Box::new(error)));
+                    if let Err(e) = sender.send(Err(Box::new(error))) {
+                        eprintln!("Unable to send message to pending dialer awaiter! {e:?}");
+                    }
                 }
             }
             // TODO: Figure out what these events are, and see if they're any use for us to play with or delete them. Unnecessary comment codeblocks
@@ -572,33 +572,10 @@ impl Service {
             // FEATURE: Display verbose info using argument switch
             /* #region vv verbose events vv */
             SwarmEvent::OutgoingConnectionError { peer_id: None, .. } => {}
-
-            SwarmEvent::Dialing { .. } => {}
-
-            SwarmEvent::IncomingConnection {
-                // connection_id,
-                send_back_addr,
-                ..
-            } => {
-                eprintln!("Incoming connection: {send_back_addr}");
-                
-                
-                // match send_back_addr {
-                //     Protocol::P2p(peer_id) => {
-
-                //     }
-                //     _ => ()
-                // }
-                // Incoming connection? How do I accept?
-                // send a message out of the service to inform other subscriber that someone joined the network.
-                // I'm assuming this is reply from dial?
-                // what does it mean to have incoming connection here?
-                // self.dialers.entry()
-                // self.swarm.add_peer_address(peer_id, send_back_addr);
-                
-            } // Suppressing logs
-
+            
             // Suppressing logs
+            SwarmEvent::Dialing { .. } => {}
+            SwarmEvent::IncomingConnection {..} => {} 
             SwarmEvent::NewListenAddr { /* address, */ .. } => {
                 // println!("[New Listener Address]: {address}");
                 // let local_peer_id = *self.swarm.local_peer_id();
@@ -625,10 +602,7 @@ impl Service {
         loop {
             select! {
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event).await,
-                pending_command = self.command_receiver.recv() => match pending_command {
-                    Some(command) => self.handle_command(command).await,
-                    None => return,
-                },
+                Ok(command) = self.command_receiver.recv() => self.handle_command(command).await,
             }
         }
     }

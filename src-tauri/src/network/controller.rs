@@ -6,8 +6,11 @@ use crate::network::provider_rule::ProviderRule;
 use futures::channel::oneshot::{self};
 use libp2p::{Multiaddr, PeerId};
 use libp2p_request_response::ResponseChannel;
-use tokio::sync::mpsc::Sender;
-use tokio::sync::mpsc::error::SendError;
+use futures::channel::mpsc::Sender;
+use futures::SinkExt;
+// use futures::
+
+//use tokio::sync::mpsc::error::SendError;
 
 // Network Controller interfaces network service.
 #[derive(Clone)]
@@ -37,23 +40,26 @@ impl Controller {
         }
     }
 
-    pub(crate) async fn subscribe(&mut self, topic: &str) -> Result<(), SendError<Command>> {
+    pub(crate) async fn subscribe(&mut self, topic: &str) -> () {
         // TODO: find a better way to get around to_owned(), but for now focus on getting this application to work.
         let cmd = Command::Subscribe {
             topic: topic.to_owned(),
         };
-        self.sender.send(cmd).await
+        
+        if let Err(e) = self.sender.send(cmd).await {
+            eprintln!("Unable to send command! {e:?}");
+        }
     }
 
     // this is to broadcast message.
-    pub(crate) async fn send_broadcast_message(&self, status: ServerEvent) {
-        if let Err(e) = self.sender.send(Command::Message(None, status)).await {
+    pub(crate) async fn send_broadcast_message(&mut self, status: ServerEvent) {
+        if let Err(e) = &self.sender.send(Command::Message(None, status)).await {
             eprintln!("Failed to send node status to network service: {e:?}");
         }
     }
 
-    pub(crate) async fn send_peer_message(&self, peer_addr: &Multiaddr, status: ServerEvent) {
-        if let Err(e) = self.sender.send(Command::Message(Some(peer_addr.clone()), status)).await {
+    pub(crate) async fn send_peer_message(&mut self, peer_addr: &Multiaddr, status: ServerEvent) {
+        if let Err(e) = &self.sender.send(Command::Message(Some(peer_addr.clone()), status)).await {
             eprintln!("Failed to send direct message to [{peer_addr}]! {e:?}");
         }
     }
@@ -97,17 +103,18 @@ impl Controller {
     // }
 
     // received file service command.
-    pub(crate) async fn file_service(&self, command: FileCommand) {
-        self.sender
+    pub(crate) async fn file_service(&mut self, command: FileCommand) {
+        if let Err(e) = self.sender
             .send(Command::FileService(command))
-            .await
-            .expect("Command should not have been dropped!");
+            .await {
+                eprintln!("Command should not have been dropped! {e:?}");
+            }
     }
 
     /// file_name are broadcasted with the extensions included, but not the directory it's located in. E.g. "test.blend"
     // I need to use some kind of enumeration to help make this process flexible with rules..
     pub(crate) async fn start_providing(
-        &self,
+        &mut self,
         provider: &ProviderRule,
     ) -> Result<(), NetworkError> {
         let (sender, receiver) = oneshot::channel();
@@ -177,7 +184,7 @@ impl Controller {
     }
 
     // TODO: Come back to this one and see how this one gets invoked.
-    pub(crate) async fn respond_file(&self, file: Vec<u8>, channel: ResponseChannel<FileResponse>) {
+    pub(crate) async fn respond_file(&mut self, file: Vec<u8>, channel: ResponseChannel<FileResponse>) {
         let cmd = Command::FileService(FileCommand::RespondFile { file, channel });
         if let Err(e) = self.sender.send(cmd).await {
             println!("Command should not be dropped: {e:?}");
