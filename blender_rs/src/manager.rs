@@ -126,7 +126,7 @@ impl Manager {
             .join(Json::file(config_path.join(SETTINGS_PATH_JSON)))
             .extract::<BlenderConfig>()?;
         
-        let download_path: &PathBuf = &config.into();
+        let download_path: &PathBuf = &config.clone().into();
 
         // TODO: we'll load cache services here
         // let cache_path = &config.cache_dir;
