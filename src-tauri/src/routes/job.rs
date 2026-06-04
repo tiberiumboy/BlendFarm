@@ -15,9 +15,8 @@ use tauri::{State, command};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-/*
-    private method to call the function and return the objects, but not the actual renders.
-*/
+
+/// private method to call the function and return the objects, but not the actual renders.
 async fn cmd_create_job(state: &mut AppState, job: Job) -> Result<CreatedJobDto, JobError> {
     let (sender, mut receiver) = mpsc::channel(1);
     let add = UiCommand::Job(JobAction::Create(job, sender));

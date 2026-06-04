@@ -113,7 +113,7 @@ pub struct Job {
     // target output destination
     output: Output,
 
-    // what about stem? Does blender file have stem information?
+    // TODO: What about stem? Does blender file have stem information?
 
     // List of task created by the runners This serves as a job history and transaction that perform the job
     tasks: Vec<Ticket>,
