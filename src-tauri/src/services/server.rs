@@ -416,7 +416,7 @@ impl Server {
                 // };
                 // let project_file = task.get_job().get_project_path();
 
-                let version = &ticket.job.blender_version;
+                let version = ticket.job.get_blender_version();
 
                 let mut mut_manager = manager.write().await;
 

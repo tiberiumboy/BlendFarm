@@ -108,7 +108,7 @@ pub struct Job {
     blend_file: BlendFile,
 
     // target blender version
-    pub(crate) blender_version: Version,
+    blender_version: Version,
 
     // target output destination
     output: Output,
@@ -162,6 +162,10 @@ impl Job {
             .file_name()
             .expect("Must have valid file name already")
     }
+
+    pub fn get_blender_version(&self) -> &Version {
+        &self.blender_version
+    } 
 }
 
 impl PartialEq for Job {
