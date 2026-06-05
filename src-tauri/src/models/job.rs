@@ -66,6 +66,7 @@ pub enum JobAction {
     Update(CreatedJobDto),
     Create(NewJobDto, Sender<Result<CreatedJobDto, JobError>>),
     Kill(JobId),
+    // TODO: I'd like to include options for filters. Generate a way to provide a custom filter rules to limit data to number set of rows and reduce calculations.
     All(Sender<Option<Vec<CreatedJobDto>>>),
     // we will ask all of the node on the network if there's any completed job list.
     // The node will advertise their collection of completed job
@@ -107,15 +108,15 @@ pub struct Job {
     /// Path to blender files
     blend_file: BlendFile,
 
-    // target blender version
+    /// target blender version
     blender_version: Version,
 
-    // target output destination
+    /// Completed render image output destination
     output: Output,
 
     // TODO: What about stem? Does blender file have stem information?
 
-    // List of task created by the runners This serves as a job history and transaction that perform the job
+    /// List of task created by the runners This serves as a job history and transaction that perform the job
     tasks: Vec<Ticket>,
 }
 
