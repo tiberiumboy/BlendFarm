@@ -3,7 +3,7 @@ use tauri::{State, command};
 use tokio::sync::Mutex;
 use crate::constant::WORKPLACE;
 use crate::models::app_state::AppState;
-use crate::routes::job::{cmd_list_jobs, cmd_fetch_job, render_list_job, render_job_detail_page};
+use crate::routes::job::{render_list_job, render_job_detail_page};
 
 // separate this?
 #[command(async)]
@@ -11,7 +11,7 @@ pub async fn index(state: State<'_,Mutex<AppState>>) -> Result<String, String> {
     // Design to load content and page for the index.
     let mut app_state = state.lock().await;
     println!("Access to app state unlocked, generating job list...");
-    let jobs = cmd_list_jobs(&mut app_state).await;
+    let jobs = app_state.list_jobs().await.map_err(|e| e.to_string())?;
     println!("Generating job list renders");
     let list_job_render = render_list_job(&jobs);
     
@@ -19,7 +19,7 @@ pub async fn index(state: State<'_,Mutex<AppState>>) -> Result<String, String> {
     let job_detail = match &jobs {
         Some(job_list) => {
             match job_list.first() {
-                Some(job) => cmd_fetch_job(&mut app_state, job.id.clone() ).await,
+                Some(job) => app_state.fetch_job(job.id.clone()).await,
                 None => None
             }
         },

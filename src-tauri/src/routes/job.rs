@@ -1,12 +1,10 @@
 use crate::constant::WORKPLACE;
-use crate::domains::job_store::JobError;
 use crate::models::job::{CreatedJobDto, Output};
 use crate::models::{app_state::AppState, job::{Job, JobAction}};
 use crate::services::tauri_app::UiCommand;
 use blender::blend_file::BlendFile;
 use blender::models::mode::RenderMode;
-use futures::channel::mpsc;
-use futures::{SinkExt, StreamExt};
+use futures::SinkExt;
 use maud::{html, PreEscaped};
 use semver::Version;
 use serde_json::json;
@@ -14,41 +12,6 @@ use std::{path::PathBuf, str::FromStr};
 use tauri::{State, command};
 use tokio::sync::Mutex;
 use uuid::Uuid;
-
-
-/// private method to call the function and return the objects, but not the actual renders.
-async fn cmd_create_job(state: &mut AppState, job: Job) -> Result<CreatedJobDto, JobError> {
-    let (sender, mut receiver) = mpsc::channel(1);
-    let add = UiCommand::Job(JobAction::Create(job, sender));
-    state
-        .invoke
-        .send(add)
-        .await.map_err(|e| JobError::Send(e.to_string()))?;
-
-    receiver.select_next_some().await
-}
-
-/// used to send command to backend service to fetch for the job list.
-pub(crate) async fn cmd_list_jobs(state: &mut AppState) -> Option<Vec<CreatedJobDto>> {
-    let (sender, mut receiver) = mpsc::channel(0);
-    let cmd = UiCommand::Job(JobAction::All(sender));
-    if let Err(e) = state.invoke.send(cmd).await {
-        eprintln!("Fail to send command to server! {e:?}");
-        return None;
-    }
-    receiver.select_next_some().await
-}
-
-/// command to fetch the job from backend service.
-pub(crate) async fn cmd_fetch_job(state: &mut AppState, job_id: Uuid) -> Option<CreatedJobDto> {
-    let (sender, mut receiver) = mpsc::channel(0);
-    let cmd = UiCommand::Job(JobAction::Find(job_id, sender));
-    if let Err(e) = state.invoke.send(cmd).await {
-        eprintln!("Fail to send job action: {e:?}");
-        return None
-    };
-    receiver.select_next_some().await
-}
 
 /// Used to render the job list on teh side of the app.
 pub(crate) fn render_list_job(collection: &Option<Vec<CreatedJobDto>>) -> String {
@@ -160,8 +123,8 @@ pub async fn create_job(
     let mode = RenderMode::try_new(&start, &end).map_err(|e| e.to_string())?;
     let job = Job::from(mode, path, version, output).map_err(|e| e.to_string())?; 
     let mut app_state = state.lock().await;
-    let job_created = cmd_create_job(&mut app_state, job).await.map_err(|e| e.to_string())?;
-    let list = cmd_list_jobs(&mut app_state).await;
+    let job_created = app_state.create_job(job).await.map_err(|e| e.to_string())?;
+    let list = app_state.list_jobs().await.map_err(|e| e.to_string())?;
 
     let list = render_list_job(&list);
     let detail = render_job_detail_page(&Some(job_created));
@@ -180,7 +143,7 @@ pub async fn create_job(
 #[command(async)]
 pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
     let mut server = state.lock().await;
-    let content = cmd_list_jobs(&mut server).await;
+    let content = server.list_jobs().await.map_err(|e| e.to_string())?; //cmd_list_jobs(&mut server).await;
     Ok(render_list_job(&content))
 }
 
@@ -235,7 +198,7 @@ pub async fn get_job_detail(
 ) -> Result<String, String> {
     let job_id = Uuid::from_str(job_id).map_err(|e| format!("Unable to parse uuid? \n{e:?}"))?;
     let mut app_state = state.lock().await;
-    let result = cmd_fetch_job(&mut app_state, job_id).await;
+    let result = app_state.fetch_job(job_id).await;
     Ok(render_job_detail_page(&result))
 }
 
