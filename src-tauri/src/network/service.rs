@@ -384,21 +384,10 @@ impl Service {
         match event {
             // what is propagation source? can we use this somehow?
             gossipsub::Event::Message { message, .. } => {
-                // if the topic is JOB related, assume data as JobEvent
-                // JOB_TOPIC => match serde_json::from_slice::<JobEvent>(&message.data) {
-                //     Ok(job_event) => {
-                //         if let Err(e) = self.event_sender.send(Event::JobUpdate(job_event)).await {
-                //             eprintln!("Something failed? {e:?}");
-                //         }
-                //     }
-                //     Err(e) => {
-                //         eprintln!("Fail to parse Job topic data! {e:?}");
-                //     }
-                // },
                 // Node based event awareness
-                println!("Received gossipsub message! {:?}", &message.data);
                 match serde_json::from_slice::<ServerEvent>(&message.data) {
                     Ok(node_event) => {
+                        println!("Received gossip message for server event: {:?}", &node_event);
                         if let Err(e) = self.event_sender.send(Event::ServerStatus(node_event)).await {
                             eprintln!("Something failed? {e:?}");
                         }
