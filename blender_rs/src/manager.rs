@@ -234,7 +234,7 @@ impl Manager {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::models::blender_config::tests::mock_blender_config;
     use crate::services::portal::tests::mock_portal;
