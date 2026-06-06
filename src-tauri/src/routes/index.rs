@@ -10,12 +10,8 @@ use crate::routes::job::{render_list_job, render_job_detail_page};
 pub async fn index(state: State<'_,Mutex<AppState>>) -> Result<String, String> {
     // Design to load content and page for the index.
     let mut app_state = state.lock().await;
-    println!("Access to app state unlocked, generating job list...");
     let jobs = app_state.list_jobs().await.map_err(|e| e.to_string())?;
-    println!("Generating job list renders");
     let list_job_render = render_list_job(&jobs);
-    
-    println!("Get Job detail if there's one");
     let job_detail = match &jobs {
         Some(job_list) => {
             match job_list.first() {
@@ -27,8 +23,6 @@ pub async fn index(state: State<'_,Mutex<AppState>>) -> Result<String, String> {
     };
     let front_page_render = render_job_detail_page(&job_detail);
     
-    println!("returning rendered image");
-
     Ok(html! (
         div {
             div class="sidebar" {
