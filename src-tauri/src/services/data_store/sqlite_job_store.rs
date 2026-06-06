@@ -153,8 +153,13 @@ impl JobStore for SqliteJobStore {
         match result {
             Ok(records) => Ok(records
                 .iter()
-                .map(|r| r.clone().dto_to_obj().expect("Must have valid job"))
-                .collect()),
+                .fold( Vec::new(),|mut record, item| {
+                    if let Ok(obj) = item.clone().dto_to_obj() {
+                        record.push(obj);
+                    }
+                    record
+                })
+            ),
             Err(e) => Err(JobError::DatabaseError(e.to_string())),
         }
     }
