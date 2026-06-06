@@ -456,9 +456,127 @@ impl TauriApp {
         }
     }
 
+    // handle job update conditions for tauri_app side
+    async fn handle_job_update(&mut self, client: &mut NetworkController, event: JobEvent) {
+        match event {
+            // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
+            JobEvent::AskForCompletedJobFrameList(_) => {
+                // this is reserved for the host side of the app to send out. We do not process this data here.
+                // only client should receive this notification, host will ignore this.
+            }
+            JobEvent::ImageCompletedList { job_id, files } => {
+                // first thing first, check and see if this job id matches what we have in our database.
+                // if it doesn't then we ignore this request and move on.
+                let result = self.job_store.get_job(&job_id).await;
+
+                if result.is_err() {
+                    return; // stop here. do not proceed forward. We do not care.
+                }
+
+                // not that we have the job, we need to fetch for our existing files that we have completed
+                // We received a list of files from the client. We will run and compare this list to our local machine
+                // let local =
+
+                // if we do not have the file locally, we will ask for the image from the provided node.
+                // In this case, we do not care who have the node, we will send out a signal stating I need this file.
+                // the node that receive the signal will message back.
+
+                for file in files {
+                    println!("file: {file}");
+                }
+            }
+            // we received a job event that a node have finish rendering an image.
+            // We now need to make sure our output destination exist and valid.
+            // Afterward, we should try to fetch the file from that caller.
+            JobEvent::ImageCompleted {
+                job_id,
+                frame: _,
+                file_name,
+            } => {
+                // first and check to see if the job id belongs to us.
+                // if it does, then proceed to download the image if we have not already done so.
+
+                // create a destination with respective job id path.
+                let destination = self.settings.render_dir.join(job_id.to_string());
+                if let Err(e) = async_std::fs::create_dir_all(destination.clone()).await {
+                    println!("Issue creating temp job directory! {e:?}");
+                }
+
+                match Self::handle_get_file(client, &file_name, &destination).await {
+                    // Fetch the completed image file from the network
+                    Ok(file) => {
+                        println!("File stored at {file:?}");
+
+                        /*  send update to ui
+                        let handle = app_handle.write().await;
+                        if let Err(e) = handle.emit(
+                            "frame_update",
+                            FrameUpdatePayload {
+                                id,
+                                frame,
+                                file_name: file_name.clone(),
+                            },
+                        ) {
+                            eprintln!("Unable to send emit to app handler\n{e:?}");
+                        }
+                        */
+                        // if let Err(e) = handle.emit("job_image_complete", (job_id, frame, file)) {
+                        //     eprintln!("Fail to publish image completion emit to front end! {e:?}");
+                        // }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to fetch the file from peers!\n{:?}", e);
+                    }
+                }
+            }
+            // when a task is complete, check the poll for next available job queue?
+            JobEvent::TicketComplete(job_id, frame) => {
+                println!("A node have completed frame {frame} for job id {job_id}");
+                // I don't understand why I got the frame?
+            }
+
+            // TODO: how do we handle error from node? What kind of errors are we expecting here and what can the host do about it?
+            JobEvent::Error(job_error) => {
+                todo!("See how this can be replicated? {job_error:?}")
+            }
+
+            // send a render job
+            JobEvent::Render(..) => {
+                // if we have a local client up and running, we should just communicate it directly. This will help setup the output correctly.
+                // TODO: Host should try to communicate local client
+                println!(
+                    "Host received a Render Job - Contact client and provide info about this job. Read on how Rust micromange services?"
+                );
+            }
+            // Not in used?
+            JobEvent::RequestTask => {
+                // a node is requesting task.
+                todo!("Where is this being called from? I tried looking up reference and found this to be the only place used");
+                // let jobs = self.job_store.list_all().await.expect("Should have jobs?");
+                // if let Some(job) = jobs.first() {
+                //     // how do I reply back for this task then?
+                //     // use the peer_id_string.
+                //     match job.item.clone().generate_task(job.id) {
+                //         Some(task) => {
+                //             let event = JobEvent::Render(peer_id_str, task);
+                //             client.send_job_event(event).await;
+                //         }
+                //         None => return,
+                //     }
+                // }
+            }
+            // this will soon go away
+            JobEvent::Failed(msg) => {
+                eprintln!("Job failed! {msg}");
+            }
+            JobEvent::Remove(_) => {
+                // Should I do anything on the manager side? Shouldn't matter at this point?
+            }
+        }
+    }
+
     // commands received from network
-    #[allow(dead_code)]
-    async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
+    async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {       
         match event {
             // A node was recently discovered from the network.
             Event::Discovered(..) => {
@@ -469,12 +587,119 @@ impl TauriApp {
                 let server_status = ServerEvent::Online(multiaddr, spec);
                 client.send_broadcast_message(server_status).await
             }
-            Event::InboundRequest { .. } => todo!(),
+            // a network sent us a inbound request - reply back with the file data in channel.
+            // yeah I wonder why we can't move this inside network class?
+            Event::InboundRequest { request, channel } => Self::handle_inbound_request(client, request, channel).await,
             // Listen to what the server update are happening on the network.
-            Event::ServerStatus(event) => println!("Picked up Server Status: {event:?}"),
-            Event::JobUpdate(..) => todo!(),
+            Event::ServerStatus(event) => self.handle_server_status(client, event).await,
+            Event::JobUpdate(update) => self.handle_job_update(client, update).await,
             Event::ReceivedFileData(..) => todo!(),
         }
+    }
+
+    async fn handle_server_status(&mut self, client: &mut NetworkController, event: ServerEvent) {
+        match event {
+            // a node introduce themselves upon your discovery.
+            // why did I not receive this?
+            ServerEvent::Online(mut peer_addr, spec ) => {
+                let name = &spec.host;
+                println!("[{}] {name} is online (May be busy).", &peer_addr);
+                // TODO: We could send this information to the front end?
+                // We'll tag this node as a worker.
+                let last = peer_addr.pop();
+                if let Some(Protocol::P2p(peer_id)) = last {
+                    // If we haven't previously met...
+                    if self.peers.contains_key(&peer_id) {
+                        return;
+                    }
+
+                    let worker = Worker::new(peer_id.clone(), spec.clone());
+
+                    // append new worker to database store
+                    if let Err(e) = self.worker_store.add_worker(worker).await {
+                        eprintln!("Error adding worker to database! {e:?}");
+                    }
+
+                    self.peers.insert(peer_id, spec);
+                    // let handle = app_handle.write().await;
+
+                    // emit a signal to query the data.
+                    // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
+                    // let _ = handle.emit("worker_update");
+                }
+            },
+            ServerEvent::Joined(peer_id) => {
+                println!("A peer [{:?}] has joined the channel", peer_id);
+            }
+            ServerEvent::NewTickets(_) => {
+                // I'm not sure why someone ask us to do the work from tauri app???
+                println!("I want you to contact the developer and explain why you want the client facing app receive a new ticket job?");
+            }
+
+            ServerEvent::RequestTicket(peer_addr) => {
+                // TODO: Display this info based on verbose/debugger cli options
+                println!("Peer [{peer_addr}] is asking you for new ticket(s)");
+
+                // How do I check my job and see if I have any pending tickets/pending jobs to work on?
+                let query = match self.job_store.list_all().await {
+                    Ok(list) => list.iter().fold(None, |result, item| {
+                        if result.is_some() {
+                            return result
+                        }
+
+                        // now how do I know if the job is completed or not?
+                        let (start, end) = &item.item.get_range();
+                        match Ticket::from(item.clone(), start.clone(), end.clone()) {
+                            Ok(task) => Some(task),
+                            Err(e) => {
+                                println!("Unable to make task? {e:?}");
+                                None
+                            }
+                        }
+                    }),
+                    _ => return ()
+                };
+
+                if let Some(ticket) = query {
+                    client.send_peer_message(&peer_addr, ServerEvent::NewTickets(ticket)).await;
+                }
+            },
+            // which node?
+            ServerEvent::Rendering(uuid) => {
+                // we received a node update that they're now rendering this uuid.
+                println!("A node is working on {uuid}!");
+            },
+            ServerEvent::RequestJobInfo(job_id) => {
+                println!("A node is requesting job information that matches id {job_id}");
+                // a node is asking for job information that matches this target id
+            },
+            ServerEvent::RemoveJob(job_id) => {
+                // received a signal to remove target job id.
+                println!("Received orders to remove job that matches id {job_id}");
+            },
+            // concerning - this String could be anything?
+            // TODO: Find a better way to get around this.
+            ServerEvent::Disconnected { peer_id, reason } => {
+                if let Some(msg) = reason {
+                    eprintln!("Node disconnected with reason!\n {msg}");
+                }
+
+                // So the main issue is that there's no way to identify by the machine id?
+                let peer_id =
+                    PeerId::from_str(&peer_id).expect("Received invalid peer_id string!");
+
+                // probably best to mark the node "inactive" instead?
+                if let Err(e) = self.worker_store.delete_worker(&peer_id).await {
+                    eprintln!("Error deleting worker from database! {e:?}");
+                }
+
+                self.peers.remove(&peer_id);
+            }
+            // this is the same as saying down in the garbage disposal. Anything goes here. Do not trust data source here!
+            ServerEvent::BlenderStatus(blend_event) => {
+                println!("Blender Status Received: {blend_event:?}")
+            }
+        };
     }
 }
 
@@ -528,245 +753,9 @@ impl BlendFarm for TauriApp {
         // background thread to handle network process
         spawn(async move {
             loop {
-                if let Some(net_event) = event_receiver.next().await { 
-                    match net_event {
-                        // TODO: We have handle_net_event() class, why aren't we using this?
-
-                        Event::ServerStatus(server_status) => match server_status {
-                            // a node introduce themselves upon your discovery.
-                            // why did I not receive this?
-                            ServerEvent::Online(mut peer_addr, spec ) => {
-                                let name = &spec.host;
-                                println!("[{}] {name} is online (May be busy).", &peer_addr);
-                                // TODO: We could send this information to the front end?
-                                // We'll tag this node as a worker.
-                                let last = peer_addr.pop();
-                                if let Some(Protocol::P2p(peer_id)) = last {
-                                    // If we haven't previously met...
-                                    if self.peers.contains_key(&peer_id) {
-                                        continue;
-                                    }
-
-                                    let worker = Worker::new(peer_id.clone(), spec.clone());
-
-                                    // append new worker to database store
-                                    if let Err(e) = self.worker_store.add_worker(worker).await {
-                                        eprintln!("Error adding worker to database! {e:?}");
-                                    }
-
-                                    self.peers.insert(peer_id, spec);
-                                    // let handle = app_handle.write().await;
-
-                                    // emit a signal to query the data.
-                                    // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
-                                    // let _ = handle.emit("worker_update");
-                                }
-                            },
-                            ServerEvent::Joined(peer_id) => {
-                                println!("A peer [{:?}] has joined the channel", peer_id);
-                            }
-                            ServerEvent::NewTickets(_) => {
-                                // I'm not sure why someone ask us to do the work from tauri app???
-                                println!("I want you to contact the developer and explain why you want the client facing app receive a new ticket job?");
-                            }
-
-                            ServerEvent::RequestTicket(peer_addr) => {
-                                // TODO: Display this info based on verbose/debugger cli options
-                                println!("Peer [{peer_addr}] is asking you for new ticket(s)");
-
-                                // How do I check my job and see if I have any pending tickets/pending jobs to work on?
-                                let query = match self.job_store.list_all().await {
-                                    Ok(list) => list.iter().fold(None, |result, item| {
-                                        if result.is_some() {
-                                            return result
-                                        }
-
-                                        // now how do I know if the job is completed or not?
-                                        let (start, end) = &item.item.get_range();
-                                        match Ticket::from(item.clone(), start.clone(), end.clone()) {
-                                            Ok(task) => Some(task),
-                                            Err(e) => {
-                                                println!("Unable to make task? {e:?}");
-                                                None
-                                            }
-                                        }
-                                    }),
-                                    _ => return ()
-                                };
-
-                                if let Some(ticket) = query {
-                                    client.send_peer_message(&peer_addr, ServerEvent::NewTickets(ticket)).await;
-                                }
-                            },
-                            // which node?
-                            ServerEvent::Rendering(uuid) => {
-                                // we received a node update that they're now rendering this uuid.
-                                println!("A node is working on {uuid}!");
-                            },
-                            ServerEvent::RequestJobInfo(job_id) => {
-                                println!("A node is requesting job information that matches id {job_id}");
-                                // a node is asking for job information that matches this target id
-                            },
-                            ServerEvent::RemoveJob(job_id) => {
-                                // received a signal to remove target job id.
-                                println!("Received orders to remove job that matches id {job_id}");
-                            },
-                            // concerning - this String could be anything?
-                            // TODO: Find a better way to get around this.
-                            ServerEvent::Disconnected { peer_id, reason } => {
-                                if let Some(msg) = reason {
-                                    eprintln!("Node disconnected with reason!\n {msg}");
-                                }
-
-                                // So the main issue is that there's no way to identify by the machine id?
-                                let peer_id =
-                                    PeerId::from_str(&peer_id).expect("Received invalid peer_id string!");
-
-                                // probably best to mark the node "inactive" instead?
-                                if let Err(e) = self.worker_store.delete_worker(&peer_id).await {
-                                    eprintln!("Error deleting worker from database! {e:?}");
-                                }
-
-                                self.peers.remove(&peer_id);
-                            }
-                            // this is the same as saying down in the garbage disposal. Anything goes here. Do not trust data source here!
-                            ServerEvent::BlenderStatus(blend_event) => {
-                                println!("Blender Status Received: {blend_event:?}")
-                            }
-                        },
-
-                        // let me figure out what's going on here.
-                        // a network sent us a inbound request - reply back with the file data in channel.
-                        // yeah I wonder why we can't move this inside network class?
-                        Event::InboundRequest { request, channel } => {
-                            Self::handle_inbound_request(&mut client, request, channel).await;
-                        }
-
-                        Event::JobUpdate(job_event) => match job_event {
-                            // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
-                            JobEvent::AskForCompletedJobFrameList(_) => {
-                                // this is reserved for the host side of the app to send out. We do not process this data here.
-                                // only client should receive this notification, host will ignore this.
-                            }
-                            JobEvent::ImageCompletedList { job_id, files } => {
-                                // first thing first, check and see if this job id matches what we have in our database.
-                                // if it doesn't then we ignore this request and move on.
-                                let result = self.job_store.get_job(&job_id).await;
-
-                                if result.is_err() {
-                                    return; // stop here. do not proceed forward. We do not care.
-                                }
-
-                                // not that we have the job, we need to fetch for our existing files that we have completed
-                                // We received a list of files from the client. We will run and compare this list to our local machine
-                                // let local =
-
-                                // if we do not have the file locally, we will ask for the image from the provided node.
-                                // In this case, we do not care who have the node, we will send out a signal stating I need this file.
-                                // the node that receive the signal will message back.
-
-                                for file in files {
-                                    println!("file: {file}");
-                                }
-                            }
-                            // we received a job event that a node have finish rendering an image.
-                            // We now need to make sure our output destination exist and valid.
-                            // Afterward, we should try to fetch the file from that caller.
-                            JobEvent::ImageCompleted {
-                                job_id,
-                                frame: _,
-                                file_name,
-                            } => {
-                                // first and check to see if the job id belongs to us.
-                                // if it does, then proceed to download the image if we have not already done so.
-
-                                // create a destination with respective job id path.
-                                let destination = self.settings.render_dir.join(job_id.to_string());
-                                if let Err(e) = async_std::fs::create_dir_all(destination.clone()).await {
-                                    println!("Issue creating temp job directory! {e:?}");
-                                }
-
-                                match Self::handle_get_file(&mut client, &file_name, &destination).await {
-                                    // Fetch the completed image file from the network
-                                    Ok(file) => {
-                                        println!("File stored at {file:?}");
-
-                                        /*  send update to ui
-                                        let handle = app_handle.write().await;
-                                        if let Err(e) = handle.emit(
-                                            "frame_update",
-                                            FrameUpdatePayload {
-                                                id,
-                                                frame,
-                                                file_name: file_name.clone(),
-                                            },
-                                        ) {
-                                            eprintln!("Unable to send emit to app handler\n{e:?}");
-                                        }
-                                        */
-                                        // if let Err(e) = handle.emit("job_image_complete", (job_id, frame, file)) {
-                                        //     eprintln!("Fail to publish image completion emit to front end! {e:?}");
-                                        // }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Failed to fetch the file from peers!\n{:?}", e);
-                                    }
-                                }
-                            }
-                            // when a task is complete, check the poll for next available job queue?
-                            JobEvent::TicketComplete(job_id, frame) => {
-                                println!("A node have completed frame {frame} for job id {job_id}");
-                                // I don't understand why I got the frame?
-                            }
-
-                            // TODO: how do we handle error from node? What kind of errors are we expecting here and what can the host do about it?
-                            JobEvent::Error(job_error) => {
-                                todo!("See how this can be replicated? {job_error:?}")
-                            }
-
-                            // send a render job
-                            JobEvent::Render(..) => {
-                                // if we have a local client up and running, we should just communicate it directly. This will help setup the output correctly.
-                                // TODO: Host should try to communicate local client
-                                println!(
-                                    "Host received a Render Job - Contact client and provide info about this job. Read on how Rust micromange services?"
-                                );
-                            }
-                            // Not in used?
-                            JobEvent::RequestTask => {
-                                // a node is requesting task.
-                                todo!("Where is this being called from? I tried looking up reference and found this to be the only place used");
-                                // let jobs = self.job_store.list_all().await.expect("Should have jobs?");
-                                // if let Some(job) = jobs.first() {
-                                //     // how do I reply back for this task then?
-                                //     // use the peer_id_string.
-                                //     match job.item.clone().generate_task(job.id) {
-                                //         Some(task) => {
-                                //             let event = JobEvent::Render(peer_id_str, task);
-                                //             client.send_job_event(event).await;
-                                //         }
-                                //         None => return,
-                                //     }
-                                // }
-                            }
-                            // this will soon go away
-                            JobEvent::Failed(msg) => {
-                                eprintln!("Job failed! {msg}");
-                            }
-                            JobEvent::Remove(_) => {
-                                // Should I do anything on the manager side? Shouldn't matter at this point?
-                            }
-                        },
-                        Event::Discovered(..) => {
-                            // from this level, we have discovered other potential client on the network.
-                            // at this level, we do absolutely nothing. We only respond to client incoming request.
-                        },
-                        e => println!("Unhandled Network Event {e:?}")
-                    }
-                }
-
                 select! {
                     msg = command.select_next_some() => self.handle_command(&mut client, msg).await,
+                    Some(event) = event_receiver.next() => self.handle_net_event(&mut client, event).await,
                 }
             }
         });
@@ -777,10 +766,9 @@ impl BlendFarm for TauriApp {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     // use blender::models::blender_config::BlenderConfig;
     use blender::manager::tests::mock_manager;
-    use tokio::sync::RwLock;
 
     use super::*;
     use crate::{config_sqlite_db, constant::DATABASE_FILE_NAME};
