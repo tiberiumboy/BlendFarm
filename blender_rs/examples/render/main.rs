@@ -73,6 +73,7 @@ async fn render_with_manager() {
             }
             _ => {
                 println!("Unhandled blender status! {:?}", status);
+                break;
             }
         }
     }

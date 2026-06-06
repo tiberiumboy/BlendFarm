@@ -347,18 +347,15 @@ impl Blender {
                 // I believe this function was design to stop the listening server if blender was completed or closed unexpected.
                 // We don't have any other state to control and govern this threaded task.
                 // if the program shut down or if we've completed the render, then we should stop the server
-                match listener.recv() {
-                    Ok(BlenderEvent::Exit) => break,
-                    Ok(status) => {
-                        println!("Listener received unconditionally: {status:?}");
+                if let Ok(event) = listener.try_recv() {
+                    match event {
+                        BlenderEvent::Exit => break,
+                        status => {
+                            println!("Listener received unconditionally: {status:?}");
+                        }
                     }
-                    Err(_e) => {
-                        // TODO: Find a way to switch on verbosity to print these kind of logs.
-                        // if verbosity == Debug {
-                        eprintln!("Received Error: {_e:?}");
-                        // }
-                        break;
-                    }
+                } else {
+                    break;
                 }
             }
         });
