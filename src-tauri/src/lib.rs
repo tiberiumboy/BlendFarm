@@ -30,6 +30,7 @@ use services::{blend_farm::BlendFarm, server::Server, tauri_app::TauriApp};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::path::Path;
 use tokio::spawn;
+use tracing_subscriber::EnvFilter;
 
 use crate::constant::NODE_TOPIC;
 use crate::network::controller::Controller;
@@ -81,6 +82,10 @@ async fn setup_connection(controller: &mut Controller) -> Result<(), Error> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init();
+    
     dotenv().ok();
 
     // to collect user inputs for custom user preferences

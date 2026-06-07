@@ -512,10 +512,9 @@ impl BlendFarm for Server {
 
         let public_addr = Multiaddr::empty();
 
-        let _event =
-            Server::start_worker_service(self.db_conn.clone(), self.manager.clone(), &client)
+        Server::start_worker_service(self.db_conn.clone(), self.manager.clone(), &client)
                 .await
-                .map_err(BlendFarmError::TicketError);
+                .map_err(BlendFarmError::TicketError)?;
 
         // Process pending inputs commands from foreign function interface
         loop {
@@ -584,7 +583,9 @@ impl BlendFarm for Server {
                                 },
                                 ServerEvent::Online(peer_addr, spec) => {
                                     // peer connected with specs.
-                                    // Once a computer becomes online, do nothing?
+                                    // Once a computer becomes online, do the following conditions:
+                                    // If our work queue is empty, we should send this computer a job request message.
+                                    // Only do this if this node is someone we haven't met before.
 
                                     println!("Peer connected with specs provided : {peer_addr:?}\n{spec:?}");
                                     // if we are not connected to host, connect to this one. await further instructions.

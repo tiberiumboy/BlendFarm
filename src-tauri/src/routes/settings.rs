@@ -89,11 +89,10 @@ fn render_list_blenders(list: Vec<BlenderQuery>) -> String {
 // You must call `.manage()` before using this command
 #[command(async)]
 pub async fn add_blender_installation(
-    handle: State<'_, Mutex<AppHandle>>,
+    handle: AppHandle,
     state: State<'_, Mutex<AppState>>, 
 ) -> Result<(), String> {
-    let app = handle.lock().await;
-    let path = match app.dialog().file().blocking_pick_file() {
+    let path = match handle.dialog().file().blocking_pick_file() {
         
         Some(file_path) => match file_path {
                 FilePath::Path(path) => path,

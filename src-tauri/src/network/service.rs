@@ -11,7 +11,7 @@ use futures::StreamExt;
 use futures::channel::oneshot;
 use futures::channel::mpsc::{Receiver, Sender};
 use libp2p::gossipsub::{self, IdentTopic};
-use libp2p::{Multiaddr, mdns};
+use libp2p::mdns;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::SwarmEvent;
 use libp2p::{
@@ -119,7 +119,7 @@ impl Service {
                     .add_address(&peer_id, peer_addr.clone());
 
                 // The main reason why I need to dial this node is so I can
-                //  1. Knows which node I'm talking to.
+                //  1. Know which node I'm talking to.
                 //  2. Distribute render files, blend files, and executables
                 //  3. Performance monitor / Activity Logs
                 match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
@@ -127,6 +127,7 @@ impl Service {
                         e.insert(sender);
                     }
                     Err(e) => {
+                        // TODO: handle expect gracefully.
                         sender.send(Err(Box::new(e))).expect("Should not drop");
                     }
                 }
@@ -252,7 +253,7 @@ impl Service {
             Command::FileService(service) => self.process_file_service(service).await,
 
             // received server status. Can invoke commands from this broadcast event.
-            Command::Message(Some(mut peer_addr), _status) =>  {
+            Command::Message(Some(peer_addr), _status) =>  {
                     
                 // let data = serde_json::to_string(&status).unwrap();
                 // let topic = IdentTopic::new(NODE_TOPIC);
@@ -262,16 +263,16 @@ impl Service {
                 // Here we have the option to dial a peer directly and send the status in private. 
                 // We can exchange ticket information, blender availability, and render contents.
                 
-                let last = peer_addr.pop();
-                match last {
-                    Some(Protocol::P2p(peer_id)) => {
-                        let mut addr = Multiaddr::empty();
-                        addr.push(Protocol::P2p(peer_id));
-                        println!("Removing peer id [{addr}] so this address can be dialed by rust-libp2p");
-                    }
-                    Some(other) => peer_addr.push(other),
-                    _ => {}
-                };
+                // let last = peer_addr.pop();
+                // match last {
+                //     Some(Protocol::P2p(peer_id)) => {
+                //         let mut addr = Multiaddr::empty();
+                //         addr.push(Protocol::P2p(peer_id));
+                //         println!("Removing peer id [{addr}] so this address can be dialed by rust-libp2p");
+                //     }
+                //     Some(other) => peer_addr.push(other),
+                //     _ => {}
+                // };
                 
                 println!("Dialed {}...", &peer_addr);
 
@@ -279,6 +280,9 @@ impl Service {
                 if let Err(e) = self.swarm.dial(peer_addr ) {
                     eprintln!("Unable to dial! {e:?}");
                 }
+                
+                // what do we expect after we dial?
+                println!("What did we get before this print log?");
                 // Ok so I dialed this peer? how can I send this peer a message?
                 // Maybe this is where we can utilize mcps oneshot callback when dial is open for stream/communication
             }
@@ -516,8 +520,13 @@ impl Service {
             } => {
                 // TODO: Could we stream io?
                 // TODO: Toggle verbosity mode?
-                // println!("Connection Established: {peer_id:?}\n{endpoint:?}");
+                println!("Connection Established: Peer: \"{peer_id:?}\" | Endpoint: \"{endpoint:?}\"");
                 if endpoint.is_dialer() {
+                    let remote_address = endpoint.get_remote_address();
+
+                    // try dial?
+                    
+                    /* 
                     let Some(sender) = self.pending_dial.remove(&peer_id) else {
                         eprintln!("Unable to find matching peer id from known pending dial!");
                         return;
@@ -525,6 +534,7 @@ impl Service {
                     if let Err(e) = sender.send(Ok(())) {
                         eprintln!("Unable to respond back, ignoring! {e:?}");
                     }
+                    */
                 }
             }
             // why does it report I/O error? What does it mean closed by peer?

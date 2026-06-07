@@ -29,6 +29,7 @@ incremental = true
 tauri-build = { version = "^2.0", features = [] }
 
 [dependencies]
+tracing-subscriber = {version = "0.3", features = ["env-filter"] }
 libp2p = { version = "^0.56", features = [
     "mdns",
     "macros",

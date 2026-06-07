@@ -34,7 +34,7 @@ use crate::{
 use async_trait::async_trait;
 use bitflags;
 use blender::{
-    blend_file::BlendFile, manager::Manager as BlenderManager, models::mode::RenderMode,
+    blend_file::BlendFile, blender::Blender, manager::Manager as BlenderManager, models::mode::RenderMode
 };
 use futures::{
     SinkExt, StreamExt,
@@ -327,10 +327,18 @@ impl TauriApp {
         }
     }
 
-    async fn handle_blender_command(&mut self, blender_action: BlenderAction) {
-        match blender_action {
-            BlenderAction::Add(_blender) => {
-                todo!("impl adding blender?");
+    async fn handle_blender_command(&mut self, action: BlenderAction) {
+        match action {
+            BlenderAction::Add(blender) => {
+                let Ok(blender) = Blender::from_executable(&blender) else {
+                    eprintln!("Invalid blender file path! {blender:?}");
+                    return;
+                };
+                
+                if let Err(e) = self.manager.add_blender(&blender) {
+                    eprintln!("Unable to append existing blender to manager! {e:?}");
+                    return;
+                }
             }
             BlenderAction::List(mut sender, flags) => {
                 let mut versions = Vec::new();
