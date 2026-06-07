@@ -10,6 +10,7 @@ use futures::SinkExt;
 use futures::StreamExt;
 use futures::channel::oneshot;
 use futures::channel::mpsc::{Receiver, Sender};
+use libp2p::core::ConnectedPoint;
 use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::mdns;
 use libp2p::multiaddr::Protocol;
@@ -280,7 +281,7 @@ impl Service {
                 if let Err(e) = self.swarm.dial(peer_addr ) {
                     eprintln!("Unable to dial! {e:?}");
                 }
-                
+
                 // what do we expect after we dial?
                 println!("What did we get before this print log?");
                 // Ok so I dialed this peer? how can I send this peer a message?
@@ -521,21 +522,20 @@ impl Service {
                 // TODO: Could we stream io?
                 // TODO: Toggle verbosity mode?
                 println!("Connection Established: Peer: \"{peer_id:?}\" | Endpoint: \"{endpoint:?}\"");
-                if endpoint.is_dialer() {
-                    let remote_address = endpoint.get_remote_address();
+                match endpoint {
+                    ConnectedPoint::Dialer { address, .. } => {
+                        let Some(sender) = self.pending_dial.remove(&peer_id) else {
+                            eprintln!("Unable to find matching peer id from known pending dial!");
+                            return;
+                        };
+                        if let Err(e) = sender.send(Ok(())) {
+                            eprintln!("Unable to respond back, ignoring! {e:?}");
+                        }
+                    },
+                    ConnectedPoint::Listener { send_back_addr, .. } => {
 
-                    // try dial?
-                    
-                    /* 
-                    let Some(sender) = self.pending_dial.remove(&peer_id) else {
-                        eprintln!("Unable to find matching peer id from known pending dial!");
-                        return;
-                    };
-                    if let Err(e) = sender.send(Ok(())) {
-                        eprintln!("Unable to respond back, ignoring! {e:?}");
                     }
-                    */
-                }
+                };
             }
             // why does it report I/O error? What does it mean closed by peer?
             // This was called when client starts while manager is running. "Connection error: I/O error: closed by peer: 0"
