@@ -1,32 +1,30 @@
 // here we'll provide basic cli interface controls to list, edit, add, or remove blender installations history.
 // Below the surface should follow simple implementations similar to REST api.
 
-// todo, load the config file here.
-
+use blender::{blender::get_blend_config_from_local, blender::Blender, manager::Manager};
 use std::path::PathBuf;
 // TODO: I only want to use clap for examples, but not include with the whole library itself.
 use clap::{Parser, Subcommand};
-
-use blender::{blender::Blender, manager::Manager};
 use semver::Version;
 
 #[derive(Subcommand, Debug)]
 enum Command {
     Add { path: PathBuf },
     ExactDownload { version: Version },
-    Download { major: u64, minor: u64 }, // minor can accept 0 as default (Wildcard to use latest)
-                                         // Disconnect { target: Version },
-                                         // Delete { target: Version},
+    // minor can accept 0 as default (Wildcard to use latest)
+    Download { major: u64, minor: u64 },
+    // Disconnect { target: Version },
+    // Delete { target: Version},
 }
 
 /// The manager cli is a great way to interface the persistent manager state for BlendFarm services.
 /// This manager responsibility is to fetch and download (Portal), unpack and install (Config) Blenders installation.
-/// It stores a collection of executable path to blender, and holds the version as unique key identifier.
-/// The manager only cares about single instance version of blender that is uniquely bound to the version the software was compiled in.
+/// This struct stores a collection of executable path to blender, and holds the version as unique key identifier.
+/// The manager only cares about single instance version of blender that is bound to the software version.
 ///
 /// Caller can invoke built-in commands to update the persistent storage to include locally installed blender
 /// to the list of available blender installations for BlendFarm to use from.
-/// You can also run commands to download and install specific or latest blender versions available online.
+/// You can also run commands to download and install specific or latest blender version online.
 /// ```
 /// cargo run # Returns list of known configurable blender installation path.
 ///
@@ -44,7 +42,6 @@ struct Args {
     command: Option<Command>,
 }
 
-#[inline]
 fn handle_download_blender(manager: &mut Manager, version: &Version) {
     match manager.fetch_blender(&version) {
         Ok(blender) => println!(
@@ -65,7 +62,8 @@ fn main() {
     // let args: Vec<String> = std::env::args().collect::<Vec<String>>();
     let args = Args::parse();
 
-    let mut manager = Manager::load().expect(&format!(
+    let config = get_blend_config_from_local().expect("Must have blender config to continue!");
+    let mut manager = Manager::load(config).expect(&format!(
         "Unable to launch manager, must have valid config!"
     ));
 
@@ -96,7 +94,8 @@ fn main() {
               // },
               // Command::Delete { target } => todo!(),
         },
-        None => manager.get_config()
+        None => manager
+            .get_config()
             .get_blenders()
             .iter()
             .for_each(|v| println!("{v:?}")),

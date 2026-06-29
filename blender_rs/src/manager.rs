@@ -23,55 +23,32 @@ use crate::page_cache::PageCache;
 use crate::services::category;
 use crate::services::packages::package::{Package, PackageT};
 use crate::services::portal::Portal;
-
-use figment::{Figment, providers::{Format, Toml, Yaml, Json, Env}};
 use semver::Version;
 use std::path::Path;
 use std::sync::{OnceLock, RwLock};
 use std::{fs, path::PathBuf};
-use thiserror::Error;
 use url::Url;
-
-// TODO: find a way to simplify this with a base keyword.
-const SETTINGS_PATH_JSON: &str = "BlendFarm/BlenderManager.json";
-const SETTINGS_PATH_TOML: &str = "BlendFarm/BlenderManager.toml";
-const SETTINGS_PATH_YAML: &str = "BlendFarm/BlenderManager.yaml";
 
 // I would like this to be a feature only crate. blender by itself should be lightweight and interface with the program directly.
 // could also implement serde as optionals?
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum ManagerError {
-    #[error("Unsupported OS: {0}")]
     UnsupportedOS(String),
-    #[error("Unsupported Archtecture: {0}")]
     UnsupportedArch(String),
-    #[error("Unable to extract content: {0}")]
     UnableToExtract(String),
-    #[error("Unable to fetch download from the source! {0}")]
     FetchError(String),
-    #[error("Cannot find target download link for blender! os: {os} | arch: {arch} | url: {url}")]
     DownloadNotFound {
         arch: String,
         os: String,
         url: String,
     },
-    #[error("Unable to fetch blender! {0}")]
     RequestError(String),
-    #[error("IO Error: {0}")]
-    IoError(#[from] std::io::Error),
-    #[error("Config Error: {0}")]
-    FigmentError(#[from] figment::Error),
-    #[error("Serde_Json: {0}")]
-    SerdeJson(#[from] serde_json::Error),
-    #[error("Category error: {0}")]
-    Category(#[from] category::BlenderCategoryError),
-    #[error("Url ParseError: {0}")]
+    IoError(std::io::Error),
+    SerdeJson(serde_json::Error),
+    Category(category::BlenderCategoryError),
     UrlParseError(String),
-    #[error("Page cache error: {0}")]
     PageCacheError(String),
-    #[error("Blender error: {source}")]
     BlenderError {
-        #[from]
         source: crate::blender::BlenderError,
     },
 }
@@ -105,7 +82,6 @@ impl Manager {
         Manager {
             config: RwLock::new(config),
             portal: RwLock::new(portal),
-            // page_cache: RwLock::new(page_cache),
         }
     }
 
@@ -117,23 +93,30 @@ impl Manager {
     }
 
     /// Load the manager data from the config file.
-    pub fn load() -> Result<Self, ManagerError> {        
-        let config_path = dirs::config_dir().expect("Must have a valid config location!");
-        let config = Figment::new()
-            .merge(Toml::file(config_path.join(SETTINGS_PATH_TOML)))
-            .merge(Yaml::file(config_path.join(SETTINGS_PATH_YAML)))
-            .merge(Env::prefixed("BlendFarm_"))
-            .join(Json::file(config_path.join(SETTINGS_PATH_JSON)))
-            .extract::<BlenderConfig>()?;
-        
+    // TODO: Remove figment and let application owner be responsible for loading config file. we expect applciation owner to provide us BlendConfig data instead.
+    // use figment::{
+    //     providers::{Env, Format, Json, Toml, Yaml},
+    //     Figment,
+    // };
+    // const SETTINGS_PATH_JSON: &str = "BlendFarm/BlenderManager.json";
+    // const SETTINGS_PATH_TOML: &str = "BlendFarm/BlenderManager.toml";
+    // const SETTINGS_PATH_YAML: &str = "BlendFarm/BlenderManager.yaml";
+    pub fn load(config: BlenderConfig) -> Result<Self, ManagerError> {
+        //     let config = Figment::new()
+        //         .merge(Toml::file(config_path.join(SETTINGS_PATH_TOML)))
+        //         .merge(Yaml::file(config_path.join(SETTINGS_PATH_YAML)))
+        //         .merge(Env::prefixed("BlendFarm_"))
+        //         .join(Json::file(config_path.join(SETTINGS_PATH_JSON)))
+        //         .extract::<BlenderConfig>()?;
+
         let download_path: &PathBuf = &config.clone().into();
 
-        // TODO: we'll load cache services here
+        //     // TODO: we'll load cache services here
         // let cache_path = &config.cache_dir;
         // let mut page_cache = PageCache::load().expect("Had issue loading PageCache!");
         let mut cache = Self::cache().write().unwrap();
         let portal = Portal::fetch(&download_path, &mut cache)?;
-        cache.save()?;
+        cache.save().map_err(ManagerError::IoError)?;
         Ok(Self::new(config, portal))
     }
 
@@ -238,18 +221,15 @@ pub mod tests {
     use super::*;
     use crate::models::blender_config::tests::mock_blender_config;
     use crate::services::portal::tests::mock_portal;
-    
+
     pub fn mock_manager() -> Manager {
         let config = mock_blender_config();
         let config = RwLock::new(config);
 
         let portal = mock_portal();
         let portal = RwLock::new(portal);
-        
-        Manager {
-            config,
-            portal
-        }
+
+        Manager { config, portal }
     }
 
     #[test]

@@ -9,27 +9,26 @@ edition = "2021"
 
 [dependencies]
 dirs = "6.0.0"
-regex = "^1.11.1"
+# TODO: Find a way to utilize regex as lighter package implementation.
 lazy-regex = "^3.6"
-semver = { version = "^1.0", features = ["serde"] }
-serde = { version = "^1.0", features = ["derive"] }
-serde_json = "^1.0"
-url = { version = "^2.5.4", features = ["serde"] }
-thiserror = "^2.0"
-uuid = { version = "^1.21", features = ["serde", "v4"] }
-ureq = { version = "^3.0" }
+semver = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = { version = "2", features = ["serde"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+ureq = "3"
 blend = "0.8.0"
-tokio = { version = "^1.49", features = ["full"] }
-# TODO: Clap is only ever used in examples. Do not include clap for release mode build. Add a feature switch to include examples.
-clap = { version = "4.6.0", features = ["derive"] }
-figment = { version = "^0.10", features = ["json", "yaml", "toml", "env"] }
+tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+clap = { version = "4.6", features = ["derive"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-zip = "^8.1"
+zip = "8.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-dmg = { version = "^0.1" }
+dmg = { version = "0.1" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-xz = { version = "^0.1" }
-tar = { version = "^0.4" }
+xz = { version = "0.1" }
+tar = { version = "0.4" }

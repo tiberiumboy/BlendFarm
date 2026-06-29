@@ -64,7 +64,10 @@ impl Package {
         destination: impl AsRef<Path>,
     ) -> Result<Package, BlenderCategoryError> {
         match self {
-            Package::Metadata(link) => Ok(link.download(&destination)?.extract()),
+            Package::Metadata(link) => Ok(link
+                .download(&destination)
+                .map_err(BlenderCategoryError::Io)?
+                .extract()),
             Package::Downloaded(link) => Ok(link.extract()),
             // These two are ok since they were already ready to begin with
             // Package::Executable(..) => Ok(self),

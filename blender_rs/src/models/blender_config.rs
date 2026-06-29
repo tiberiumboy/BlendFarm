@@ -1,9 +1,13 @@
 use crate::blender::Blender;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::{Path, PathBuf}};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
-    // could I use this to describe in a TOML/YAML/JSON file?
+// could I use this to describe in a TOML/YAML/JSON file?
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlenderConfig {
     /// List of installed blenders
@@ -126,8 +130,8 @@ pub mod tests {
         // TODO: Find a way to mock these properties?
         let install_path = PathBuf::new();
         BlenderConfig {
-           blenders,
-           install_path
+            blenders,
+            install_path,
         }
     }
 }

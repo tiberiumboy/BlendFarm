@@ -57,7 +57,9 @@ WARN:
 
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
+pub use crate::models::blender_config::BlenderConfig;
 use crate::models::event::BlenderEvent;
+pub use crate::utils::get_blend_config_from_local;
 
 #[cfg(test)]
 use blend::Instance;
@@ -71,33 +73,25 @@ use std::{
     path::{Path, PathBuf},
     sync::mpsc::{self, Receiver, Sender},
 };
-use thiserror::Error;
 use tokio::spawn;
 use tokio::task::JoinHandle;
 
 pub type Frame = i32;
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum BlenderError {
-    #[error("Unable to call blender!")]
     ExecutableInvalid,
-    #[error("Path to executable not found! {0}")]
     ExecutableNotFound(PathBuf),
-    #[error("Invalid file path! {0}")]
     InvalidFile(String),
-    #[error("Unable to render! Error: {0}")]
     RenderError(String),
-    #[error("Unable to launch blender! Received Python errors: {0}")]
     PythonError(String),
-    #[error("Unable to fetch info from blender home service! Are you connected to the internet and is blender foundation still around?")]
     ServiceOffline,
-    #[error("Unable to parse ints from stream! {0}")]
-    ParseInt(#[from] ParseIntError),
+    ParseInt(ParseIntError),
 }
 
 // [Note] In the sense of PartialOrd, Ord - Blender's executable would not matter if the version is identical.
-/// Blender structure to hold path to executable and version of blender installed.
-/// Pretend this is the wrapper to interface with the actual blender program.
+/// Blender structure is to hold path to executable and version of blender installed.
+/// This is the wrapper to interface with the actual blender program.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Blender {
     /// Path to blender executable on the system.
@@ -527,15 +521,42 @@ impl Blender {
 }
 
 // TODO: impl unit test for blender specifically.
-/*
 #[cfg(test)]
 mod test {
     use super::*;
 
-    #[test]
-    fn should_run() {}
+    // #[test]
+    // fn should_run() {}
+
+    // #[test]
+    // fn should_render() {}
+
+    fn mock_blender(path: Option<PathBuf>, version: Version) -> Blender {
+        match path {
+            Some(executable) => Blender {
+                executable,
+                version,
+            },
+            None => Blender {
+                executable: PathBuf::new(),
+                version,
+            },
+        }
+    }
 
     #[test]
-    fn should_render() {}
+    fn blender_match_version_succeed() {
+        // https://download.blender.org/release/Blender4.0/
+        let lvalue = mock_blender(None, Version::new(4, 0, 1));
+        let rvalue = mock_blender(None, Version::new(4, 0, 1));
+        assert!(&lvalue.eq(&rvalue));
+
+        // older version, lvalue should be greater.
+        let rvalue = mock_blender(None, Version::new(3, 6, 9));
+        assert!(&lvalue.gt(&rvalue));
+
+        // newer patch, lvalue should be less than.
+        let rvalue = mock_blender(None, Version::new(4, 0, 2));
+        assert!(&lvalue.lt(&rvalue));
+    }
 }
-*/

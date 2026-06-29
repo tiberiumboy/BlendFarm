@@ -8,24 +8,20 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::env::consts;
+use std::io::Error as IoError;
 use std::path::Path;
-use thiserror::Error;
 use url::Url;
 
 // I have a situation where I can create this object, but not yet populate the download list.
 // There are two ways to load the list, one from page cache, assuming we have already visited the website
 // and the second is to load the website content, but also update the page cache to avoid revisitation and suspectible to DDoS/IP ban
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum BlenderCategoryError {
-    #[error("Architecture type \"{0}\" is not supported!")]
     InvalidArch(String),
-    #[error("Unsupported operating system: {0}")]
     UnsupportedOS(String),
-    #[error("Not found")]
     NotFound,
-    #[error("Io Error")]
-    Io(#[from] std::io::Error),
+    Io(IoError),
 }
 
 // Blender Category is a sub page within download.blender.org/release page, this page contains all of the urls associated with arch, os, and bits.

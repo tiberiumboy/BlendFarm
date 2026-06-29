@@ -34,11 +34,9 @@ impl BlendFile {
     }
 
     pub fn new(path_to_blend_file: impl AsRef<Path>) -> Result<Self, BlenderError> {
-        let blend = Blend::from_path(&path_to_blend_file)
-            // BUG: *BlendParseError contains different traits that's preventing me using anyhow error traits implementation.
-            .map_err(|e| {
-                BlenderError::InvalidFile(format!("Received BlenderParseError! {e:?}").to_owned())
-            })?;
+        let blend = Blend::from_path(&path_to_blend_file).map_err(|e| {
+            BlenderError::InvalidFile(format!("Received BlenderParseError! {e:?}").to_owned())
+        })?;
 
         // blender version are display as three digits number, e.g. 404 is major: 4, minor: 4.
         // treat this as a u16 major = u16 / 100, minor = u16 % 100;

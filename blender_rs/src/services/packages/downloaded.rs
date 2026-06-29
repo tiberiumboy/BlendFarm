@@ -35,9 +35,9 @@ impl Downloaded {
         #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         return Err(BlenderCategoryError::UnsupportedOS(OS.into()));
 
-        let ext = get_extension()
-            .map_err(|e| IoError::other(format!("Cannot run blender under this OS: {}!", e)))?;
+        let ext = get_extension().map_err(|e| BlenderCategoryError::UnsupportedOS(e.into()))?;
         // A hack- get_extension does not include period, so we need to include the period to generate the folder name correctly
+        // TODO: is there a better way to handle this extension replacement?
         let folder_name = self.origin.file_name.replace(&format!(".{ext}"), ""); // remove the extension
         Ok(self.content.parent().unwrap().join(folder_name))
     }
