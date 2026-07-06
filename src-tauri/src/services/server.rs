@@ -26,14 +26,14 @@ use async_lock::RwLock;
 use async_trait::async_trait;
 use blender::blender::{Frame, Manager as BlenderManager, ManagerError};
 use blender::models::event::BlenderEvent;
-use libp2p::{Multiaddr, PeerId};
 use futures::channel::mpsc::Receiver;
+use libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use thiserror::Error;
+// use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 use tokio::{select /* spawn */};
 use uuid::Uuid;
@@ -76,16 +76,28 @@ pub enum ServerEvent {
     NewTickets(Ticket),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)] // Error
 enum ServerError {
-    #[error("Encounter an network error! \n{0:}")]
-    NetworkError(#[from] message::NetworkError),
-    #[error("Encounter an IO error! \n{0}")]
-    Io(#[from] async_std::io::Error),
-    #[error("Manager Error: {0}")]
-    ManagerError(#[from] ManagerError),
-    #[error("Task Error: {0}")]
-    BlendFarmError(#[from] BlendFarmError),
+    // #[error("Encounter an network error! \n{0:}")]
+    NetworkError(
+        // #[from]
+        message::NetworkError,
+    ),
+    // #[error("Encounter an IO error! \n{0}")]
+    Io(
+        // #[from]
+        async_std::io::Error,
+    ),
+    // #[error("Manager Error: {0}")]
+    ManagerError(
+        // #[from]
+        ManagerError,
+    ),
+    // #[error("Task Error: {0}")]
+    BlendFarmError(
+        // #[from]
+        BlendFarmError,
+    ),
 }
 
 /// The behaviour described in the Cli App can be summarize below:
@@ -107,6 +119,7 @@ pub struct Server {
     settings: ServerSetting,
 
     // current server specs
+    // TODO: find a way to make this private instead of public. Can we figure out why this is necessary?
     pub spec: ComputerSpec,
 }
 
@@ -181,7 +194,7 @@ impl Server {
             // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
             return Self::handle_get_file(client, &file_name, &search_directory.to_path_buf())
                 .await
-                .map_err(ServerError::BlendFarmError)
+                .map_err(ServerError::BlendFarmError);
         }
 
         Ok(project_file_path)
@@ -513,8 +526,8 @@ impl BlendFarm for Server {
         let public_addr = Multiaddr::empty();
 
         Server::start_worker_service(self.db_conn.clone(), self.manager.clone(), &client)
-                .await
-                .map_err(BlendFarmError::TicketError)?;
+            .await
+            .map_err(BlendFarmError::TicketError)?;
 
         // Process pending inputs commands from foreign function interface
         loop {
@@ -635,7 +648,7 @@ impl BlendFarm for Server {
                 },
                 // can I send this command to net event?
                 msg = command.recv() => match msg {
-                    Some(cmd) => self.handle_command(&mut client, cmd).await?,
+                    Some(cmd) => self.handle_command(&mut client, cmd).await.map_err(BlendFarmError::NetworkError)?,
                     None => {
                         println!("None was received, continue?");
                         break Ok(())

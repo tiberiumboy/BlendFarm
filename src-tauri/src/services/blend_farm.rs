@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::path::PathBuf;
 
 use crate::domains::ticket_store::TicketError;
@@ -9,17 +10,39 @@ use futures::FutureExt;
 use futures::channel::mpsc::Receiver;
 use futures::channel::oneshot;
 use libp2p_request_response::ResponseChannel;
-use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug)] // Error
 pub enum BlendFarmError {
     // TODO: List out all possible error this program could produce.
-    #[error("Ticket error: {0}")]
-    TicketError(#[from] TicketError),
-    #[error("Network error: {0}")]
-    NetworkError(#[from] NetworkError),
-    #[error("Io error: {0}")]
-    IoError(#[from] std::io::Error)
+    // #[error("Ticket error: {0}")]
+    TicketError(
+        // #[from]
+        TicketError,
+    ),
+    // #[error("Network error: {0}")]
+    NetworkError(
+        // #[from]
+        NetworkError,
+    ),
+    // #[error("Io error: {0}")]
+    IoError(
+        // #[from]
+        std::io::Error,
+    ),
+}
+
+impl Display for BlendFarmError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlendFarmError::TicketError(ticket_error) => {
+                f.write_str(&format!("Received Ticket error: {ticket_error:?}"))
+            }
+            BlendFarmError::NetworkError(network_error) => {
+                f.write_str(&format!("Received network error: {network_error:?}"))
+            }
+            BlendFarmError::IoError(error) => f.write_str(&format!("Received Io Error: {error:?}")),
+        }
+    }
 }
 
 #[async_trait]
@@ -56,9 +79,11 @@ pub trait BlendFarm {
         }
     }
 
-    async fn handle_get_file(client: &mut NetworkController, file_name: &str, destination: &PathBuf) -> 
-        Result<PathBuf, BlendFarmError> 
-    {
+    async fn handle_get_file(
+        client: &mut NetworkController,
+        file_name: &str,
+        destination: &PathBuf,
+    ) -> Result<PathBuf, BlendFarmError> {
         let providers = client.get_providers(&file_name).await;
         let file_path = destination.join(file_name);
 
@@ -67,10 +92,14 @@ pub trait BlendFarm {
             async move { network_client.request_file(&p, file_name).await }.boxed()
         });
 
-        let file_content = futures::future::select_ok(requests).await.map_err(|_| NetworkError::NoPeerProviderFound)?
+        let file_content = futures::future::select_ok(requests)
+            .await
+            .map_err(|_| BlendFarmError::NetworkError(NetworkError::NoPeerProviderFound))?
             .0;
 
-        async_std::fs::write(file_path.clone(), file_content).await.map_err(BlendFarmError::IoError)?;
+        async_std::fs::write(file_path.clone(), file_content)
+            .await
+            .map_err(BlendFarmError::IoError)?;
         Ok(file_path)
     }
 }

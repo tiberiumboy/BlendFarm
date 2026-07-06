@@ -28,6 +28,8 @@ use dotenvy::dotenv;
 use libp2p::Multiaddr;
 use services::{blend_farm::BlendFarm, server::Server, tauri_app::TauriApp};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use tokio::spawn;
 use tracing_subscriber::EnvFilter;
@@ -85,7 +87,7 @@ pub async fn run() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
-    
+
     dotenv().ok();
 
     // to collect user inputs for custom user preferences
@@ -94,6 +96,14 @@ pub async fn run() {
     // TODO: figure out how we can handle database path?
     let config_path = dirs::config_dir().unwrap().join("BlendFarm");
     let db_path = config_path.join(constant::DATABASE_FILE_NAME);
+
+    let mut reader = File::open(config_path.join("BlenderManager.json"))
+        .expect("Must have blender manager configuration!");
+    let mut data = String::new();
+    reader
+        .read_to_string(&mut data)
+        .expect("Unable to read the file!");
+    let config = serde_json::from_str(&data).expect("Blender Manager configuration is malformed!");
 
     // initialize database connection (We need a place to store persistent storage)
     let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db(db_path)
@@ -114,7 +124,7 @@ pub async fn run() {
         eprintln!("Fail to setup connection! {e:?}");
     }
 
-    let manager = BlenderManager::load().expect("Must have blender configuration to load!");
+    let manager = BlenderManager::load(config).expect("Must have blender configuration to load!");
 
     // This server settings is different than blender config.
     // Server Settings is used for Manager client only, to help organize and arrange file structure for completed render image results.

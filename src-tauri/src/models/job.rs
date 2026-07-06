@@ -115,7 +115,6 @@ pub struct Job {
     output: Output,
 
     // TODO: What about stem? Does blender file have stem information?
-
     /// List of task created by the runners This serves as a job history and transaction that perform the job
     tasks: Vec<Ticket>,
 }
@@ -144,10 +143,9 @@ impl Job {
         version: Version,
         output: PathBuf,
     ) -> Result<Self, JobError> {
-        match BlendFile::new(project_file) {
-            Ok(file) => Ok(Job::new(mode, file, version, output)),
-            Err(e) => Err(JobError::InvalidFile(e.to_string())),
-        }
+        Ok(BlendFile::new(project_file)
+            .map(|file| Job::new(mode, file, version, output))
+            .map_err(JobError::Blender)?)
     }
 
     pub fn get_range(&self) -> (Frame, Frame) {
@@ -166,7 +164,7 @@ impl Job {
 
     pub fn get_blender_version(&self) -> &Version {
         &self.blender_version
-    } 
+    }
 }
 
 impl PartialEq for Job {

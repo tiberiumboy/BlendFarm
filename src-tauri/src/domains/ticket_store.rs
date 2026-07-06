@@ -1,20 +1,49 @@
+use std::fmt::Display;
+
 use crate::models::ticket::{CreatedTicketDto, Ticket};
 use blender::{blender::BlenderError, manager::ManagerError};
-use thiserror::Error;
+// use thiserror::Error;
 use uuid::Uuid;
 
-#[derive(Debug, Error)]
+#[derive(Debug)] /* Error */
 pub enum TicketError {
-    #[error("Unknown")]
+    // #[error("Unknown")]
     Unknown,
-    #[error("Database error: {0}")]
-    DatabaseError(#[from] sqlx::Error),
-    #[error("Manager Error: {0}")]
-    Manager(#[from] ManagerError),
-    #[error("Something wring with blender: {0}")]
-    BlenderError(#[from] BlenderError),
-    #[error("Unable to get temp storage location")]
+    // #[error("Database error: {0}")]
+    DatabaseError(
+        // #[from]
+        sqlx::Error,
+    ),
+    // #[error("Manager Error: {0}")]
+    Manager(
+        // #[from]
+        ManagerError,
+    ),
+    // #[error("Something wring with blender: {0}")]
+    BlenderError(
+        // #[from]
+        BlenderError,
+    ),
+    // #[error("Unable to get temp storage location")]
     CacheError,
+}
+
+impl Display for TicketError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TicketError::Unknown => f.write_str("Unknown! How did you do this?"),
+            TicketError::DatabaseError(error) => {
+                f.write_str(&format!("Received Database error: {error:?}"))
+            }
+            TicketError::Manager(manager_error) => {
+                f.write_str(&format!("Received Manager error: {manager_error:?}"))
+            }
+            TicketError::BlenderError(blender_error) => {
+                f.write_str(&format!("Received Blender error: {blender_error:?}"))
+            }
+            TicketError::CacheError => f.write_str("Received cache error!"),
+        }
+    }
 }
 
 #[async_trait::async_trait]

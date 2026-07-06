@@ -255,6 +255,22 @@ impl Service {
 
             // received server status. Can invoke commands from this broadcast event.
             Command::Message(Some(peer_addr), _status) =>  {
+
+                if let Err(e) = self.swarm.dial(peer_addr.clone()) {
+                    eprintln!("Fail to dial [{:?}]: {e:?}", &peer_addr);
+                    return;
+                }
+
+                // now how do we send the status to that specific peer?
+                // self.swarm.behaviour_mut().
+
+                // here if we have some, we need to dial this peer_id, and send the status to that target peer_id.
+                // match status {
+                //     ServerEvent::RequestTicket(requestor) => {
+                //         self.swarm.dial(requestor)?;
+                //     },
+                //     _ => eprintln!("Unhandle [{status}]!")
+                // };
                     
                 // let data = serde_json::to_string(&status).unwrap();
                 // let topic = IdentTopic::new(NODE_TOPIC);
@@ -275,16 +291,12 @@ impl Service {
                 //     _ => {}
                 // };
                 
-                println!("Dialed {}...", &peer_addr);
-
                 // the method goes is that we need the self.swarm to implement the behaviour of communicating 
-                if let Err(e) = self.swarm.dial(peer_addr ) {
-                    eprintln!("Unable to dial! {e:?}");
-                }
+                // if let Err(e) = self.swarm.dial(peer_addr ) {
+                //     eprintln!("Unable to dial! {e:?}");
+                // }
 
                 // what do we expect after we dial?
-                println!("What did we get before this print log?");
-                // Ok so I dialed this peer? how can I send this peer a message?
                 // Maybe this is where we can utilize mcps oneshot callback when dial is open for stream/communication
             }
             // Received broadcast signal
@@ -523,7 +535,7 @@ impl Service {
                 // TODO: Toggle verbosity mode?
                 println!("Connection Established: Peer: \"{peer_id:?}\" | Endpoint: \"{endpoint:?}\"");
                 match endpoint {
-                    ConnectedPoint::Dialer { address, .. } => {
+                    ConnectedPoint::Dialer { .. } => {
                         let Some(sender) = self.pending_dial.remove(&peer_id) else {
                             eprintln!("Unable to find matching peer id from known pending dial!");
                             return;
@@ -532,7 +544,7 @@ impl Service {
                             eprintln!("Unable to respond back, ignoring! {e:?}");
                         }
                     },
-                    ConnectedPoint::Listener { send_back_addr, .. } => {
+                    ConnectedPoint::Listener { .. } => {
 
                     }
                 };

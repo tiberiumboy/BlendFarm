@@ -34,11 +34,12 @@ use crate::{
 use async_trait::async_trait;
 use bitflags;
 use blender::{
-    blend_file::BlendFile, blender::Blender, manager::Manager as BlenderManager, models::mode::RenderMode
+    blend_file::BlendFile, blender::Blender, manager::Manager as BlenderManager,
+    models::mode::RenderMode,
 };
 use futures::{
     SinkExt, StreamExt,
-    channel::mpsc::{self, Sender, Receiver}
+    channel::mpsc::{self, Receiver, Sender},
 };
 use libp2p::{PeerId, multiaddr::Protocol};
 use semver::Version;
@@ -334,7 +335,7 @@ impl TauriApp {
                     eprintln!("Invalid blender file path! {blender:?}");
                     return;
                 };
-                
+
                 if let Err(e) = self.manager.add_blender(&blender) {
                     eprintln!("Unable to append existing blender to manager! {e:?}");
                     return;
@@ -559,7 +560,9 @@ impl TauriApp {
             // Not in used?
             JobEvent::RequestTask => {
                 // a node is requesting task.
-                todo!("Where is this being called from? I tried looking up reference and found this to be the only place used");
+                todo!(
+                    "Where is this being called from? I tried looking up reference and found this to be the only place used"
+                );
                 // let jobs = self.job_store.list_all().await.expect("Should have jobs?");
                 // if let Some(job) = jobs.first() {
                 //     // how do I reply back for this task then?
@@ -584,7 +587,7 @@ impl TauriApp {
     }
 
     // commands received from network
-    async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {       
+    async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
         match event {
             // A node was recently discovered from the network.
             Event::Discovered(..) => {
@@ -597,7 +600,9 @@ impl TauriApp {
             }
             // a network sent us a inbound request - reply back with the file data in channel.
             // yeah I wonder why we can't move this inside network class?
-            Event::InboundRequest { request, channel } => Self::handle_inbound_request(client, request, channel).await,
+            Event::InboundRequest { request, channel } => {
+                Self::handle_inbound_request(client, request, channel).await
+            }
             // Listen to what the server update are happening on the network.
             Event::ServerStatus(event) => self.handle_server_status(client, event).await,
             Event::JobUpdate(update) => self.handle_job_update(client, update).await,
@@ -609,7 +614,7 @@ impl TauriApp {
         match event {
             // a node introduce themselves upon your discovery.
             // why did I not receive this?
-            ServerEvent::Online(mut peer_addr, spec ) => {
+            ServerEvent::Online(mut peer_addr, spec) => {
                 let name = &spec.host;
                 println!("[{}] {name} is online (May be busy).", &peer_addr);
                 // TODO: We could send this information to the front end?
@@ -635,13 +640,15 @@ impl TauriApp {
                     // TODO: See how this can be done: https://github.com/ChristianPavilonis/tauri-htmx-extension
                     // let _ = handle.emit("worker_update");
                 }
-            },
+            }
             ServerEvent::Joined(peer_id) => {
                 println!("A peer [{:?}] has joined the channel", peer_id);
             }
             ServerEvent::NewTickets(_) => {
                 // I'm not sure why someone ask us to do the work from tauri app???
-                println!("I want you to contact the developer and explain why you want the client facing app receive a new ticket job?");
+                println!(
+                    "I want you to contact the developer and explain why you want the client facing app receive a new ticket job?"
+                );
             }
 
             ServerEvent::RequestTicket(peer_addr) => {
@@ -652,7 +659,7 @@ impl TauriApp {
                 let query = match self.job_store.list_all().await {
                     Ok(list) => list.iter().fold(None, |result, item| {
                         if result.is_some() {
-                            return result
+                            return result;
                         }
 
                         // now how do I know if the job is completed or not?
@@ -665,26 +672,28 @@ impl TauriApp {
                             }
                         }
                     }),
-                    _ => return ()
+                    _ => return (),
                 };
 
                 if let Some(ticket) = query {
-                    client.send_peer_message(&peer_addr, ServerEvent::NewTickets(ticket)).await;
+                    client
+                        .send_peer_message(&peer_addr, ServerEvent::NewTickets(ticket))
+                        .await;
                 }
-            },
+            }
             // which node?
             ServerEvent::Rendering(uuid) => {
                 // we received a node update that they're now rendering this uuid.
                 println!("A node is working on {uuid}!");
-            },
+            }
             ServerEvent::RequestJobInfo(job_id) => {
                 println!("A node is requesting job information that matches id {job_id}");
                 // a node is asking for job information that matches this target id
-            },
+            }
             ServerEvent::RemoveJob(job_id) => {
                 // received a signal to remove target job id.
                 println!("Received orders to remove job that matches id {job_id}");
-            },
+            }
             // concerning - this String could be anything?
             // TODO: Find a better way to get around this.
             ServerEvent::Disconnected { peer_id, reason } => {
@@ -693,8 +702,7 @@ impl TauriApp {
                 }
 
                 // So the main issue is that there's no way to identify by the machine id?
-                let peer_id =
-                    PeerId::from_str(&peer_id).expect("Received invalid peer_id string!");
+                let peer_id = PeerId::from_str(&peer_id).expect("Received invalid peer_id string!");
 
                 // probably best to mark the node "inactive" instead?
                 if let Err(e) = self.worker_store.delete_worker(&peer_id).await {

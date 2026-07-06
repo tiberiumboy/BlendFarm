@@ -254,7 +254,7 @@ mod test {
     use crate::{services::tauri_app::TauriApp};
     // use crate::models::constant::test::{EXAMPLE_FILE, EXAMPLE_OUTPUT};
     use anyhow::Error;
-    use futures::channel::mpsc::Receiver;
+    use futures::channel::mpsc::{self, Receiver};
     use ntest::timeout;
     use tauri::{
         test::{mock_builder, MockRuntime},
