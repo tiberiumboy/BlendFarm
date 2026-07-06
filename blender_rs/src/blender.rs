@@ -66,6 +66,7 @@ use blend::Instance;
 use lazy_regex::regex_captures;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 use std::num::ParseIntError;
 use std::process::{Command, Stdio};
 use std::{
@@ -87,6 +88,24 @@ pub enum BlenderError {
     PythonError(String),
     ServiceOffline,
     ParseInt(ParseIntError),
+}
+
+impl Display for BlenderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlenderError::ExecutableInvalid => f.write_str("Executable invalid"),
+            BlenderError::ExecutableNotFound(path_buf) => {
+                f.write_str(&format!("Executable not found at {:?}", path_buf))
+            }
+            BlenderError::InvalidFile(file_name) => {
+                f.write_str(&format!("Invalid file: {file_name}"))
+            }
+            BlenderError::RenderError(message) => f.write_str(&format!("Render error: {message}")),
+            BlenderError::PythonError(message) => f.write_str(&format!("Python error: {message}")),
+            BlenderError::ServiceOffline => f.write_str(&format!("Service offline")),
+            BlenderError::ParseInt(parse_int_error) => f.write_str(&parse_int_error.to_string()),
+        }
+    }
 }
 
 // [Note] In the sense of PartialOrd, Ord - Blender's executable would not matter if the version is identical.
