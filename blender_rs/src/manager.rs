@@ -93,25 +93,10 @@ impl Manager {
     }
 
     /// Load the manager data from the config file.
-    // TODO: Remove figment and let application owner be responsible for loading config file. we expect applciation owner to provide us BlendConfig data instead.
-    // use figment::{
-    //     providers::{Env, Format, Json, Toml, Yaml},
-    //     Figment,
-    // };
-    // const SETTINGS_PATH_JSON: &str = "BlendFarm/BlenderManager.json";
-    // const SETTINGS_PATH_TOML: &str = "BlendFarm/BlenderManager.toml";
-    // const SETTINGS_PATH_YAML: &str = "BlendFarm/BlenderManager.yaml";
     pub fn load(config: BlenderConfig) -> Result<Self, ManagerError> {
-        //     let config = Figment::new()
-        //         .merge(Toml::file(config_path.join(SETTINGS_PATH_TOML)))
-        //         .merge(Yaml::file(config_path.join(SETTINGS_PATH_YAML)))
-        //         .merge(Env::prefixed("BlendFarm_"))
-        //         .join(Json::file(config_path.join(SETTINGS_PATH_JSON)))
-        //         .extract::<BlenderConfig>()?;
-
         let download_path: &PathBuf = &config.clone().into();
 
-        //     // TODO: we'll load cache services here
+        // TODO: we'll load cache services here
         // let cache_path = &config.cache_dir;
         // let mut page_cache = PageCache::load().expect("Had issue loading PageCache!");
         let mut cache = Self::cache().write().unwrap();
@@ -121,6 +106,7 @@ impl Manager {
     }
 
     // Save the configuration
+    // TODO: what purpose does this serve for the manager to save?
     pub fn save(&self) -> Result<(), ManagerError> {
         todo!("Missing implementation for saving BlenderConfig back to file using Figment");
         // TODO: Use Yaml instead of json

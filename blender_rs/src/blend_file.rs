@@ -1,5 +1,6 @@
 use std::{
     fs,
+    hash::{DefaultHasher, Hasher},
     num::ParseIntError,
     path::{Path, PathBuf},
 };
@@ -61,11 +62,26 @@ impl BlendFile {
         })
     }
 
+    fn calculate_checksum(input: &[u8]) -> u64 {
+        let mut hash = DefaultHasher::new();
+        for bit in input {
+            hash.write_u8(*bit);
+        }
+        hash.finish()
+    }
+
     pub fn setup_args(&self, settings: &BlenderConfiguration) -> Result<Vec<String>, BlenderError> {
         let script_path = Self::get_script_path();
+        let data = include_bytes!("./render.py");
         if !script_path.exists() {
-            let data = include_bytes!("./render.py");
-            fs::write(&script_path, data).map_err(|e| BlenderError::PythonError(e.to_string()))?;
+            fs::write(&script_path, data).map_err(BlenderError::IoError)?;
+        } else {
+            let content = fs::read(&script_path).map_err(BlenderError::IoError)?;
+            let source = Self::calculate_checksum(data);
+            let target = Self::calculate_checksum(&content);
+            if source != target {
+                fs::write(&script_path, data).map_err(BlenderError::IoError)?;
+            }
         }
 
         let path = self.to_path().as_os_str().to_os_string();

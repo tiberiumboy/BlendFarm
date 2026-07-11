@@ -1,6 +1,7 @@
 use blender::blend_file::BlendFile;
 use blender::blender::get_blend_config_from_local;
 use blender::blender::Manager;
+use blender::models::event::RenderEvent;
 use blender::models::{args::Args, event::BlenderEvent};
 use semver::Version;
 use std::fs;
@@ -45,7 +46,7 @@ async fn render_with_manager() {
         .expect("Must be able to collapse to absolute path!");
 
     // Create blender argument
-    let args = Args::new(blend_file, output, 2, 5);
+    let args = Args::new(blend_file, output, 2, 3);
 
     // render the frame. Completed render will return the path of the rendered frame, error indicates failure to render due to blender incompatible hardware settings or configurations. (CPU vs GPU / Metal vs OpenGL)
     let listener = blender
@@ -56,20 +57,26 @@ async fn render_with_manager() {
     // Handle blender status
     while let Ok(status) = listener.recv() {
         match status {
-            BlenderEvent::Completed { frame, result } => {
-                println!("[Completed] {frame} {result:?}");
-            }
-            BlenderEvent::Rendering { current, total } => {
-                let percent = (current / total) * 100.0;
-                println!("[Rendering] {current} out of {total} (%{percent})");
-            }
+            BlenderEvent::Rendering(render_event) => match render_event {
+                RenderEvent::Progress {
+                    frame,
+                    current,
+                    total,
+                } => {
+                    let percent = (current / total) * 100.0;
+                    println!("[Rendering] frame: {frame} | {current} out of {total} (%{percent})");
+                }
+                RenderEvent::Complete { frame, path } => {
+                    println!("[Completed] frame: {frame} | path: {path:?}");
+                }
+            },
             BlenderEvent::Error(e) => {
                 println!("[ERR] {e}");
             }
             BlenderEvent::Warning(msg) => {
                 println!("[WARN] {msg}");
             }
-            BlenderEvent::Log(msg) => {
+            BlenderEvent::Info(msg) => {
                 println!("[LOG] {msg}")
             }
             BlenderEvent::Exit => {

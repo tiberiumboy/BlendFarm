@@ -58,7 +58,7 @@ WARN:
 pub use crate::manager::{Manager, ManagerError};
 pub use crate::models::args::Args;
 pub use crate::models::blender_config::BlenderConfig;
-use crate::models::event::BlenderEvent;
+use crate::models::event::{BlenderEvent, RenderEvent};
 pub use crate::utils::get_blend_config_from_local;
 
 #[cfg(test)]
@@ -75,7 +75,6 @@ use std::{
     sync::mpsc::{self, Receiver, Sender},
 };
 use tokio::spawn;
-use tokio::task::JoinHandle;
 
 pub type Frame = i32;
 
@@ -88,6 +87,7 @@ pub enum BlenderError {
     PythonError(String),
     ServiceOffline,
     ParseInt(ParseIntError),
+    IoError(std::io::Error),
 }
 
 impl Display for BlenderError {
@@ -104,6 +104,7 @@ impl Display for BlenderError {
             BlenderError::PythonError(message) => f.write_str(&format!("Python error: {message}")),
             BlenderError::ServiceOffline => f.write_str(&format!("Service offline")),
             BlenderError::ParseInt(parse_int_error) => f.write_str(&parse_int_error.to_string()),
+            BlenderError::IoError(io_error) => f.write_str(&io_error.to_string()),
         }
     }
 }
@@ -329,19 +330,37 @@ impl Blender {
     // issue here is that we need to lock thread. If we are rendering, we need to be able to call abort.
     pub async fn render(&self, args: Args) -> Result<Receiver<BlenderEvent>, BlenderError> {
         // I'm not even sure why we have two mpsc here for setup_listening_blender to use?
-        let (signal, listener) = mpsc::channel::<BlenderEvent>();
-
-        // let settings = args.parse_from(&self.version).to_owned();
-        let listening_handle = self.setup_listening_server(listener).await?;
+        // let (signal, listener) = mpsc::channel::<BlenderEvent>();
+        // let listening_handle = spawn(async move {
+        //     loop {
+        //         // TODO: The logic here doesn't make much sense for this class / program to handle and substitute the state.
+        //         // I believe this function was design to stop the listening server if blender was completed or closed unexpected.
+        //         // We don't have any other state to control and govern this threaded task.
+        //         // if the program shut down or if we've completed the render, then we should stop the server
+        //         if let Ok(event) = listener.try_recv() {
+        //             match event {
+        //                 BlenderEvent::Exit => break,
+        //                 status => {
+        //                     println!("Listener received unconditionally: {status:?}");
+        //                 }
+        //             }
+        //         } else {
+        //             break;
+        //         }
+        //     }
+        // });
 
         let (rx, tx) = mpsc::channel::<BlenderEvent>();
         let blender = self.clone();
 
         spawn(async move {
-            if let Err(e) = &blender.setup_listening_blender(&args, rx, signal).await {
+            if let Err(e) = &blender
+                .setup_listening_blender(&args, rx /*, signal*/)
+                .await
+            {
                 // where can we get this log info?
                 println!("Received blender error from setup listening blender logs {e:?}");
-                listening_handle.abort();
+                // listening_handle.abort();
             }
         });
 
@@ -349,73 +368,44 @@ impl Blender {
         Ok(tx)
     }
 
-    #[inline]
-    async fn setup_listening_server(
-        &self,
-        listener: Receiver<BlenderEvent>,
-    ) -> Result<JoinHandle<()>, BlenderError> {
-        let handle = spawn(async move {
-            loop {
-                // TODO: The logic here doesn't make much sense for this class / program to handle and substitute the state.
-                // I believe this function was design to stop the listening server if blender was completed or closed unexpected.
-                // We don't have any other state to control and govern this threaded task.
-                // if the program shut down or if we've completed the render, then we should stop the server
-                if let Ok(event) = listener.try_recv() {
-                    match event {
-                        BlenderEvent::Exit => break,
-                        status => {
-                            println!("Listener received unconditionally: {status:?}");
-                        }
-                    }
-                } else {
-                    break;
-                }
-            }
-        });
-
-        Ok(handle)
-    }
-
     // setup xml-rpc listening server for blender's IPC
     async fn setup_listening_blender(
         &self,
         args: &Args,
         tx: Sender<BlenderEvent>, // Transmission to Application subscribing to this class logger
-        signal: Sender<BlenderEvent>, // Used to stop the listening service.
     ) -> Result<(), BlenderError> {
+        // TODO: parse_from seems redundant?
         let settings = args.parse_from(None);
         let col = &args.file.setup_args(&settings)?;
-        // TODO: Find a way to remove unwrap()
         // TODO: How do I know if the program has successfully exit? what is keeping the stream open?
         let stdout = Command::new(self.get_executable())
             .args(col)
             .stdout(Stdio::piped())
             .spawn()
-            .unwrap()
+            .map_err(BlenderError::IoError)?
             .stdout
-            .unwrap();
+            .ok_or(BlenderError::RenderError(
+                "Unable to retrieve std output!".to_owned(),
+            ))?;
 
         let reader = BufReader::new(stdout);
-
-        // parse stdout for human to read
-        let mut frame: i32 = 0;
-
+        let mut current_frame = 0i32;
         reader.lines().for_each(|line| match line {
-            Ok(line) => Self::handle_blender_stdio(line, &mut frame, &tx, &signal),
+            Ok(line) if !line.is_empty() => {
+                let event = Self::read_blender_stdio(line, &mut current_frame);
+                if let Err(e) = &tx.send(event) {
+                    eprintln!("Fail to send event! {e:?}");
+                }
+            }
+            // Receive empty string for some reason, do nothing.
+            Ok(_) => (),
             Err(e) => eprintln!("Received error from Blender Bufreader: {e:?}"),
         });
 
         Ok(())
     }
 
-    // TODO: This function updates a value above this scope -> See if we can just return the value instead?
-    // TODO: Can we use stream instead? how can we parse data from blender into recognizable style?
-    fn handle_blender_stdio(
-        line: String,
-        frame: &mut i32,
-        tx: &Sender<BlenderEvent>, // Transmission to Application subscribing events produce by this struct
-        signal: &Sender<BlenderEvent>, // Signal for this class to listen and act upon.
-    ) {
+    fn read_blender_stdio(line: String, frame: &mut i32) -> BlenderEvent {
         match line {
             // TODO: find a more elegant way to parse the string std out and handle invocation action.
             line if line.contains("Fra:") => {
@@ -428,115 +418,69 @@ impl Blender {
                 }
                 let last = col.last().unwrap().trim();
                 let slice = last.split(' ').collect::<Vec<&str>>();
-                let msg = match slice[0] {
+                match slice[0] {
                     "Rendering" => {
                         let current = slice[1].parse::<f32>().unwrap();
                         let total = slice[3].parse::<f32>().unwrap();
-                        BlenderEvent::Rendering { current, total }
+                        let event = RenderEvent::Progress {
+                            frame: *frame,
+                            current,
+                            total,
+                        };
+                        BlenderEvent::Rendering(event)
                     }
                     _ => BlenderEvent::Unhandled(line),
-                };
-                tx.send(msg).unwrap();
+                }
             }
 
-            line if line.starts_with("Time:") => {
-                tx.send(BlenderEvent::Log(line)).unwrap();
-            }
+            // Do I need to care about the time?
+            line if line.starts_with("Time:") => BlenderEvent::Info(line),
             // Python logs get injected to stdio
-            line if line.starts_with("SUCCESS:") => {
-                // somehow I received an error from sending?
-                tx.send(BlenderEvent::Log(line)).unwrap();
-            }
-            line if line.starts_with("LOG:") => {
-                tx.send(BlenderEvent::Log(line)).unwrap();
-            }
-            line if line.contains("Use:") => {
-                tx.send(BlenderEvent::Log(line)).unwrap();
-            }
-            line if line.contains("RENDER_START:") => {
-                tx.send(BlenderEvent::Log(line)).unwrap();
-            }
-
-            // it would be nice if we can somehow make this as a struct or enum of types?
+            line if line.starts_with("LOG:") => BlenderEvent::Info(line),
+            line if line.contains("Use:") => BlenderEvent::Info(line),
             line if line.contains("Saved:") => {
-                // TODO: Test this for OSX compatibility
                 let location = line.split('\'').collect::<Vec<&str>>();
-                let result = PathBuf::from(location[1]);
-                tx.send(BlenderEvent::Completed {
+                let event = RenderEvent::Complete {
                     frame: *frame,
-                    result,
-                })
-                .unwrap();
+                    path: PathBuf::from(location[1]),
+                };
+                BlenderEvent::Rendering(event)
             }
 
             // Strange how this was thrown, but doesn't report back to this program?
             // [ERR] Error: Engine 'BLENDER_EEVEE_NEXT' not available for scene 'Scene' (an add-on may need to be installed or enabled)
-            line if line.starts_with("EXCEPTION:") => {
-                // Why would this crash?
-                if let Err(e) = signal.send(BlenderEvent::Exit) {
-                    println!("Fail to send error! {e:?}\n{line}");
-                }
-                if let Err(e) = tx.send(BlenderEvent::Error(line.to_owned())) {
-                    println!("Fail to send error! {e:?}\n{line}");
-                }
-            }
+            line if line.starts_with("EXCEPTION:") => BlenderEvent::Error(line.to_owned()),
 
-            line if line.starts_with("COMPLETED") => {
-                signal.send(BlenderEvent::Exit).unwrap();
-                tx.send(BlenderEvent::Exit).unwrap();
-            }
+            line if line.starts_with("COMPLETED") => BlenderEvent::Exit,
 
             // When launch blender for the first time, it prints out the version number and the hash information about the build)
             line if line.starts_with("Blender ") => {
                 // if the line reads "Blender quit", we should send BlenderEvent::Exit signal
                 if line.eq_ignore_ascii_case("blender quit") {
-                    tx.send(BlenderEvent::Exit).unwrap();
-                    // Here we need to stop the runner?
+                    BlenderEvent::Exit
                 } else {
-                    tx.send(BlenderEvent::Log(line)).unwrap();
+                    BlenderEvent::Info(line)
                 }
             }
 
             // Blender prints out reading blender files, here we'll just log the info anyway (We already have the information)
-            line if line.starts_with("Read blend: ") => {
-                tx.send(BlenderEvent::Log(line)).unwrap();
-            }
+            line if line.starts_with("Read blend: ") => BlenderEvent::Info(line),
 
-            line if line.starts_with("regiondata free error") => {
-                tx.send(BlenderEvent::Warning(line)).unwrap()
-            }
+            line if line.starts_with("regiondata free error") => BlenderEvent::Warning(line),
 
-            line if line.starts_with("Color management: ") => {
-                tx.send(BlenderEvent::Log(line)).unwrap();
-            }
+            line if line.starts_with("Color management: ") => BlenderEvent::Info(line),
 
             // TODO: Warning keyword is used multiple of times. Consider removing warning apart and submit remaining content above
-            line if line.contains("Warning:") => {
-                tx.send(BlenderEvent::Warning(line.to_owned())).unwrap();
-            }
+            line if line.contains("Warning:") => BlenderEvent::Warning(line.to_owned()),
 
-            line if line.contains("Error:") => {
-                let msg = BlenderEvent::Error(line.to_owned());
-                tx.send(msg).unwrap();
-            }
-
-            line if line.contains("Blender quit") => {
-                // ignoring this...
-                println!("Blender quit! Should we handle something about this here at this point of time?");
-            }
+            line if line.contains("Error:") => BlenderEvent::Error(line.to_owned()),
 
             // any unhandle handler is submitted raw in console output here.
-            line if !line.is_empty() => {
-                // somehow it was able to pick up the blender version and commit hash value?
-                let msg = format!("[Unhandle Blender Event]:{line}");
-                let event = BlenderEvent::Unhandled(msg);
-                tx.send(event).unwrap();
-            }
-            _ => {
-                // Only empty log entry would show up here...
-            }
-        };
+            line => BlenderEvent::Unhandled(line),
+        }
     }
+
+    // TODO: Can we use stream instead? how can we parse data from blender into recognizable style?
 }
 
 // TODO: impl unit test for blender specifically.

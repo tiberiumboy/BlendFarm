@@ -8,14 +8,11 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 // TODO: could rename this to something else?
 pub struct BlenderConfiguration {
-    #[serde(rename = "TicketID")]
-    id: Uuid,
     // output various
     output: PathBuf,
     scene_info: BlenderScene,
@@ -49,7 +46,6 @@ impl BlenderConfiguration {
             }
         };
         Self {
-            id: Uuid::new_v4(),
             output,
             scene_info,
             cores,
@@ -73,7 +69,6 @@ pub mod tests {
         let blender_scene = mock_blender_scene();
 
         BlenderConfiguration {
-            id: Uuid::new_v4(),
             output: PathBuf::new(),
             scene_info: blender_scene,
             cores: 1,

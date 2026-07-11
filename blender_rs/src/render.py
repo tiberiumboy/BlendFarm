@@ -1,35 +1,16 @@
 # NOTE: Sybren mention that Cycle will perform better if the render was sent out as
 # a batch instead of individual renders. Consider using Range()
-# TODO: What's the earliest python version blender supports? Wanted to make sure we are compilance with older version to use supported built-in library stacks.
+# TODO: What's the earliest python version blender supports? 
+# Wanted to make sure we are compilance with older version to use supported built-in library stacks.
 
 import bpy # type: ignore
 import json
 import sys # used for argparse - does not work well with blender!
-# from typing import Optional
-# from dataclasses import dataclass
 from multiprocessing import cpu_count
 
 def eprint(msg):
     """Print exception tag message to console for program to intercept"""
     print(f"EXCEPTION: {msg}\n", flush=True)
-
-def log(msg):
-    """Print log tag message to console for program to intercept"""
-    print(f"LOG: {msg}\n", flush=True)
-
-# Feature thing, For now keep it dynamic.
-# @dataclass
-# class SceneInfo(object):
-#     scene: Optional[str]
-
-# @dataclass
-# class Config(object):
-#     scene_info: SceneInfo
-
-#     @classmethod
-#     def from_json(cls, json_key):
-#         file = json.load(open("h.json"))
-#         return cls(**file[json_key])
 
 # hardware:[CPU,GPU,BOTH], kind: [NONE, CUDA, OPTIX, HIP, ONEAPI, (METAL?)]
 # Eventually in the future we could distribute to a point of using certain GPU for certain render?
@@ -49,18 +30,18 @@ def set_render_settings(scn, config) -> None:
     scene_info = config["SceneInfo"]
     render_setting = scene_info["render_setting"]
 
-    #Set Camera
+    # Set Camera
     camera = scene_info["camera"]
     if(camera is not None and bpy.data.objects[camera] is not None):
         scn.camera = bpy.data.objects[camera]
 
-    # this attribute only accepts 'CPU' or 'GPU' - only available in Cycles Render Engine
+    # Only accepts 'CPU' or 'GPU' - Available in Cycles Render Engine
     scn.cycles.device = config["HardwareMode"]
 
     # Conifgure System Render Devices
     configure_system_render_devices(config["Processor"], scn.cycles.device)
 
-    #Set Samples
+    # Set Samples
     scn.cycles.samples = render_setting["sample"]
     scn.render.use_persistent_data = True
 
@@ -69,7 +50,7 @@ def set_render_settings(scn, config) -> None:
     if fps is not None and fps > 0:
         scn.render.fps = fps
 
-    #Set Resolution
+    # Set Resolution
     scn.render.resolution_x = render_setting["width"]
     scn.render.resolution_y = render_setting["height"]
     scn.render.resolution_percentage = 100
@@ -97,25 +78,16 @@ def set_render_settings(scn, config) -> None:
     if not scn.render.use_crop_to_border:
         scn.render.film_transparent = True
 
-#Renders provided settings with id to path
+# Renders provided settings with id to path
 def render_batch(scn, config):
     """Begin render a batch"""
-    # Set frame and output
-    # ref: https://docs.blender.org/api/current/bpy.types.Scene.html#bpy.types.Scene.frame_start 
-    scn.frame_start = int(config["Start"])
-    scn.frame_end = int(config["End"])
-
     # We must override the output path to a valid known location
     scn.render.filepath = config["Output"] + '''/#####'''
-
+    scn.frame_start = int(config["Start"])
+    scn.frame_end = int(config["End"])
+    
     # Render
-    ticket_id = str(config["TicketID"])
-    # TODO: How do I stream this? Why do I have to "flush"?
-    print(f"RENDER_START: {ticket_id}\n", flush=True)
-    # TODO: Research what use_viewport does? What about animation?
-    bpy.ops.render.render(animation=True, write_still=True, use_viewport=False)
-    # TODO: How do I stream this? Why do I have to "flush"?
-    print(f"SUCCESS: {ticket_id}\n", flush=True)
+    bpy.ops.render.render(animation=True, write_still=True)
 
 def main(config) -> None:
     """Main entry point for render handler"""
