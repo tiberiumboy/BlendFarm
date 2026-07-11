@@ -34,6 +34,14 @@ use std::path::Path;
 use tokio::spawn;
 use tracing_subscriber::EnvFilter;
 
+// use figment::{
+//     providers::{Env, Format, Json, Toml, Yaml},
+//     Figment,
+// };
+// const SETTINGS_PATH_JSON: &str = "BlendFarm/BlenderManager.json";
+// const SETTINGS_PATH_TOML: &str = "BlendFarm/BlenderManager.toml";
+// const SETTINGS_PATH_YAML: &str = "BlendFarm/BlenderManager.yaml";
+
 use crate::constant::NODE_TOPIC;
 use crate::network::controller::Controller;
 use crate::services::app_context::AppContext;
@@ -65,6 +73,7 @@ async fn config_sqlite_db(path: impl AsRef<Path>) -> Result<SqlitePool, sqlx::Er
     SqlitePool::connect_with(options).await
 }
 
+// design to setup network connection
 async fn setup_connection(controller: &mut Controller) -> Result<(), Error> {
     // Listen on all interfaces and whatever port OS assigns
     let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().expect("Shouldn't fail");
@@ -96,6 +105,14 @@ pub async fn run() {
     // TODO: figure out how we can handle database path?
     let config_path = dirs::config_dir().unwrap().join("BlendFarm");
     let db_path = config_path.join(constant::DATABASE_FILE_NAME);
+
+    // TODO: consider using figment at this application scope level.
+    //     let config = Figment::new()
+    //         .merge(Toml::file(config_path.join(SETTINGS_PATH_TOML)))
+    //         .merge(Yaml::file(config_path.join(SETTINGS_PATH_YAML)))
+    //         .merge(Env::prefixed("BlendFarm_"))
+    //         .join(Json::file(config_path.join(SETTINGS_PATH_JSON)))
+    //         .extract::<BlenderConfig>()?;
 
     let mut reader = File::open(config_path.join("BlenderManager.json"))
         .expect("Must have blender manager configuration!");
