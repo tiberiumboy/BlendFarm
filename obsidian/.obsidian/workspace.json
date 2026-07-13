@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "blendfarm/TODO/Squash history stack from.md",
+                "file": "blendfarm/Network code notes.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Squash history stack from"
+              "title": "Network code notes"
             }
           }
         ]
@@ -40,7 +40,8 @@
             "state": {
               "type": "file-explorer",
               "state": {
-                "sortOrder": "alphabetical"
+                "sortOrder": "alphabetical",
+                "autoReveal": false
               },
               "icon": "lucide-folder-closed",
               "title": "Files"
@@ -152,6 +153,7 @@
   },
   "left-ribbon": {
     "hiddenItems": {
+      "bases:Create new base": false,
       "switcher:Open quick switcher": false,
       "graph:Open graph view": false,
       "canvas:Create new canvas": false,
@@ -162,8 +164,8 @@
   },
   "active": "79e1a34e40352bbc",
   "lastOpenFiles": [
-    "blendfarm/Bugs/Buglist.md",
     "blendfarm/TODO/Squash history stack from.md",
+    "blendfarm/Bugs/Buglist.md",
     "blendfarm/TODO",
     "blendfarm/Architecture/Portal.md",
     "blendfarm/README.md",
