@@ -43,10 +43,7 @@ impl JobDAO {
         let blender_version =
             Version::from_str(&self.blender_version).expect("Blender version malformed");
         let output = PathBuf::from_str(&self.output_path).expect("Output path malformed");
-        match Job::from(mode, &project_file, blender_version, output) {
-            Ok(item) => Ok(WithId { id, item }),
-            Err(e) => Err(JobError::InvalidFile(e.to_string())),
-        }
+        Job::from(mode, &project_file, blender_version, output).and_then(|item| Ok(WithId { id, item }))
     }
 }
 

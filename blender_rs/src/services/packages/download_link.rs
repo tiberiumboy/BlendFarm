@@ -6,7 +6,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
-    io::{Error as IoError, Read},
+    io::{Error as IoError, ErrorKind},
     path::{Path, PathBuf},
 };
 use url::Url;
@@ -64,17 +64,14 @@ impl DownloadLink {
         // Check and see if we haven't download the file already
         if !target.exists() {
             // Download the file from the internet
-            let mut response = ureq::get(self.download_url.as_str())
-                .call()
+            let response = attohttpc::get(self.download_url.as_str())
+                .send()
                 .map_err(IoError::other)?;
-            let mut body: Vec<u8> = Vec::new();
             // TODO: See if there's a better way to save or store the file?
             // It's like why can't we stream directly to io?
-            if let Err(e) = response.body_mut().as_reader().read_to_end(&mut body) {
-                eprintln!("Fail to read data from response! {e:?}");
-            }
-            // save the content to target
+            let body = response.bytes().map_err(|e| IoError::new(ErrorKind::BrokenPipe, e))?;
             fs::write(&target, &body)?;
+            // save the content to target
         }
 
         // Assume the file we download are zipped/compressed.

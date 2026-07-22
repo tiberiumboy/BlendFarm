@@ -1,7 +1,7 @@
 use crate::constant::MAX_VALID_DAYS;
 use lazy_regex::regex_replace_all;
 use serde::{Deserialize, Serialize};
-use std::io::{BufReader, ErrorKind, Error, Read, Result};
+use std::io::{BufReader, ErrorKind, Error, Result};
 use std::path::Path;
 use std::time::Duration;
 use std::{collections::HashMap, fs, path::PathBuf, time::SystemTime};
@@ -210,12 +210,8 @@ impl PageCache {
 
                 // Are we making the assumption that if the file is not in the entry then we can just presume it's valid?
                 if !destination_path.exists() {
-                    let mut response = ureq::get(url.as_ref()).call().map_err(Error::other)?;
-                    let mut body = Vec::new();
-                    if let Err(e) = response.body_mut().as_reader().read_to_end(&mut body) {
-                        eprintln!("Fail to read data for cache: {e:?}");
-                    }
-                    
+                    let response = attohttpc::get(url.as_ref()).send().map_err(Error::other)?;
+                    let body = response.bytes().map_err(|e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, e))?;
                     // write the content to the file
                     fs::write(&destination_path, body)?;
                 }

@@ -23,13 +23,13 @@ Developer blog:
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow::Error;
 use blender::manager::Manager as BlenderManager;
+use blender::models::blender_config::BlenderConfig;
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use libp2p::Multiaddr;
 use services::{blend_farm::BlendFarm, server::Server, tauri_app::TauriApp};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 use tokio::spawn;
 use tracing_subscriber::EnvFilter;
@@ -95,6 +95,12 @@ pub async fn run() {
 
     // TODO: figure out how we can handle database path?
     let config_path = dirs::config_dir().unwrap().join("BlendFarm");
+    
+    let config: BlenderConfig = match File::open(config_path.join("BlenderManager.json")) {
+        Ok(reader) => serde_json::from_reader(reader).expect("Must have valid BlenderConfig struct!"),
+        Err(e) => panic!("Unable to open blender config file!"),
+    };
+    
     let db_path = config_path.join(constant::DATABASE_FILE_NAME);
 
     let mut reader = File::open(config_path.join("BlenderManager.json"))

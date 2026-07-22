@@ -3,26 +3,26 @@ name = "blender"
 version = "0.1.0"
 edition = "2021"
 
-# trying something out, make this library once I can understand how I can reference this externally from tauri side of application
+# TODO: Make this crate a library instead of binary
 # [lib]
 # crate-type = ["cdylib"]
 
 [dependencies]
 dirs = "6.0.0"
-# TODO: Find a way to utilize regex as lighter package implementation.
-lazy-regex = "^3.6"
+lazy-regex = "3.6"
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-url = { version = "2", features = ["serde"] }
+url = { version = "2.5", features = ["serde"] }
 uuid = { version = "1", features = ["serde", "v4"] }
-ureq = "3"
+attohttpc = { version = "0.31", features = ["json"] }
 blend = "0.8.0"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 
 [dev-dependencies]
-clap = { version = "4.6", features = ["derive"] }
+clap = { version = "4.6.0", features = ["derive"] }
 
+# Platform dependent crates used for unzip and extract contents for Blender
 [target.'cfg(target_os = "windows")'.dependencies]
 zip = "8.1"
 

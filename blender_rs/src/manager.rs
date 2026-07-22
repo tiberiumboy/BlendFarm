@@ -58,15 +58,10 @@ pub enum ManagerError {
 pub struct Manager {
     /// Store all known installation of blender directory information
     /// Manager's rulebook. Should only be available in this struct scope
-    // Soon to be replaced using Figment library
     config: RwLock<BlenderConfig>,
     portal: RwLock<Portal>,
-    // page cache
     // page_cache: RwLock<PageCache>,
 }
-
-// I have a config file, which contains list of local installed blender
-// and install path. This Config struct is serialized and st
 
 // Manager should only govern local installed blenders (Or blenders that was added by users)
 impl Manager {
@@ -93,22 +88,7 @@ impl Manager {
     }
 
     /// Load the manager data from the config file.
-    // TODO: Remove figment and let application owner be responsible for loading config file. we expect applciation owner to provide us BlendConfig data instead.
-    // use figment::{
-    //     providers::{Env, Format, Json, Toml, Yaml},
-    //     Figment,
-    // };
-    // const SETTINGS_PATH_JSON: &str = "BlendFarm/BlenderManager.json";
-    // const SETTINGS_PATH_TOML: &str = "BlendFarm/BlenderManager.toml";
-    // const SETTINGS_PATH_YAML: &str = "BlendFarm/BlenderManager.yaml";
-    pub fn load(config: BlenderConfig) -> Result<Self, ManagerError> {
-        //     let config = Figment::new()
-        //         .merge(Toml::file(config_path.join(SETTINGS_PATH_TOML)))
-        //         .merge(Yaml::file(config_path.join(SETTINGS_PATH_YAML)))
-        //         .merge(Env::prefixed("BlendFarm_"))
-        //         .join(Json::file(config_path.join(SETTINGS_PATH_JSON)))
-        //         .extract::<BlenderConfig>()?;
-
+    pub fn load(config: BlenderConfig) -> Result<Self, ManagerError> {        
         let download_path: &PathBuf = &config.clone().into();
 
         //     // TODO: we'll load cache services here

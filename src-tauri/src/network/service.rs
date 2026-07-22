@@ -254,23 +254,7 @@ impl Service {
             Command::FileService(service) => self.process_file_service(service).await,
 
             // received server status. Can invoke commands from this broadcast event.
-            Command::Message(Some(peer_addr), _status) =>  {
-
-                if let Err(e) = self.swarm.dial(peer_addr.clone()) {
-                    eprintln!("Fail to dial [{:?}]: {e:?}", &peer_addr);
-                    return;
-                }
-
-                // now how do we send the status to that specific peer?
-                // self.swarm.behaviour_mut().
-
-                // here if we have some, we need to dial this peer_id, and send the status to that target peer_id.
-                // match status {
-                //     ServerEvent::RequestTicket(requestor) => {
-                //         self.swarm.dial(requestor)?;
-                //     },
-                //     _ => eprintln!("Unhandle [{status}]!")
-                // };
+            Command::Message(Some(peer_addr), status) =>  {
                     
                 // let data = serde_json::to_string(&status).unwrap();
                 // let topic = IdentTopic::new(NODE_TOPIC);
@@ -297,6 +281,8 @@ impl Service {
                 // }
 
                 // what do we expect after we dial?
+                println!("Impl. behaviour to send a message to the target peer_address {status:?}");
+                // Ok so I dialed this peer? how can I send this peer a message?
                 // Maybe this is where we can utilize mcps oneshot callback when dial is open for stream/communication
             }
             // Received broadcast signal
@@ -537,12 +523,13 @@ impl Service {
                 match endpoint {
                     ConnectedPoint::Dialer { .. } => {
                         let Some(sender) = self.pending_dial.remove(&peer_id) else {
-                            eprintln!("Unable to find matching peer id from known pending dial!");
+                            eprintln!("Unable to find matching peer id from known pending dial [{peer_id}]!");
                             return;
                         };
                         if let Err(e) = sender.send(Ok(())) {
                             eprintln!("Unable to respond back, ignoring! {e:?}");
                         }
+                        println!("Dialer [{peer_id}] connection has been established!");
                     },
                     ConnectedPoint::Listener { .. } => {
 

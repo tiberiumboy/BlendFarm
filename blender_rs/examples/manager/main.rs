@@ -1,10 +1,13 @@
 // here we'll provide basic cli interface controls to list, edit, add, or remove blender installations history.
 // Below the surface should follow simple implementations similar to REST api.
 
-use blender::{blender::get_blend_config_from_local, blender::Blender, manager::Manager};
-use std::path::PathBuf;
+// todo, load the config file here.
+
+use std::{fs::File, io::BufReader, path::PathBuf};
 // TODO: I only want to use clap for examples, but not include with the whole library itself.
 use clap::{Parser, Subcommand};
+
+use blender::{blender::Blender, manager::Manager, models::blender_config::BlenderConfig};
 use semver::Version;
 
 #[derive(Subcommand, Debug)]
@@ -62,7 +65,17 @@ fn main() {
     // let args: Vec<String> = std::env::args().collect::<Vec<String>>();
     let args = Args::parse();
 
-    let config = get_blend_config_from_local().expect("Must have blender config to continue!");
+    // for now we'll deserialize the data from json, but eventually make it compatible for toml/yaml and other compatible favorable config extension type.
+    let config = match args.config {
+        Some(path) => match File::open(path) {
+            Ok(reader) => serde_json::from_reader(BufReader::new(reader)).expect("Invalid blender config structure!"),
+            Err(e) => {
+                panic!("Fail to open file! {e:?}");
+            },
+        },
+        None => BlenderConfig::default()
+    };
+
     let mut manager = Manager::load(config).expect(&format!(
         "Unable to launch manager, must have valid config!"
     ));
