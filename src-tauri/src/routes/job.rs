@@ -202,7 +202,7 @@ pub async fn get_job_detail(
     Ok(render_job_detail_page(&result))
 }
 
-// we'll need to figure out more about this? How exactly are we going to update the job?
+// TODO: we'll need to figure out more about this? How exactly are we going to update the job?
 #[command(async)]
 pub async fn update_job(state: State<'_, Mutex<AppState>>, job_id: Uuid) -> Result<(), String> {
     let mut app_state = state.lock().await;
