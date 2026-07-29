@@ -4,7 +4,7 @@ use crate::{
     domains::render_store::{RenderError, RenderStore},
     models::{job::JobId, render_info::{CreatedRenderInfoDto, NewRenderInfoDto, RenderInfo}, with_id::WithId},
 };
-use blender::blender::Frame;
+use blender_rs::blender::Frame;
 use sqlx::{SqlitePool, query_as};
 use uuid::Uuid;
 

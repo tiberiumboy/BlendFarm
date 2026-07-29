@@ -1,5 +1,6 @@
 // Used to help organize dependency injections
-use crate::{BlenderManager, models::server_setting::ServerSetting};
+use blender_rs::manager::Manager as BlenderManager;
+use crate::models::server_setting::ServerSetting;
 
 pub(crate) struct AppContext {
     pub manager: BlenderManager,

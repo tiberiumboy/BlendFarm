@@ -12,7 +12,7 @@ use crate::domains::ticket_store::{TicketError, TicketStore};
 use crate::models::computer_spec::ComputerSpec;
 use crate::models::job::JobId;
 use crate::network::PeerIdString;
-use crate::network::message::{self, Event, NetworkError};
+use crate::network::message::{Event, NetworkError};
 use crate::network::provider_rule::ProviderRule;
 use crate::services::app_context::AppContext;
 use crate::services::blend_farm::BlendFarmError;
@@ -24,8 +24,8 @@ use crate::{
 };
 use async_lock::RwLock;
 use async_trait::async_trait;
-use blender::blender::{Frame, Manager as BlenderManager, ManagerError};
-use blender::models::event::BlenderEvent;
+use blender_rs::blender::{Frame, Manager as BlenderManager};
+use blender_rs::models::event::BlenderEvent;
 use futures::channel::mpsc::Receiver;
 use libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
@@ -46,7 +46,7 @@ enum ServerCommand {
     DeleteTicket(Uuid),
     CheckBlender(PeerId, String), // Name of the blender in compressed package enum. (e.g. "blender-5.0.0-linux-x64.tar.xz")
     // this function seems confusing. Refine this a bit letter.
-    Fetch(JobId, oneshot::Sender<HashMap<Frame, PathBuf>>),
+    FetchImages(JobId, oneshot::Sender<HashMap<Frame, PathBuf>>),
     Abort,
 }
 
@@ -76,28 +76,12 @@ pub enum ServerEvent {
     NewTickets(Ticket),
 }
 
-#[derive(Debug)] // Error
+#[derive(Debug)]
 enum ServerError {
-    // #[error("Encounter an network error! \n{0:}")]
-    NetworkError(
-        // #[from]
-        message::NetworkError,
-    ),
-    // #[error("Encounter an IO error! \n{0}")]
-    Io(
-        // #[from]
-        async_std::io::Error,
-    ),
-    // #[error("Manager Error: {0}")]
-    ManagerError(
-        // #[from]
-        ManagerError,
-    ),
-    // #[error("Task Error: {0}")]
-    BlendFarmError(
-        // #[from]
-        BlendFarmError,
-    ),
+    // NetworkError(message::NetworkError),
+    // Io(async_std::io::Error),
+    // Manager(ManagerError),
+    BlendFarm(BlendFarmError),
 }
 
 /// The behaviour described in the Cli App can be summarize below:
@@ -194,7 +178,7 @@ impl Server {
             // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
             return Self::handle_get_file(client, &file_name, &search_directory.to_path_buf())
                 .await
-                .map_err(ServerError::BlendFarmError);
+                .map_err(ServerError::BlendFarm);
         }
 
         Ok(project_file_path)
@@ -355,7 +339,7 @@ impl Server {
                 todo!("Impl. cancellation token");
             }
 
-            ServerCommand::Fetch(job_id, sender) => {
+            ServerCommand::FetchImages(job_id, sender) => {
                 // returns a hashset of all render frames from matching job.
                 // Inner join tasks inner join renders
                 // basically providing basic information to client what frames have been completed.
@@ -441,9 +425,9 @@ impl Server {
                     None => {
                         // Update ticket status to "Error" -> Do not re-run this again until the issue has been resolved.
                         // Server had issue with this job - Send notification broadcast, and delete ticket.
-                        if let Err(e) = ticket_db.delete_ticket(&record.id).await {
-                            eprintln!("Unable to delete the ticket! {e:?}");
-                        }
+                        // if let Err(e) = ticket_db.delete_ticket(&record.id).await {
+                        //     eprintln!("Unable to delete the ticket! {e:?}");
+                        // }
 
                         &mut_manager.fetch_blender(version).expect(
                             "Blendfarm must have permission to download and install blender!",
@@ -493,9 +477,6 @@ impl BlendFarm for Server {
         // we will have one thread to process blender and queue, but I must have access to database.
         // where is this event suppose to be used for?
         let (event, mut command) = mpsc::channel(32);
-
-        // background thread to handle blender invocation
-        // let blender_controller = client.clone();
 
         // if we exit early, how do we restart this service?
         let ticket_db = SqliteTicketStore::new(self.db_conn.clone());

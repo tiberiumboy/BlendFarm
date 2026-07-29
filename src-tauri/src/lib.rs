@@ -22,14 +22,14 @@ Developer blog:
 // it might be interesting and useful if there's a debug mode enabled?
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow::Error;
-use blender::manager::Manager as BlenderManager;
+use blender_rs::manager::Manager as BlenderManager;
+use blender_rs::models::blender_config::BlenderConfig;
+use blender_rs::utils::{get_blend_config_default_location, get_config_folder_path};
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use libp2p::Multiaddr;
 use services::{blend_farm::BlendFarm, server::Server, tauri_app::TauriApp};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
-use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 use tokio::spawn;
 use tracing_subscriber::EnvFilter;
@@ -102,10 +102,6 @@ pub async fn run() {
     // to collect user inputs for custom user preferences
     let cli = Cli::parse();
 
-    // TODO: figure out how we can handle database path?
-    let config_path = dirs::config_dir().unwrap().join("BlendFarm");
-    let db_path = config_path.join(constant::DATABASE_FILE_NAME);
-
     // TODO: consider using figment at this application scope level.
     //     let config = Figment::new()
     //         .merge(Toml::file(config_path.join(SETTINGS_PATH_TOML)))
@@ -113,14 +109,19 @@ pub async fn run() {
     //         .merge(Env::prefixed("BlendFarm_"))
     //         .join(Json::file(config_path.join(SETTINGS_PATH_JSON)))
     //         .extract::<BlenderConfig>()?;
+    let config_path = get_blend_config_default_location().expect("Must have path to configs!");
 
-    let mut reader = File::open(config_path.join("BlenderManager.json"))
-        .expect("Must have blender manager configuration!");
-    let mut data = String::new();
-    reader
-        .read_to_string(&mut data)
-        .expect("Unable to read the file!");
-    let config = serde_json::from_str(&data).expect("Blender Manager configuration is malformed!");
+    let config: BlenderConfig = match std::fs::read(config_path) {
+        Ok(reader) => {
+            serde_json::from_slice(&reader).expect("Must have valid BlenderConfig struct!")
+        }
+        Err(e) => panic!("Unable to open blender config file! {e:?}"),
+    };
+
+    // TODO: figure out how we can handle database path?
+    let db_path = get_config_folder_path()
+        .expect("Must have path to configs!")
+        .join(constant::DATABASE_FILE_NAME);
 
     // initialize database connection (We need a place to store persistent storage)
     let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db(db_path)

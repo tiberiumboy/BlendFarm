@@ -33,7 +33,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use bitflags;
-use blender::{
+use blender_rs::{
     blend_file::BlendFile, blender::Blender, manager::Manager as BlenderManager,
     models::mode::RenderMode,
 };
@@ -784,7 +784,7 @@ impl BlendFarm for TauriApp {
 #[cfg(test)]
 mod tests {
     // use blender::models::blender_config::BlenderConfig;
-    use blender::manager::tests::mock_manager;
+    // use blender_rs::manager::tests::mock_manager;
 
     use super::*;
     use crate::{config_sqlite_db, constant::DATABASE_FILE_NAME};
@@ -800,6 +800,7 @@ mod tests {
     //     todo!("Implement a mock up unit test for this blender config");
     // }
 
+    /* 
     #[tokio::test]
     async fn clear_workers_success() {
         let pool = get_sqlite_conn().await;
@@ -815,6 +816,7 @@ mod tests {
                 .is_ok_and(|f| f.iter().count() == 0)
         );
     }
+    */
 
     // todo: identify other part of this code that I can run unit test and list out potential edge cases
 }

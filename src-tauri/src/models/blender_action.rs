@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use blender::blender::Blender;
+use blender_rs::blender::Blender;
 use futures::channel::mpsc::Sender;
 use semver::Version;
 

@@ -3,11 +3,11 @@ use crate::{
     domains::ticket_store::TicketError,
     models::{job::Job, with_id::WithId},
 };
-use blender::{blend_file::BlendFile, blender::{Args, Blender, Frame}, models::event::BlenderEvent};
+use blender_rs::{blend_file::BlendFile, blender::{Args, Blender, Frame}, models::event::BlenderEvent};
 use serde::{Deserialize, Serialize};
-use std::sync::mpsc::Receiver;
+use tokio::spawn;
 use std::{
-    collections::HashMap, path::PathBuf
+    collections::HashMap, path::PathBuf, sync::mpsc::{self, Receiver}
 };
 use uuid::Uuid;
 
@@ -39,6 +39,7 @@ pub struct Ticket {
     renders: HashMap<Frame, PathBuf>,
 
     /// Render range frame to perform the task
+    /// TODO: Could this be used as a "Range" struct? Is Range serializable?
     pub(crate) start: Frame,
     pub(crate) end: Frame,
 }
@@ -69,7 +70,18 @@ impl Ticket {
         let job = &self.job;
         let blend_file = AsRef::<BlendFile>::as_ref(&job);
         let args = Args::new(blend_file.clone(), self.temp_output.clone(), self.start, self.end);
-        blender.render(args).await.map_err(TicketError::BlenderError)
+        let (tx, rx) = mpsc::channel();
+        let mut process = blender.render(args).map_err(TicketError::BlenderError)?;
+        spawn(async move{
+
+            while let Some(event) = process.read() {
+                if let Err(e) = tx.send(event) {
+                    eprintln!("Unable to transmit blender event! {e:?}");
+                }
+            }
+        });
+        
+        Ok(rx)
     }    
 }
 

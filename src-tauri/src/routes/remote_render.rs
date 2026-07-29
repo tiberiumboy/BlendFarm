@@ -10,7 +10,7 @@ use crate::{
     models::app_state::AppState,
     services::tauri_app::{QueryMode, UiCommand},
 };
-use blender::blend_file::BlendFile;
+use blender_rs::blend_file::BlendFile;
 use futures::{SinkExt, StreamExt, channel::mpsc};
 use maud::html;
 use semver::Version;

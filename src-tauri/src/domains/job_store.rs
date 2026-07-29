@@ -4,25 +4,15 @@ use crate::{
     domains::ticket_store::TicketError,
     models::job::{CreatedJobDto, NewJobDto},
 };
-use blender::blender::BlenderError;
-// use serde::{Deserialize, Serialize};
-// use thiserror::Error;
+use blender_rs::blender::BlenderError;
 use uuid::Uuid;
 
-#[derive(Debug)] // Error, Serialize, Deserialize, 
+#[derive(Debug)]
 pub enum JobError {
-    // #[error("Job failed to run: {0}")]
     FailedToRun(String),
-    // #[error("Invalid blend file: {0}")]
     InvalidFile(String),
-    // #[error("Received Database errors! {0}")]
     DatabaseError(String),
-    // #[error("Task error")]
-    TicketError(
-        // #[from]
-        TicketError,
-    ),
-    // #[error("Command error: {0}")]
+    TicketError(TicketError),
     Send(String),
     Blender(BlenderError),
 }
