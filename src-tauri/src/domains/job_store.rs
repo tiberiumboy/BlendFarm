@@ -4,7 +4,7 @@ use crate::{
     domains::ticket_store::TicketError,
     models::job::{CreatedJobDto, NewJobDto},
 };
-use blender::blender::BlenderError;
+use blender_rs::blender::BlenderError;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -12,7 +12,7 @@ pub enum JobError {
     FailedToRun(String),
     InvalidFile(String),
     DatabaseError(String),
-    TaskError(TicketError),
+    TicketError(TicketError),
     Send(String),
     Blender(BlenderError),
 }

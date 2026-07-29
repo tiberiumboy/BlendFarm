@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use crate::models::{job::JobId, render_info::{CreatedRenderInfoDto, NewRenderInfoDto, RenderInfo}};
-use blender::blender::Frame;
+use blender_rs::blender::Frame;
 use thiserror::Error;
 use uuid::Uuid;
 

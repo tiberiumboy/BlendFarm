@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::models::ticket::{CreatedTicketDto, Ticket};
-use blender::{blender::BlenderError, manager::ManagerError};
+use blender_rs::{blender::BlenderError, manager::ManagerError};
 use uuid::Uuid;
 
 #[derive(Debug)]

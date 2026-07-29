@@ -7,8 +7,8 @@ use crate::{
         with_id::WithId,
     },
 };
-use blender::blend_file::BlendFile;
-use blender::models::mode::RenderMode;
+use blender_rs::blend_file::BlendFile;
+use blender_rs::models::mode::RenderMode;
 use semver::Version;
 use sqlx::{FromRow, SqlitePool, query_as};
 use uuid::Uuid;

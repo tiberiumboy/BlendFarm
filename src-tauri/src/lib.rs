@@ -22,14 +22,14 @@ Developer blog:
 // it might be interesting and useful if there's a debug mode enabled?
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow::Error;
-use blender::manager::Manager as BlenderManager;
-use blender::models::blender_config::BlenderConfig;
+use blender_rs::manager::Manager as BlenderManager;
+use blender_rs::models::blender_config::BlenderConfig;
+use blender_rs::utils::{get_config_folder_path, get_blend_config_default_location};
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use libp2p::Multiaddr;
 use services::{blend_farm::BlendFarm, server::Server, tauri_app::TauriApp};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
-use std::fs::File;
 use std::path::Path;
 use tokio::spawn;
 use tracing_subscriber::EnvFilter;
@@ -94,22 +94,14 @@ pub async fn run() {
     let cli = Cli::parse();
 
     // TODO: figure out how we can handle database path?
-    let config_path = dirs::config_dir().unwrap().join("BlendFarm");
+    let config_path = get_blend_config_default_location().expect("Must have path to configs!");
     
-    let config: BlenderConfig = match File::open(config_path.join("BlenderManager.json")) {
-        Ok(reader) => serde_json::from_reader(reader).expect("Must have valid BlenderConfig struct!"),
-        Err(e) => panic!("Unable to open blender config file!"),
+    let config: BlenderConfig = match std::fs::read(config_path) {
+        Ok(reader) => serde_json::from_slice(&reader).expect("Must have valid BlenderConfig struct!"),
+        Err(e) => panic!("Unable to open blender config file! {e:?}"),
     };
     
-    let db_path = config_path.join(constant::DATABASE_FILE_NAME);
-
-    let mut reader = File::open(config_path.join("BlenderManager.json"))
-        .expect("Must have blender manager configuration!");
-    let mut data = String::new();
-    reader
-        .read_to_string(&mut data)
-        .expect("Unable to read the file!");
-    let config = serde_json::from_str(&data).expect("Blender Manager configuration is malformed!");
+    let db_path = get_config_folder_path().expect("Must have path to configs!").join(constant::DATABASE_FILE_NAME);
 
     // initialize database connection (We need a place to store persistent storage)
     let db: sqlx::Pool<sqlx::Sqlite> = config_sqlite_db(db_path)
