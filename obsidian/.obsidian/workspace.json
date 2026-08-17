@@ -4,21 +4,17 @@
     "type": "split",
     "children": [
       {
-        "id": "7134347f87dc81f4",
+        "id": "16e757f6cc3c858a",
         "type": "tabs",
         "children": [
           {
-            "id": "79e1a34e40352bbc",
+            "id": "dc270c306ab052e8",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "blendfarm/Network code notes.md",
-                "mode": "source",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "Network code notes"
+              "title": "New tab"
             }
           }
         ]
@@ -162,36 +158,37 @@
       "command-palette:Open command palette": false
     }
   },
-  "active": "79e1a34e40352bbc",
+  "active": "dc270c306ab052e8",
   "lastOpenFiles": [
-    "blendfarm/TODO/Squash history stack from.md",
-    "blendfarm/Bugs/Buglist.md",
-    "blendfarm/TODO",
     "blendfarm/Architecture/Portal.md",
+    "blendfarm/Architecture/Blender Service.md",
     "blendfarm/README.md",
-    "blendfarm/Task/Features.md",
+    "blendfarm/Network code notes.md",
+    "blendfarm/Home.md",
+    "blendfarm/TODO/Squash history stack from.md",
     "blendfarm/Pages/Settings.md",
-    "blendfarm/Pages/Pagelist.md",
-    "blendfarm/Pages/Remote Render.md",
     "blendfarm/Pages/Render Job window.md",
-    "blendfarm/Images/SettingPage.png",
-    "blendfarm/Images/RenderJobDialog.png",
+    "blendfarm/Pages/Remote Render.md",
+    "blendfarm/Pages/Pagelist.md",
     "blendfarm/Images/RemoteJobPage.png",
     "blendfarm/Features/Exchange IP address from client to render.py.md",
+    "blendfarm/Bugs/Deleting Blender from UI cause app to crash..md",
+    "blendfarm/Bugs/Buglist.md",
+    "blendfarm/TODO",
+    "blendfarm/Task/Features.md",
+    "blendfarm/Images/SettingPage.png",
+    "blendfarm/Images/RenderJobDialog.png",
     "blendfarm/Bugs/Unit test fail - symbol _EMBED_INFO_PLIST already defined.md",
     "blendfarm/Bugs/Program cannot discover itself on the same network.md",
     "blendfarm/Bugs/Render not saved to database.md",
     "blendfarm/Bugs/Unable to discover localhost with no internet connection is established or provided..md",
     "blendfarm/Bugs/Node identification not store in database.md",
-    "blendfarm/Bugs/Deleting Blender from UI cause app to crash..md",
     "blendfarm/Task/Task.md",
     "blendfarm/Task/TODO.md",
     "blendfarm/Context.md",
-    "blendfarm/Network code notes.md",
     "blendfarm/Yamux.md",
     "blendfarm/Bugs/Import Job does nothing.md",
     "blendfarm/Bugs/Cannot open dialog.md",
-    "main/Untitled.md",
-    "main/Main Story.md"
+    "main/Untitled.md"
   ]
 }

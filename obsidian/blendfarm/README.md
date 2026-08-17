@@ -1,1 +1,1 @@
-Blendfarm is a network service application, similar to flamango, but with memory safety in mind for high level applications and maintain uptime distribution across system schematics.
+Blendfarm is a network service application, similar to flamango, written in Rust with memory safety kept in mind for high level applications and maintain uptime distribution across system schematics.

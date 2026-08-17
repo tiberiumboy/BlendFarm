@@ -1,1 +1,0 @@
-Accepts ip and port argument input. Reject all other for now, for future features.
