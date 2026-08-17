@@ -3,7 +3,7 @@ use crate::models::blender_action::BlenderAction;
 use crate::models::setting_action::SettingsAction;
 use crate::services::tauri_app::{BlenderQuery, QueryMode, UiCommand};
 use std::{env, path::PathBuf, str::FromStr, process::Command};
-use blender_rs::blender::Blender;
+use blender_rs::blender::{Blender, ComputerGraphicsProgram};
 use futures::{channel::mpsc, SinkExt, StreamExt};
 use maud::html;
 use serde_json::json;

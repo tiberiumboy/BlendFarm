@@ -106,8 +106,8 @@ pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<Stri
     let versions = list_versions(&mut app_state).await;
 
     // validate file path.
-    let blend_file = BlendFile::new(&path).map_err(|e| e.to_string())?;
-    let data = blend_file.peek_response(None);
+    let blend_file = BlendFile::try_from(&path).map_err(|e| e.to_string())?;
+    let data = blend_file.peek_response();
     let file_path = path.to_str().unwrap();
 
     let content = html! {
@@ -124,7 +124,7 @@ pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<Stri
 
                     label { "Output destination:" };
                     div tauri-invoke="update_output_field" hx-target="this" {
-                        input type="text" class="form-input" placeholder="Output Path" name="output" value=(data.current.render_setting.get_output().to_str().unwrap()) readonly={true};
+                        input type="text" class="form-input" placeholder="Output Path" name="output" value=(&data.current.render_setting.output.to_string_lossy()) readonly={true};
                     }
                     br;
 

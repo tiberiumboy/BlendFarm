@@ -53,15 +53,15 @@ pub mod network;
 pub mod routes;
 pub mod services;
 
-#[derive(Parser)]
-struct Cli {
+#[derive(Debug, Parser)]
+struct CommandLineArguments {
     #[command(subcommand)]
     command: Option<Commands>,
     #[arg(short, long, default_value=None)]
     secret_key: Option<u8>,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 enum Commands {
     Client,
 }
@@ -93,14 +93,17 @@ async fn setup_connection(controller: &mut Controller) -> Result<(), Error> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
+    // TODO: figure out where/how to access tracing subscribers.
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
 
+    // Loads local environment variable. (Used for database urls)
+    // Why do I need to load the environment variable?
     dotenv().ok();
 
     // to collect user inputs for custom user preferences
-    let cli = Cli::parse();
+    let cli = CommandLineArguments::parse();
 
     // TODO: consider using figment at this application scope level.
     //     let config = Figment::new()
@@ -115,7 +118,10 @@ pub async fn run() {
         Ok(reader) => {
             serde_json::from_slice(&reader).expect("Must have valid BlenderConfig struct!")
         }
-        Err(e) => panic!("Unable to open blender config file! {e:?}"),
+        Err(e) => {
+            eprintln!("Unable to open blender config file! {e:?}");
+            BlenderConfig::default()
+        }
     };
 
     // TODO: figure out how we can handle database path?
@@ -154,7 +160,9 @@ pub async fn run() {
         // run as client mode.
         Some(Commands::Client) => Server::new(context, &db).run(controller, receiver).await,
         // run as GUI mode.
-        _ => {
+        other => {
+            println!("{other:?} was called");
+            // could spawn in a separate thread?
             TauriApp::new(context.manager, &db)
                 .clear_workers_collection()
                 .await
@@ -180,5 +188,14 @@ mod test {
         let database_file_name = "blendfarm.db";
         let conn = config_sqlite_db(database_file_name).await;
         assert!(conn.is_ok());
+    }
+}
+
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn assure_run_succeed() {
+        run().await;
     }
 }

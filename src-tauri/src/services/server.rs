@@ -76,13 +76,17 @@ pub enum ServerEvent {
     NewTickets(Ticket),
 }
 
+// Currently used in a complex code block -
+// disable until code refactorization.
+/*
 #[derive(Debug)]
 enum ServerError {
     // NetworkError(message::NetworkError),
     // Io(async_std::io::Error),
     // Manager(ManagerError),
-    BlendFarm(BlendFarmError),
+    BlendFarm(_BlendFarmError),
 }
+*/
 
 /// The behaviour described in the Cli App can be summarize below:
 /// When running with listening server, client will spin a thread to listen for network messages.
@@ -142,31 +146,38 @@ impl Server {
         }
     }
 
-    #[allow(dead_code)]
-    async fn validate_project_file(
-        &self,
-        client: &mut NetworkController,
-        task: &Ticket,
-    ) -> Result<PathBuf, ServerError> {
-        let id = AsRef::<Uuid>::as_ref(&task);
-        let project_file_path =
+    // Currently commented out to get milestone achievement. - Behaviour appears complex and may need to refactored later.
+    // Originally designed to implemented the following behavior:
+    // Check and see if the blender file path provided to us from job/ticket system
+    // and verify that the existance of the file exist on this local machine.
+    // If the file does not exist on this machine, then it will call the network manager to
+    // download and fetch the original blend files from the server/DHT and update
+    /*
+        #[allow(dead_code)]
+        async fn validate_project_file(
+            &self,
+            client: &mut NetworkController,
+            task: &Ticket,
+        ) -> Result<PathBuf, ServerError> {
+            let id = AsRef::<Uuid>::as_ref(&task);
+            let project_file_path =
             Server::generate_temp_project_task_directory(&self.settings, &task, &id.to_string())
-                .await
-                .expect("Should have permission!");
+            .await
+            .expect("Should have permission!");
 
-        // assume project file is located inside this directory.
-        println!("Checking for {:?}", &project_file_path);
+            // assume project file is located inside this directory.
+            println!("Checking for {:?}", &project_file_path);
 
-        let job = AsRef::<Job>::as_ref(&task);
-        // Fetch the project from peer if we don't have it.
-        if !project_file_path.exists() {
-            println!(
-                "calling network for project file, asking to download from DHT: {:?}",
-                &job.get_file_name_expected()
-            );
+            let job = AsRef::<Job>::as_ref(&task);
+            // Fetch the project from peer if we don't have it.
+            if !project_file_path.exists() {
+                println!(
+                    "calling network for project file, asking to download from DHT: {:?}",
+                    &job.get_file_name_expected()
+                );
 
-            // TODO: Find a way to implement network partition to break up files chunks for parallel network transfer.
-            let search_directory = project_file_path
+                // TODO: Find a way to implement network partition to break up files chunks for parallel network transfer.
+                let search_directory = project_file_path
                 .parent()
                 .expect("Shouldn't be anywhere near root level?");
 
@@ -177,12 +188,13 @@ impl Server {
 
             // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
             return Self::handle_get_file(client, &file_name, &search_directory.to_path_buf())
-                .await
-                .map_err(ServerError::BlendFarm);
+            .await
+            .map_err(ServerError::BlendFarm);
         }
 
         Ok(project_file_path)
-    }
+        }
+    */
 
     /*
     async fn verify_and_check_render_output_path(

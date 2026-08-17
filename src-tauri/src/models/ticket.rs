@@ -3,18 +3,25 @@ use crate::{
     domains::ticket_store::TicketError,
     models::{job::Job, with_id::WithId},
 };
-use blender_rs::{blend_file::BlendFile, blender::{Args, Blender, Frame}, models::event::BlenderEvent};
-use serde::{Deserialize, Serialize};
-use tokio::spawn;
-use std::{
-    collections::HashMap, path::PathBuf, sync::mpsc::{self, Receiver}
+use blender_rs::{
+    blend_file::BlendFile,
+    blender::{Args, Blender, ComputerGraphicsProgram, Frame},
+    models::event::BlenderEvent,
 };
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    range::Range,
+    sync::mpsc::{self, Receiver},
+};
+use tokio::spawn;
 use uuid::Uuid;
 
 pub type CreatedTicketDto = WithId<Ticket, Uuid>;
 
 // pub enum TaskStatus {
-    // use this to describe what's going on with this task.
+// use this to describe what's going on with this task.
 // }
 
 /*
@@ -23,8 +30,7 @@ pub type CreatedTicketDto = WithId<Ticket, Uuid>;
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ticket {
-    // status: 
-
+    // status:
     /// Id used to identify the job
     job_id: Uuid,
 
@@ -48,14 +54,14 @@ pub struct Ticket {
 // This act as a pending work order to fulfill when resources are available.
 impl Ticket {
     // private method, less validation.
-    fn new(job_id: Uuid, job: Job, temp_output: PathBuf, start: i32, end: i32 ) -> Self {
+    fn new(job_id: Uuid, job: Job, temp_output: PathBuf, start: i32, end: i32) -> Self {
         Self {
             job_id,
             job,
             temp_output,
             renders: HashMap::new(),
             start,
-            end
+            end,
         }
     }
 
@@ -65,24 +71,35 @@ impl Ticket {
             None => Err(TicketError::CacheError),
         }
     }
-    
-    pub async fn render(&mut self, blender: &Blender) -> Result<Receiver<BlenderEvent>, TicketError> {
+
+    pub async fn render(
+        &mut self,
+        blender: &Blender,
+    ) -> Result<Receiver<BlenderEvent>, TicketError> {
         let job = &self.job;
         let blend_file = AsRef::<BlendFile>::as_ref(&job);
-        let args = Args::new(blend_file.clone(), self.temp_output.clone(), self.start, self.end);
+        let range = Range {
+            start: self.start,
+            end: self.end,
+        };
+        let args = Args::new(
+            blend_file.clone(),
+            self.temp_output.clone(),
+            range.start,
+            range.end,
+        );
         let (tx, rx) = mpsc::channel();
         let mut process = blender.render(args).map_err(TicketError::BlenderError)?;
-        spawn(async move{
-
+        spawn(async move {
             while let Some(event) = process.read() {
                 if let Err(e) = tx.send(event) {
                     eprintln!("Unable to transmit blender event! {e:?}");
                 }
             }
         });
-        
+
         Ok(rx)
-    }    
+    }
 }
 
 impl AsRef<Uuid> for Ticket {
@@ -97,7 +114,7 @@ impl AsRef<Job> for Ticket {
     }
 }
 
-/* 
+/*
 #[cfg(test)]
 mod test {
     use super::*;

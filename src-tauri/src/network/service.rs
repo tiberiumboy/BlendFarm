@@ -254,7 +254,7 @@ impl Service {
             Command::FileService(service) => self.process_file_service(service).await,
 
             // received server status. Can invoke commands from this broadcast event.
-            Command::Message(Some(peer_addr), status) =>  {
+            Command::Message(Some(_peer_addr), status) =>  {
                     
                 // let data = serde_json::to_string(&status).unwrap();
                 // let topic = IdentTopic::new(NODE_TOPIC);

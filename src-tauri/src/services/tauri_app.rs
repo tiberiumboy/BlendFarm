@@ -34,7 +34,9 @@ use crate::{
 use async_trait::async_trait;
 use bitflags;
 use blender_rs::{
-    blend_file::BlendFile, blender::Blender, manager::Manager as BlenderManager,
+    blend_file::BlendFile,
+    blender::{Blender, ComputerGraphicsProgram},
+    manager::Manager as BlenderManager,
     models::mode::RenderMode,
 };
 use futures::{
@@ -790,17 +792,26 @@ mod tests {
     use crate::{config_sqlite_db, constant::DATABASE_FILE_NAME};
     // use async_trait::async_trait;
 
+    // TODO - See if we still need this or not?
     async fn get_sqlite_conn() -> Pool<Sqlite> {
         let pool = config_sqlite_db(DATABASE_FILE_NAME).await;
         assert!(pool.is_ok());
         pool.expect("Assert above should force this to be ok()")
     }
 
+    #[tokio::test]
+    async fn assure_get_sqlite_conn_success() {
+        let pool = get_sqlite_conn().await;
+        assert!(!pool.is_closed());
+        pool.close().await;
+        assert!(pool.is_closed());
+    }
+
     // async fn get_mockup_config() -> BlenderConfig {
     //     todo!("Implement a mock up unit test for this blender config");
     // }
 
-    /* 
+    /*
     #[tokio::test]
     async fn clear_workers_success() {
         let pool = get_sqlite_conn().await;

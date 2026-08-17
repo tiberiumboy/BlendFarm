@@ -36,7 +36,7 @@ use uuid::Uuid;
 // This means that if a node was recently assigned to work on this job's task, but was cancel, both job and node should delete the task as no new information is savageable.
 // Any information created or stored will persist to local database for persistent storage and quick lookup. This can be handy in the future if we can get ffmpeg included.
 
-// THIS IS TREATED AS NOTIFICATION UPDATES. DO NOT TAKE THIS AS COMMAND! Acknowledge the package and run behavior tree decision.
+// THIS IS TREATED AS NOTIFICATION UPDATES. DO NOT TAKE THIS AS COMMAND! Acknowledge the packet and run behavior tree decision.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum JobEvent {
     Render(PeerIdString, Ticket),
@@ -114,6 +114,7 @@ pub struct Job {
     /// Completed render image output destination
     output: Output,
 
+    // Is this necessary?
     // TODO: What about stem? Does blender file have stem information?
     /// List of task created by the runners This serves as a job history and transaction that perform the job
     tasks: Vec<Ticket>,
@@ -143,7 +144,7 @@ impl Job {
         version: Version,
         output: PathBuf,
     ) -> Result<Self, JobError> {
-        Ok(BlendFile::new(project_file)
+        Ok(BlendFile::try_from(project_file)
             .map(|file| Job::new(mode, file, version, output))
             .map_err(JobError::Blender)?)
     }
@@ -212,7 +213,7 @@ pub(crate) mod test {
     pub fn scaffold_job() -> Job {
         let mode = RenderMode::Frame(1);
         let file = Path::new(EXAMPLE_FILE);
-        let project_file = BlendFile::new(file).expect("expect this to work without issue");
+        let project_file = BlendFile::try_from(file).expect("expect this to work without issue");
         let version = Version::new(4, 4, 0);
         let dir = Path::new(EXAMPLE_OUTPUT);
         let output = dir.to_path_buf();
@@ -228,7 +229,7 @@ pub(crate) mod test {
         let output = Path::new("./test/");
         let job = Job::from(mode.clone(), file, version.clone(), output.to_path_buf());
 
-        let project_file = BlendFile::new(file).expect("Should be valid project file");
+        let project_file = BlendFile::try_from(file).expect("Should be valid project file");
 
         assert!(job.is_ok());
         let job = job.unwrap();

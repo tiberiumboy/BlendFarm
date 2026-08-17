@@ -36,18 +36,17 @@ struct JobDAO {
 }
 
 impl JobDAO {
-    pub fn dto_to_obj(self) -> Result<WithId<Job, Uuid>, JobError> {
+    pub fn dto_to_obj(self) -> WithId<Job, Uuid> {
         let project_file = PathBuf::from_str(&self.project_file).expect("Project path malformed");
-        if !project_file.exists() {
-            return Err(JobError::InvalidFile(format!("Project file at {} does not exist!", self.project_file).to_owned()));
-        }
         let id = Uuid::from_str(&self.id).expect("id malformed");
         let mode = serde_json::from_str(&self.mode).expect("mode malformed");
         // TODO: Find a way to validate that this file exist, if it doesn't then we need to return JobError.
         let blender_version =
             Version::from_str(&self.blender_version).expect("Blender version malformed");
         let output = PathBuf::from_str(&self.output_path).expect("Output path malformed");
-        Job::from(mode, &project_file, blender_version, output).and_then(|item| Ok(WithId { id, item }))
+        let item = Job::from(mode, &project_file, blender_version, output)
+            .expect("Must be able to convert into job!");
+        WithId { id, item }
     }
 }
 
@@ -152,16 +151,11 @@ impl JobStore for SqliteJobStore {
 
         let result = query.fetch_all(&self.conn).await;
         match result {
-            Ok(records) => Ok(records
-                .iter()
-                .fold( Vec::new(),|mut record, item| {
-                    match item.clone().dto_to_obj() {
-                        Ok(obj) => record.push(obj),
-                        Err(e) => eprintln!("Unable to convert Data Table Object into Object! {e:?}"),
-                    }
-                    record
-                })
-            ),
+            Ok(records) => Ok(records.iter().fold(Vec::new(), |mut record, item| {
+                let obj = item.clone().dto_to_obj();
+                record.push(obj);
+                record
+            })),
             Err(e) => Err(JobError::DatabaseError(e.to_string())),
         }
     }
