@@ -107,7 +107,7 @@ pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<Stri
 
     // validate file path.
     let blend_file = BlendFile::try_from(&path).map_err(|e| e.to_string())?;
-    let data = blend_file.peek_response();
+    let data = blend_file.peek_response(None);
     let file_path = path.to_str().unwrap();
 
     let content = html! {

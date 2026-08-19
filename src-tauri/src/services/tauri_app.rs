@@ -82,7 +82,6 @@ impl BlenderQuery {
 
     pub fn link(&self) -> String {
         match &self.origin {
-            // TODO: Find a way to resolve expect()
             Origin::Local(path) => path.to_str().unwrap_or_default().to_string(),
             Origin::Online(url) => url.to_string(),
         }
@@ -683,10 +682,12 @@ impl TauriApp {
                         .await;
                 }
             }
-            // which node?
-            ServerEvent::Rendering(uuid) => {
-                // we received a node update that they're now rendering this uuid.
-                println!("A node is working on {uuid}!");
+            ServerEvent::ImageComplete(multiaddr, job_id, frame ) => {
+                println!("[{multiaddr}]: Completed frame {frame} for job ID \"{job_id}\"!");
+                // here we then check and see if we have the image stored locally.
+                // If it doesn't exist, we should fetch the image from the given multiaddr.
+                // client.file_service(FileCommand::RequestFile { peer_id: (), file_name: (), sender: () })
+                // we then ask for the image
             }
             ServerEvent::RequestJobInfo(job_id) => {
                 println!("A node is requesting job information that matches id {job_id}");

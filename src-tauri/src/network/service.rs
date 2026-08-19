@@ -224,6 +224,7 @@ impl Service {
     async fn handle_command(&mut self, cmd: Command) {
         // handle the commands via the services implementation given limited power for the network services.
         match cmd {
+            // I'm not sure why I need this?
             Command::Subscribe { topic } => {
                 let identity = IdentTopic::new(topic);
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.subscribe(&identity) {
@@ -597,9 +598,13 @@ impl Service {
 
     // run the network loops
     pub(crate) async fn run(mut self) {
+
+        // right now I need to find a way to spin up a loop to handle internal process.
         loop {
             select! {
+                // Receive network event
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event).await,
+                // handle command received
                 Ok(command) = self.command_receiver.recv() => self.handle_command(command).await,
             }
         }

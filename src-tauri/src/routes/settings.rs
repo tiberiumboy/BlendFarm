@@ -13,6 +13,7 @@ use tauri_plugin_fs::FilePath;
 use tokio::sync::Mutex;
 
 const SETTING: &str= "settings";
+const BLENDER_LIST: &str= "blender_list";
 
 #[command]  // could this accept PathBuf?
 pub fn open_dir(path: &str) -> Result<(),()> {
@@ -59,24 +60,32 @@ fn render_list_blenders(list: Vec<BlenderQuery>) -> String {
     }
 
     html! {
-        @for blend in list {
-            tr {
-                td {
-                    button tauri-invoke="open_dir" hx-vals=(json!({"path": blend.link()})) {
-                        label title=(blend.link()) {
-                            (blend.version.to_string())
+        table {
+            thead {
+                th { "Version" };
+                th { "Executable Path" };
+            };
+            tbody id="blender-table" hx-target="this" { 
+                @for blend in list {
+                    tr {
+                        td {
+                            button tauri-invoke="open_dir" hx-vals=(json!({"path": blend.link()})) {
+                                label title=(blend.link()) {
+                                    (blend.version.to_string())
+                                }
+                            }
+                        };
+                        td {
+                            button tauri-invoke="open_dir" hx-vals=(json!({"path":blend.parent_dir()})) {
+                                r"📁"
+                            }
+                            button tauri-invoke="delete_blender" hx-vals=(json!({"path":blend.link() })) 
+                            {
+                                r"🗑︎"
+                            }
                         }
-                    }
+                    };
                 };
-                td {
-                    button tauri-invoke="open_dir" hx-vals=(json!({"path":blend.parent_dir()})) {
-                        r"📁"
-                    }
-                    button tauri-invoke="delete_blender" hx-vals=(json!({"path":blend.link() })) 
-                    {
-                        r"🗑︎"
-                    }
-                }
             };
         };
     }
@@ -240,8 +249,6 @@ pub async fn edit_settings(state: State<'_, Mutex<AppState>>) -> Result<String, 
 
     let mut app_state = state.lock().await;
     let settings = app_state.get_settings().await.map_err(|e| e.to_string())?;
-    
-    // let install_path = manager.get_install_path();
     let cache_path = &settings.blend_dir;
     let render_path = &settings.render_dir;
 
@@ -264,34 +271,41 @@ pub async fn edit_settings(state: State<'_, Mutex<AppState>>) -> Result<String, 
     ).0)
 }
 
-#[command(async)]
-pub async fn get_settings(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let mut app_state = state.lock().await;
-    let settings = app_state.get_settings().await.map_err(|e| e.to_string())?;
+fn render_settings(settings: &ServerSetting) -> String {
+    
+    let cache_path = settings.blend_dir.to_string_lossy();
+    let render_path = settings.render_dir.to_string_lossy();
 
-    let cache_path = &settings.blend_dir.to_str().unwrap();
-    let render_path = &settings.render_dir.to_str().unwrap();
-
-    Ok(html!(
+    html!(
         div tauri-invoke="open_path" hx-target="this" hx-swap="outerHTML" {
-            // TODO: Could we make a factory to build buttons for this?
             h3 { "Blender File Cache Path:" };
             button tauri-invoke="open_dir" hx-vals=(json!({"path":cache_path})) {
                 r"📁"
             }
-            label word-wrap="break-word" hx-info=(json!( { "path": cache_path } )) { (cache_path) };
+            label word-wrap="break-word" hx-info=(json!( { "path": cache_path } )) { 
+                (maud::display(cache_path)) 
+            };
             
             h3 { "Render cache directory:" };
             button tauri-invoke="open_dir" hx-vals=(json!({"path":render_path})) {
                 r"📁"
             }
-            label word-wrap="break-word" hx-info=(json!( { "path": render_path } )) { (render_path) };
+            label word-wrap="break-word" hx-info=(json!( { "path": render_path } )) { 
+                (maud::display(render_path)) 
+            };
             br;
             
             button tauri-invoke="edit_settings" { "Edit" };
         }
     )
-    .0)
+    .0
+}
+
+#[command(async)]
+pub async fn get_settings(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
+    let mut app_state = state.lock().await;
+    let settings = app_state.get_settings().await.map_err(|e| e.to_string())?;
+    Ok(render_settings(&settings))
 }
 
 #[command]
@@ -300,10 +314,9 @@ pub fn setting_page() -> String {
         div class="content"  {
             h1 { "Settings" };
 
-            p { r"Here we list out all possible configuration this tool can offer to user.
-                    Exposing rich and deep components to customize your workflow" };
+            div class="group" id=(SETTING) tauri-invoke="get_settings" hx-trigger="load" hx-target="this" { 
 
-            div class="group" id=(SETTING) tauri-invoke="get_settings" hx-trigger="load" hx-target="this" { };
+            };
             
             h3 { "Blender Installation" };
             
@@ -312,14 +325,7 @@ pub fn setting_page() -> String {
             // If we are not connected to the internet, then softly report "Unable to fetch online, are you connected?"
             button tauri-invoke="install_from_internet" { "Install version" };
             
-            div class="group" {
-                table {
-                    thead {
-                        th { "Version" };
-                        th { "Executable Path" };
-                    };
-                    tbody id="blender-table" tauri-invoke="list_blender_installed" hx-trigger="load" hx-target="this" { };
-                };
+            div class="group" id=(BLENDER_LIST) tauri-invoke="list_blender_installed" hx-trigger="load" hx-targets="this" {
             };
         }
     }.0

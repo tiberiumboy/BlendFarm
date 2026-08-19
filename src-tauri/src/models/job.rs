@@ -105,8 +105,8 @@ pub struct Job {
     /// contains the information to specify the kind of job to render (We could auto fill this from blender peek function?)
     mode: RenderMode,
 
-    /// Path to blender files
-    blend_file: BlendFile,
+    /// blender file
+    pub(crate) blend_file: BlendFile,
 
     /// target blender version
     blender_version: Version,

@@ -63,8 +63,7 @@ pub enum ServerEvent {
     },
     // I wonder if we want to send notification stating that this client join the server.
     Joined(PeerIdString), // should we care which topic this peer id joined?
-    // TODO: Rendering... what?
-    Rendering(Uuid),
+    ImageComplete(Multiaddr, JobId, Frame),
     // Receive blender status information
     BlenderStatus(BlenderEvent),
     // Request list of completed renders by job id.
@@ -75,18 +74,6 @@ pub enum ServerEvent {
     RequestTicket(Multiaddr),
     NewTickets(Ticket),
 }
-
-// Currently used in a complex code block -
-// disable until code refactorization.
-/*
-#[derive(Debug)]
-enum ServerError {
-    // NetworkError(message::NetworkError),
-    // Io(async_std::io::Error),
-    // Manager(ManagerError),
-    BlendFarm(_BlendFarmError),
-}
-*/
 
 /// The behaviour described in the Cli App can be summarize below:
 /// When running with listening server, client will spin a thread to listen for network messages.
@@ -160,6 +147,7 @@ impl Server {
     // If the file does not exist on this machine, then it will call the network manager to
     // download and fetch the original blend files from the server/DHT and update
     #[allow(dead_code)]
+    // The design intention behind this is to validate whether the ticket we received have any pending jobs to perform. Otherwise the Ticket would be closed and ignored.
     async fn validate_project_file(
         &self,
         client: &mut NetworkController,
@@ -174,23 +162,16 @@ impl Server {
         // assume project file is located inside this directory.
         println!("Checking for {:?}", &project_file_path);
 
-        let job = AsRef::<Job>::as_ref(&task);
         // Fetch the project from peer if we don't have it.
         if !project_file_path.exists() {
-            println!(
-                "calling network for project file, asking to download from DHT: {:?}",
-                &job.get_file_name_expected()
-            );
+            println!("calling network for project file, asking to download from DHT...");
 
             // TODO: Find a way to implement network partition to break up files chunks for parallel network transfer.
             let search_directory = project_file_path
             .parent()
             .expect("Shouldn't be anywhere near root level?");
 
-            // so I need to figure out something about this...
-            // TODO - find a way to break out of this if we can't fetch the project file.
-            let job = AsRef::<Job>::as_ref(&task);
-            let file_name = job.get_file_name_expected().to_string_lossy();
+            let file_name = ticket.blend_path.file_name().expect("Must have valid file name! Cannot be a directory!").to_string_lossy();
 
             // TODO: To receive the path or not to modify existing project_file value? I expect both would have the same value?
             return Self::handle_get_file(client, &file_name, &search_directory.to_path_buf())
@@ -198,7 +179,7 @@ impl Server {
             .map_err(ServerError::BlendFarm);
         }
 
-        Ok(project_file_path)
+        Ok(project_file_path.clone())
     }
     */
 
@@ -322,21 +303,6 @@ impl Server {
     }
     */
 
-    // Handle network event (Receiving network messages)
-    // async fn handle_net_event(
-    //     // TODO: Remove self. Make this not dependent on cli struct (Use caller to send cmd commands)
-    //     // &mut self,
-    //     // network controller
-    //     client: &Controller,
-    //     // received network event
-    //     event: Event,
-    //     // used to interface cli background workers
-    //     caller: Sender<ServerCommand>
-    // ) -> Result<(), NetworkError> {
-    //     match event
-    //     Ok(())
-    // }
-
     // Take action from interface. (CLI mode)
     async fn handle_command(
         &mut self,
@@ -372,7 +338,7 @@ impl Server {
                 match Self::start_worker_service(
                     self.db_conn.clone(),
                     self.manager.clone(),
-                    &client,
+                    client,
                 )
                 .await
                 {
@@ -411,8 +377,8 @@ impl Server {
     async fn start_worker_service(
         db_conn: Pool<Sqlite>,
         manager: Arc<RwLock<BlenderManager>>,
-        _controller: &NetworkController,
-    ) -> Result<() /*Receiver<BlenderEvent>*/, TicketError> {
+        controller: &mut NetworkController,
+    ) -> Result<(), TicketError> {
         // run the service here.
         let ticket_db = SqliteTicketStore::new(db_conn.clone());
 
@@ -431,14 +397,14 @@ impl Server {
                 // };
                 // let project_file = task.get_job().get_project_path();
 
-                let version = ticket.job.get_blender_version();
+                let target_blender_version = &ticket.blender_version;
 
                 let mut mut_manager = manager.write().await;
 
                 let config = mut_manager.get_config();
 
                 // TODO: I want to find a way to utilize intranet DHT services to fetch installation from other computer node. It wouldn't make a lot of sense re-download the same version from source multiple of times.
-                let blender = match config.get_blender(version) {
+                let blender = match config.get_blender(target_blender_version) {
                     Some(blender) => blender,
                     None => {
                         // Update ticket status to "Error" -> Do not re-run this again until the issue has been resolved.
@@ -446,11 +412,13 @@ impl Server {
                         // if let Err(e) = ticket_db.delete_ticket(&record.id).await {
                         //     eprintln!("Unable to delete the ticket! {e:?}");
                         // }
-
-                        &mut_manager.fetch_blender(version).expect(
+                        
+                        // TODO: Remove expect(). What should happen here? Should this send a broadcast message back to the client?
+                        &mut_manager.fetch_blender(&target_blender_version).expect(
                             "Blendfarm must have permission to download and install blender!",
                         )
-                        // let (sender, receiver) = mpsc::<>channel();
+
+                        
                         // &controller.
                         // Here, we'd like to try and fetch from client first, before we can download.
                         // &self.manager
@@ -460,8 +428,36 @@ impl Server {
                 };
 
                 // we will get to the part of handling receiver, but I wanted to make sure this works so far.
-                let _receiver = ticket.render(&blender).await?;
+                let receiver = ticket.render(&blender).await?;
+
+                while let Ok(event) = receiver.recv() {
+                    match event {
+                        BlenderEvent::Info(msg) => println!("[Info] {msg}"),
+                        BlenderEvent::Rendering(render_event) => match render_event {
+                            blender_rs::models::event::RenderEvent::Progress { frame, current, total } => println!("Rendering Frame {frame} : {current}/{total}"),
+                            blender_rs::models::event::RenderEvent::Complete { frame, path } => {
+                                // I would like to create a new complete`d record to highligh completed render images.
+                                // I haven't found a way to save the ticket at the end of the progress?
+                                ticket = ticket.add_render(frame, path);
+                                
+                                // append a new record into the table to indicate a frame has been completed.
+                                let multiaddr = controller.multiaddr.clone();
+                                let job_id = ticket.job_id;
+                                let event = ServerEvent::ImageComplete(multiaddr, job_id, frame);
+                                controller.send_broadcast_message(event).await;
+                            },
+                        },
+                        BlenderEvent::Warning(_) => todo!(),
+                        BlenderEvent::Exit => todo!(),
+                        BlenderEvent::Error(_) => todo!(),
+                        BlenderEvent::Busy => todo!(),
+                        BlenderEvent::Unhandled(_) => todo!(),
+                    }
+                    // controller.send_broadcast_message(ServerEvent::BlenderStatus(event)).await;
+                }
             } else {
+                // here we'll ping the host I need new tickets!
+                dbg!("I need new tickets!");
                 break Ok(());
             }
         }
@@ -501,30 +497,9 @@ impl BlendFarm for Server {
         // let render_db = SqliteRenderStore::new(self.db_conn.clone());
         // let spec = ComputerSpec::new();
 
-        // spawn(async move {
-        //     // let id = blender_controller.public_id;
-        //     let task_store = SqliteTicketStore::new(self.db_conn);
-
-        //     // loop until we have no more ticket left to work on.
-        //     while let Ok(receiver) = &mut ticket_db.poll_ticket().await {
-        //         while let Some(message) = receiver.recv().await {
-        //                 // if receiver.
-        //                 // BlenderEvent::
-        //                 // match message {
-        //                 //     BlenderEvent::Quit
-        //                 // }
-        //                 print!("Processing tickets: {:?}", &message);
-        //         }
-        //         break;
-        //     }
-
-        //     // Once we've exhausted all of theticket here, we should send out Request ticket message.
-        //     blender_controller.send_server_status(ServerEvent::Idle).await;
-        // });
-
         let public_addr = Multiaddr::empty();
 
-        Server::start_worker_service(self.db_conn.clone(), self.manager.clone(), &client)
+        Server::start_worker_service(self.db_conn.clone(), self.manager.clone(), &mut client)
             .await
             .map_err(BlendFarmError::TicketError)?;
 
@@ -625,7 +600,7 @@ impl BlendFarm for Server {
                                 // ServerEvent::Idle => {
                                 //     eprintln!("A node has entered idle state... We should probably give that node some job to work on...");
                                 // }
-                                ServerEvent::Rendering(_) => {
+                                ServerEvent::ImageComplete(..) => {
                                     // We can ignore this, server aren't suppose to care about what other server rendering status looks like.
                                 }
                                 ServerEvent::RequestJobInfo(job_id) => {
