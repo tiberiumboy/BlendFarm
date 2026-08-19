@@ -222,7 +222,7 @@ pub(crate) mod test {
 
     // we should at least try to test it against public api
     #[test]
-    fn create_job_successful() {
+    fn assure_new_successful() {
         let file = Path::new(EXAMPLE_FILE);
         let mode = RenderMode::Frame(1);
         let version = Version::new(1, 1, 1);
@@ -245,6 +245,29 @@ pub(crate) mod test {
                 .to_str()
                 .expect("Shoudl have valid file name!")
         );
+    }
+
+    #[test]
+    fn assure_from_succeed() {
+        let file = Path::new(EXAMPLE_FILE);
+        let mode = RenderMode::Frame(1);
+        let version = Version::new(1, 1, 1);
+        let output = Path::new("./test/");
+        let job = Job::from(mode, file, version, output.to_path_buf());
+        assert!(job.is_ok());
+    }
+
+    #[test]
+    fn assure_get_range_succeed() {
+        let job = scaffold_job();
+        let (start, end) = job.get_range();
+        let expected = match job.mode {
+            RenderMode::Frame(frame) => (frame, frame),
+            RenderMode::Animation { start, end } => (start, end),
+        };
+
+        assert_eq!(start, expected.0);
+        assert_eq!(end, expected.1);
     }
 
     #[test]

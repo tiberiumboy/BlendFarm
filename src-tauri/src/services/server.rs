@@ -19,7 +19,7 @@ use crate::services::blend_farm::BlendFarmError;
 use crate::services::data_store::sqlite_renders_store::SqliteRenderStore;
 use crate::services::data_store::sqlite_ticket_store::SqliteTicketStore;
 use crate::{
-    models::{job::Job, server_setting::ServerSetting, ticket::Ticket},
+    models::{server_setting::ServerSetting, ticket::Ticket},
     network::controller::Controller as NetworkController,
 };
 use async_lock::RwLock;
@@ -104,11 +104,13 @@ pub struct Server {
     db_conn: Pool<Sqlite>,
 
     // config
+    // Devnote: Will be used for CLI mode - the CLI mode needs to know where to save the render images and blend file path.
+    // Additionally, they will become important when we need to fetch render image sequences from job or ticket structs.
+    #[allow(dead_code)]
     settings: ServerSetting,
 
     // current server specs
-    // TODO: find a way to make this private instead of public. Can we figure out why this is necessary?
-    pub spec: ComputerSpec,
+    spec: ComputerSpec,
 }
 
 // cli app should really be a stateless machine. A listener would just receive order from the network and proceed the ticket given queued.
@@ -123,8 +125,13 @@ impl Server {
         }
     }
 
+    pub fn get_spec(&self) -> &ComputerSpec {
+        &self.spec
+    }
+
     // This function will ensure the directory will exist, and return the path to that given directory.
     // It will remain valid unless directory or parent above is removed during runtime.
+    /*
     async fn generate_temp_project_task_directory(
         settings: &ServerSetting,
         task: &Ticket,
@@ -152,34 +159,33 @@ impl Server {
     // and verify that the existance of the file exist on this local machine.
     // If the file does not exist on this machine, then it will call the network manager to
     // download and fetch the original blend files from the server/DHT and update
-    /*
-        #[allow(dead_code)]
-        async fn validate_project_file(
-            &self,
-            client: &mut NetworkController,
-            task: &Ticket,
-        ) -> Result<PathBuf, ServerError> {
-            let id = AsRef::<Uuid>::as_ref(&task);
-            let project_file_path =
-            Server::generate_temp_project_task_directory(&self.settings, &task, &id.to_string())
-            .await
-            .expect("Should have permission!");
+    #[allow(dead_code)]
+    async fn validate_project_file(
+        &self,
+        client: &mut NetworkController,
+        task: &Ticket,
+    ) -> Result<PathBuf, ServerError> {
+        let id = AsRef::<Uuid>::as_ref(&task);
+        let project_file_path =
+        Server::generate_temp_project_task_directory(&self.settings, &task, &id.to_string())
+        .await
+        .expect("Should have permission!");
 
-            // assume project file is located inside this directory.
-            println!("Checking for {:?}", &project_file_path);
+        // assume project file is located inside this directory.
+        println!("Checking for {:?}", &project_file_path);
 
-            let job = AsRef::<Job>::as_ref(&task);
-            // Fetch the project from peer if we don't have it.
-            if !project_file_path.exists() {
-                println!(
-                    "calling network for project file, asking to download from DHT: {:?}",
-                    &job.get_file_name_expected()
-                );
+        let job = AsRef::<Job>::as_ref(&task);
+        // Fetch the project from peer if we don't have it.
+        if !project_file_path.exists() {
+            println!(
+                "calling network for project file, asking to download from DHT: {:?}",
+                &job.get_file_name_expected()
+            );
 
-                // TODO: Find a way to implement network partition to break up files chunks for parallel network transfer.
-                let search_directory = project_file_path
-                .parent()
-                .expect("Shouldn't be anywhere near root level?");
+            // TODO: Find a way to implement network partition to break up files chunks for parallel network transfer.
+            let search_directory = project_file_path
+            .parent()
+            .expect("Shouldn't be anywhere near root level?");
 
             // so I need to figure out something about this...
             // TODO - find a way to break out of this if we can't fetch the project file.
@@ -193,7 +199,7 @@ impl Server {
         }
 
         Ok(project_file_path)
-        }
+    }
     */
 
     /*

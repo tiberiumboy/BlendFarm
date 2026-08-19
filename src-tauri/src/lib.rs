@@ -61,9 +61,11 @@ struct CommandLineArguments {
     secret_key: Option<u8>,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Debug, Subcommand, Default)]
 enum Commands {
-    Client,
+    Service,
+    #[default]
+    Gui,
 }
 
 async fn config_sqlite_db(path: impl AsRef<Path>) -> Result<SqlitePool, sqlx::Error> {
@@ -158,10 +160,9 @@ pub async fn run() {
     // TODO: Handle Receiver input here.
     let result = match cli.command {
         // run as client mode.
-        Some(Commands::Client) => Server::new(context, &db).run(controller, receiver).await,
+        Some(Commands::Service) => Server::new(context, &db).run(controller, receiver).await,
         // run as GUI mode.
-        other => {
-            println!("{other:?} was called");
+        _ => {
             // could spawn in a separate thread?
             TauriApp::new(context.manager, &db)
                 .clear_workers_collection()
@@ -181,6 +182,7 @@ pub async fn run() {
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use crate::config_sqlite_db;
 
     #[tokio::test]
@@ -189,11 +191,8 @@ mod test {
         let conn = config_sqlite_db(database_file_name).await;
         assert!(conn.is_ok());
     }
-}
 
-mod tests {
-    use super::*;
-
+    #[cfg_attr(mobile, tauri::mobile_entry_point)]
     #[tokio::test]
     async fn assure_run_succeed() {
         run().await;

@@ -36,17 +36,26 @@ struct JobDAO {
 }
 
 impl JobDAO {
-    pub fn dto_to_obj(self) -> WithId<Job, Uuid> {
-        let project_file = PathBuf::from_str(&self.project_file).expect("Project path malformed");
-        let id = Uuid::from_str(&self.id).expect("id malformed");
-        let mode = serde_json::from_str(&self.mode).expect("mode malformed");
-        // TODO: Find a way to validate that this file exist, if it doesn't then we need to return JobError.
-        let blender_version =
-            Version::from_str(&self.blender_version).expect("Blender version malformed");
-        let output = PathBuf::from_str(&self.output_path).expect("Output path malformed");
-        let item = Job::from(mode, &project_file, blender_version, output)
-            .expect("Must be able to convert into job!");
-        WithId { id, item }
+    pub fn dto_to_obj(self) -> Result<WithId<Job, Uuid>, JobError> {
+        // I had issue with converting job record into job struct.
+        // We should not trust where the project file until we actually execute and invoke the job.
+        // for now, we will trust what the record has provided us as scaffolding starting point where the file should be located.
+        // This would be a great idea to make use of PhantomData, mark certain struct implementation to verify we have the actual job to run from.
+        let project_file = PathBuf::from_str(&self.project_file)
+            .map_err(|e| JobError::InvalidFile(e.to_string()))?;
+
+        let id = Uuid::from_str(&self.id).map_err(|e| JobError::DatabaseError(e.to_string()))?;
+        let mode =
+            serde_json::from_str(&self.mode).map_err(|e| JobError::DatabaseError(e.to_string()))?;
+
+        let blender_version = Version::from_str(&self.blender_version)
+            .map_err(|e| JobError::DatabaseError(e.to_string()))?;
+
+        let output = PathBuf::from_str(&self.output_path)
+            .map_err(|e| JobError::DatabaseError(e.to_string()))?;
+
+        let item = Job::from(mode, &project_file, blender_version, output)?;
+        Ok(WithId { id, item })
     }
 }
 
@@ -152,8 +161,9 @@ impl JobStore for SqliteJobStore {
         let result = query.fetch_all(&self.conn).await;
         match result {
             Ok(records) => Ok(records.iter().fold(Vec::new(), |mut record, item| {
-                let obj = item.clone().dto_to_obj();
-                record.push(obj);
+                if let Ok(obj) = item.clone().dto_to_obj() {
+                    record.push(obj);
+                }
                 record
             })),
             Err(e) => Err(JobError::DatabaseError(e.to_string())),
