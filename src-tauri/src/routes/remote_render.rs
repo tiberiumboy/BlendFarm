@@ -107,8 +107,9 @@ pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<Stri
 
     // validate file path.
     let blend_file = BlendFile::try_from(&path).map_err(|e| e.to_string())?;
-    let data = blend_file.peek_response(None);
+    let data = blend_file.peek_response();
     let file_path = path.to_str().unwrap();
+    let output = data.current.render_setting.output;
 
     let content = html! {
         div id="modal" _="on closeModal add .closing then wait for animationend then remove me" {
@@ -124,7 +125,7 @@ pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<Stri
 
                     label { "Output destination:" };
                     div tauri-invoke="update_output_field" hx-target="this" {
-                        input type="text" class="form-input" placeholder="Output Path" name="output" value=(&data.current.render_setting.output.to_string_lossy()) readonly={true};
+                        input type="text" class="form-input" placeholder="Output Path" name="output" value=(output.to_string_lossy()) readonly={true};
                     }
                     br;
 

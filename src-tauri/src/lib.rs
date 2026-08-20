@@ -21,7 +21,6 @@ Developer blog:
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 // it might be interesting and useful if there's a debug mode enabled?
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use std::fs;
 use anyhow::Error;
 use blender_rs::manager::Manager as BlenderManager;
 use blender_rs::models::blender_config::BlenderConfig;
@@ -126,13 +125,6 @@ pub async fn run() {
             eprintln!("Unable to open blender config file! {e:?}");
             BlenderConfig::default()
         }
-    };
-
-    let config_path = get_blend_config_default_location().expect("Must have path to configs!");
-    
-    let config: BlenderConfig = match fs::read(config_path) {
-        Ok(reader) => serde_json::from_slice(&reader).expect("Must have valid BlenderConfig struct!"),
-        Err(e) => panic!("Unable to open blender config file! {e:?}"),
     };
     
     // TODO: figure out how we can handle database path?

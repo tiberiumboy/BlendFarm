@@ -456,8 +456,10 @@ impl Server {
                     // controller.send_broadcast_message(ServerEvent::BlenderStatus(event)).await;
                 }
             } else {
-                // here we'll ping the host I need new tickets!
-                dbg!("I need new tickets!");
+                // here we'll ping the host asking for new tickets!
+                let multiaddr = controller.multiaddr.clone();
+                let event = ServerEvent::RequestTicket(multiaddr);
+                controller.send_broadcast_message(event).await;
                 break Ok(());
             }
         }

@@ -3,21 +3,13 @@ use crate::{
     domains::ticket_store::TicketError,
     models::with_id::WithId,
 };
-use blender_rs::{blend_file::BlendFile, blender::{Args, Blender, Frame}, models::event::BlenderEvent};
+use blender_rs::{blend_file::BlendFile, blender::{Args, Blender, ComputerGraphicsProgram, Frame}, models::event::BlenderEvent};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use tokio::spawn;
 use std::{
     collections::HashMap, path::PathBuf, sync::mpsc::{self, Receiver}
 };
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    range::Range,
-    sync::mpsc::{self, Receiver},
-};
-use tokio::spawn;
 use uuid::Uuid;
 
 pub type CreatedTicketDto = WithId<Ticket, Uuid>;
