@@ -119,7 +119,13 @@ pub async fn run() {
 
     let config: BlenderConfig = match std::fs::read(config_path) {
         Ok(reader) => {
-            serde_json::from_slice(&reader).expect("Must have valid BlenderConfig struct!")
+            match serde_json::from_slice(&reader) {
+                Ok(data) => data,
+                Err(e) => {
+                    eprintln!("Unable to parse config file! Using default config instead. {e:?}");
+                    BlenderConfig::default()
+                }
+            }
         }
         Err(e) => {
             eprintln!("Unable to open blender config file! {e:?}");
