@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 // use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 use tokio::{select /* spawn */};
@@ -70,8 +70,8 @@ pub enum ServerEvent {
     RequestJobInfo(JobId),
     // Broadcast to remove target job id
     RemoveJob(JobId),
-    // Broadcast requesting a ticket, multiaddr is the requestor
-    RequestTicket(Multiaddr),
+    // Broadcast requesting a ticket
+    RequestTicket(),
     NewTickets(Ticket),
 }
 
@@ -95,10 +95,9 @@ pub struct Server {
     // Additionally, they will become important when we need to fetch render image sequences from job or ticket structs.
     #[allow(dead_code)]
     settings: ServerSetting,
-
-    // current server specs
-    spec: ComputerSpec,
 }
+
+static COMPUTER_SPEC: OnceLock<ComputerSpec> = OnceLock::new();
 
 // cli app should really be a stateless machine. A listener would just receive order from the network and proceed the ticket given queued.
 // This program should close after completing the ticket queue, in non-listening mode
@@ -108,14 +107,10 @@ impl Server {
             settings: context.settings,
             manager: Arc::new(RwLock::new(context.manager)),
             db_conn: db.clone(),
-            spec: ComputerSpec::new(),
+            // spec: ComputerSpec::new(),
         }
     }
-
-    pub fn get_spec(&self) -> &ComputerSpec {
-        &self.spec
-    }
-
+    
     // This function will ensure the directory will exist, and return the path to that given directory.
     // It will remain valid unless directory or parent above is removed during runtime.
     /*
@@ -374,17 +369,28 @@ impl Server {
         Ok(())
     }
 
+    // Describe the behaviour.
+    /*
+        When a background service is running, it currently holds no known state of work. It will request a new job from the host.
+        When we receive a ticket, we will ask the host for the blend files, 
+            if we do not have matching hash, download the file.
+        Once started - This program will verify matching blender program is installed (May use newer version of patches?). 
+            Otherwise a blocking process runs to download and install blender. -> Notify host
+        Once ready - using the ticket struct to render the job.
+        After completion, a notification will sent out to the host asking for new ticket.
+     */
     async fn start_worker_service(
         db_conn: Pool<Sqlite>,
         manager: Arc<RwLock<BlenderManager>>,
         controller: &mut NetworkController,
     ) -> Result<(), TicketError> {
+
         // run the service here.
         let ticket_db = SqliteTicketStore::new(db_conn.clone());
 
         loop {
             if let Ok(Some(record)) = ticket_db.poll_ticket().await {
-                let mut ticket = record.item.clone();
+                let mut ticket = record.item;
 
                 // Skip this for now. We'll work on DHT at another time.
                 // TODO: validate and make sure that we have the files locally stored ready to be used.
@@ -457,8 +463,7 @@ impl Server {
                 }
             } else {
                 // here we'll ping the host asking for new tickets!
-                let multiaddr = controller.multiaddr.clone();
-                let event = ServerEvent::RequestTicket(multiaddr);
+                let event = ServerEvent::RequestTicket();
                 controller.send_broadcast_message(event).await;
                 break Ok(());
             }
@@ -499,6 +504,8 @@ impl BlendFarm for Server {
         // let render_db = SqliteRenderStore::new(self.db_conn.clone());
         // let spec = ComputerSpec::new();
 
+        let spec = COMPUTER_SPEC.get_or_init(||ComputerSpec::new());
+
         let public_addr = Multiaddr::empty();
 
         Server::start_worker_service(self.db_conn.clone(), self.manager.clone(), &mut client)
@@ -510,23 +517,19 @@ impl BlendFarm for Server {
             select! {
                 Ok(pending_event) = event_receiver.recv() => match pending_event {
                         Event::Discovered( _, peer_addr ) => {
-                            println!("Peer Discovered: {}", &peer_addr);
-
                             // Perform a check. If we have exhausted our ticket queue, we should send this discover peer a RequestTicket message.
-                            if let Ok(Some(remains)) = ticket_db.list_tickets().await {
-                                if remains.len().eq(&0) {
-                                    // now we will just simply ask
-                                    let local_addr = &client.multiaddr;
-                                    println!("Sending discovered peer a request ticket message.");
-                                    client.send_peer_message(&peer_addr, ServerEvent::RequestTicket(local_addr.clone())).await;
-                                }
-                            }
+                            // if let Ok(Some(remains)) = ticket_db.list_tickets().await {
+                            //     if remains.len().eq(&0) {
+                            //         // now we will just simply ask
+                            //         let local_addr = &client.multiaddr;
+                            //         println!("Sending discovered peer a request ticket message.");
+                            //         client.send_peer_message(&peer_addr, ServerEvent::RequestTicket(local_addr.clone())).await;
+                            //     }
+                            // }
 
-                            // TODO: See if we can avoid instantiating a new Computer spec, cache this somewhere, in a struct
-                            let spec = ComputerSpec::new();
                             println!("Sending discovered peer a online status message.");
                             // We'll say I'm online instead of requesting ticket.
-                            client.send_peer_message(&peer_addr, ServerEvent::Online(public_addr.clone(), spec)).await;
+                            client.send_peer_message(&peer_addr, ServerEvent::Online(public_addr.clone(), spec.clone())).await;
                         }
                         Event::JobUpdate(job_event) => {
                             println!("Received Job Event: {job_event:?}")
@@ -551,41 +554,39 @@ impl BlendFarm for Server {
                                         eprintln!("Fail to add new ticket to database! {e:?}");
                                     }
                                 },
-                                ServerEvent::RequestTicket(peer_addr) => {
-                                    // From a service point of view, should we be smart enough to allow this node to distribute pending tickets?
-                                    // TODO Make this display via verbose/debug options
-                                    println!("Peer [{peer_addr}] is requesting a ticket.");
-                                    // if we do not have a job, then we can request ticke to this target peer_id.
-                                    if let Ok(query) = ticket_db.list_tickets().await {
-                                        if let Some(col) = query {
-                                            if col.len().gt(&3) {
-                                                continue;
-                                            }
-                                        }
-                                    }
+                                ServerEvent::RequestTicket() => {
+                                    
+                                    // Assuming we're using database - 
+                                    // List of the tickets ahead pending from this job. If there's less than three, return/continue.
+                                    // if let Ok(query) = ticket_db.list_tickets().await {
+                                    //     if let Some(col) = query {
+                                    //         if col.len().gt(&3) {
+                                    //             continue;
+                                    //         }
+                                    //     }
+                                    // }
+                                    
 
                                     println!("I should contact this peer_addr and send them a new ticket.")
+                                    
                                     // Ok so if we dial, what are we doing here?
                                     // if let Err(e) = client.dial(&peer_addr).await {
                                     //     eprintln!("Unable to dial! {e:?}");
                                     // }
                                 },
                                 ServerEvent::Online(peer_addr, spec) => {
-                                    // peer connected with specs.
                                     // Once a computer becomes online, do the following conditions:
                                     // If our work queue is empty, we should send this computer a job request message.
-                                    // Only do this if this node is someone we haven't met before.
+                                    // Only do this if this node is someone we have met before.
 
                                     println!("Peer connected with specs provided : {peer_addr:?}\n{spec:?}");
-                                    // if we are not connected to host, connect to this one. await further instructions.
-                                    // TODO: See where my multiaddr went?
-                                    // self.host = Some((PeerIdStr::from(peer_id), multiaddr));
-
                                     // let public_ip = client.public_id.to_base58();
                                     // let mut machine = Machine::new();
                                     // let computer_spec = ComputerSpec::new(&mut machine);
                                     // let status = NodeEvent::Hello(public_ip, computer_spec);
                                     // client.send_node_status(status).await;
+                                    
+                                    // TODO: Let's ask the computer some info update, if there's any.
                                 }
                                 ServerEvent::Disconnected { peer_id, reason } => match reason {
                                     Some(err) => {

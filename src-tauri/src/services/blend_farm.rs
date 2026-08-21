@@ -54,7 +54,6 @@ pub trait BlendFarm {
         event_receiver: Receiver<Event>,
     ) -> Result<(), BlendFarmError>;
 
-    // could we use this inside the blendfarm as a base class?
     async fn handle_inbound_request(
         client: &mut NetworkController,
         request: String,

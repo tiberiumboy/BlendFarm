@@ -1,6 +1,7 @@
 use std::collections::HashSet;
+use crate::models::ticket::Ticket;
 use crate::{models::behaviour::FileResponse, network::message::FileData};
-use crate::services::server::ServerEvent;
+use crate::services::server::ServerEvent::{self, RequestTicket};
 use crate::network::message::{Command, FileCommand, NetworkError};
 use crate::network::provider_rule::ProviderRule;
 use futures::channel::oneshot::{self};
@@ -27,6 +28,21 @@ impl Controller {
             multiaddr,
             hostname,
         }
+    }
+
+    pub(crate) async fn get_ticket(&mut self) -> Option<Ticket> {
+        // let (sender, receiver) = oneshot::channel::<Ticket>();
+        // todo: send a broadcast message out
+        // when the host respond, we should get a reply back with information needed
+        
+        self.send_broadcast_message(RequestTicket()).await;
+
+        // if let Ok(ticket) = receiver.await {
+        // and expecting to wait for a receiver to return with a Option<Ticket> value.
+        // return Some(ticket);
+        // }
+        
+        None
     }
 
     pub(crate) async fn start_listening(&mut self, addr: Multiaddr) {
@@ -63,20 +79,6 @@ impl Controller {
             eprintln!("Failed to send direct message to [{peer_addr}]! {e:?}");
         }
     }
-
-/* 
-    #[allow(dead_code)]
-    fn parse_legacy_multiaddr(text: &str) -> Result<Multiaddr, Box<dyn Error>> {
-        let sanitized = text
-            .split('/')
-            .map(|part| if part == "ipfs" { "p2p" } else { part })
-            .collect::<Vec<_>>()
-            .join("/");
-        let mut res = Multiaddr::from_str(&sanitized)?;
-        Self::strip_peer_id(&mut res);
-        Ok(res)
-    }
-    */
 
     // TODO: Plan on using this call to dial peer for intracommunication protocol. 
     // pub(crate) async fn dial(

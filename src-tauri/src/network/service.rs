@@ -255,8 +255,8 @@ impl Service {
             Command::FileService(service) => self.process_file_service(service).await,
 
             // received server status. Can invoke commands from this broadcast event.
-            Command::Message(Some(_peer_addr), status) =>  {
-                    
+            Command::Message(Some(_multiaddr), status) =>  {
+                
                 // let data = serde_json::to_string(&status).unwrap();
                 // let topic = IdentTopic::new(NODE_TOPIC);
                 // if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
@@ -293,6 +293,7 @@ impl Service {
                 let topic = IdentTopic::new(NODE_TOPIC);
                 // so a relay server would be utilized here? we communicate to the peer by their id?
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+                    // Can get "NoPeerSubscribedToTopic" - Should handle gracefully.
                     eprintln!("Fail to publish gossip message: {e:?}");
                 }
             }

@@ -652,10 +652,7 @@ impl TauriApp {
                 );
             }
 
-            ServerEvent::RequestTicket(peer_addr) => {
-                // TODO: Display this info based on verbose/debugger cli options
-                println!("Peer [{peer_addr}] is asking you for new ticket(s)");
-
+            ServerEvent::RequestTicket() => {
                 // How do I check my job and see if I have any pending tickets/pending jobs to work on?
                 let query = match self.job_store.list_all().await {
                     Ok(list) => list.iter().fold(None, |result, item| {
@@ -677,9 +674,7 @@ impl TauriApp {
                 };
 
                 if let Some(ticket) = query {
-                    client
-                        .send_peer_message(&peer_addr, ServerEvent::NewTickets(ticket))
-                        .await;
+                    client.send_broadcast_message(ServerEvent::NewTickets(ticket)).await;
                 }
             }
             ServerEvent::ImageComplete(multiaddr, job_id, frame ) => {
