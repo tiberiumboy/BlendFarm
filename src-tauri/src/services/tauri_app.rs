@@ -593,7 +593,8 @@ impl TauriApp {
             // A node was recently discovered from the network.
             Event::Discovered(..) => {
                 // Here should try to join the topic hash before sending message out in case it doesn't work?
-                let multiaddr = client.multiaddr.clone();
+                let multiaddr = client.get_multiaddr().clone();
+                // TODO: Remove ComputerSpec.
                 let spec = ComputerSpec::new();
                 // We replied back to the discovered node "Hello, this is my specs, so call me maybe?"
                 let server_status = ServerEvent::Online(multiaddr, spec);
@@ -677,8 +678,8 @@ impl TauriApp {
                     client.send_broadcast_message(ServerEvent::NewTickets(ticket)).await;
                 }
             }
-            ServerEvent::ImageComplete(multiaddr, job_id, frame ) => {
-                println!("[{multiaddr}]: Completed frame {frame} for job ID \"{job_id}\"!");
+            ServerEvent::ImageComplete(job_id, frame ) => {
+                println!("Completed frame {frame} for job ID \"{job_id}\"!");
                 // here we then check and see if we have the image stored locally.
                 // If it doesn't exist, we should fetch the image from the given multiaddr.
                 // client.file_service(FileCommand::RequestFile { peer_id: (), file_name: (), sender: () })
@@ -783,21 +784,12 @@ impl BlendFarm for TauriApp {
 mod tests {
     // use blender::models::blender_config::BlenderConfig;
     // use blender_rs::manager::tests::mock_manager;
-
-    use super::*;
-    use crate::{config_sqlite_db, constant::DATABASE_FILE_NAME};
-    // use async_trait::async_trait;
-
-    // TODO - See if we still need this or not?
-    async fn get_sqlite_conn() -> Pool<Sqlite> {
-        let pool = config_sqlite_db(DATABASE_FILE_NAME).await;
-        assert!(pool.is_ok());
-        pool.expect("Assert above should force this to be ok()")
-    }
+    use crate::services::data_store::sqlite_job_store::tests::get_sqlite_pool;
+    // use super::*;
 
     #[tokio::test]
     async fn assure_get_sqlite_conn_success() {
-        let pool = get_sqlite_conn().await;
+        let pool = get_sqlite_pool().await;
         assert!(!pool.is_closed());
         pool.close().await;
         assert!(pool.is_closed());
