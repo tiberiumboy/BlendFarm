@@ -1,9 +1,13 @@
 use super::job::CreatedJobDto;
 use crate::{
-    domains::ticket_store::TicketError,
-    models::with_id::WithId,
+    domains::ticket_store::TicketError, models::with_id::WithId,
 };
-use blender_rs::{blend_file::BlendFile, blender::{Args, Blender, ComputerGraphicsProgram, Frame}, models::event::BlenderEvent};
+use blender_rs::{
+    blend_file::BlendFile, 
+    blender::{Args, Blender, ComputerGraphicsProgram, BlenderError, Frame}, 
+    models::event::BlenderEvent,
+};
+use std::path::Path;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use tokio::spawn;
@@ -43,33 +47,68 @@ pub struct Ticket {
     renders: HashMap<Frame, PathBuf>,
 
     /// Render range frame to perform the task
-    /// TODO: Could this be used as a "Range" struct? Is Range serializable?
     pub(crate) start: Frame,
-    pub(crate) end: Frame,  
+    pub(crate) end: Frame,
 }
 
 // To better understand Task, this is something that will be save to the database and maintain a record copy for data recovery
 // This act as a pending work order to fulfill when resources are available.
 impl Ticket {
     // private method, less validation.
-    pub(crate) fn new(job_id: Uuid, blend_path: PathBuf, blender_version: Version, temp_output: PathBuf, start: i32, end: i32 ) -> Self {
+    pub(crate) fn new<P: AsRef<Path>>(job_id: Uuid, blend_path: P, blender_version: Version, temp_output: P, start: Frame, end: Frame ) -> Self {
         Self {
             job_id,
-            blend_path,
+            blend_path: blend_path.as_ref().to_path_buf(),
             blender_version,
-            temp_output,
+            temp_output: temp_output.as_ref().to_path_buf(),
             renders: HashMap::new(),
             start,
             end,
         }
     }
 
-    pub fn add_render(mut self, frame: Frame, path: PathBuf ) -> Self {
+    // This function will ensure the directory will exist, and return the path to that given directory.
+    // It will remain valid unless directory or parent above is removed during runtime.
+    
+    // fn generate_project_directory(
+    //     job_id: Uuid,
+    //     settings: &ServerSetting
+    // ) -> IoResult<(PathBuf, PathBuf)> {
+    //     // create a path link where we think the file should be
+    //     let job_id = job_id.to_string();
+    //     // let file_name = self.get_file_name().expect("Must have valid file!");
+    //     let blend_dir = settings
+    //         .blend_dir
+    //         .join(job_id.clone());
+        
+    //     let render_dir = settings.render_dir.join(job_id);
+
+    //     // we only want the parent directory to exist.
+    //     std::fs::create_dir_all(&blend_dir)?;
+    //     std::fs::create_dir_all(&render_dir)?;
+    //     Ok((blend_dir, render_dir))
+    // }
+
+    // so here I'd need to know the directory and path to perform?
+    pub fn build<P: AsRef<Path>>(id: Uuid, blender_version: Version, blend_file_path: P, render_directory: P, start: Frame, end: Frame) -> Result<Ticket, TicketError> {
+        // check and validate that blend file exist on this computer
+        let blend_path = blend_file_path.as_ref();
+        if !blend_path.exists() {
+            let invalid_path = blend_path.to_string_lossy();
+            TicketError::BlenderError( BlenderError::InvalidFile(invalid_path.to_string()));
+        }
+        // TODO: lastly - verify that the target blender version is installed on this machine, ready to use.
+
+        let ticket = Ticket::new(id, blend_path, blender_version, render_directory.as_ref(), start, end);
+        Ok(ticket)
+    }
+
+    pub fn add_render(&mut self, frame: Frame, path: PathBuf ) {
         self.renders.insert(frame,  path);
-        self
     }
 
     pub fn from(job: CreatedJobDto, start: i32, end: i32) -> Result<Self, TicketError> {
+        // TODO: rely on provided blend_file path location.
         match dirs::cache_dir() {
             Some(tmp) => {
                 let id = job.id;
