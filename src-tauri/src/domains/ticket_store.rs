@@ -1,16 +1,16 @@
 use std::fmt::Display;
 
 use crate::models::ticket::{CreatedTicketDto, Ticket};
-use blender_rs::{blender::BlenderError, manager::ManagerError};
+use blender_rs::blender::BlenderError;
 use uuid::Uuid;
 
 #[derive(Debug)]
 pub enum TicketError {
     Unknown,
     DatabaseError(sqlx::Error),
-    Manager(ManagerError),
     BlenderError(BlenderError),
     CacheError,
+    IoError(std::io::Error),
 }
 
 impl Display for TicketError {
@@ -20,13 +20,11 @@ impl Display for TicketError {
             TicketError::DatabaseError(error) => {
                 f.write_str(&format!("Received Database error: {error:?}"))
             }
-            TicketError::Manager(manager_error) => {
-                f.write_str(&format!("Received Manager error: {manager_error:?}"))
-            }
             TicketError::BlenderError(blender_error) => {
                 f.write_str(&format!("Received Blender error: {blender_error:?}"))
             }
             TicketError::CacheError => f.write_str("Received cache error!"),
+            TicketError::IoError(io) => f.write_str(&io.to_string())
         }
     }
 }
