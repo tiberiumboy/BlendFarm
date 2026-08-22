@@ -1,35 +1,108 @@
-use crate::{
-    constant::TRANSFER,
-    models::behaviour::BlendFarmBehaviour,
-    network::{
-        controller::Controller,
-        message::{Command, Event, NetworkError},
-        service::Service,
-    },
-};
+use crate::network::{client::Client, event::Event, event_loop::EventLoop, behaviour::Behaviour};
 use libp2p::{Multiaddr, StreamProtocol, SwarmBuilder, gossipsub, identity, kad, mdns, multiaddr::Protocol, noise, tcp, yamux};
 use libp2p_request_response::ProtocolSupport;
-use machine_info::Machine;
-use futures::{channel::mpsc::{self, Receiver}};
-use std::{/*hash::DefaultHasher,*/ time::Duration};
+use futures::{
+    Stream,
+    channel::{mpsc, oneshot}
+};
+use std::{error::Error, net::Ipv4Addr, time::Duration};
 use tokio::io;
 // use tokio::sync::mpsc;
 pub mod controller;
 pub mod message;
 pub(crate) mod provider_rule;
 pub mod service;
+mod behaviour;
+mod client;
+mod command;
+mod event;
+mod file_request;
+mod file_response;
+mod event_loop;
 
 // type is locally contained
 pub type PeerIdString = String;
 
-// the tuples return two objects
+
+/// Creates the network components, namely:
+///
+/// - The network client to interact with the network layer from anywhere within your application.
+///
+/// - The network event stream, e.g. for incoming requests.
+///
+/// - The network task driving the network itself.
+pub(crate) async fn new(
+    secret_key_seed: Option<u8>,
+) -> Result<(Client, impl Stream<Item = Event>, EventLoop), Box<dyn Error>> {
+    // Create a public/private key pair, either random or based on a seed.
+    let id_keys = match secret_key_seed {
+        Some(seed) => {
+            let mut bytes = [0u8; 32];
+            bytes[0] = seed;
+            identity::Keypair::ed25519_from_bytes(bytes).unwrap()
+        }
+        None => identity::Keypair::generate_ed25519(),
+    };
+    let peer_id = id_keys.public().to_peer_id();
+
+    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
+        .with_tokio()
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )?
+        .with_behaviour(|key| Behaviour {
+            kademlia: kad::Behaviour::new(
+                peer_id,
+                kad::store::MemoryStore::new(key.public().to_peer_id()),
+            ),
+            request_response: request_response::cbor::Behaviour::new(
+                [(
+                    StreamProtocol::new("/file-exchange/1"),
+                    ProtocolSupport::Full,
+                )],
+                request_response::Config::default(),
+            ),
+        })?
+        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+        .build();
+
+    swarm
+        .behaviour_mut()
+        .kademlia
+        .set_mode(Some(kad::Mode::Server));
+
+    let (command_sender, command_receiver) = mpsc::channel(0);
+    let (event_sender, event_receiver) = mpsc::channel(0);
+
+    Ok((
+        Client {
+            sender: command_sender,
+        },
+        event_receiver,
+        EventLoop::new(swarm, command_receiver, event_sender),
+    ))
+}
+
+/* 
+
+// the tuples return three objects
 // Network Controller to interface network service
 // Receiver<NetCommand> receive network events
+// Service contains body instructions of Network infrastructure.  Must run on a separate thread
 pub async fn new(
     secret_key_seed: Option<u8>,
 ) -> Result<(Controller, Receiver<Event>/*impl Stream<Item = Event>*/, Service), NetworkError> {
     // Maximum time allowed for established stream connections.
     let duration = Duration::from_secs(60);
+
+    // port to allow connection
+    let port = 8082;
+
+    // max channel allowed
+    let max_channel_buffer: usize = 8;
+
     // is there a reason for the secret key seed?
     let id_keys = match secret_key_seed {
         Some(seed) => {
@@ -108,17 +181,19 @@ pub async fn new(
         .set_mode(Some(kad::Mode::Server));
 
     // the command sender is used for outside method to send message commands to network queue
-    let (sender, receiver) = mpsc::channel::<Command>(8);
+    let (sender, receiver) = mpsc::channel::<Command>(max_channel_buffer);
 
     // the event sender is used to handle incoming network message. E.g. RunJob
-    let (event_sender, event_receiver) = mpsc::channel::<Event>(8);
+    let (event_sender, event_receiver) = mpsc::channel::<Event>(max_channel_buffer);
 
     let public_id = swarm.local_peer_id().clone();
     let mut multiaddr = Multiaddr::empty();
+    // TODO: How do I get the network assigned address of this computer?
+    multiaddr.push(Protocol::Ip4(Ipv4Addr::LOCALHOST));
+    multiaddr.push(Protocol::Tcp(port));
     multiaddr.push(Protocol::P2p(public_id));
 
-    let controller = Controller::new(sender, multiaddr, Machine::new().system_info().hostname);
-
+    let controller = Controller::new(sender, multiaddr);
     let service = Service::new(
         swarm,
         receiver,
@@ -127,3 +202,4 @@ pub async fn new(
 
     Ok((controller, event_receiver, service))
 }
+*/

@@ -13,7 +13,6 @@ use crate::models::computer_spec::ComputerSpec;
 use crate::models::job::JobId;
 use crate::network::PeerIdString;
 use crate::network::message::{Event, NetworkError};
-use crate::network::provider_rule::ProviderRule;
 use crate::services::app_context::AppContext;
 use crate::services::blend_farm::BlendFarmError;
 use crate::services::data_store::sqlite_renders_store::SqliteRenderStore;
@@ -26,12 +25,13 @@ use async_lock::RwLock;
 use async_trait::async_trait;
 use blender_rs::blender::{Frame, Manager as BlenderManager};
 use blender_rs::models::event::BlenderEvent;
-use futures::channel::mpsc::Receiver;
-use libp2p::{Multiaddr, PeerId};
+use futures::channel::mpsc::{ Sender as FutSender, Receiver as FutReceiver, channel as FutChannel};
+use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use std::collections::HashMap;
 use std::path::PathBuf;
+// use std::sync::mpsc::{Sender, Receiver};
 use std::sync::{Arc, OnceLock};
 // use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
@@ -41,10 +41,10 @@ use uuid::Uuid;
 // this is invocation commands. Signal to start, stop, fetch blender information and relative info.
 #[allow(dead_code)]
 enum ServerCommand {
-    Start,
+    // Start,
     AddTicket(Ticket),
     DeleteTicket(Uuid),
-    CheckBlender(PeerId, String), // Name of the blender in compressed package enum. (e.g. "blender-5.0.0-linux-x64.tar.xz")
+    // CheckBlender(PeerId, String), // Name of the blender in compressed package enum. (e.g. "blender-5.0.0-linux-x64.tar.xz")
     // this function seems confusing. Refine this a bit letter.
     FetchImages(JobId, oneshot::Sender<HashMap<Frame, PathBuf>>),
     Abort,
@@ -63,7 +63,7 @@ pub enum ServerEvent {
     },
     // I wonder if we want to send notification stating that this client join the server.
     Joined(PeerIdString), // should we care which topic this peer id joined?
-    ImageComplete(Multiaddr, JobId, Frame),
+    ImageComplete(JobId, Frame),
     // Receive blender status information
     BlenderStatus(BlenderEvent),
     // Request list of completed renders by job id.
@@ -110,30 +110,8 @@ impl Server {
             // spec: ComputerSpec::new(),
         }
     }
-    
-    // This function will ensure the directory will exist, and return the path to that given directory.
-    // It will remain valid unless directory or parent above is removed during runtime.
-    /*
-    async fn generate_temp_project_task_directory(
-        settings: &ServerSetting,
-        task: &Ticket,
-        id: &str,
-    ) -> Result<PathBuf, async_std::io::Error> {
-        // create a path link where we think the file should be
-        let job = AsRef::<Job>::as_ref(&task);
-        let project_path = settings
-            .blend_dir
-            .join(id.to_string())
-            .join(&job.get_file_name_expected());
 
-        // we only want the parent directory to exist.
-        match async_std::fs::create_dir_all(&project_path.parent().expect("I wouldn't think we'd be trying to check files in root? Please write a bug report and replicate step by step to reproduce the issue")).await {
-            Ok(_) => Ok(project_path),
-            Err(e) => {
-                Err(e)
-            }
-        }
-    }
+    /*
 
     // Currently commented out to get milestone achievement. - Behaviour appears complex and may need to refactored later.
     // Originally designed to implemented the following behavior:
@@ -301,13 +279,13 @@ impl Server {
     // Take action from interface. (CLI mode)
     async fn handle_command(
         &mut self,
-        client: &mut NetworkController,
+        db_connection: &Pool<Sqlite>,
         cmd: ServerCommand,
     ) -> Result<(), NetworkError> {
         // More to come soon. Just making it work for now is bare minimum.
         match cmd {
             ServerCommand::AddTicket(ticket) => {
-                let ticket_db = SqliteTicketStore::new(self.db_conn.clone());
+                let ticket_db = SqliteTicketStore::new(db_connection.clone());
                 if let Err(e) = ticket_db.add_ticket(ticket).await {
                     eprintln!("Unable to add ticket to database! {e:?}");
                 }
@@ -322,49 +300,54 @@ impl Server {
                 // returns a hashset of all render frames from matching job.
                 // Inner join tasks inner join renders
                 // basically providing basic information to client what frames have been completed.
-                let render_db = SqliteRenderStore::new(self.db_conn.clone());
+                let render_db = SqliteRenderStore::new(db_connection.clone());
                 if let Ok(result) = render_db.find(Some(job_id)).await {
                     if let Err(e) = sender.send(result) {
                         eprintln!("unable to send fetch result! {e:?}");
                     }
                 }
             }
-            ServerCommand::Start => {
-                match Self::start_worker_service(
-                    self.db_conn.clone(),
-                    self.manager.clone(),
-                    client,
-                )
-                .await
-                {
-                    Ok(..) => {
-                        todo!("Handle event_receiver here!");
-                    }
-                    Err(e) => {
-                        println!("unable to start worker service! {e:?}");
-                        ()
-                    }
-                }
-            }
+            // ServerCommand::Start => {
+            //     match Self::start_worker_service(
+            //         self.db_conn.clone(),
+            //         self.manager.clone(),
+            //         client,
+            //     )
+            //     .await
+            //     {
+            //         Ok(..) => {
+            //             todo!("Handle event_receiver here!");
+            //         }
+            //         Err(e) => {
+            //             println!("unable to start worker service! {e:?}");
+            //             ()
+            //         }
+            //     }
+            // }
+            // Hmm probably delete job instead? Ticket do not live longer than job description
             ServerCommand::DeleteTicket(id) => {
                 let ticket_db = SqliteTicketStore::new(self.db_conn.clone());
                 if let Err(e) = ticket_db.delete_ticket(&id).await {
                     eprintln!("Unable to delete ticket from database! {e:?}");
                 }
             }
-            ServerCommand::CheckBlender(peer_id, zip_file_name) => {
-                // ok so we get manager and fetch the package that matches file name asking
-                let mut_manager = self.manager.write().await;
+            // this may not matter once we have DHT up and running.
+            // The idea was to ask this server if they have specific blender downloaded and ready to distribute within local network.
+            // Instead of asking per each computer node, we'll use DHT to see if there's exact blender naming convention, and download
+            // from there instead.
+            // ServerCommand::CheckBlender(peer_id, zip_file_name) => {
+            //     // ok so we get manager and fetch the package that matches file name asking
+            //     let mut_manager = self.manager.write().await;
 
-                if let Some(_path) = mut_manager.check_compressed_by_file_name(&zip_file_name) {
-                    let provider = ProviderRule::Custom(zip_file_name); // _path
-                    if let Err(e) = client.start_providing(&provider).await {
-                        eprintln!("Unable to provide files! {e:?}");
-                    }
-                    // TODO: reply back to the caller
-                    todo!("How do I reply back to this peer? {peer_id:?}");
-                }
-            }
+            //     if let Some(_path) = mut_manager.check_compressed_by_file_name(&zip_file_name) {
+            //         let provider = ProviderRule::Custom(zip_file_name); // _path
+            //         if let Err(e) = client.start_providing(&provider).await {
+            //             eprintln!("Unable to provide files! {e:?}");
+            //         }
+            //         // TODO: reply back to the caller
+            //         todo!("How do I reply back to this peer? {peer_id:?}");
+            //     }
+            // }
         };
         Ok(())
     }
@@ -380,94 +363,83 @@ impl Server {
         After completion, a notification will sent out to the host asking for new ticket.
      */
     async fn start_worker_service(
-        db_conn: Pool<Sqlite>,
+        // db_conn: Pool<Sqlite>,
+        ticket: &mut Ticket,
         manager: Arc<RwLock<BlenderManager>>,
-        controller: &mut NetworkController,
+        // controller: &mut NetworkController,
+        sender: &mut FutSender<ServerEvent>
     ) -> Result<(), TicketError> {
 
-        // run the service here.
-        let ticket_db = SqliteTicketStore::new(db_conn.clone());
+        // Skip this for now. We'll work on DHT at another time.
+        // TODO: validate and make sure that we have the files locally stored ready to be used.
+        // let project_file = match self.validate_project_file(client, &task).await {
+        //     Ok(path) => path,
+        //     Err(e) => {
+        //         eprintln!("Fail to validate project file! {e:?}");
+        //         return;
+        //     }
+        // };
+        // let project_file = task.get_job().get_project_path();
 
-        loop {
-            if let Ok(Some(record)) = ticket_db.poll_ticket().await {
-                let mut ticket = record.item;
+        let target_blender_version = &ticket.blender_version;
 
-                // Skip this for now. We'll work on DHT at another time.
-                // TODO: validate and make sure that we have the files locally stored ready to be used.
-                // let project_file = match self.validate_project_file(client, &task).await {
-                //     Ok(path) => path,
-                //     Err(e) => {
-                //         eprintln!("Fail to validate project file! {e:?}");
-                //         return;
-                //     }
-                // };
-                // let project_file = task.get_job().get_project_path();
+        let mut mut_manager = manager.write().await;
 
-                let target_blender_version = &ticket.blender_version;
+        let config = mut_manager.get_config();
 
-                let mut mut_manager = manager.write().await;
+        // TODO: I want to find a way to utilize intranet DHT services to fetch installation from other computer node. It wouldn't make a lot of sense re-download the same version from source multiple of times.
+        let blender = match config.get_blender(target_blender_version) {
+            Some(blender) => blender,
+            None => {
+                // Update ticket status to "Error" -> Do not re-run this again until the issue has been resolved.
+                // Server had issue with this job - Send notification broadcast, and delete ticket.
+                // if let Err(e) = ticket_db.delete_ticket(&record.id).await {
+                //     eprintln!("Unable to delete the ticket! {e:?}");
+                // }
+                
+                // TODO: Remove expect(). What should happen here? Should this send a broadcast message back to the client?
+                &mut_manager.fetch_blender(&target_blender_version).expect(
+                    "Blendfarm must have permission to download and install blender!",
+                )
 
-                let config = mut_manager.get_config();
-
-                // TODO: I want to find a way to utilize intranet DHT services to fetch installation from other computer node. It wouldn't make a lot of sense re-download the same version from source multiple of times.
-                let blender = match config.get_blender(target_blender_version) {
-                    Some(blender) => blender,
-                    None => {
-                        // Update ticket status to "Error" -> Do not re-run this again until the issue has been resolved.
-                        // Server had issue with this job - Send notification broadcast, and delete ticket.
-                        // if let Err(e) = ticket_db.delete_ticket(&record.id).await {
-                        //     eprintln!("Unable to delete the ticket! {e:?}");
-                        // }
-                        
-                        // TODO: Remove expect(). What should happen here? Should this send a broadcast message back to the client?
-                        &mut_manager.fetch_blender(&target_blender_version).expect(
-                            "Blendfarm must have permission to download and install blender!",
-                        )
-
-                        
-                        // &controller.
-                        // Here, we'd like to try and fetch from client first, before we can download.
-                        // &self.manager
-                        //     .fetch_blender(&version)
-                        //     .map_err(TicketError::Manager)?
-                    }
-                };
-
-                // we will get to the part of handling receiver, but I wanted to make sure this works so far.
-                let receiver = ticket.render(&blender).await?;
-
-                while let Ok(event) = receiver.recv() {
-                    match event {
-                        BlenderEvent::Info(msg) => println!("[Info] {msg}"),
-                        BlenderEvent::Rendering(render_event) => match render_event {
-                            blender_rs::models::event::RenderEvent::Progress { frame, current, total } => println!("Rendering Frame {frame} : {current}/{total}"),
-                            blender_rs::models::event::RenderEvent::Complete { frame, path } => {
-                                // I would like to create a new complete`d record to highligh completed render images.
-                                // I haven't found a way to save the ticket at the end of the progress?
-                                ticket = ticket.add_render(frame, path);
-                                
-                                // append a new record into the table to indicate a frame has been completed.
-                                let multiaddr = controller.multiaddr.clone();
-                                let job_id = ticket.job_id;
-                                let event = ServerEvent::ImageComplete(multiaddr, job_id, frame);
-                                controller.send_broadcast_message(event).await;
-                            },
-                        },
-                        BlenderEvent::Warning(_) => todo!(),
-                        BlenderEvent::Exit => todo!(),
-                        BlenderEvent::Error(_) => todo!(),
-                        BlenderEvent::Busy => todo!(),
-                        BlenderEvent::Unhandled(_) => todo!(),
-                    }
-                    // controller.send_broadcast_message(ServerEvent::BlenderStatus(event)).await;
-                }
-            } else {
-                // here we'll ping the host asking for new tickets!
-                let event = ServerEvent::RequestTicket();
-                controller.send_broadcast_message(event).await;
-                break Ok(());
+                
+                // &controller.
+                // Here, we'd like to try and fetch from client first, before we can download.
+                // &self.manager
+                //     .fetch_blender(&version)
+                //     .map_err(TicketError::Manager)?
             }
+        };
+
+        // we will get to the part of handling receiver, but I wanted to make sure this works so far.
+        let receiver = ticket.render(&blender).await?;
+
+        while let Ok(event) = receiver.recv() {
+            match event {
+                BlenderEvent::Info(msg) => println!("[Info] {msg}"),
+                BlenderEvent::Rendering(render_event) => match render_event {
+                    blender_rs::models::event::RenderEvent::Progress { frame, current, total } => println!("Rendering Frame {frame} : {current}/{total}"),
+                    blender_rs::models::event::RenderEvent::Complete { frame, path } => {
+                        ticket.add_render(frame, path);
+                        
+                        // append a new record into the table to indicate a frame has been completed.
+                        let job_id = ticket.job_id;
+                        let event = ServerEvent::ImageComplete(job_id, frame);
+                        if let Err(e) = sender.try_send(event) {
+                            eprintln!("Unable to send! {e:?}");
+                        }
+                    },
+                },
+                BlenderEvent::Warning(_) => todo!(),
+                BlenderEvent::Exit => todo!(),
+                BlenderEvent::Error(_) => todo!(),
+                BlenderEvent::Busy => todo!(),
+                BlenderEvent::Unhandled(_) => todo!(),
+            }
+            // controller.send_broadcast_message(ServerEvent::BlenderStatus(event)).await;
         }
+
+        Ok(())
     }
 }
 
@@ -492,25 +464,39 @@ impl BlendFarm for Server {
     async fn run(
         mut self,
         mut client: NetworkController,
-        mut event_receiver: Receiver<Event>,
+        mut event_receiver: FutReceiver<Event>,
     ) -> Result<(), BlendFarmError> {
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
         // we will have one thread to process blender and queue, but I must have access to database.
         // where is this event suppose to be used for?
-        let (event, mut command) = mpsc::channel(32);
+        let (event, mut command) = mpsc::channel::<ServerCommand>(32);
+        let (mut sender, mut receiver) = FutChannel::<ServerEvent>(32);
 
-        // if we exit early, how do we restart this service?
-        let ticket_db = SqliteTicketStore::new(self.db_conn.clone());
+        let db_connection = self.db_conn.clone();
+
+        let ticket_connection = self.db_conn.clone();
+
+        let manager = self.manager.clone();
+
+        // create a connection for render log entry
         // let render_db = SqliteRenderStore::new(self.db_conn.clone());
-        // let spec = ComputerSpec::new();
 
         let spec = COMPUTER_SPEC.get_or_init(||ComputerSpec::new());
 
         let public_addr = Multiaddr::empty();
 
-        Server::start_worker_service(self.db_conn.clone(), self.manager.clone(), &mut client)
-            .await
-            .map_err(BlendFarmError::TicketError)?;
+        let _process = tokio::spawn(async move {
+            let ticket_db = SqliteTicketStore::new(ticket_connection.clone());
+            loop {
+                if let Ok(Some(record)) = ticket_db.poll_ticket().await {
+                    let mut ticket = record.item;
+                    if let Err(e) = Server::start_worker_service(&mut ticket, manager.clone(), &mut sender)
+                        .await {
+                            eprintln!("Unhandle worker error! {e:?}");
+                        }
+                }
+            }
+        });
 
         // Process pending inputs commands from foreign function interface
         loop {
@@ -545,11 +531,13 @@ impl BlendFarm for Server {
                                     println!("A peer [{:?}] has joined the channel", peer_id);
                                 },
                                 ServerEvent::RemoveJob(job_id) => {
+                                    let ticket_db = SqliteTicketStore::new(db_connection.clone());
                                     if let Err(e) = ticket_db.delete_job_ticket(&job_id).await {
                                         eprintln!("Fail to remove ticket with matching job id {job_id} | {e:?}");
                                     }
                                 },
                                 ServerEvent::NewTickets(ticket) => {
+                                    let ticket_db = SqliteTicketStore::new(db_connection.clone());
                                     if let Err(e) = ticket_db.add_ticket(ticket).await {
                                         eprintln!("Fail to add new ticket to database! {e:?}");
                                     }
@@ -608,7 +596,7 @@ impl BlendFarm for Server {
                                 }
                                 ServerEvent::RequestJobInfo(job_id) => {
                                     // we received a job info request. Check our internal data and reply back with job info.
-                                    let render_db = SqliteRenderStore::new(self.db_conn.clone());
+                                    let render_db = SqliteRenderStore::new(db_connection.clone());
                                     let result = render_db.find(Some(job_id)).await;
 
                                     if let Ok(jobs) = result {
@@ -625,12 +613,18 @@ impl BlendFarm for Server {
                 },
                 // can I send this command to net event?
                 msg = command.recv() => match msg {
-                    Some(cmd) => self.handle_command(&mut client, cmd).await.map_err(BlendFarmError::NetworkError)?,
+                    Some(cmd) => self.handle_command(&db_connection, cmd).await.map_err(BlendFarmError::NetworkError)?,
                     None => {
                         println!("None was received, continue?");
                         break Ok(())
                     },
                 },
+                event = receiver.recv() => match event {
+                    Ok(event) => client.send_broadcast_message(event).await,
+                    Err(e) => {
+                        eprintln!("Unable to send broadcast message? {e:?}");
+                    },
+                }
             }
         }
     }

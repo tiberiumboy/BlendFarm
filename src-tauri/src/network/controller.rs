@@ -1,10 +1,9 @@
 use std::collections::HashSet;
-use crate::models::ticket::Ticket;
 use crate::{models::behaviour::FileResponse, network::message::FileData};
-use crate::services::server::ServerEvent::{self, RequestTicket};
+use crate::services::server::ServerEvent;
 use crate::network::message::{Command, FileCommand, NetworkError};
 use crate::network::provider_rule::ProviderRule;
-use futures::channel::oneshot::{self};
+use futures::channel::oneshot;
 use libp2p::{Multiaddr, PeerId};
 use libp2p_request_response::ResponseChannel;
 use futures::channel::mpsc::Sender;
@@ -17,33 +16,38 @@ use futures::SinkExt;
 #[derive(Clone)]
 pub struct Controller {
     sender: Sender<Command>, // send net commands
-    pub multiaddr: Multiaddr,
-    pub hostname: String,
+    // Should contain IPv4, TCP, and P2p protocol
+    multiaddr: Multiaddr,
+    // pub hostname: String,
 }
 
 impl Controller {
-    pub(crate) fn new(sender: Sender<Command>, multiaddr: Multiaddr, hostname: String) -> Self {
+    pub(crate) fn new(sender: Sender<Command>, multiaddr: Multiaddr/* , hostname: String*/) -> Self {
         Self {
             sender,
             multiaddr,
-            hostname,
+            // hostname,
         }
+    }   
+
+    pub(crate) fn get_multiaddr(&self) -> &Multiaddr {
+        &self.multiaddr
     }
 
-    pub(crate) async fn get_ticket(&mut self) -> Option<Ticket> {
-        // let (sender, receiver) = oneshot::channel::<Ticket>();
-        // todo: send a broadcast message out
-        // when the host respond, we should get a reply back with information needed
+    // pub(crate) async fn get_ticket(&mut self) -> Option<Ticket> {
+    //     // let (sender, receiver) = oneshot::channel::<Ticket>();
+    //     // todo: send a broadcast message out
+    //     // when the host respond, we should get a reply back with information needed
         
-        self.send_broadcast_message(RequestTicket()).await;
+    //     self.send_broadcast_message(RequestTicket()).await;
 
-        // if let Ok(ticket) = receiver.await {
-        // and expecting to wait for a receiver to return with a Option<Ticket> value.
-        // return Some(ticket);
-        // }
+    //     // if let Ok(ticket) = receiver.await {
+    //     // and expecting to wait for a receiver to return with a Option<Ticket> value.
+    //     // return Some(ticket);
+    //     // }
         
-        None
-    }
+    //     None
+    // }
 
     pub(crate) async fn start_listening(&mut self, addr: Multiaddr) {
         let (sender, receiver) = oneshot::channel();
@@ -130,12 +134,12 @@ impl Controller {
 
                 FileCommand::StartProviding{ file_name: keyword.into(), sender }
             },
-            ProviderRule::Custom(keyword, .. ) => {
-                FileCommand::StartProviding{ 
-                    file_name: keyword.to_owned(), 
-                    sender
-                }
-            }
+            // ProviderRule::Custom(keyword, .. ) => {
+            //     FileCommand::StartProviding{ 
+            //         file_name: keyword.to_owned(), 
+            //         sender
+            //     }
+            // }
         };
 
         if let Err(e) = self.sender.send(Command::FileService(cmd)).await {
@@ -191,5 +195,12 @@ impl Controller {
         if let Err(e) = self.sender.send(cmd).await {
             println!("Command should not be dropped: {e:?}");
         }
+    }
+
+    // Should send a notification to shutdown network services
+    // TODO: impl this in drop or somewhere?
+    pub async fn shutdown(mut self) {
+        // closing sender connection should error out producer side to gracefully shutdown.
+        self.sender.close_channel();
     }
 }

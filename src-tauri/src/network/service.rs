@@ -1,6 +1,5 @@
 use crate::constant::NODE_TOPIC;
 use crate::models::behaviour::{BlendFarmBehaviourEvent, FileRequest, FileResponse};
-use crate::network::message::{FileCommand, FileData, FileResult};
 use crate::services::server::ServerEvent;
 use crate::{
     models::behaviour::BlendFarmBehaviour,
@@ -13,14 +12,13 @@ use futures::channel::mpsc::{Receiver, Sender};
 use libp2p::core::ConnectedPoint;
 use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::mdns;
-use libp2p::multiaddr::Protocol;
 use libp2p::swarm::SwarmEvent;
 use libp2p::{
     PeerId, Swarm,
     kad::{self, QueryId},
 };
 use libp2p_request_response::OutboundRequestId;
-use std::collections::{HashMap, HashSet, hash_map};
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::PathBuf;
 use tokio::select;
@@ -94,115 +92,7 @@ impl Service {
     */
 
     // here we will deviate handling the file service command.
-    async fn process_file_service(&mut self, cmd: FileCommand) {
-        match cmd {
-            FileCommand::Dial {
-                mut peer_addr,
-                sender,
-            } => {
-
-                // Expect peer_id contain multiaddress otherwise return early
-                let Some(Protocol::P2p(peer_id)) = peer_addr.pop() else {
-                    println!("No peer id found in multi-address! skipping! Must include '.../p2p/peer_id'!");
-                    return;
-                };
-                
-                let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) else {                    
-                    // I would expect the multiaddr have peer_id attached.
-                    // TODO: A bruteforce attempt could be made to break this system integrity. Consider rate limiting?
-                    eprintln!("Already dialing the peer! Please be patient!");
-                    return;
-                };
-
-                self.swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .add_address(&peer_id, peer_addr.clone());
-
-                // The main reason why I need to dial this node is so I can
-                //  1. Know which node I'm talking to.
-                //  2. Distribute render files, blend files, and executables
-                //  3. Performance monitor / Activity Logs
-                match self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id))) {
-                    Ok(()) => {
-                        e.insert(sender);
-                    }
-                    Err(e) => {
-                        // TODO: handle expect gracefully.
-                        sender.send(Err(Box::new(e))).expect("Should not drop");
-                    }
-                }
-            }
-            
-            // use this to advertise files. On app startup we should broadcast blender apps as well.
-            FileCommand::StartProviding { file_name, sender } => {
-                // TODO: Find a way to get around expect()!
-                let query_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .start_providing(file_name.into_bytes().into())
-                    .expect("No store value");
-                self.pending_start_providing.insert(query_id, sender);
-            }
-
-            FileCommand::StopProviding (file_name ) => {
-                let key = file_name.into_bytes();
-                self.swarm.behaviour_mut().kademlia.stop_providing(&key.into());
-                // TODO: I want to clear any pending providing, I need to find a way to fetch query ID before stop file providing. 
-                // self.pending_start_providing.remove_entry(&key);
-            },
-            FileCommand::RequestFile {
-                peer_id,
-                file_name,
-                sender,
-            } => {
-                let request_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_request(&peer_id, FileRequest(file_name.into()));
-                self.pending_request_file.insert(request_id, sender);
-            }
-            FileCommand::RespondFile { file, channel } => {
-                // somehow the send_response errored out? How come?
-                // Seems like this function got timed out?
-                if let Err(e) = self
-                    .swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_response(channel, FileResponse(file))
-                {
-                    // why am I'm getting error message here?
-                    eprintln!("Error received on sending response! {e:?}");
-                }
-            }
-            FileCommand::GetProviders { file_name, sender } => {
-                let key = file_name.into_bytes().into();
-                let query_id = self.swarm.behaviour_mut().kademlia.get_providers(key);
-                self.pending_get_providers.insert(query_id, sender);
-            }
-            // FileCommand::StartProviding(keyword, file_path) => {
-            //     let key = keyword.clone().into_bytes().into();
-            //     // could we make use of this query ID?
-            //     let _query_id = self
-            //         .swarm
-            //         .behaviour_mut()
-            //         .kademlia
-            //         .start_providing(key)
-            //         .expect("No store error.");
-            //     self.providing_files.insert(keyword, file_path);
-            // }
-            FileCommand::RequestFilePath { keyword, sender } => {
-                let result = self
-                    .providing_files
-                    .get(&keyword)
-                    .and_then(|f| Some(f.to_owned()));
-                println!("{keyword:?} | {result:?}");
-                sender.send(result).expect("Receiver should not be dropped");
-            }
-        };
-    }
+    
 
     // TODO: Will need to return Result<MessageId, PublishError>... For now let's keep it as-is.
     /* 
@@ -255,36 +145,19 @@ impl Service {
             Command::FileService(service) => self.process_file_service(service).await,
 
             // received server status. Can invoke commands from this broadcast event.
-            Command::Message(Some(_multiaddr), status) =>  {
+            Command::Message(Some(multiaddr), status) =>  {
                 
-                // let data = serde_json::to_string(&status).unwrap();
-                // let topic = IdentTopic::new(NODE_TOPIC);
+
                 // if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                 //     eprintln!("Fail to publish gossip message: {e:?}");
                 // }
-                // Here we have the option to dial a peer directly and send the status in private. 
-                // We can exchange ticket information, blender availability, and render contents.
-                
-                // let last = peer_addr.pop();
-                // match last {
-                //     Some(Protocol::P2p(peer_id)) => {
-                //         let mut addr = Multiaddr::empty();
-                //         addr.push(Protocol::P2p(peer_id));
-                //         println!("Removing peer id [{addr}] so this address can be dialed by rust-libp2p");
-                //     }
-                //     Some(other) => peer_addr.push(other),
-                //     _ => {}
-                // };
                 
                 // the method goes is that we need the self.swarm to implement the behaviour of communicating 
                 // if let Err(e) = self.swarm.dial(peer_addr ) {
                 //     eprintln!("Unable to dial! {e:?}");
                 // }
 
-                // what do we expect after we dial?
-                println!("Impl. behaviour to send a message to the target peer_address {status:?}");
-                // Ok so I dialed this peer? how can I send this peer a message?
-                // Maybe this is where we can utilize mcps oneshot callback when dial is open for stream/communication
+                println!("Impl. behaviour to send a message to [{multiaddr}] {status:?}");
             }
             // Received broadcast signal
             Command::Message(_, status) => {
@@ -495,6 +368,7 @@ impl Service {
         }
     }
 
+    // should I create a separate netowrk service for this?
     async fn handle_swarm_event(&mut self, event: SwarmEvent<BlendFarmBehaviourEvent>) {
         match event {
             SwarmEvent::Behaviour(behaviour) => match behaviour {
@@ -618,8 +492,7 @@ pub mod test {
     // TODO: perform some service test. How can I get the service up and running for this?
 
     // successful test
-    #[test]
-    fn success_new_service() {
-        
+    pub(crate) fn mock_service() {
+
     }
 }
