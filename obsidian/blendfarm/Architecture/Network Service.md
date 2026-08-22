@@ -1,0 +1,1 @@
+This service will run on a separate thread to monitor network activity, including receiving online status of another node on the network, or emitting blender completed render frame globally for the host to retrieve completed image.

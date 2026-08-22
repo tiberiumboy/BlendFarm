@@ -11,10 +11,14 @@
             "id": "1351db734f3d900e",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "Architecture/GUI.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "New tab"
+              "title": "GUI"
             }
           }
         ]
@@ -37,7 +41,9 @@
               "type": "file-explorer",
               "state": {
                 "sortOrder": "alphabetical",
-                "autoReveal": false
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
               },
               "icon": "lucide-folder-closed",
               "title": "Files"
@@ -74,7 +80,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 490.5
+    "width": 200
   },
   "right": {
     "id": "2cc1b4442ff01725",
@@ -158,6 +164,9 @@
   },
   "active": "1351db734f3d900e",
   "lastOpenFiles": [
+    "Architecture/Network Service.md",
+    "Architecture/GUI.md",
+    "Architecture/Background worker.md",
     "Architecture/Portal.md",
     "Bugs/Deleting Blender from UI cause app to crash..md",
     "Bugs/Program cannot discover itself on the same network.md",
@@ -186,10 +195,7 @@
     "Job list disappear after switching window.md",
     "Makefile.md",
     "About.md",
-    "Bugs/Import Job does nothing.md",
-    "Bugs/Unit test fail - cannot validate .blend file path.md",
     "Images/dialog_open_bug.png",
-    "Bugs/Cannot open dialog.md",
     "Images/Setting_page.png",
     "Images",
     "Pages",
