@@ -183,12 +183,12 @@ impl JobStore for SqliteJobStore {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::{config_sqlite_db, constant::DATABASE_FILE_NAME, models::job::test::scaffold_job};
 
     use super::*;
 
-    async fn get_sqlite_pool() -> SqlitePool {
+    pub(crate) async fn get_sqlite_pool() -> SqlitePool {
         let pool = config_sqlite_db(DATABASE_FILE_NAME).await;
         assert!(pool.is_ok());
         pool.expect("Should be ok")
