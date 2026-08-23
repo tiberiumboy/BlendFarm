@@ -1,162 +1,261 @@
-use std::{path::PathBuf, sync::Arc};
-
-// this is the settings controller section that will handle input from the setting page.
 use crate::models::{app_state::AppState, server_setting::ServerSetting};
-use blender::blender::Blender;
+use crate::models::blender_action::BlenderAction;
+use crate::models::setting_action::SettingsAction;
+use crate::services::tauri_app::{BlenderQuery, QueryMode, UiCommand};
+use std::{env, path::PathBuf, str::FromStr, process::Command};
+use blender_rs::blender::{Blender, ComputerGraphicsProgram};
+use futures::{channel::mpsc, SinkExt, StreamExt};
 use maud::html;
-use semver::Version;
 use serde_json::json;
-use tauri::{command, AppHandle, Error, State};
+use tauri::{command, AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FilePath;
-use tokio::{
-    join,
-    sync::{Mutex, RwLock},
-};
+use tokio::sync::Mutex;
 
 const SETTING: &str= "settings";
+const BLENDER_LIST: &str= "blender_list";
 
-/*
-    Because blender installation path is not store in server setting, it is infact store under blender manager,
-    we will need to create a new custom response message to provide all of the information needed to display on screen properly
-*/
+#[command]  // could this accept PathBuf?
+pub fn open_dir(path: &str) -> Result<(),()> {
+    // macos is special, the path link inside app bundle, but cannot access via file explore/finder
+    let path = PathBuf::from_str(path).map_err(|_| ())?;
+    let result = match env::consts::OS {
+        "windows" => Ok("explorer"),
+        "macos" => Ok("open"),
+        "linux" => Ok("xdg-open"),
+        _ => Err(())
+    };
+    if let Ok(program) = result {
+        Command::new(program)
+        .arg(path)
+        .spawn()
+        .unwrap();
+    }
+    Ok(())
+}
 
 #[command(async)]
 pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result<String, ()> {
-    let app_state = state.lock().await;
-    let manager = app_state.manager.read().await;
-    let localblenders = manager.get_blenders();
+    let (sender, mut receiver) = mpsc::channel(0);
+    let mut app_state = state.lock().await;
+    
+    let event = UiCommand::Blender(BlenderAction::List(sender, QueryMode::LOCAL));
+    if let Err(e) = app_state.invoke.send(event).await {
+        eprintln!("fail to send mpsc to event! {e:?}");
+        return Err(())
+    }
 
-    Ok(html! {
-        @for blend in localblenders {
-            tr {
-                td {
-                    (blend.get_version().to_string())
-                };
-                td {
-                    (blend.get_executable().to_str().unwrap())
+    let list = receiver.select_next_some().await.expect("Should expect data back!");
+    Ok(render_list_blenders(list))
+}
+
+fn render_list_blenders(list: Vec<BlenderQuery>) -> String { 
+    if list.len() == 0 {
+        return html!(
+
+            div {
+                "Found no blender installation installed on this machine! Please download or add blender installation!"
+            }
+        ).0
+    }
+
+    html! {
+        table {
+            thead {
+                th { "Version" };
+                th { "Executable Path" };
+            };
+            tbody id="blender-table" hx-target="this" { 
+                @for blend in list {
+                    tr {
+                        td {
+                            button tauri-invoke="open_dir" hx-vals=(json!({"path": blend.link()})) {
+                                label title=(blend.link()) {
+                                    (blend.version.to_string())
+                                }
+                            }
+                        };
+                        td {
+                            button tauri-invoke="open_dir" hx-vals=(json!({"path":blend.parent_dir()})) {
+                                r"📁"
+                            }
+                            button tauri-invoke="delete_blender" hx-vals=(json!({"path":blend.link() })) 
+                            {
+                                r"🗑︎"
+                            }
+                        }
+                    };
                 };
             };
         };
     }
-    .0)
+    .0
 }
 
 /// Add a new blender entry to the system, but validate it first!
+// TODO: Refactor this as this function doens't make a lot of sense and prone to problems.
+// Error: Unhandled Promise Rejection: state not managed for field `handle` on command `add_blender_installation`. 
+// You must call `.manage()` before using this command
 #[command(async)]
 pub async fn add_blender_installation(
-    app: AppHandle,
-    state: State<'_, Mutex<AppState>>, // TODO: Need to change this to string, string?
-) -> Result<String, ()> {
-    // TODO: include behaviour to search for file that contains blender.
-    // so here's where
-    let path = match app.dialog().file().blocking_pick_file() {
+    handle: AppHandle,
+    state: State<'_, Mutex<AppState>>, 
+) -> Result<(), String> {
+    let path = match handle.dialog().file().blocking_pick_file() {
+        
         Some(file_path) => match file_path {
-            FilePath::Path(path) => path,
-            FilePath::Url(url) => url.to_file_path().unwrap(),
-        },
-        None => return Err(()),
+                FilePath::Path(path) => path,
+                FilePath::Url(url) => url.to_file_path().unwrap(),
+            },
+        None => return Err("No file selected!".to_owned()),
+    };
+    let mut app_state = state.lock().await;
+    if let Err(e) = app_state.invoke.send(UiCommand::Blender(BlenderAction::Add(path))).await {
+        eprintln!("Fail to send data back! {e:?}");
     };
 
-    let app_state = state.lock().await;
-    let mut manager = app_state.manager.write().await;
-    match manager.add_blender_path(&path) {
-        Ok(_blender) => Ok(html! {
-           // HX-trigger="newBlender"
-        }
-        .0),
-        Err(_) => Err(()),
-    }
+    Ok(())
+}
+
+// Somehow I was missing this function where it was used in this class?
+#[command(async)]
+pub async fn install_from_internet(
+    _handle: State<'_, Mutex<AppHandle>>,
+    _state: State<'_, Mutex<AppState>>
+) -> Result<String, ()>{
+    print!("Show me what the internet still have?");
+    // in this case, I need to return a maud layout of the dialog pop up using htmx
+    // TODO: Finish implementing this feature.
+    // If we successfully install a new installation of blender, then we need to target the list of blender installation with an updated version of the list. 
+    Ok(
+        html!(
+            div {
+                "Hello World!"
+            }
+        ).0
+    )
 }
 
 // So this can no longer be a valid api call?
 // TODO: Reconsider refactoring this so that it's not a public api call. Deprecate/remove asap
+/*
 #[command(async)]
 pub async fn fetch_blender_installation(
     state: State<'_, Mutex<AppState>>,
     version: &str,
-) -> Result<Blender, String> {
-    let app_state = state.lock().await;
-    let mut manager = app_state.manager.write().await;
-    let version = Version::parse(version).map_err(|e| e.to_string())?;
-    let blender = manager.fetch_blender(&version).map_err(|e| match e {
-        blender::manager::ManagerError::DownloadNotFound { arch, os, url } => {
-            format!("Download link not found! {arch} {os} {url}")
-        }
-        blender::manager::ManagerError::RequestError(request) => {
-            format!("Request error: {request}")
-        }
-        blender::manager::ManagerError::FetchError(fetch) => format!("Fetch error: {fetch}"),
-        blender::manager::ManagerError::IoError(io) => format!("IoError: {io}"),
-        blender::manager::ManagerError::UnsupportedOS(os) => format!("Unsupported OS {os}"),
-        blender::manager::ManagerError::UnsupportedArch(arch) => {
-            format!("Unsupported architecture! {arch}")
-        }
-        blender::manager::ManagerError::UnableToExtract(ctx) => {
-            format!("Unable to extract content! {ctx}")
-        }
-        blender::manager::ManagerError::UrlParseError(url) => format!("Url parse error: {url}"),
-        blender::manager::ManagerError::PageCacheError(cache) => {
-            format!("Page cache error! {cache}")
-        }
-        blender::manager::ManagerError::BlenderError { source } => {
-            format!("Blender error: {source}")
-        }
-    })?;
-    Ok(blender)
+) -> Result<Blender, ()> {
+    let version = Version::parse(version).map_err(|_| ())?;
+    let (sender, mut receiver) = mpsc::channel(1);
+    let event = UiCommand::Blender(BlenderAction::Get(version, sender));
+    let mut app_state = state.lock().await;
+    app_state.invoke.send(event).await.unwrap();
+    let result = receiver.select_next_some().await;
+    
+    // let blender = manager.fetch_blender(&version).map_err(|e| match e {
+    //     blender::manager::ManagerError::DownloadNotFound { arch, os, url } => {
+    //         format!("Download link not found! {arch} {os} {url}")
+    //     }
+    //     blender::manager::ManagerError::RequestError(request) => {
+    //         format!("Request error: {request}")
+    //     }
+    //     blender::manager::ManagerError::FetchError(fetch) => format!("Fetch error: {fetch}"),
+    //     blender::manager::ManagerError::IoError(io) => format!("IoError: {io}"),
+    //     blender::manager::ManagerError::UnsupportedOS(os) => format!("Unsupported OS {os}"),
+    //     blender::manager::ManagerError::UnsupportedArch(arch) => {
+    //         format!("Unsupported architecture! {arch}")
+    //     }
+    //     blender::manager::ManagerError::UnableToExtract(ctx) => {
+    //         format!("Unable to extract content! {ctx}")
+    //     }
+    //     blender::manager::ManagerError::UrlParseError(url) => format!("Url parse error: {url}"),
+    //     blender::manager::ManagerError::PageCacheError(cache) => {
+    //         format!("Page cache error! {cache}")
+    //     }
+    //     blender::manager::ManagerError::BlenderError { source } => {
+    //         format!("Blender error: {source}")
+    //     }
+    // })?;
+    
+    match result {
+        Some(blend) => Ok(blend),
+        None => Err(())
+    }
 }
+*/
 
-// TODO: Ambiguous name - Change this so that we have two methods,
-// - Severe local path to blender from registry (Orphan on disk/not touched)
-// - Delete blender content completely (erasing from disk)
+/// Permanently delete blender from the system using the file path given
 #[command(async)]
-pub async fn remove_blender_installation(
-    state: State<'_, Mutex<AppState>>,
-    blender: Blender,
-) -> Result<(), Error> {
-    let app_state = state.lock().await;
-    let mut manager = app_state.manager.write().await;
-    manager.remove_blender(&blender);
+pub async fn delete_blender(state: State<'_, Mutex<AppState>>, path: &str) -> Result<(), String> {
+    let mut app_state = state.lock().await;
+    let blender = match Blender::from_executable(path) {
+        Ok(blend) => blend,
+        Err(e) => return Err(e.to_string())
+    };
+    
+    let event = UiCommand::Blender(BlenderAction::Remove(blender));
+    if let Err(e) = app_state.invoke.send(event).await {
+        eprintln!("Fail to send blender action event! {e:?}");
+        return Err(e.to_string())
+    }
+    
     Ok(())
 }
 
+/// - Severe local path to blender from registry (Orphan on disk/not touched)
+#[command(async)]
+pub async fn disconnect_blender_installation(
+    state: State<'_, Mutex<AppState>>,
+    blender: Blender,
+) -> Result<(), String> {
+    let mut app_state = state.lock().await;
+    
+    let event = UiCommand::Blender(BlenderAction::Disconnect(blender));
+    if let Err(e) = app_state.invoke.send(event).await {
+        eprintln!("Fail to send blender action event! {e:?}");
+        return Err(e.to_string())
+    }
+    
+    Ok(())
+}
+
+// I am a little confused about this function.
 #[command(async)]
 pub async fn update_settings(
     state: State<'_, Mutex<AppState>>,
     install_path: String,
     cache_path: String,
     render_path: String,
-) -> Result<String, String> {
-    let install_path = PathBuf::from(install_path);
+) -> Result<(), ()> {
+    let _install_path = PathBuf::from(install_path);
     let blend_dir = PathBuf::from(cache_path);
     let render_dir = PathBuf::from(render_path);
 
-    {
-        let mut server = state.lock().await;
-        server.setting = Arc::new(RwLock::new(ServerSetting {
-            blend_dir,
-            render_dir,
-        }));
-        let mut manager = server.manager.write().await;
-        manager.set_install_path(&install_path);
+    let mut state = state.lock().await;
+    let new_setting = ServerSetting {
+        blend_dir,
+        render_dir,
+    };
+
+    let command = UiCommand::Settings(SettingsAction::Update(new_setting));
+    if let Err(e) = state.invoke.send(command).await {
+        eprintln!("{e:?}");
     }
-    Ok(get_settings(state).await.unwrap())
+    Ok(())
 }
 
 // change this so that this is returning the html layout to let the client edit the settings.
 #[command(async)]
 pub async fn edit_settings(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let app_state = state.lock().await;
-    let (settings, manager) = join!(app_state.setting.read(), app_state.manager.read());
 
-    let install_path = manager.get_install_path();
+    let mut app_state = state.lock().await;
+    let settings = app_state.get_settings().await.map_err(|e| e.to_string())?;
     let cache_path = &settings.blend_dir;
     let render_path = &settings.render_dir;
 
     Ok(html!(
         form tauri-invoke="update_settings" hx-target="this" hx-swap="outerHTML" {
-            h3 { "Blender Installation Path:" };
-            input name="installPath" class="form-input" readonly="true" tauri-invoke="select_directory" hx-trigger="click" hx-target="this" value=(install_path.to_str().unwrap() );
+            // h3 { "Blender Installation Path:" };
+            // input name="installPath" class="form-input" readonly="true" tauri-invoke="select_directory" hx-trigger="click" hx-target="this" value=(install_path.to_str().unwrap() );
 
             h3 { "Blender File Cache Path:" };
             input name="cachePath" class="form-input" readonly="true" tauri-invoke="select_directory" hx-trigger="click" hx-target="this" value=(cache_path.to_str().unwrap());
@@ -172,31 +271,41 @@ pub async fn edit_settings(state: State<'_, Mutex<AppState>>) -> Result<String, 
     ).0)
 }
 
-#[command(async)]
-pub async fn get_settings(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let app_state = state.lock().await;
-    let (settings, manager) = join!(app_state.setting.read(), app_state.manager.read());
+fn render_settings(settings: &ServerSetting) -> String {
+    
+    let cache_path = settings.blend_dir.to_string_lossy();
+    let render_path = settings.render_dir.to_string_lossy();
 
-    let install_path = manager.get_install_path().to_str().unwrap();
-    let cache_path = &settings.blend_dir.to_str().unwrap();
-    let render_path = &settings.render_dir.to_str().unwrap();
-
-    Ok(html!(
+    html!(
         div tauri-invoke="open_path" hx-target="this" hx-swap="outerHTML" {
-            h3 { "Blender Installation Path:" };
-            label hx-info=(json!( { "path": install_path } )) { (install_path) };
-            
             h3 { "Blender File Cache Path:" };
-            label hx-info=(json!( { "path": cache_path } )) { (cache_path) };
+            button tauri-invoke="open_dir" hx-vals=(json!({"path":cache_path})) {
+                r"📁"
+            }
+            label word-wrap="break-word" hx-info=(json!( { "path": cache_path } )) { 
+                (maud::display(cache_path)) 
+            };
             
             h3 { "Render cache directory:" };
-            label hx-info=(json!( { "path": render_path } )) { (render_path) };
+            button tauri-invoke="open_dir" hx-vals=(json!({"path":render_path})) {
+                r"📁"
+            }
+            label word-wrap="break-word" hx-info=(json!( { "path": render_path } )) { 
+                (maud::display(render_path)) 
+            };
             br;
             
             button tauri-invoke="edit_settings" { "Edit" };
         }
     )
-    .0)
+    .0
+}
+
+#[command(async)]
+pub async fn get_settings(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
+    let mut app_state = state.lock().await;
+    let settings = app_state.get_settings().await.map_err(|e| e.to_string())?;
+    Ok(render_settings(&settings))
 }
 
 #[command]
@@ -205,24 +314,18 @@ pub fn setting_page() -> String {
         div class="content"  {
             h1 { "Settings" };
 
-            p { r"Here we list out all possible configuration this tool can offer to user.
-                    Exposing rich and deep components to customize your workflow" };
+            div class="group" id=(SETTING) tauri-invoke="get_settings" hx-trigger="load" hx-target="this" { 
 
-            div class="group" id=(SETTING) tauri-invoke="get_settings" hx-trigger="load" hx-target="this" { };
+            };
             
             h3 { "Blender Installation" };
             
             button tauri-invoke="add_blender_installation" { "Add from Local Storage" };
+            // the idea behind this is to provide a list of version available to download from the internet.
+            // If we are not connected to the internet, then softly report "Unable to fetch online, are you connected?"
             button tauri-invoke="install_from_internet" { "Install version" };
             
-            div class="group" {
-                table {
-                    thead {
-                        th { "Version" };
-                        th { "Executable Path" };
-                    };
-                    tbody id="blender-table" tauri-invoke="list_blender_installed" hx-trigger="load" hx-target="this" { };
-                };
+            div class="group" id=(BLENDER_LIST) tauri-invoke="list_blender_installed" hx-trigger="load" hx-targets="this" {
             };
         }
     }.0

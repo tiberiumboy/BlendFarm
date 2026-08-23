@@ -1,0 +1,30 @@
+[todo]
+    Make the GUI app run in client mode?
+        - test fully through, see if it can render the job. 
+            - Working on impl. Unit test. Few scripts have basic unit test coverage.
+            - Need to research about ideal unit test coverage.
+    Go through TODO list and see if there's any that can be done in five minutes. Work on that first.
+        Then come back to Network protocol
+    
+
+[issues]
+    - Client is not receiving network event from host. It receives connection established, but no network data exchanged yet?
+E.g. 
+%> Sending task Task { job_id: f5f3af8b-4a74-4729-84e1-d25c4da4f4dc, blender_version: Version { major: 4, minor: 1, patch: 0 }, blend_file_name: "test.blend", range: 1..10 } to the gossip channel
+
+    - client does not send message while the job is running, I thought this was done async? what's going on?
+        - only at the end of the task does it ever notify host?
+
+[features]
+    provide the menu context to allow user to start or end local client mode session
+    Got image screen to display
+    Further separate Ui commands into event registration.
+
+Progress:
+    Still having problem with network code. 
+        - read more into libp2p and run examples.
+    Got UI working again
+        - Job now display render image from output directory.
+            - See about how we can customize view from image tile to list
+            - [Feature] See about ffmpeg integration. Blender doesn't have ffmpeg
+    

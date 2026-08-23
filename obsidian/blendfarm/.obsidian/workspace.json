@@ -1,0 +1,205 @@
+{
+  "main": {
+    "id": "78337d635dbb6873",
+    "type": "split",
+    "children": [
+      {
+        "id": "4b403841bfcfb5d5",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "1351db734f3d900e",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Architecture/GUI.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "GUI"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "e6315f2e9a577efa",
+    "type": "split",
+    "children": [
+      {
+        "id": "eca3db1b7ab0c78d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "b8e74c2efd380365",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "73232a02b1c2e739",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "137e05f70b72093a",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 200
+  },
+  "right": {
+    "id": "2cc1b4442ff01725",
+    "type": "split",
+    "children": [
+      {
+        "id": "6cfb792e40cb1461",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "4a7e73098dd67e05",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "cbd94ab7fb0d96c5",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "c81e9aaf518413f3",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "4c4e869fbb38e6d7",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {},
+              "icon": "lucide-list",
+              "title": "Outline"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "bases:Create new base": false,
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false
+    }
+  },
+  "active": "1351db734f3d900e",
+  "lastOpenFiles": [
+    "Architecture/Network Service.md",
+    "Architecture/GUI.md",
+    "Architecture/Background worker.md",
+    "Architecture/Portal.md",
+    "Bugs/Deleting Blender from UI cause app to crash..md",
+    "Bugs/Program cannot discover itself on the same network.md",
+    "Bugs/Render not saved to database.md",
+    "Bugs/Unable to discover localhost with no internet connection is established or provided..md",
+    "Bugs/Unit test fail - symbol _EMBED_INFO_PLIST already defined.md",
+    "Bugs/Buglist.md",
+    "Pages/Pagelist.md",
+    "Pages/Remote Render.md",
+    "Pages/Render Job window.md",
+    "Pages/Settings.md",
+    "Images/SettingPage.png",
+    "Images/RenderJobDialog.png",
+    "Images/RemoteJobPage.png",
+    "Features/Exchange IP address from client to render.py.md",
+    "Bugs/Node identification not store in database.md",
+    "Home.md",
+    "Task/TODO.md",
+    "Task/Task.md",
+    "Task/Features.md",
+    "Architecture",
+    "Features",
+    "README.md",
+    "Network code notes.md",
+    "Yamux.md",
+    "Job list disappear after switching window.md",
+    "Makefile.md",
+    "About.md",
+    "Images/dialog_open_bug.png",
+    "Images/Setting_page.png",
+    "Images",
+    "Pages",
+    "Task",
+    "Bugs"
+  ]
+}

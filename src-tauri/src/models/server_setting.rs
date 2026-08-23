@@ -20,7 +20,7 @@ const BLEND_DIR: &str = "BlendFiles/";
 
 /// Server settings information that the user can load and configure for this program to operate.
 /// It will save the list of blender installation on the machine to avoid duplicate download and installation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ServerSetting {
     /// Public directory to store all finished render image.
     pub render_dir: PathBuf,
@@ -57,7 +57,7 @@ impl ServerSetting {
         fs::create_dir_all(&path).expect("Unable to create directory!");
         path
     }
-    
+
     fn get_config_path() -> PathBuf {
         let path = Self::get_config_dir();
         path.join(SETTINGS_FILE_NAME)

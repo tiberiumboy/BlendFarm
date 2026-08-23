@@ -1,0 +1,1 @@
+The front facing application used to interface all services running in the background, as well as allowing user friendly interface to create a new job to run. The methodology is that the client can run the host on any computer, upload blender files for the network to fetch, and instruct available node on the same network to process the job.

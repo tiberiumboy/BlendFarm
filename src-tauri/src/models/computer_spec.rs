@@ -2,9 +2,11 @@ use machine_info::Machine;
 use serde::{Deserialize, Serialize};
 use std::env::consts;
 
+pub type Hostname = String;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ComputerSpec {
-    pub host: String,
+    pub host: Hostname,
     pub os: String,
     pub arch: String,
     pub memory: u64,
@@ -14,7 +16,8 @@ pub struct ComputerSpec {
 }
 
 impl ComputerSpec {
-    pub fn new(machine: &mut Machine) -> Self {
+    pub fn new() -> Self {
+        let mut machine = Machine::new();
         let sys_info = machine.system_info();
         let memory = &sys_info.memory;
         let host = &sys_info.hostname;

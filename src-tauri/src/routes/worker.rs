@@ -1,37 +1,53 @@
+use std::str::FromStr;
+
+use futures::channel::mpsc;
+use futures::{SinkExt, StreamExt};
+use libp2p::PeerId;
 use maud::html;
 use serde_json::json;
-use tauri::{command, State};
+use tauri::{State, command};
 use tokio::sync::Mutex;
 
+use crate::constant::WORKPLACE;
 use crate::models::app_state::AppState;
-use crate::services::tauri_app::WORKPLACE;
+use crate::services::tauri_app::{UiCommand, WorkerAction};
 
 #[command(async)]
 pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let server = state.lock().await;
-    let workers = server.worker_db.read().await;
-    match &workers.list_worker().await {
-        Ok(data) => Ok(html! {
-            @for worker in data {
-                div tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.machine_id })) hx-target=(format!("#{WORKPLACE}")) {
-                    table {
-                        tbody {
-                            tr {
-                                td style="width:100%" {
-                                    div { (worker.spec.host) }
-                                    div { (worker.spec.os) " | " (worker.spec.arch) }
+    let mut server = state.lock().await;
+    let (sender, mut receiver) = mpsc::channel(1);
+    let cmd = UiCommand::Worker(WorkerAction::List(sender));
+    if let Err(e) = server.invoke.send(cmd).await {
+        eprintln!("Fail to send command to fetch workers{e:?}");
+    }
+
+    match receiver.select_next_some().await {
+        Some(data) => {
+            let content = match data.len() {
+                0 => html! { div { } },
+                _ => html! {
+                    @for worker in data {
+                        div {
+                            table tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.peer_id.to_base58() })) hx-target=(format!("#{WORKPLACE}")) {
+                                tbody {
+                                    tr {
+                                        td style="width:100%" {
+                                            div { (worker.spec.host) }
+                                            div { (worker.spec.os) " | " (worker.spec.arch) }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            }
+                },
+            };
+            Ok(content.0)
         }
-        .0),
-        Err(e) => {
-            eprintln!("Received error on list workers: \n{e:?}");
+        None => {
+            eprintln!("No workers found");
             Ok(html!( div { }; ).0)
-        },
+        }
     }
 }
 
@@ -56,21 +72,78 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
 */
 #[command(async)]
 pub async fn get_worker(state: State<'_, Mutex<AppState>>, machine_id: &str) -> Result<String, ()> {
-    let app_state = state.lock().await;
-    let workers = app_state.worker_db.read().await;
-    match workers.get_worker(machine_id).await {
+    let mut app_state = state.lock().await;
+    let (mut sender, mut receiver) = mpsc::channel(0);
+    match PeerId::from_str(machine_id) {
+        Ok(peer_id) => {
+            let cmd = UiCommand::Worker(WorkerAction::Get(peer_id, sender));
+            if let Err(e) = app_state.invoke.send(cmd).await {
+                eprintln!("{e:?}");
+            }
+        }
+        Err(e) => {
+            eprintln!("Fail to parse machine id from input! {e:?}");
+            sender
+                .send(None)
+                .await
+                .expect("Sender/Receiver should not be closed");
+        }
+    };
+
+    match receiver.select_next_some().await {
         Some(worker) => Ok(html! {
-            div {
-                h1 { (format!("Computer: {}", worker.machine_id)) };
+            div class="content" {
+                h1 { (format!("Computer: {}", &worker.spec.host)) };
                 h3 { "Hardware Info:" };
-                p { (format!("System: {} | {}", worker.spec.os, worker.spec.arch))}
-                p { (format!("CPU: {} | ({} threads)", worker.spec.cpu, worker.spec.cores)) };
-                p { (format!("Ram: {} GB", worker.spec.memory / ( 1024 * 1024 )))}
-                @if let Some(gpu) = worker.spec.gpu {
-                    p { (format!("GPU: {gpu}")) };
-                } @else {
-                    p { "GPU: N/A" };
-                };
+                table {
+                    tr {
+                        th {
+                            "System"
+                        }
+                        th {
+                           "CPU"
+                        }
+                        th {
+                            "Memory"
+                        }
+                        th {
+                            "GPU"
+                        }
+                    }
+                    tr {
+                        td {
+                            p { (worker.spec.os) }
+                            span { (worker.spec.arch) }
+                        }
+                        td {
+                            p { (worker.spec.cpu) }
+                            span { (format!("({} cores)",worker.spec.cores)) }
+                        }
+                        td {
+                            (format!("{}GB", worker.spec.memory / ( 1024 * 1024 * 1024 )))
+                        }
+                        td {
+                            @if let Some(gpu) = &worker.spec.gpu {
+                                label { (gpu) };
+                            } @else {
+                                label { "N/A" };
+                            };
+                        }
+                    }
+                }
+
+                h3 { "Task List" }
+                table {
+                    tr {
+                        th {
+                            "Project Name"
+                        }
+                        th {
+                            "Progresss"
+                        }
+                    }
+                    // TODO: Fill in the info from the worker machine here.
+                }
             };
         }
         .0),

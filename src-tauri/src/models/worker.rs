@@ -1,22 +1,22 @@
 use super::computer_spec::ComputerSpec;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
+// use crate::services::server::ServerEvent;
+use libp2p::PeerId;
 
-#[derive(Debug, Error)]
-pub enum WorkerError {
-    #[error("Received error from database: {0}")]
-    Database(String),
-}
-
-// we will use this to store data into database at some point.
-#[derive(Serialize, Deserialize)]
+// Treat this struct as server found on network
+#[derive(Debug)]
 pub struct Worker {
-    pub machine_id: String,
+    pub peer_id: PeerId,
     pub spec: ComputerSpec,
+    // internally, we should at least documented the logs and entry.
+    // logs: Vec<ServerEvent>,
 }
 
 impl Worker {
-    pub fn new(machine_id: String, spec: ComputerSpec) -> Self {
-        Self { machine_id, spec }
+    pub fn new(peer_id: PeerId, spec: ComputerSpec) -> Self {
+        Self {
+            peer_id,
+            spec,
+            /*logs: Vec::new()*/
+        }
     }
 }

@@ -4,8 +4,13 @@
 
 This project is inspired by the original project - [LogicReinc](https://github.com/LogicReinc/LogicReinc.BlendFarm)
 
-# A Word from Developer:
-This is still a experimental program I'm working on. If you find bugs or problem with this tool, please do not heistate to create an issue, I will review them when I get to the next milestone step. 
+## A Word from Developer:
+
+This is still a experimental program I'm working on. If you find bugs or problem with this tool, please create an issue and I will review them when I can. Much of the codebase is experimental of what I've learned over my rust journey. 
+
+## TLDR
+
+Run `make` from makefile directory in terminal - This will install dependencies, compile, build, and run Blendfarm from the releases folder. For more info, please read below.
 
 ### Why I created this application:
 
@@ -17,7 +22,7 @@ I humbly present you BlendFarm 2.0, a open-source software completely re-written
 
 [libp2p](https://docs.libp2p.io/) - Peer 2 Peer decenteralize network service that enables network discovery service (mDNS), communication (gossipsub), and file share (kad/DHT).
 
-[Blender](https://github.com/tiberiumboy/BlendFarm/tree/main/blender) - Custom library I wrote that acts as a blender CLI wrapper to install, invoke, and launch Blender application.
+[Blender](https://github.com/tiberiumboy/BlendFarm/tree/main/blender) - Custom library I authored that acts as a blender CLI wrapper to install, invoke, and launch Blender application.
 
 [Blend](https://docs.rs/blend/latest/blend/) - Used to read blender file without blender application to enable extracting information to the user with pre-configured setup (Eevee/Cycle, frame range, Cameras, resolution, last blender version used, etc).
 
@@ -50,24 +55,28 @@ Blender's limitation applies to this project's scope limitation. If a feature is
 
 ## Getting Started
 
-There are several ways to start; the first and easiest would be to download the files and simply run the executable, the second way is to download the source code and compile on your computer to run and start.
+Download the latest build from the [release](https://github.com/tiberiumboy/BlendFarm/releases) page. Verify the content using checksum. Then unpack, `chmod +x ./blendfarm` for UNIX users, and run `./blendfarm`. This launches BlendFarm's GUI Manager window. Passing the `client` argument will run the program as worker node. This mode consume your computer to install and run blender! There can only be one client instances per machine.
 
-### TLDR:
+### To compile
 
-First and foremost - this commands may be subject to change in the future. (Need to find a better way to handle Clap subcommand with tauri's cli plugin - for now, I'm treating it as an argument)
+Run `make` from `Blendfarm` directory. Instruction inside [Makefile](./Makefile) guides step by step instructions to navigate, run, and compile.
 
-First - Install tauri-cli as this component is needed to run `cargo tauri` command. Run the following command:
-`cargo install tauri-cli --version ^2.0.0-rc --locked`
+<!-- I'm using sqlx framework to help write sql code within the codebase. This will help
+with migrations to newer database version per application releases. Evidentably, the compiled application will create a new database in your user's config directory if it doesn't exist. However, opening this project without creating the database file will cause compiler errors.  -->
 
-*Note- For windows, you must encapsulate the version in double quotes!
+
+To launch the application in developer mode, navigate to `./src-tauri/` directory and run `cargo tauri dev`.
 
 To run Tauri app - run the following command under `/BlendFarm/` directory - `cargo tauri dev`
 
-To run the client app - run the following command under `/BlendFarm/src-tauri/` directory - `cargo run -- client`
+To run the client app - run the following command under `/BlendFarm/src-tauri/` directory - `cargo tauri dev -- -- client`
 
 ### Network:
 
-Under the hood, this program uses libp2p with [QUIC transport](https://docs.libp2p.io/concepts/transports/quic/). This treat this computer as both a server and a client. Wrapped in a containerized struct, I am using [mdns](https://docs.libp2p.io/concepts/discovery-routing/mdns/) for network discovery service (to find other network farm node on the network so that you don't have to connect manually), [gossipsub]() for private message procedure call ( how node interacts with other nodes), and kad for file transfer protocol (how node distribute blend, image, and blender binary files across the network). With the power of trio combined, it is the perfect solution for making network farm accessible, easy to start up, and robost. Have a read into [libp2p](https://libp2p.io/) if this interest your project needs! 
+Under the hood, this program uses libp2p with [QUIC transport](https://docs.libp2p.io/concepts/transports/quic/). This treat this computer as both a server and a client. Wrapped in a containerized struct, I am using [mdns](https://docs.libp2p.io/concepts/discovery-routing/mdns/) for network discovery service (to find other network farm node on the network so that you don't have to connect manually), [gossipsub]() for private message procedure call (how computer talks to another computer), and kad for file transfer protocol (how node distribute blend, image, and blender binary files across the network). With the power of trio combined, it is the perfect solution for making network farm accessible, easy to start up, and robost. Have a read into [libp2p](https://libp2p.io/) if this interest your project needs! 
+
+## Developer blogs
+I am using Obsidian to keep track of changes and blogs, which helps provide project clarity and goals. Please check out the [obsidian folder](./obsidian/blendfarm/Context.md) for all of the change logs.
 
 <!-- Hidden from view for developer remarks
     Testing out peer 2 peer over two linux box. One of the machine hasn't been update/upgrade in awhile, but reported an issue about missing PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1 pkg_config --libs --cflags glib-2.0 glib-2.0 - the pkg-config command could not be found. Install via apt install pkg-config resolve this one problem, but more likely you need to preconfigure PKG_CONFIG_PATH in environment variable.
