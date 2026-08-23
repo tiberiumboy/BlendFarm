@@ -1,28 +1,26 @@
-use crate::network::{client::Client, event::Event, event_loop::EventLoop, behaviour::Behaviour};
-use libp2p::{Multiaddr, StreamProtocol, SwarmBuilder, gossipsub, identity, kad, mdns, multiaddr::Protocol, noise, tcp, yamux};
-use libp2p_request_response::ProtocolSupport;
+use crate::network::{behaviour::Behaviour, client::Client, event::Event, event_loop::EventLoop};
 use futures::{
     Stream,
-    channel::{mpsc, oneshot}
+    channel::{mpsc, oneshot},
 };
-use std::{error::Error, net::Ipv4Addr, time::Duration};
-use tokio::io;
+use libp2p::{StreamProtocol, SwarmBuilder, identity, kad, noise, tcp, yamux};
+use libp2p_request_response::ProtocolSupport;
+use std::{error::Error, time::Duration};
 // use tokio::sync::mpsc;
-pub mod controller;
-pub mod message;
-pub(crate) mod provider_rule;
-pub mod service;
 mod behaviour;
 mod client;
 mod command;
-mod event;
+pub mod controller;
+pub(crate) mod event;
+mod event_loop;
 mod file_request;
 mod file_response;
-mod event_loop;
+pub mod message;
+pub(crate) mod provider_rule;
+pub mod service;
 
 // type is locally contained
 pub type PeerIdString = String;
-
 
 /// Creates the network components, namely:
 ///
@@ -85,7 +83,7 @@ pub(crate) async fn new(
     ))
 }
 
-/* 
+/*
 
 // the tuples return three objects
 // Network Controller to interface network service

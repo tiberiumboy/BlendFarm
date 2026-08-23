@@ -1,10 +1,13 @@
-use std::{collections::hash_map, error::Error, path::PathBuf};
 use futures::channel::oneshot;
 use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 use libp2p_request_response::ResponseChannel;
 use std::collections::HashSet;
+use std::{collections::hash_map, error::Error, path::PathBuf};
 
-use crate::{models::behaviour::{FileRequest, FileResponse}, network::message::KeywordSearch};
+use crate::{
+    models::behaviour::{FileRequest, FileResponse},
+    network::message::KeywordSearch,
+};
 
 // TODO: Find a way to cast this as FileStruct?
 pub type FileData = Vec<u8>;
@@ -25,7 +28,7 @@ pub enum FileCommand {
         sender: oneshot::Sender<()>,
     },
     // StartProviding(KeywordSearch, PathBuf), // update kademlia service to provide a new file. Must have a file name and a extension! Cannot be a directory!
-    StopProviding(KeywordSearch),           // update kademlia service to stop providing the file.
+    StopProviding(KeywordSearch), // update kademlia service to stop providing the file.
     GetProviders {
         file_name: String,
         sender: oneshot::Sender<HashSet<PeerId>>,
@@ -45,11 +48,8 @@ pub enum FileCommand {
     },
 }
 
-struct FileService {
-    
-}
-
-
+/*
+struct FileService {}
 
 impl FileService {
     async fn process_file_service(&mut self, cmd: FileCommand) {
@@ -58,14 +58,15 @@ impl FileService {
                 mut peer_addr,
                 sender,
             } => {
-
                 // Expect peer_id contain multiaddress otherwise return early
                 let Some(Protocol::P2p(peer_id)) = peer_addr.pop() else {
-                    println!("No peer id found in multi-address! skipping! Must include '.../p2p/peer_id'!");
+                    println!(
+                        "No peer id found in multi-address! skipping! Must include '.../p2p/peer_id'!"
+                    );
                     return;
                 };
-                
-                let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) else {                    
+
+                let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) else {
                     // I would expect the multiaddr have peer_id attached.
                     // TODO: A bruteforce attempt could be made to break this system integrity. Consider rate limiting?
                     eprintln!("Already dialing the peer! Please be patient!");
@@ -91,7 +92,7 @@ impl FileService {
                     }
                 }
             }
-            
+
             // use this to advertise files. On app startup we should broadcast blender apps as well.
             FileCommand::StartProviding { file_name, sender } => {
                 // TODO: Find a way to get around expect()!
@@ -104,12 +105,15 @@ impl FileService {
                 self.pending_start_providing.insert(query_id, sender);
             }
 
-            FileCommand::StopProviding (file_name ) => {
+            FileCommand::StopProviding(file_name) => {
                 let key = file_name.into_bytes();
-                self.swarm.behaviour_mut().kademlia.stop_providing(&key.into());
-                // TODO: I want to clear any pending providing, I need to find a way to fetch query ID before stop file providing. 
+                self.swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .stop_providing(&key.into());
+                // TODO: I want to clear any pending providing, I need to find a way to fetch query ID before stop file providing.
                 // self.pending_start_providing.remove_entry(&key);
-            },
+            }
             FileCommand::RequestFile {
                 peer_id,
                 file_name,
@@ -162,3 +166,4 @@ impl FileService {
         };
     }
 }
+*/

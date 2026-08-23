@@ -1,20 +1,14 @@
-use std::{
-    collections::HashSet,
-    error::Error,
-};
+use std::{collections::HashSet, error::Error};
 
 use futures::{
-    StreamExt,
     channel::{mpsc, oneshot},
     prelude::*,
 };
-use libp2p::{
-    PeerId,
-    core::Multiaddr,
-    request_response::{self, OutboundRequestId, ProtocolSupport, ResponseChannel}
-};
+use libp2p::{PeerId, core::Multiaddr};
+use libp2p_request_response::ResponseChannel;
 
-use crate::{models::behaviour::FileResponse, network::command::Command};
+use crate::network::command::Command;
+use crate::network::file_response::FileResponse;
 
 #[derive(Clone)]
 pub(crate) struct Client {

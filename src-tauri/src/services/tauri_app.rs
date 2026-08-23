@@ -675,10 +675,12 @@ impl TauriApp {
                 };
 
                 if let Some(ticket) = query {
-                    client.send_broadcast_message(ServerEvent::NewTickets(ticket)).await;
+                    client
+                        .send_broadcast_message(ServerEvent::NewTickets(ticket))
+                        .await;
                 }
             }
-            ServerEvent::ImageComplete(job_id, frame ) => {
+            ServerEvent::ImageComplete(job_id, frame) => {
                 println!("Completed frame {frame} for job ID \"{job_id}\"!");
                 // here we then check and see if we have the image stored locally.
                 // If it doesn't exist, we should fetch the image from the given multiaddr.

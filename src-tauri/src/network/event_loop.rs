@@ -1,6 +1,9 @@
+use crate::{
+    behaviour::Behaviour,
+    network::{behaviour::BehaviourEvent, command::Command, event::Event},
+};
 use futures::channel::mpsc;
-use libp2p::Swarm;
-use crate::{behaviour::Behaviour, network::{command::Command, event::Event}};
+use libp2p::{Swarm, multiaddr::Protocol, swarm::SwarmEvent};
 
 pub(crate) struct EventLoop {
     swarm: Swarm<Behaviour>,
