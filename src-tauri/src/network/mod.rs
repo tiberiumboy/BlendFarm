@@ -1,22 +1,25 @@
 use crate::network::{behaviour::Behaviour, client::Client, event::Event, event_loop::EventLoop};
 use futures::{
     Stream,
-    channel::{mpsc, oneshot},
+    channel::{mpsc, 
+        // oneshot
+    },
 };
-use libp2p::{StreamProtocol, SwarmBuilder, identity, kad, noise, tcp, yamux};
-use libp2p_request_response::ProtocolSupport;
+use libp2p::{StreamProtocol, 
+    // SwarmBuilder, 
+    identity, kad, noise, tcp, yamux};
+use libp2p_request_response::{ProtocolSupport, cbor, Config};
 use std::{error::Error, time::Duration};
 // use tokio::sync::mpsc;
-mod behaviour;
-mod client;
+pub(crate) mod behaviour;
+pub(crate) mod client;
 mod command;
 pub mod controller;
 pub(crate) mod event;
 mod event_loop;
-mod file_request;
-mod file_response;
+pub(crate) mod file_request;
+pub(crate) mod file_response;
 pub mod message;
-pub(crate) mod provider_rule;
 pub mod service;
 
 // type is locally contained
@@ -55,12 +58,12 @@ pub(crate) async fn new(
                 peer_id,
                 kad::store::MemoryStore::new(key.public().to_peer_id()),
             ),
-            request_response: request_response::cbor::Behaviour::new(
+            request_response: cbor::Behaviour::new(
                 [(
                     StreamProtocol::new("/file-exchange/1"),
                     ProtocolSupport::Full,
                 )],
-                request_response::Config::default(),
+                Config::default(),
             ),
         })?
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
@@ -75,9 +78,7 @@ pub(crate) async fn new(
     let (event_sender, event_receiver) = mpsc::channel(0);
 
     Ok((
-        Client {
-            sender: command_sender,
-        },
+        Client::new(command_sender),
         event_receiver,
         EventLoop::new(swarm, command_receiver, event_sender),
     ))

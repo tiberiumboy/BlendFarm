@@ -1,11 +1,11 @@
 use futures::channel::oneshot;
-use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
+use libp2p::{Multiaddr, PeerId};
 use libp2p_request_response::ResponseChannel;
 use std::collections::HashSet;
-use std::{collections::hash_map, error::Error, path::PathBuf};
+use std::{error::Error, path::PathBuf};
 
 use crate::{
-    models::behaviour::{FileRequest, FileResponse},
+    network::file_response::FileResponse,
     network::message::KeywordSearch,
 };
 

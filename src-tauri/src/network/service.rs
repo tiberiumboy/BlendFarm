@@ -1,9 +1,16 @@
 use crate::constant::NODE_TOPIC;
-use crate::models::behaviour::{BlendFarmBehaviourEvent, FileRequest, FileResponse};
+use crate::network::behaviour::Behaviour;
+use crate::network::{
+    behaviour::BehaviourEvent,
+    file_request::FileRequest, 
+    file_response::FileResponse
+};
+use crate::services::file_service::{FileData, FileResult};
 use crate::services::server::ServerEvent;
 use crate::{
     models::behaviour::BlendFarmBehaviour,
-    network::message::{Command, Event},
+    network::event::Event,
+    network::message::Command
 };
 use futures::SinkExt;
 use futures::StreamExt;
@@ -25,10 +32,9 @@ use tokio::select;
 
 // Network service module to handle invocation commands to send to network service,
 // as well as handling network event from other peers
-// TODO: Rename this to EventLoop
 pub struct Service {
     // swarm behaviour - interface to the network
-    swarm: Swarm<BlendFarmBehaviour>,
+    swarm: Swarm<Behaviour>, // TODO: Replace this back to BlendFarmBehaviour once we get network stack working again 
 
     // peers: HashSet<PeerId>,
 
@@ -49,7 +55,7 @@ pub struct Service {
 // network service will be used to handle and receive network signal. It will also transmit network package over lan
 impl Service {
     pub fn new(
-        swarm: Swarm<BlendFarmBehaviour>,
+        swarm: Swarm<Behaviour>,
         receiver: Receiver<Command>,
         sender: Sender<Event>,
     ) -> Self {
@@ -115,6 +121,7 @@ impl Service {
         // handle the commands via the services implementation given limited power for the network services.
         match cmd {
             // I'm not sure why I need this?
+            /* 
             Command::Subscribe { topic } => {
                 let identity = IdentTopic::new(topic);
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.subscribe(&identity) {
@@ -141,8 +148,9 @@ impl Service {
                 // TODO: Read note above, need to refactor this to make sense it's implementation described.
                 todo!("Tell swarm to stop listening. stop all listener once lint is working again.");
             },
+            */
 
-            Command::FileService(service) => self.process_file_service(service).await,
+            Command::FileService(/*service*/ .. ) => todo!("check this out later"), //self.process_file_service(service).await,
 
             // received server status. Can invoke commands from this broadcast event.
             Command::Message(Some(multiaddr), status) =>  {
@@ -162,13 +170,14 @@ impl Service {
             // Received broadcast signal
             Command::Message(_, status) => {
                 // we want to send this info across broadcast network. We do not care who is listening the network. Only the fact that we want our hosts to keep notify for availability.
-                let data = serde_json::to_string(&status).unwrap();
-                let topic = IdentTopic::new(NODE_TOPIC);
+                let _data = serde_json::to_string(&status).unwrap();
+                let _topic = IdentTopic::new(NODE_TOPIC);
                 // so a relay server would be utilized here? we communicate to the peer by their id?
-                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                    // Can get "NoPeerSubscribedToTopic" - Should handle gracefully.
-                    eprintln!("Fail to publish gossip message: {e:?}");
-                }
+                todo!("Work on network stack first before implementing gossipsub");
+                // if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+                //     // Can get "NoPeerSubscribedToTopic" - Should handle gracefully.
+                //     eprintln!("Fail to publish gossip message: {e:?}");
+                // }
             }
         }
     }
@@ -186,7 +195,7 @@ impl Service {
                 } => {
                     self.event_sender
                         .send(Event::InboundRequest {
-                            request: request.0,
+                            request: request.into(),
                             channel,
                         })
                         .await
@@ -200,7 +209,7 @@ impl Service {
                         .pending_request_file
                         .remove(&request_id)
                         .expect("Request to still be pending")
-                        .send(Ok(response.0));
+                        .send(Ok(response.into()));
                 }
             },
             libp2p_request_response::Event::OutboundFailure {
@@ -225,12 +234,12 @@ impl Service {
                     // println!("Discovered [{peer_id:?}] {address:?}");
                     
                     // create a discovery notification to the subscribers
-                    let event = Event::Discovered(peer_id, address.clone());
+                    // let event = Event::Discovered(peer_id, address.clone());
                     
                     // if this errors out, we should gracefully hang up?
-                    if let Err(e) = self.event_sender.send(event).await {
-                        eprintln!("sender should not drop! {e:?}");
-                    }
+                    // if let Err(e) = self.event_sender.send(event).await {
+                    //     eprintln!("sender should not drop! {e:?}");
+                    // }
 
                     // if I have already discovered this address, then I need to skip it. Otherwise I will produce garbage log input for duplicated peer id already exist.
                     // it seems that I do need to explicitly add the peers to the list.
@@ -266,9 +275,9 @@ impl Service {
                 match serde_json::from_slice::<ServerEvent>(&message.data) {
                     Ok(node_event) => {
                         println!("Received gossip message for server event: {:?}", &node_event);
-                        if let Err(e) = self.event_sender.send(Event::ServerStatus(node_event)).await {
-                            eprintln!("Something failed? {e:?}");
-                        }
+                        // if let Err(e) = self.event_sender.send(Event::ServerStatus(node_event)).await {
+                        //     eprintln!("Something failed? {e:?}");
+                        // }
                     }
                     Err(e) => eprintln!("fail to parse Node topic data! {e:?}"),
                 }
@@ -277,10 +286,10 @@ impl Service {
             gossipsub::Event::Subscribed { peer_id, .. } => {
                 // topic hash does not implement the behavior for serializer.deserialize implementations.
                 // Instead assume there's only one topic to subscribed and it's global.
-                let message = ServerEvent::Joined(peer_id.to_base58());
-                if let Err(e) = self.event_sender.send(Event::ServerStatus(message)).await {
-                    eprintln!("Fail to send subscribed notification! {e:?}");
-                }
+                let _message = ServerEvent::Joined(peer_id.to_base58());
+                // if let Err(e) = self.event_sender.send(Event::ServerStatus(message)).await {
+                //     eprintln!("Fail to send subscribed notification! {e:?}");
+                // }
             }
             // I should be logging info from other event from gossip... wonder what they got to say?
             // TODO: Implement verbosity logging information here.
@@ -369,23 +378,24 @@ impl Service {
     }
 
     // should I create a separate netowrk service for this?
-    async fn handle_swarm_event(&mut self, event: SwarmEvent<BlendFarmBehaviourEvent>) {
+    async fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
         match event {
             SwarmEvent::Behaviour(behaviour) => match behaviour {
                 // RequestResponse?
-            BlendFarmBehaviourEvent::RequestResponse(event) => {
+            // BlendFarm
+            BehaviourEvent::RequestResponse(event) => {
                     self.process_response_event(event).await;
                 }
                 // Gossipsub used to spread message across
-                BlendFarmBehaviourEvent::Gossipsub(event) => {
-                    self.process_gossip_event(event).await;
-                }
-                // mdns used to identify other computer on the network
-                BlendFarmBehaviourEvent::Mdns(event) => {
-                    self.process_mdns_event(event).await;
-                }
+                // BehaviourEvent::Gossipsub(event) => {
+                //     self.process_gossip_event(event).await;
+                // }
+                // // mdns used to identify other computer on the network
+                // BehaviourEvent::Mdns(event) => {
+                //     self.process_mdns_event(event).await;
+                // }
                 // Kademlia for DHT services
-                BlendFarmBehaviourEvent::Kademlia(event) => {
+                BehaviourEvent::Kademlia(event) => {
                     self.process_kademlia_event(event).await;
                 }
             },
@@ -419,14 +429,14 @@ impl Service {
                 let reason = cause.and_then(|f| Some(f.to_string()));
 
                 // Are we using ServerEvent correctly?
-                let node = ServerEvent::Disconnected {
+                let _node = ServerEvent::Disconnected {
                     peer_id: peer_id.to_base58(),
                     reason,
                 };
-                let event = Event::ServerStatus(node);
-                if let Err(e) = self.event_sender.try_send(event) {
-                    eprintln!("Fail to send event on connection closed! {e:?}");
-                }
+                // let event = Event::ServerStatus(node);
+                // if let Err(e) = self.event_sender.try_send(event) {
+                //     eprintln!("Fail to send event on connection closed! {e:?}");
+                // }
             }
             SwarmEvent::OutgoingConnectionError {
                 peer_id: Some(peer_id),

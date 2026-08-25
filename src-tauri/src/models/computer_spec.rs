@@ -24,7 +24,7 @@ impl ComputerSpec {
         let gpu = &sys_info
             .graphics
             .first()
-            .and_then(|v| Some(v.name.to_owned()));
+            .map(|v| v.name.to_owned());
         let cores = &sys_info.total_processors;
 
         Self {

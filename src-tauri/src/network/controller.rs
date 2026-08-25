@@ -1,7 +1,10 @@
+/* 
+
 use std::collections::HashSet;
-use crate::{models::behaviour::FileResponse, network::message::FileData};
+use crate::models::behaviour::FileResponse;
 use crate::services::server::ServerEvent;
-use crate::network::message::{Command, FileCommand, NetworkError};
+use crate::services::file_service::{FileData, FileCommand};
+use crate::network::message::{Command, NetworkError};
 use crate::network::provider_rule::ProviderRule;
 use futures::channel::oneshot;
 use libp2p::{Multiaddr, PeerId};
@@ -204,3 +207,5 @@ impl Controller {
         self.sender.close_channel();
     }
 }
+
+*/

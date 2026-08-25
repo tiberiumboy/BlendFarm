@@ -1,6 +1,5 @@
 pub mod app_state;
 pub mod behaviour;
-pub(crate) mod common;
 pub(crate) mod computer_spec;
 pub(crate) mod constant;
 pub mod error;

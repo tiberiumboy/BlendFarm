@@ -10,8 +10,8 @@ use super::{
     blend_farm::BlendFarm,
     data_store::{sqlite_job_store::SqliteJobStore, sqlite_worker_store::SqliteWorkerStore},
 };
-use crate::network::provider_rule::ProviderRule;
-use crate::network::{controller::Controller as NetworkController, message::Event};
+use crate::network::event::Event;
+use crate::network::client::Client as NetworkController;
 use crate::services::blend_farm::BlendFarmError;
 use crate::services::server::ServerEvent;
 use crate::{
@@ -40,8 +40,9 @@ use blender_rs::{
     models::mode::RenderMode,
 };
 use futures::{
+    Stream,
     SinkExt, StreamExt,
-    channel::mpsc::{self, Receiver, Sender},
+    channel::mpsc::{self, Sender},
 };
 use libp2p::{PeerId, multiaddr::Protocol};
 use semver::Version;
@@ -204,7 +205,7 @@ impl TauriApp {
         tasks
     }
 
-    async fn handle_job_command(&mut self, job_action: JobAction, client: &mut NetworkController) {
+    async fn handle_job_command(&mut self, job_action: JobAction, _client: &mut NetworkController) {
         match job_action {
             JobAction::Find(job_id, mut sender) => {
                 let result = self.job_store.get_job(&job_id).await;
@@ -243,14 +244,14 @@ impl TauriApp {
                 if let Err(e) = self.job_store.delete_job(&job_id).await {
                     eprintln!("Receiver/sender should not be dropped! {e:?}");
                 }
-                let server_event = ServerEvent::RemoveJob(job_id);
-                client.send_broadcast_message(server_event).await;
+                let _server_event = ServerEvent::RemoveJob(job_id);
+                // client.send_broadcast_message(server_event).await;
             }
             // TODO: Figure out how we can handle/process this command. How does this get sent out? Do we ask when the user loads the job information or request an update?
             JobAction::AskForCompletedList(job_id) => {
                 // How do I send out a broadcast signal, but don't send it to myself? (Exclude loopback messages?)
-                let server_event = ServerEvent::RequestJobInfo(job_id);
-                client.send_broadcast_message(server_event).await;
+                let _server_event = ServerEvent::RequestJobInfo(job_id);
+                // client.send_broadcast_message(server_event).await;
             }
             JobAction::All(mut sender) => {
                 /*
@@ -281,6 +282,7 @@ impl TauriApp {
 
             // Nothing is calling this yet???
             // this seems to be a server thing?
+            // TODO: May get deleted/replaced?
             JobAction::Advertise(job_id) =>
             // Here we will simply add the job to the database, and let client poll them!
             {
@@ -299,13 +301,12 @@ impl TauriApp {
                         .to_path()
                         .file_name()
                         .expect("Must have a valid blender file name!"); // this is &OsStr
-                    let path: &PathBuf = job.item.as_ref();
+                    let _path: &PathBuf = job.item.as_ref();
 
                     println!("Reached to this point of code {file_name:?}");
 
                     // Once job is initiated, we need to be able to provide the files for network distribution.
-                    let _provider = ProviderRule::Default(path.to_path_buf());
-                    // this is where I'm confused?
+                    // let _provider = ProviderRule::Default(path.to_path_buf());
                     // if let Err(e) = client.start_providing(&provider).await {
                     //     eprintln!("Fail to provide file! {e:?}");
                     //     return;
@@ -458,16 +459,15 @@ impl TauriApp {
             UiCommand::Worker(worker_action) => self.handle_worker_command(worker_action).await,
             UiCommand::UploadFile(path) => {
                 // this is design to notify the network controller to start advertise provided file path
-                let provider = ProviderRule::Default(path);
-                if let Err(e) = client.start_providing(&provider).await {
-                    eprintln!("Network issue on providing file! {e:?}");
+                if let Some(file_name) = path.file_name().and_then(|file| file.to_str()) {
+                    client.start_providing(file_name.to_owned()).await;
                 }
             }
         }
     }
 
     // handle job update conditions for tauri_app side
-    async fn handle_job_update(&mut self, client: &mut NetworkController, event: JobEvent) {
+    async fn handle_job_update(&mut self, _client: &mut NetworkController, event: JobEvent) {
         match event {
             // when we receive a completed image, send a notification to the host and update job index to obtain the latest render image.
             JobEvent::AskForCompletedJobFrameList(_) => {
@@ -500,8 +500,8 @@ impl TauriApp {
             // Afterward, we should try to fetch the file from that caller.
             JobEvent::ImageCompleted {
                 job_id,
-                frame: _,
-                file_name,
+                frame: _, ..
+                // file_name,
             } => {
                 // first and check to see if the job id belongs to us.
                 // if it does, then proceed to download the image if we have not already done so.
@@ -512,32 +512,32 @@ impl TauriApp {
                     println!("Issue creating temp job directory! {e:?}");
                 }
 
-                match Self::handle_get_file(client, &file_name, &destination).await {
-                    // Fetch the completed image file from the network
-                    Ok(file) => {
-                        println!("File stored at {file:?}");
+                // match Self::handle_get_file(client, &file_name, &destination).await {
+                //     // Fetch the completed image file from the network
+                //     Ok(file) => {
+                //         println!("File stored at {file:?}");
 
-                        /*  send update to ui
-                        let handle = app_handle.write().await;
-                        if let Err(e) = handle.emit(
-                            "frame_update",
-                            FrameUpdatePayload {
-                                id,
-                                frame,
-                                file_name: file_name.clone(),
-                            },
-                        ) {
-                            eprintln!("Unable to send emit to app handler\n{e:?}");
-                        }
-                        */
-                        // if let Err(e) = handle.emit("job_image_complete", (job_id, frame, file)) {
-                        //     eprintln!("Fail to publish image completion emit to front end! {e:?}");
-                        // }
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to fetch the file from peers!\n{:?}", e);
-                    }
-                }
+                //         /*  send update to ui
+                //         let handle = app_handle.write().await;
+                //         if let Err(e) = handle.emit(
+                //             "frame_update",
+                //             FrameUpdatePayload {
+                //                 id,
+                //                 frame,
+                //                 file_name: file_name.clone(),
+                //             },
+                //         ) {
+                //             eprintln!("Unable to send emit to app handler\n{e:?}");
+                //         }
+                //         */
+                //         // if let Err(e) = handle.emit("job_image_complete", (job_id, frame, file)) {
+                //         //     eprintln!("Fail to publish image completion emit to front end! {e:?}");
+                //         // }
+                //     }
+                //     Err(e) => {
+                //         eprintln!("Failed to fetch the file from peers!\n{:?}", e);
+                //     }
+                // }
             }
             // when a task is complete, check the poll for next available job queue?
             JobEvent::TicketComplete(job_id, frame) => {
@@ -588,31 +588,33 @@ impl TauriApp {
     }
 
     // commands received from network
-    async fn handle_net_event(&mut self, client: &mut NetworkController, event: Event) {
+    async fn handle_net_event(&mut self, _client: &mut NetworkController, event: Event) {
         match event {
             // A node was recently discovered from the network.
-            Event::Discovered(..) => {
-                // Here should try to join the topic hash before sending message out in case it doesn't work?
-                let multiaddr = client.get_multiaddr().clone();
-                // TODO: Remove ComputerSpec.
-                let spec = ComputerSpec::new();
-                // We replied back to the discovered node "Hello, this is my specs, so call me maybe?"
-                let server_status = ServerEvent::Online(multiaddr, spec);
-                client.send_broadcast_message(server_status).await
-            }
+            // Event::Discovered(..) => {
+            //     // Here should try to join the topic hash before sending message out in case it doesn't work?
+            //     let multiaddr = client.get_multiaddr().clone();
+            //     // TODO: Remove ComputerSpec.
+            //     let spec = ComputerSpec::new();
+            //     // We replied back to the discovered node "Hello, this is my specs, so call me maybe?"
+            //     let server_status = ServerEvent::Online(multiaddr, spec);
+            //     client.send_broadcast_message(server_status).await
+            // }
             // a network sent us a inbound request - reply back with the file data in channel.
             // yeah I wonder why we can't move this inside network class?
-            Event::InboundRequest { request, channel } => {
-                Self::handle_inbound_request(client, request, channel).await
+            Event::InboundRequest { /*request, channel*/ .. } => {
+                eprintln!("Reached Inbound Request, but currently disable for network rework implementation");
+                // TODO: Check this out later somehow?
+                // Self::handle_inbound_request(client, request, channel).await
             }
             // Listen to what the server update are happening on the network.
-            Event::ServerStatus(event) => self.handle_server_status(client, event).await,
-            Event::JobUpdate(update) => self.handle_job_update(client, update).await,
-            Event::ReceivedFileData(..) => todo!(),
+            // Event::ServerStatus(event) => self.handle_server_status(client, event).await,
+            // Event::JobUpdate(update) => self.handle_job_update(client, update).await,
+            // Event::ReceivedFileData(..) => todo!(),
         }
     }
 
-    async fn handle_server_status(&mut self, client: &mut NetworkController, event: ServerEvent) {
+    async fn handle_server_status(&mut self, _client: &mut NetworkController, event: ServerEvent) {
         match event {
             // a node introduce themselves upon your discovery.
             // why did I not receive this?
@@ -655,7 +657,7 @@ impl TauriApp {
 
             ServerEvent::RequestTicket() => {
                 // How do I check my job and see if I have any pending tickets/pending jobs to work on?
-                let query = match self.job_store.list_all().await {
+                let _query = match self.job_store.list_all().await {
                     Ok(list) => list.iter().fold(None, |result, item| {
                         if result.is_some() {
                             return result;
@@ -674,11 +676,12 @@ impl TauriApp {
                     _ => return (),
                 };
 
-                if let Some(ticket) = query {
-                    client
-                        .send_broadcast_message(ServerEvent::NewTickets(ticket))
-                        .await;
-                }
+                // TODO: Do this later until we get a working network state
+                // if let Some(ticket) = query {
+                //     client
+                //         .send_broadcast_message(ServerEvent::NewTickets(ticket))
+                //         .await;
+                // }
             }
             ServerEvent::ImageComplete(job_id, frame) => {
                 println!("Completed frame {frame} for job ID \"{job_id}\"!");
@@ -722,10 +725,14 @@ impl TauriApp {
 
 #[async_trait]
 impl BlendFarm for TauriApp {
+    /// Launch Tauri app.
+    /// In this state, we rely on UI events and events that user pressed to invoke backend services.
+    /// All of the code here should be front facing only. Do not interface backend services directly!
+    /// TODO: Impl mpsc channels to receive UI command enumerations. 
     async fn run(
         mut self,
-        mut client: NetworkController,
-        mut event_receiver: Receiver<Event>,
+        mut client: NetworkController
+        // mut event_receiver: impl Stream<Item = Event>,
     ) -> Result<(), BlendFarmError> {
         // this channel is used to send command to the network, and receive network notification back.
         let (event, mut command) = mpsc::channel(32);
@@ -772,7 +779,7 @@ impl BlendFarm for TauriApp {
             loop {
                 select! {
                     msg = command.select_next_some() => self.handle_command(&mut client, msg).await,
-                    Some(event) = event_receiver.next() => self.handle_net_event(&mut client, event).await,
+                    // Some(event) = event_receiver.next() => self.handle_net_event(&mut client, event).await,
                 }
             }
         });

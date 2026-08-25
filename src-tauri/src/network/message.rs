@@ -1,9 +1,7 @@
-use futures::channel::oneshot::{self};
-use libp2p::{Multiaddr, PeerId};
-use libp2p_request_response::{OutboundRequestId, ResponseChannel};
+// use futures::channel::oneshot::{self};
+use libp2p::Multiaddr;
 use thiserror::Error;
-use crate::models::behaviour::FileResponse;
-use crate::models::job::JobEvent;
+use crate::services::file_service::FileCommand;
 use crate::services::server::ServerEvent;
 
 #[derive(Debug, Error)]

@@ -1,9 +1,16 @@
-use crate::{
-    behaviour::Behaviour,
-    network::{behaviour::BehaviourEvent, command::Command, event::Event},
-};
-use futures::channel::mpsc;
-use libp2p::{Swarm, multiaddr::Protocol, swarm::SwarmEvent};
+use std::collections::{HashMap, HashSet, hash_map};
+use std::error::Error;
+use crate::network::{
+        behaviour::{Behaviour, BehaviourEvent}, 
+        command::Command,
+        event::Event,
+        file_response::FileResponse,
+        file_request::FileRequest
+    };
+use futures::{SinkExt, StreamExt};
+use futures::channel::{mpsc, oneshot};
+use libp2p::{PeerId, Swarm, kad, multiaddr::Protocol, swarm::SwarmEvent};
+use libp2p_request_response::{OutboundRequestId, Event as RequestResponseEvent, Message as RequestResponseMessage};
 
 pub(crate) struct EventLoop {
     swarm: Swarm<Behaviour>,
@@ -17,7 +24,7 @@ pub(crate) struct EventLoop {
 }
 
 impl EventLoop {
-    fn new(
+    pub(crate) fn new(
         swarm: Swarm<Behaviour>,
         command_receiver: mpsc::Receiver<Command>,
         event_sender: mpsc::Sender<Event>,
@@ -95,20 +102,18 @@ impl EventLoop {
             )) => {}
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(_)) => {}
             SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
-                request_response::Event::Message { message, .. },
+                RequestResponseEvent::Message { message, .. },
             )) => match message {
-                request_response::Message::Request {
+                RequestResponseMessage::Request {
                     request, channel, ..
                 } => {
-                    self.event_sender
-                        .send(Event::InboundRequest {
-                            request: request.0,
-                            channel,
-                        })
-                        .await
-                        .expect("Event receiver not to be dropped.");
+                    let mut _event = Event::InboundRequest { request: request.into(), channel };
+                    // self.event_sender
+                    //     .send_all(event)
+                    //     .await
+                    //     .expect("Event receiver not to be dropped.");
                 }
-                request_response::Message::Response {
+                RequestResponseMessage::Response {
                     request_id,
                     response,
                 } => {
@@ -116,11 +121,11 @@ impl EventLoop {
                         .pending_request_file
                         .remove(&request_id)
                         .expect("Request to still be pending.")
-                        .send(Ok(response.0));
+                        .send(Ok(response.into()));
                 }
             },
             SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
-                request_response::Event::OutboundFailure {
+                RequestResponseEvent::OutboundFailure {
                     request_id, error, ..
                 },
             )) => {
@@ -131,7 +136,7 @@ impl EventLoop {
                     .send(Err(Box::new(error)));
             }
             SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
-                request_response::Event::ResponseSent { .. },
+                RequestResponseEvent::ResponseSent { .. },
             )) => {}
             SwarmEvent::NewListenAddr { address, .. } => {
                 let local_peer_id = *self.swarm.local_peer_id();
@@ -223,14 +228,14 @@ impl EventLoop {
                     .swarm
                     .behaviour_mut()
                     .request_response
-                    .send_request(&peer, FileRequest(file_name));
+                    .send_request(&peer, FileRequest::new(file_name));
                 self.pending_request_file.insert(request_id, sender);
             }
             Command::RespondFile { file, channel } => {
                 self.swarm
                     .behaviour_mut()
                     .request_response
-                    .send_response(channel, FileResponse(file))
+                    .send_response(channel, FileResponse::new(file))
                     .expect("Connection to peer to be still open.");
             }
         }

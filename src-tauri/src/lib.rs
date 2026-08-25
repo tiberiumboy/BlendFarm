@@ -42,8 +42,8 @@ use tracing_subscriber::EnvFilter;
 // const SETTINGS_PATH_TOML: &str = "BlendFarm/BlenderManager.toml";
 // const SETTINGS_PATH_YAML: &str = "BlendFarm/BlenderManager.yaml";
 
-use crate::constant::NODE_TOPIC;
-use crate::network::controller::Controller;
+// use crate::constant::NODE_TOPIC;
+use crate::network::client::Client;
 use crate::services::app_context::AppContext;
 
 pub mod constant;
@@ -77,7 +77,7 @@ async fn config_sqlite_db(path: impl AsRef<Path>) -> Result<SqlitePool, sqlx::Er
 }
 
 // design to setup network connection
-async fn setup_connection(controller: &mut Controller) -> Result<(), Error> {
+async fn setup_connection(controller: &mut Client) -> Result<(), Error> {
     // Listen on all interfaces and whatever port OS assigns
     let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().expect("Shouldn't fail");
     let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
@@ -86,11 +86,22 @@ async fn setup_connection(controller: &mut Controller) -> Result<(), Error> {
 
     // let's automatically listen to the topics mention above.
     // all network interference must subscribe to these topics!
-    controller.subscribe(NODE_TOPIC).await;
+    // controller.subscribe(NODE_TOPIC).await;
 
-    // can we subscribe first before we listen?
-    controller.start_listening(tcp).await;
-    controller.start_listening(udp).await;
+    // TODO: Start providing the list of completed rendered image files.
+    // controller.start_providing(list_of_completed frames).await;
+
+    // Also TODO: Start providing the list of blender installed as bundle package here.
+    // controller.start_providing(list_of_blenders).await;
+
+    if let Err(e) = controller.start_listening(tcp).await {
+        eprintln!("Unable to listen using TCP provided address! {e:?}");
+    }
+
+    if let Err(e) = controller.start_listening(udp).await {
+        eprintln!("Unable to listen using UDP provided address! {e:?}");
+    }
+
     Ok(())
 }
 
@@ -143,7 +154,7 @@ pub async fn run() {
         .expect("Must have database connection!");
 
     // setup network services
-    let (mut controller, receiver, server) = network::new(cli.secret_key)
+    let (mut controller, _receiver, server) = network::new(cli.secret_key)
         .await
         .expect("Fail to start network service");
 
@@ -166,14 +177,17 @@ pub async fn run() {
     // TODO: Handle Receiver input here.
     let result = match cli.command {
         // run as client mode.
-        Some(Commands::Service) => Server::new(context, &db).run(controller, receiver).await,
+        Some(Commands::Service) => Server::new(context, &db)
+            .run(controller 
+                //, receiver
+            ).await,
         // run as GUI mode.
         _ => {
             // could spawn in a separate thread?
             TauriApp::new(context.manager, &db)
                 .clear_workers_collection()
                 .await
-                .run(controller, receiver)
+                .run(controller) //, receiver
                 .await
         }
     };
