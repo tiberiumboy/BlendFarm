@@ -11,14 +11,14 @@ pub(crate) enum Command {
         addr: Multiaddr,
         sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
     },
+    StartProviding {
+        file_name: String,
+        sender: oneshot::Sender<()>,
+    },
     Dial {
         peer_id: PeerId,
         peer_addr: Multiaddr,
         sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
-    },
-    StartProviding {
-        file_name: String,
-        sender: oneshot::Sender<()>,
     },
     GetProviders {
         file_name: String,

@@ -7,7 +7,7 @@ use crate::network::{
         file_response::FileResponse,
         file_request::FileRequest
     };
-use futures::{SinkExt, StreamExt};
+use futures::{prelude::*, StreamExt};
 use futures::channel::{mpsc, oneshot};
 use libp2p::{PeerId, Swarm, kad, multiaddr::Protocol, swarm::SwarmEvent};
 use libp2p_request_response::{OutboundRequestId, Event as RequestResponseEvent, Message as RequestResponseMessage};
@@ -107,11 +107,13 @@ impl EventLoop {
                 RequestResponseMessage::Request {
                     request, channel, ..
                 } => {
-                    let mut _event = Event::InboundRequest { request: request.into(), channel };
-                    // self.event_sender
+
+                    let event = Event::InboundRequest { request: request.into(), channel };
+                    self.event_sender
+                        .send(event)
                     //     .send_all(event)
-                    //     .await
-                    //     .expect("Event receiver not to be dropped.");
+                        .await
+                        .expect("Event receiver not to be dropped.");
                 }
                 RequestResponseMessage::Response {
                     request_id,

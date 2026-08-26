@@ -7,21 +7,22 @@ Feature request:
     - receive command to properly reboot computer when possible?
 */
 use super::blend_farm::BlendFarm;
-use crate::domains::render_store::RenderStore;
+// use crate::domains::render_store::RenderStore;
 use crate::domains::ticket_store::{TicketError, TicketStore};
 use crate::models::computer_spec::ComputerSpec;
 use crate::models::job::JobId;
 use crate::network::PeerIdString;
 // use crate::network::event::Event;
-use crate::network::message::NetworkError;
+// use crate::network::message::NetworkError;
 use crate::services::app_context::AppContext;
 use crate::services::blend_farm::BlendFarmError;
-use crate::services::data_store::sqlite_renders_store::SqliteRenderStore;
+// use crate::services::data_store::sqlite_renders_store::SqliteRenderStore;
 use crate::services::data_store::sqlite_ticket_store::SqliteTicketStore;
 use crate::{
     models::{server_setting::ServerSetting, ticket::Ticket},
-    // network::controller::Controller as NetworkController,
     network::client::Client as NetworkController,
+    network::FileResult,
+    network::event::Event
 };
 use async_lock::RwLock;
 use async_trait::async_trait;
@@ -29,14 +30,16 @@ use blender_rs::blender::{Frame, Manager as BlenderManager};
 use blender_rs::models::event::BlenderEvent;
 // use futures::{Stream, StreamExt};
 use futures::channel::mpsc::{ Sender as FutSender, /* Receiver as FutReceiver,*/ channel as FutChannel};
-use libp2p::Multiaddr;
+use libp2p::{Multiaddr, PeerId, kad};
+use libp2p::kad::QueryId;
+use libp2p_request_response::OutboundRequestId;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::path::PathBuf;
 // use std::sync::mpsc::{Sender, Receiver};
-use std::sync::{Arc, OnceLock};
-// use thiserror::Error;
+use std::sync::{Arc, /*OnceLock*/};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -97,9 +100,16 @@ pub struct Server {
     // Additionally, they will become important when we need to fetch render image sequences from job or ticket structs.
     #[allow(dead_code)]
     settings: ServerSetting,
+
+    pending_start_providing: HashMap<QueryId, oneshot::Sender<()>>,
+    // pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
+    providing_files: HashMap<String, PathBuf>,
+    pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
+    pending_request_file:
+        HashMap<OutboundRequestId, oneshot::Sender<FileResult>>,
 }
 
-static COMPUTER_SPEC: OnceLock<ComputerSpec> = OnceLock::new();
+// static COMPUTER_SPEC: OnceLock<ComputerSpec> = OnceLock::new();
 
 // cli app should really be a stateless machine. A listener would just receive order from the network and proceed the ticket given queued.
 // This program should close after completing the ticket queue, in non-listening mode
@@ -109,7 +119,10 @@ impl Server {
             settings: context.settings,
             manager: Arc::new(RwLock::new(context.manager)),
             db_conn: db.clone(),
-            // spec: ComputerSpec::new(),
+            pending_start_providing: HashMap::new(),
+            providing_files: HashMap::new(),
+            pending_get_providers: HashMap::new(),
+            pending_request_file: HashMap::new(),
         }
     }
 
@@ -276,7 +289,7 @@ impl Server {
             _ => println!("Unhandle Job Event: {event:?}"),
         }
     }
-    */
+    
 
     // Take action from interface. (CLI mode)
     async fn handle_command(
@@ -355,7 +368,6 @@ impl Server {
     }
 
     // Describe the behaviour.
-    /*
         When a background service is running, it currently holds no known state of work. It will request a new job from the host.
         When we receive a ticket, we will ask the host for the blend files, 
             if we do not have matching hash, download the file.
@@ -465,7 +477,8 @@ impl BlendFarm for Server {
     /// The other process handles network events.
     async fn run(
         mut self,
-        _client: NetworkController,
+        client: NetworkController,
+        mut event_receiver: Receiver<Event>,
         // mut event_receiver: impl Stream<Item = Event>,
     ) -> Result<(), BlendFarmError> {
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
@@ -479,6 +492,8 @@ impl BlendFarm for Server {
         // let db_connection = self.db_conn.clone();
 
         let ticket_connection = self.db_conn.clone();
+
+        // list out all of the completed rendered image jobs.
 
         let manager = self.manager.clone();
 
@@ -497,14 +512,17 @@ impl BlendFarm for Server {
                 }
             }
         });
-        // TODO: Find a way to handle futures::stream
-        // event_receiver.collect();
 
         // Process pending inputs commands from foreign function interface
-        /* 
         loop {
-            select! {
-                Ok(pending_event) = event_receiver => match pending_event {
+            match event_receiver.next().await {
+                Some(Event::InboundRequest { request, channel }) => {
+                    // TODO: find a way to provide a lookup table for the file providing
+                    // let file = 
+
+                    client.respond_file(file, channel)
+                        // Self::handle_inbound_request(&mut client, request, channel).await
+                }
                         // Event::Discovered( _, peer_addr ) => {
                         //     // Perform a check. If we have exhausted our ticket queue, we should send this discover peer a RequestTicket message.
                         //     // if let Ok(Some(remains)) = ticket_db.list_tickets().await {
@@ -524,13 +542,7 @@ impl BlendFarm for Server {
                         //     println!("Received Job Event: {job_event:?}")
                         //     // caller
                         //     //self.handle_job_from_network(client, job_event).await,
-                        // },
-                        Event::InboundRequest { request, channel } => {
-                            // what was I'm suppose to do here??
-                            
-                            // client.
-                            // Self::handle_inbound_request(&mut client, request, channel).await
-                        }
+                        // }
                         // Event::ServerStatus(event) => {
                         //     match event {
                         //         ServerEvent::Joined(peer_id) => {
@@ -615,15 +627,16 @@ impl BlendFarm for Server {
                         //         }
                         //     }
                         // }
-                        _ => println!("[Server] Unhandled event received from network: {event:?}"),
-                },
-                msg = command.recv() => match msg {
-                    Some(cmd) => self.handle_command(&db_connection, cmd).await.map_err(BlendFarmError::NetworkError)?,
-                    None => {
-                        println!("None was received, continue?");
-                        break Ok(())
-                    },
-                },
+                //         _ => println!("[Server] Unhandled event received from network: {event:?}"),
+                // },
+                // msg = command.recv() => match msg {
+                //     Some(cmd) => self.handle_command(&db_connection, cmd).await.map_err(BlendFarmError::NetworkError)?,
+                //     None => {
+                //         println!("None was received, continue?");
+                //         break Ok(())
+                //     },
+                // },
+                e => todo!("{e:?}")
                 // TODO: Implement this later once we get a working network struct up and running
                 // event = receiver.recv() => match event {
                 //     Ok(event) => client.send_broadcast_message(event).await,
@@ -633,7 +646,6 @@ impl BlendFarm for Server {
                 // }
             }
         }
-        */
         Ok(())
     }
 }

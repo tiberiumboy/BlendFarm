@@ -4,6 +4,8 @@ use std::io::Error as IoError;
 use crate::domains::ticket_store::TicketError;
 // use crate::models::behaviour::FileResponse;
 use crate::network::client::Client as NetworkController;
+use crate::network::event::Event;
+use crate::network::file_response::FileResponse;
 // use crate::network::event::Event;
 // FileCommand
 use crate::network::message::NetworkError;
@@ -12,8 +14,9 @@ use async_trait::async_trait;
 use blender_rs::blender::BlenderError;
 // use futures::Stream;
 // use futures::FutureExt;
-// use futures::channel::mpsc::Receiver;
-// use futures::channel::oneshot;
+use futures::channel::mpsc::Receiver;
+use libp2p_request_response::ResponseChannel;
+use futures::channel::oneshot;
 // use libp2p_request_response::ResponseChannel;
 
 #[derive(Debug)]
@@ -47,33 +50,34 @@ pub trait BlendFarm {
         client: NetworkController,
         // TODO: Maybe consider returning the event from calling run()?
         // event_stream: impl Stream<Item = Event>,
-        // event_receiver: Receiver<Event>,
+        event_receiver: Receiver<Event>,
     ) -> Result<(), BlendFarmError>;
 
-    // async fn handle_inbound_request(
-    //     client: &mut NetworkController,
-    //     request: String,
-    //     channel: ResponseChannel<FileResponse>,
-    // ) {
-    //     let (sender, receiver) = oneshot::channel();
-    //     let cmd = FileCommand::RequestFilePath {
-    //         keyword: request,
-    //         sender,
-    //     };
-    //     // client.file_service(cmd).await;
-    //     // client.
+    // why I can't use "self"?
+    async fn handle_inbound_request(
+        client: &mut NetworkController,
+        request: String,
+        channel: ResponseChannel<FileResponse>,
+    ) {
+        let (sender, receiver) = oneshot::channel();
+        let cmd = FileCommand::RequestFilePath {
+            keyword: request,
+            sender,
+        };
+        // client.file_service(cmd).await;
+        // client.
 
-    //     // once we received the data signal - process the remaining with the information obtained.
-    //     if let Some(path) = receiver.await.expect("Sender should not be dropped") {
-    //         // TODO: Remove/handle unwrap()
-    //         let file = async_std::fs::read(path).await.unwrap();
-    //         client.respond_file(file, channel).await;
-    //     } else {
-    //         eprintln!(
-    //             "This local service does not have any matching request providing! Do something about the ResponseChannel?"
-    //         );
-    //     }
-    // }
+        // once we received the data signal - process the remaining with the information obtained.
+        if let Some(path) = receiver.await.expect("Sender should not be dropped") {
+            // TODO: Remove/handle unwrap()
+            let file = async_std::fs::read(path).await.unwrap();
+            client.respond_file(file, channel).await;
+        } else {
+            eprintln!(
+                "This local service does not have any matching request providing! Do something about the ResponseChannel?"
+            );
+        }
+    }
 
     // async fn handle_get_file(
     //     client: &mut NetworkController,

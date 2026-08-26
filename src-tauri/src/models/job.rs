@@ -15,7 +15,7 @@
 use super::ticket::Ticket;
 use super::with_id::WithId;
 use crate::domains::job_store::JobError;
-use crate::network::PeerIdString;
+// use crate::network::PeerIdString;
 use blender_rs::blender::Frame;
 use blender_rs::{blend_file::BlendFile, models::mode::RenderMode};
 use futures::channel::mpsc::Sender;
@@ -36,6 +36,7 @@ use uuid::Uuid;
 // This means that if a node was recently assigned to work on this job's task, but was cancel, both job and node should delete the task as no new information is savageable.
 // Any information created or stored will persist to local database for persistent storage and quick lookup. This can be handy in the future if we can get ffmpeg included.
 
+/* 
 // THIS IS TREATED AS NOTIFICATION UPDATES. DO NOT TAKE THIS AS COMMAND! Acknowledge the packet and run behavior tree decision.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum JobEvent {
@@ -59,6 +60,8 @@ pub enum JobEvent {
     // TODO: for now let's handle this error as string. Find a reason why we want to serialize error enums?
     Error(String),
 }
+
+*/
 
 #[derive(Debug)]
 pub enum JobAction {

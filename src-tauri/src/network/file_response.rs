@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+// Is this struct publicitized or localized? Prefer to make this private and use FileData instead?
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct FileResponse(Vec<u8>);
 

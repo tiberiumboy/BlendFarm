@@ -10,7 +10,7 @@ use super::{
     blend_farm::BlendFarm,
     data_store::{sqlite_job_store::SqliteJobStore, sqlite_worker_store::SqliteWorkerStore},
 };
-use crate::network::event::Event;
+// use crate::network::event::Event;
 use crate::network::client::Client as NetworkController;
 use crate::services::blend_farm::BlendFarmError;
 use crate::services::server::ServerEvent;
@@ -22,8 +22,8 @@ use crate::{
     models::{
         app_state::AppState,
         blender_action::BlenderAction,
-        computer_spec::ComputerSpec,
-        job::{CreatedJobDto, JobAction, JobEvent},
+        // computer_spec::ComputerSpec,
+        job::{CreatedJobDto, JobAction/* , JobEvent*/},
         server_setting::ServerSetting,
         setting_action::SettingsAction,
         ticket::Ticket,
@@ -40,14 +40,14 @@ use blender_rs::{
     models::mode::RenderMode,
 };
 use futures::{
-    Stream,
+    // Stream,
     SinkExt, StreamExt,
     channel::mpsc::{self, Sender},
 };
-use libp2p::{PeerId, multiaddr::Protocol};
+use libp2p::{PeerId /* , multiaddr::Protocol*/};
 use semver::Version;
 use sqlx::{Pool, Sqlite};
-use std::{collections::HashMap, path::PathBuf, str::FromStr};
+use std::{path::PathBuf /* , collections::HashMap, str::FromStr*/};
 use tauri::{self, Url};
 use tokio::{select, spawn, sync::Mutex};
 
@@ -125,7 +125,7 @@ pub enum UiCommand {
 }
 
 pub struct TauriApp {
-    peers: HashMap<PeerId, ComputerSpec>,
+    // peers: HashMap<PeerId, ComputerSpec>,
     worker_store: SqliteWorkerStore,
     job_store: SqliteJobStore,
     settings: ServerSetting,
@@ -143,7 +143,7 @@ impl TauriApp {
 
     pub fn new(manager: BlenderManager, pool: &Pool<Sqlite>) -> Self {
         Self {
-            peers: Default::default(),
+            // peers: Default::default(),
             worker_store: SqliteWorkerStore::new(pool.clone()),
             job_store: SqliteJobStore::new(pool.clone()),
             settings: ServerSetting::load(),
@@ -466,6 +466,7 @@ impl TauriApp {
         }
     }
 
+    /* 
     // handle job update conditions for tauri_app side
     async fn handle_job_update(&mut self, _client: &mut NetworkController, event: JobEvent) {
         match event {
@@ -721,6 +722,7 @@ impl TauriApp {
             }
         };
     }
+    */
 }
 
 #[async_trait]

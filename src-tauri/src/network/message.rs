@@ -1,7 +1,6 @@
 // use futures::channel::oneshot::{self};
 use libp2p::Multiaddr;
 use thiserror::Error;
-use crate::services::file_service::FileCommand;
 use crate::services::server::ServerEvent;
 
 #[derive(Debug, Error)]
@@ -42,7 +41,6 @@ pub enum Command {
     // These are signal to use to send out message and forget.
     // May receive a response back, using the direct message above.
     Message(Option<Multiaddr>, ServerEvent),
-    FileService(FileCommand),
 }
 
 // // Received network events.

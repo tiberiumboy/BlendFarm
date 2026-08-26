@@ -11,7 +11,7 @@ use crate::network::command::Command;
 use crate::network::file_response::FileResponse;
 
 #[derive(Clone)]
-pub(crate) struct Client {
+pub struct Client {
     sender: mpsc::Sender<Command>,
 }
 
@@ -36,6 +36,7 @@ impl Client {
     }
 
     /// Dial the given peer at the given address.
+    #[allow(dead_code)]
     pub(crate) async fn dial(
         &mut self,
         peer_id: PeerId,
@@ -64,6 +65,7 @@ impl Client {
     }
 
     /// Find the providers for the given file on the DHT.
+    #[allow(dead_code)]
     pub(crate) async fn get_providers(&mut self, file_name: String) -> HashSet<PeerId> {
         let (sender, receiver) = oneshot::channel();
         self.sender
@@ -74,6 +76,7 @@ impl Client {
     }
 
     /// Request the content of the given file from the given peer.
+    #[allow(dead_code)]
     pub(crate) async fn request_file(
         &mut self,
         peer: PeerId,
@@ -92,6 +95,7 @@ impl Client {
     }
 
     /// Respond with the provided file content to the given request.
+    #[allow(dead_code)]
     pub(crate) async fn respond_file(
         &mut self,
         file: Vec<u8>,

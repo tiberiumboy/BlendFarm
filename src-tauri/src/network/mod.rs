@@ -1,29 +1,34 @@
-use crate::network::{behaviour::Behaviour, client::Client, event::Event, event_loop::EventLoop};
+use crate::network::{behaviour::Behaviour, client::Client, event::Event, event_loop::EventLoop, file_response::FileResponse};
 use futures::{
     Stream,
     channel::{mpsc, 
         // oneshot
     },
 };
-use libp2p::{StreamProtocol, 
-    // SwarmBuilder, 
-    identity, kad, noise, tcp, yamux};
+use libp2p::{StreamProtocol, gossipsub, identity, kad, mdns, noise, tcp, yamux};
 use libp2p_request_response::{ProtocolSupport, cbor, Config};
 use std::{error::Error, time::Duration};
 // use tokio::sync::mpsc;
+use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+
 pub(crate) mod behaviour;
 pub(crate) mod client;
 mod command;
 pub mod controller;
 pub(crate) mod event;
 mod event_loop;
-pub(crate) mod file_request;
-pub(crate) mod file_response;
+mod file_request;
+mod file_response;
 pub mod message;
-pub mod service;
+// pub mod service;
 
 // type is locally contained
 pub type PeerIdString = String;
+
+pub type FileData = Vec<u8>;
+
+// TODO: Find a way to handle errors properly
+pub type FileResult = Result<FileData, Box<dyn Error + Send>>;
 
 /// Creates the network components, namely:
 ///
@@ -53,18 +58,41 @@ pub(crate) async fn new(
             noise::Config::new,
             yamux::Config::default,
         )?
-        .with_behaviour(|key| Behaviour {
-            kademlia: kad::Behaviour::new(
-                peer_id,
+        .with_behaviour(|key| {
+            let gossipsub_config = gossipsub::ConfigBuilder::default()
+                .heartbeat_interval(Duration::from_secs(10))
+                .validation_mode(gossipsub::ValidationMode::Strict)
+                // .message_id_fn(message_id_fn)
+                .build()
+                .map_err(|msg| IoError::new(IoErrorKind::Other, msg))?;
+
+            // p2p communication
+            let gossipsub = gossipsub::Behaviour::new(
+                gossipsub::MessageAuthenticity::Signed(key.clone()),
+                gossipsub_config,
+            )
+            .expect("Fail to create gossipsub behaviour");
+
+            // network discovery usage
+            // TODO: replace expect with error handling
+            let mdns =
+                mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())
+                    .expect("Fail to create mdns behaviour!");
+
+            let kademlia = kad::Behaviour::new(
+                key.public().to_peer_id(),
                 kad::store::MemoryStore::new(key.public().to_peer_id()),
-            ),
-            request_response: cbor::Behaviour::new(
-                [(
-                    StreamProtocol::new("/file-exchange/1"),
-                    ProtocolSupport::Full,
-                )],
-                Config::default(),
-            ),
+            );
+            let rr_config = libp2p_request_response::Config::default();
+            // Learn more about this and see if we need the transfer keyword of some sort?
+            let protocol = [(StreamProtocol::new(TRANSFER), ProtocolSupport::Full)];
+            let request_response = libp2p_request_response::Behaviour::new(protocol, rr_config);
+            Ok(Behaviour {
+                request_response,
+                gossipsub,
+                mdns,
+                kademlia,
+            })
         })?
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
         .build();
@@ -156,17 +184,6 @@ pub async fn new(
                 kad::store::MemoryStore::new(key.public().to_peer_id()),
             );
 
-            let rr_config = libp2p_request_response::Config::default();
-            // Learn more about this and see if we need the transfer keyword of some sort?
-            let protocol = [(StreamProtocol::new(TRANSFER), ProtocolSupport::Full)];
-            let request_response = libp2p_request_response::Behaviour::new(protocol, rr_config);
-
-            Ok(BlendFarmBehaviour {
-                request_response,
-                gossipsub,
-                mdns,
-                kademlia: kad,
-            })
         })
         // TODO remove/handle expect()
         .expect("Expect to build behaviour")
