@@ -129,24 +129,24 @@ pub async fn run() {
     let config_path = get_blend_config_default_location().expect("Must have path to configs!");
 
     let config: BlenderConfig = match std::fs::read(config_path) {
-        Ok(reader) => {
-            match serde_json::from_slice(&reader) {
-                Ok(data) => data,
-                Err(e) => {
-                    eprintln!("Unable to parse config file! Using default config instead. {e:?}");
-                    BlenderConfig::default()
-                }
+        Ok(reader) => match serde_json::from_slice(&reader) {
+            Ok(data) => data,
+            Err(e) => {
+                eprintln!("Unable to parse config file! Using default config instead. {e:?}");
+                BlenderConfig::default()
             }
-        }
+        },
         Err(e) => {
             eprintln!("Unable to open blender config file! {e:?}");
             BlenderConfig::default()
         }
     };
-    
+
     // TODO: figure out how we can handle database path?
     // Expect to use yaml config loader.
-    let db_path = get_config_folder_path().expect("Must have path to configs!").join(constant::DATABASE_FILE_NAME);
+    let db_path = get_config_folder_path()
+        .expect("Must have path to configs!")
+        .join(constant::DATABASE_FILE_NAME);
 
     // initialize database connection (We need a place to store persistent storage)
     let db = config_sqlite_db(db_path)
@@ -154,7 +154,7 @@ pub async fn run() {
         .expect("Must have database connection!");
 
     // setup network services
-    let (mut controller, _receiver, server) = network::new(cli.secret_key)
+    let (mut controller, receiver, server) = network::new(cli.secret_key)
         .await
         .expect("Fail to start network service");
 
@@ -177,17 +177,14 @@ pub async fn run() {
     // TODO: Handle Receiver input here.
     let result = match cli.command {
         // run as client mode.
-        Some(Commands::Service) => Server::new(context, &db)
-            .run(controller 
-                //, receiver
-            ).await,
+        Some(Commands::Service) => Server::new(context, &db).run(controller, receiver).await,
         // run as GUI mode.
         _ => {
             // could spawn in a separate thread?
             TauriApp::new(context.manager, &db)
                 .clear_workers_collection()
                 .await
-                .run(controller) //, receiver
+                .run(controller, receiver)
                 .await
         }
     };

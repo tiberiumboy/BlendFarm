@@ -2,14 +2,12 @@ use futures::channel::oneshot;
 use libp2p::{/*Multiaddr,*/ PeerId};
 use libp2p_request_response::ResponseChannel;
 use sqlx::{Pool, Sqlite};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::{error::Error, path::PathBuf};
 
-use crate::network::file_request::FileRequest;
-use crate::{
-    network::file_response::FileResponse,
-    network::message::KeywordSearch,
-};
+// use crate::network::file_request::FileRequest;
+// use crate::{network::file_response::FileResponse, network::message::KeywordSearch};
 
 // to make things simple, we'll create a file service command to handle file service.
 // #[derive(Debug)]
@@ -49,20 +47,35 @@ use crate::{
 //     },
 // }
 
-
+// TODO: Explain the purpose of file services.
+// what is provided and what is addressed?
 pub(crate) struct FileService {
-    db : Pool<Sqlite>
+    providing_files: HashMap<String, PathBuf>,
 }
 
 impl FileService {
-
     pub fn new() -> Self {
-        FileService { }
+        FileService {
+            providing_files: HashMap::new(),
+        }
     }
-    /* 
+
+    pub fn get_file_path(&self, key: &str) -> Option<&PathBuf> {
+        self.providing_files.get(key)
+    }
+
+    pub fn add_providing_file(&mut self, key: &str, path: impl AsRef<Path>) {
+        self.providing_files
+            .insert(key.to_owned(), path.as_ref().to_path_buf());
+    }
+
+    pub fn remove_providing_file(&mut self, key: &str) -> Option<PathBuf> {
+        self.providing_files.remove(key)
+    }
+    /*
     async fn process_file_service(&mut self, cmd: FileCommand) {
         match cmd {
-            /* 
+            /*
             FileCommand::Dial {
                 mut peer_addr,
                 sender,
@@ -117,7 +130,7 @@ impl FileService {
             }
 
             FileCommand::StopProviding(file_name) => {
-                
+
                 // TODO: I want to clear any pending providing, I need to find a way to fetch query ID before stop file providing.
                 // self.pending_start_providing.remove_entry(&key);
             }

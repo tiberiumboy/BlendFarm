@@ -1,17 +1,18 @@
+use crate::network::FileData;
 use serde::{Deserialize, Serialize};
 
-// Is this struct publicitized or localized? Prefer to make this private and use FileData instead?
+// Is this struct publicitized or localized? Prefer to make this private.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct FileResponse(Vec<u8>);
+pub(crate) struct FileResponse(FileData);
 
 impl FileResponse {
-    pub fn new(data: Vec<u8>) -> Self {
+    pub fn new(data: FileData) -> Self {
         FileResponse(data)
     }
 }
 
-impl Into<Vec<u8>> for FileResponse {
-    fn into(self) -> Vec<u8> {
+impl Into<FileData> for FileResponse {
+    fn into(self) -> FileData {
         self.0
     }
 }

@@ -20,18 +20,21 @@ use crate::services::blend_farm::BlendFarmError;
 use crate::services::data_store::sqlite_ticket_store::SqliteTicketStore;
 use crate::{
     models::{server_setting::ServerSetting, ticket::Ticket},
-    network::client::Client as NetworkController,
     network::FileResult,
-    network::event::Event
+    network::client::Client as NetworkController,
+    network::event::Event,
 };
 use async_lock::RwLock;
 use async_trait::async_trait;
 use blender_rs::blender::{Frame, Manager as BlenderManager};
 use blender_rs::models::event::BlenderEvent;
+use futures::Stream;
 // use futures::{Stream, StreamExt};
-use futures::channel::mpsc::{ Sender as FutSender, /* Receiver as FutReceiver,*/ channel as FutChannel};
-use libp2p::{Multiaddr, PeerId, kad};
+use futures::channel::mpsc::{
+    Sender as FutSender, /* Receiver as FutReceiver,*/ channel as FutChannel,
+};
 use libp2p::kad::QueryId;
+use libp2p::{Multiaddr, PeerId, kad};
 use libp2p_request_response::OutboundRequestId;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
@@ -39,7 +42,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::PathBuf;
 // use std::sync::mpsc::{Sender, Receiver};
-use std::sync::{Arc, /*OnceLock*/};
+use std::sync::{Arc /*OnceLock*/};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -105,8 +108,7 @@ pub struct Server {
     // pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
     providing_files: HashMap<String, PathBuf>,
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
-    pending_request_file:
-        HashMap<OutboundRequestId, oneshot::Sender<FileResult>>,
+    pending_request_file: HashMap<OutboundRequestId, oneshot::Sender<FileResult>>,
 }
 
 // static COMPUTER_SPEC: OnceLock<ComputerSpec> = OnceLock::new();
@@ -289,7 +291,7 @@ impl Server {
             _ => println!("Unhandle Job Event: {event:?}"),
         }
     }
-    
+
 
     // Take action from interface. (CLI mode)
     async fn handle_command(
@@ -369,9 +371,9 @@ impl Server {
 
     // Describe the behaviour.
         When a background service is running, it currently holds no known state of work. It will request a new job from the host.
-        When we receive a ticket, we will ask the host for the blend files, 
+        When we receive a ticket, we will ask the host for the blend files,
             if we do not have matching hash, download the file.
-        Once started - This program will verify matching blender program is installed (May use newer version of patches?). 
+        Once started - This program will verify matching blender program is installed (May use newer version of patches?).
             Otherwise a blocking process runs to download and install blender. -> Notify host
         Once ready - using the ticket struct to render the job.
         After completion, a notification will sent out to the host asking for new ticket.
@@ -381,9 +383,8 @@ impl Server {
         ticket: &mut Ticket,
         manager: Arc<RwLock<BlenderManager>>,
         // controller: &mut NetworkController,
-        sender: &mut FutSender<ServerEvent>
+        sender: &mut FutSender<ServerEvent>,
     ) -> Result<(), TicketError> {
-
         // Skip this for now. We'll work on DHT at another time.
         // TODO: validate and make sure that we have the files locally stored ready to be used.
         // let project_file = match self.validate_project_file(client, &task).await {
@@ -410,13 +411,12 @@ impl Server {
                 // if let Err(e) = ticket_db.delete_ticket(&record.id).await {
                 //     eprintln!("Unable to delete the ticket! {e:?}");
                 // }
-                
-                // TODO: Remove expect(). What should happen here? Should this send a broadcast message back to the client?
-                &mut_manager.fetch_blender(&target_blender_version).expect(
-                    "Blendfarm must have permission to download and install blender!",
-                )
 
-                
+                // TODO: Remove expect(). What should happen here? Should this send a broadcast message back to the client?
+                &mut_manager
+                    .fetch_blender(&target_blender_version)
+                    .expect("Blendfarm must have permission to download and install blender!")
+
                 // &controller.
                 // Here, we'd like to try and fetch from client first, before we can download.
                 // &self.manager
@@ -432,17 +432,21 @@ impl Server {
             match event {
                 BlenderEvent::Info(msg) => println!("[Info] {msg}"),
                 BlenderEvent::Rendering(render_event) => match render_event {
-                    blender_rs::models::event::RenderEvent::Progress { frame, current, total } => println!("Rendering Frame {frame} : {current}/{total}"),
+                    blender_rs::models::event::RenderEvent::Progress {
+                        frame,
+                        current,
+                        total,
+                    } => println!("Rendering Frame {frame} : {current}/{total}"),
                     blender_rs::models::event::RenderEvent::Complete { frame, path } => {
                         ticket.add_render(frame, path);
-                        
+
                         // append a new record into the table to indicate a frame has been completed.
                         let job_id = ticket.job_id;
                         let event = ServerEvent::ImageComplete(job_id, frame);
                         if let Err(e) = sender.try_send(event) {
                             eprintln!("Unable to send! {e:?}");
                         }
-                    },
+                    }
                 },
                 BlenderEvent::Warning(_) => todo!(),
                 BlenderEvent::Exit => todo!(),
@@ -478,8 +482,10 @@ impl BlendFarm for Server {
     async fn run(
         mut self,
         client: NetworkController,
-        mut event_receiver: Receiver<Event>,
-        // mut event_receiver: impl Stream<Item = Event>,
+        // mut event_receiver: Receiver<Event>,
+        // If you came here to change this. Stop here. event_receiver must be generic to accept all traits from application later.
+        // Do not change to Receiver<Event>, as this expose more struct publicly, which is unfavorable.
+        mut event_receiver: impl Stream<Item = Event>,
     ) -> Result<(), BlendFarmError> {
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
         // we will have one thread to process blender and queue, but I must have access to database.
@@ -505,10 +511,12 @@ impl BlendFarm for Server {
             loop {
                 if let Ok(Some(record)) = ticket_db.poll_ticket().await {
                     let mut ticket = record.item;
-                    if let Err(e) = Server::start_worker_service(&mut ticket, manager.clone(), &mut sender)
-                        .await {
-                            eprintln!("Unhandle worker error! {e:?}");
-                        }
+                    if let Err(e) =
+                        Server::start_worker_service(&mut ticket, manager.clone(), &mut sender)
+                            .await
+                    {
+                        eprintln!("Unhandle worker error! {e:?}");
+                    }
                 }
             }
         });
@@ -518,115 +526,116 @@ impl BlendFarm for Server {
             match event_receiver.next().await {
                 Some(Event::InboundRequest { request, channel }) => {
                     // TODO: find a way to provide a lookup table for the file providing
-                    // let file = 
-
-                    client.respond_file(file, channel)
-                        // Self::handle_inbound_request(&mut client, request, channel).await
+                    if let Some(path) = self.providing_files.get(&request) {
+                        if let Ok(file) = std::fs::read(path) {
+                            client.respond_file(file, channel).await;
+                        }
+                    }
+                    // Self::handle_inbound_request(&mut client, request, channel).await
                 }
-                        // Event::Discovered( _, peer_addr ) => {
-                        //     // Perform a check. If we have exhausted our ticket queue, we should send this discover peer a RequestTicket message.
-                        //     // if let Ok(Some(remains)) = ticket_db.list_tickets().await {
-                        //     //     if remains.len().eq(&0) {
-                        //     //         // now we will just simply ask
-                        //     //         let local_addr = &client.multiaddr;
-                        //     //         println!("Sending discovered peer a request ticket message.");
-                        //     //         client.send_peer_message(&peer_addr, ServerEvent::RequestTicket(local_addr.clone())).await;
-                        //     //     }
-                        //     // }
+                // Event::Discovered( _, peer_addr ) => {
+                //     // Perform a check. If we have exhausted our ticket queue, we should send this discover peer a RequestTicket message.
+                //     // if let Ok(Some(remains)) = ticket_db.list_tickets().await {
+                //     //     if remains.len().eq(&0) {
+                //     //         // now we will just simply ask
+                //     //         let local_addr = &client.multiaddr;
+                //     //         println!("Sending discovered peer a request ticket message.");
+                //     //         client.send_peer_message(&peer_addr, ServerEvent::RequestTicket(local_addr.clone())).await;
+                //     //     }
+                //     // }
 
-                        //     println!("Sending discovered peer a online status message.");
-                        //     // We'll say I'm online instead of requesting ticket.
-                        //     client.send_peer_message(&peer_addr, ServerEvent::Online(public_addr.clone(), spec.clone())).await;
-                        // }
-                        // Event::JobUpdate(job_event) => {
-                        //     println!("Received Job Event: {job_event:?}")
-                        //     // caller
-                        //     //self.handle_job_from_network(client, job_event).await,
-                        // }
-                        // Event::ServerStatus(event) => {
-                        //     match event {
-                        //         ServerEvent::Joined(peer_id) => {
-                        //             println!("A peer [{:?}] has joined the channel", peer_id);
-                        //         },
-                        //         ServerEvent::RemoveJob(job_id) => {
-                        //             let ticket_db = SqliteTicketStore::new(db_connection.clone());
-                        //             if let Err(e) = ticket_db.delete_job_ticket(&job_id).await {
-                        //                 eprintln!("Fail to remove ticket with matching job id {job_id} | {e:?}");
-                        //             }
-                        //         },
-                        //         ServerEvent::NewTickets(ticket) => {
-                        //             let ticket_db = SqliteTicketStore::new(db_connection.clone());
-                        //             if let Err(e) = ticket_db.add_ticket(ticket).await {
-                        //                 eprintln!("Fail to add new ticket to database! {e:?}");
-                        //             }
-                        //         },
-                        //         ServerEvent::RequestTicket() => {
-                                    
-                        //             // Assuming we're using database - 
-                        //             // List of the tickets ahead pending from this job. If there's less than three, return/continue.
-                        //             // if let Ok(query) = ticket_db.list_tickets().await {
-                        //             //     if let Some(col) = query {
-                        //             //         if col.len().gt(&3) {
-                        //             //             continue;
-                        //             //         }
-                        //             //     }
-                        //             // }
-                                    
+                //     println!("Sending discovered peer a online status message.");
+                //     // We'll say I'm online instead of requesting ticket.
+                //     client.send_peer_message(&peer_addr, ServerEvent::Online(public_addr.clone(), spec.clone())).await;
+                // }
+                // Event::JobUpdate(job_event) => {
+                //     println!("Received Job Event: {job_event:?}")
+                //     // caller
+                //     //self.handle_job_from_network(client, job_event).await,
+                // }
+                // Event::ServerStatus(event) => {
+                //     match event {
+                //         ServerEvent::Joined(peer_id) => {
+                //             println!("A peer [{:?}] has joined the channel", peer_id);
+                //         },
+                //         ServerEvent::RemoveJob(job_id) => {
+                //             let ticket_db = SqliteTicketStore::new(db_connection.clone());
+                //             if let Err(e) = ticket_db.delete_job_ticket(&job_id).await {
+                //                 eprintln!("Fail to remove ticket with matching job id {job_id} | {e:?}");
+                //             }
+                //         },
+                //         ServerEvent::NewTickets(ticket) => {
+                //             let ticket_db = SqliteTicketStore::new(db_connection.clone());
+                //             if let Err(e) = ticket_db.add_ticket(ticket).await {
+                //                 eprintln!("Fail to add new ticket to database! {e:?}");
+                //             }
+                //         },
+                //         ServerEvent::RequestTicket() => {
 
-                        //             println!("I should contact this peer_addr and send them a new ticket.")
-                                    
-                        //             // Ok so if we dial, what are we doing here?
-                        //             // if let Err(e) = client.dial(&peer_addr).await {
-                        //             //     eprintln!("Unable to dial! {e:?}");
-                        //             // }
-                        //         },
-                        //         ServerEvent::Online(peer_addr, spec) => {
-                        //             // Once a computer becomes online, do the following conditions:
-                        //             // If our work queue is empty, we should send this computer a job request message.
-                        //             // Only do this if this node is someone we have met before.
+                //             // Assuming we're using database -
+                //             // List of the tickets ahead pending from this job. If there's less than three, return/continue.
+                //             // if let Ok(query) = ticket_db.list_tickets().await {
+                //             //     if let Some(col) = query {
+                //             //         if col.len().gt(&3) {
+                //             //             continue;
+                //             //         }
+                //             //     }
+                //             // }
 
-                        //             println!("Peer connected with specs provided : {peer_addr:?}\n{spec:?}");
-                        //             // let public_ip = client.public_id.to_base58();
-                        //             // let mut machine = Machine::new();
-                        //             // let computer_spec = ComputerSpec::new(&mut machine);
-                        //             // let status = NodeEvent::Hello(public_ip, computer_spec);
-                        //             // client.send_node_status(status).await;
-                                    
-                        //             // TODO: Let's ask the computer some info update, if there's any.
-                        //         }
-                        //         ServerEvent::Disconnected { peer_id, reason } => match reason {
-                        //             Some(err) => {
-                        //                 // Reporting that we lost connection to peer_id by a connection IO error
-                        //                 println!("Peer Disconnected with reason [{peer_id:?}] {err}");
-                        //                 // what shall the server ever do? Do we care? No?
-                        //             }
-                        //             None => println!("Peer Disconnected without reason! [{peer_id:?}]"),
-                        //         },
-                        //         ServerEvent::BlenderStatus(_blender_event) => {
-                        //             // println!("[Blender Status] {blender_event:?}");
-                        //             // probably doesn't matter, but shouldn't spam the network with this info yet...
-                        //         },
-                        //         // ServerEvent::Idle => {
-                        //         //     eprintln!("A node has entered idle state... We should probably give that node some job to work on...");
-                        //         // }
-                        //         ServerEvent::ImageComplete(..) => {
-                        //             // We can ignore this, server aren't suppose to care about what other server rendering status looks like.
-                        //         }
-                        //         ServerEvent::RequestJobInfo(job_id) => {
-                        //             // we received a job info request. Check our internal data and reply back with job info.
-                        //             let render_db = SqliteRenderStore::new(db_connection.clone());
-                        //             let result = render_db.find(Some(job_id)).await;
+                //             println!("I should contact this peer_addr and send them a new ticket.")
 
-                        //             if let Ok(jobs) = result {
-                        //                 let data = serde_json::to_string(&jobs);
-                        //                 let _ = dbg!(data);
-                        //                 // TODO: How can I dial back the requestor who ask for this job info?
-                        //                 // let server_event = ServerEvent::
-                        //                 // client.send_server_status(server_event).await;
-                        //             }
-                        //         }
-                        //     }
-                        // }
+                //             // Ok so if we dial, what are we doing here?
+                //             // if let Err(e) = client.dial(&peer_addr).await {
+                //             //     eprintln!("Unable to dial! {e:?}");
+                //             // }
+                //         },
+                //         ServerEvent::Online(peer_addr, spec) => {
+                //             // Once a computer becomes online, do the following conditions:
+                //             // If our work queue is empty, we should send this computer a job request message.
+                //             // Only do this if this node is someone we have met before.
+
+                //             println!("Peer connected with specs provided : {peer_addr:?}\n{spec:?}");
+                //             // let public_ip = client.public_id.to_base58();
+                //             // let mut machine = Machine::new();
+                //             // let computer_spec = ComputerSpec::new(&mut machine);
+                //             // let status = NodeEvent::Hello(public_ip, computer_spec);
+                //             // client.send_node_status(status).await;
+
+                //             // TODO: Let's ask the computer some info update, if there's any.
+                //         }
+                //         ServerEvent::Disconnected { peer_id, reason } => match reason {
+                //             Some(err) => {
+                //                 // Reporting that we lost connection to peer_id by a connection IO error
+                //                 println!("Peer Disconnected with reason [{peer_id:?}] {err}");
+                //                 // what shall the server ever do? Do we care? No?
+                //             }
+                //             None => println!("Peer Disconnected without reason! [{peer_id:?}]"),
+                //         },
+                //         ServerEvent::BlenderStatus(_blender_event) => {
+                //             // println!("[Blender Status] {blender_event:?}");
+                //             // probably doesn't matter, but shouldn't spam the network with this info yet...
+                //         },
+                //         // ServerEvent::Idle => {
+                //         //     eprintln!("A node has entered idle state... We should probably give that node some job to work on...");
+                //         // }
+                //         ServerEvent::ImageComplete(..) => {
+                //             // We can ignore this, server aren't suppose to care about what other server rendering status looks like.
+                //         }
+                //         ServerEvent::RequestJobInfo(job_id) => {
+                //             // we received a job info request. Check our internal data and reply back with job info.
+                //             let render_db = SqliteRenderStore::new(db_connection.clone());
+                //             let result = render_db.find(Some(job_id)).await;
+
+                //             if let Ok(jobs) = result {
+                //                 let data = serde_json::to_string(&jobs);
+                //                 let _ = dbg!(data);
+                //                 // TODO: How can I dial back the requestor who ask for this job info?
+                //                 // let server_event = ServerEvent::
+                //                 // client.send_server_status(server_event).await;
+                //             }
+                //         }
+                //     }
+                // }
                 //         _ => println!("[Server] Unhandled event received from network: {event:?}"),
                 // },
                 // msg = command.recv() => match msg {
@@ -636,14 +645,13 @@ impl BlendFarm for Server {
                 //         break Ok(())
                 //     },
                 // },
-                e => todo!("{e:?}")
-                // TODO: Implement this later once we get a working network struct up and running
-                // event = receiver.recv() => match event {
-                //     Ok(event) => client.send_broadcast_message(event).await,
-                //     Err(e) => {
-                //         eprintln!("Unable to send broadcast message? {e:?}");
-                //     },
-                // }
+                e => todo!("{e:?}"), // TODO: Implement this later once we get a working network struct up and running
+                                     // event = receiver.recv() => match event {
+                                     //     Ok(event) => client.send_broadcast_message(event).await,
+                                     //     Err(e) => {
+                                     //         eprintln!("Unable to send broadcast message? {e:?}");
+                                     //     },
+                                     // }
             }
         }
         Ok(())

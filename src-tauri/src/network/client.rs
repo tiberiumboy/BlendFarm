@@ -7,8 +7,8 @@ use futures::{
 use libp2p::{PeerId, core::Multiaddr};
 use libp2p_request_response::ResponseChannel;
 
-use crate::network::command::Command;
 use crate::network::file_response::FileResponse;
+use crate::network::{FileData, command::Command};
 
 #[derive(Clone)]
 pub struct Client {
@@ -16,11 +16,8 @@ pub struct Client {
 }
 
 impl Client {
-
     pub(crate) fn new(sender: mpsc::Sender<Command>) -> Self {
-        Client {
-            sender
-        }
+        Client { sender }
     }
     /// Listen for incoming connections on the given address.
     pub(crate) async fn start_listening(
@@ -95,10 +92,9 @@ impl Client {
     }
 
     /// Respond with the provided file content to the given request.
-    #[allow(dead_code)]
     pub(crate) async fn respond_file(
         &mut self,
-        file: Vec<u8>,
+        file: FileData,
         channel: ResponseChannel<FileResponse>,
     ) {
         self.sender
