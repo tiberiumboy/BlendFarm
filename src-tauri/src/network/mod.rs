@@ -1,4 +1,4 @@
-use crate::network::{behaviour::Behaviour, client::Client, event::Event, event_loop::EventLoop, file_response::FileResponse};
+use crate::{constant::TRANSFER, network::{behaviour::Behaviour, client::Client, event::Event, event_loop::EventLoop, file_response::FileResponse}};
 use futures::{
     Stream,
     channel::{mpsc, 
@@ -6,7 +6,7 @@ use futures::{
     },
 };
 use libp2p::{StreamProtocol, gossipsub, identity, kad, mdns, noise, tcp, yamux};
-use libp2p_request_response::{ProtocolSupport, cbor, Config};
+use libp2p_request_response::ProtocolSupport; // cbor, Config
 use std::{error::Error, time::Duration};
 // use tokio::sync::mpsc;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
@@ -40,7 +40,6 @@ pub type FileResult = Result<FileData, Box<dyn Error + Send>>;
 pub(crate) async fn new(
     secret_key_seed: Option<u8>,
 ) -> Result<(Client, impl Stream<Item = Event>, EventLoop), Box<dyn Error>> {
-    // Create a public/private key pair, either random or based on a seed.
     let id_keys = match secret_key_seed {
         Some(seed) => {
             let mut bytes = [0u8; 32];
@@ -49,7 +48,6 @@ pub(crate) async fn new(
         }
         None => identity::Keypair::generate_ed25519(),
     };
-    let peer_id = id_keys.public().to_peer_id();
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
         .with_tokio()
