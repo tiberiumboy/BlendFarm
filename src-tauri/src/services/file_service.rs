@@ -1,60 +1,18 @@
-use futures::channel::oneshot;
-use libp2p::{/*Multiaddr,*/ PeerId};
-use libp2p_request_response::ResponseChannel;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use sqlx::{Pool, Sqlite};
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
-use std::{error::Error, path::PathBuf};
 
-// use crate::network::file_request::FileRequest;
-// use crate::{network::file_response::FileResponse, network::message::KeywordSearch};
 
-// to make things simple, we'll create a file service command to handle file service.
-// #[derive(Debug)]
-// pub enum FileCommand {
-//     // Dial {
-//     //     peer_addr: Multiaddr,
-//     //     sender: oneshot::Sender<FileResult<()>>,
-//     // },
-//     // TODO: Find a way to get around the string type! This expects a copy!
-//     StartProviding {
-//         file_name: KeywordSearch,
-//         sender: oneshot::Sender<()>,
-//     },
-//     // StartProviding(KeywordSearch, PathBuf), // update kademlia service to provide a new file. Must have a file name and a extension! Cannot be a directory!
-//     // let key = file_name.into_bytes();
-//     //             self.swarm
-//     //                 .behaviour_mut()
-//     //                 .kademlia
-//     //                 .stop_providing(&key.into());
-//     StopProviding(KeywordSearch), // update kademlia service to stop providing the file.
-//     GetProviders {
-//         file_name: KeywordSearch,
-//         sender: oneshot::Sender<HashSet<PeerId>>,
-//     },
-//     RequestFile {
-//         peer_id: PeerId,
-//         file_name: KeywordSearch,
-//         sender: oneshot::Sender<FileResult<FileData>>,
-//     },
-//     RespondFile {
-//         file: FileData,
-//         channel: ResponseChannel<FileResponse>,
-//     },
-//     RequestFilePath {
-//         keyword: KeywordSearch,
-//         sender: oneshot::Sender<Option<PathBuf>>,
-//     },
-// }
-
-// TODO: Explain the purpose of file services.
-// what is provided and what is addressed?
+///
+/// The File service will be the middleware bridge between communicating SQL connection storage for a list of files we promote to provide on libp2p DHT entries.
+/// When the program restart, we want to retain these records so that they would be available per request.
+/// Things such as Blender softwares, rendered images, blend project files are listed here in this table.
 pub(crate) struct FileService {
     providing_files: HashMap<String, PathBuf>,
 }
 
 impl FileService {
-    pub fn new() -> Self {
+    pub fn new(db_conn: Pool<Sqlite>) -> Self {
         FileService {
             providing_files: HashMap::new(),
         }
