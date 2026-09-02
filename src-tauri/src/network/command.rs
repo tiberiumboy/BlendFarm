@@ -1,6 +1,6 @@
 use std::{collections::HashSet, error::Error};
 
-use crate::network::{FileData, file_response::FileResponse};
+use crate::network::file_response::FileResponse;
 use futures::channel::oneshot;
 use libp2p::{Multiaddr, PeerId};
 use libp2p_request_response::ResponseChannel;
