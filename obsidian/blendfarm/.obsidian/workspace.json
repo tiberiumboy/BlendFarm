@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "4b403841bfcfb5d5",
+        "id": "e717df9136e2ddf2",
         "type": "tabs",
         "children": [
           {
-            "id": "1351db734f3d900e",
+            "id": "03e5951f124a8457",
             "type": "leaf",
             "state": {
               "type": "markdown",
@@ -162,12 +162,12 @@
       "command-palette:Open command palette": false
     }
   },
-  "active": "1351db734f3d900e",
+  "active": "03e5951f124a8457",
   "lastOpenFiles": [
-    "Architecture/Network Service.md",
-    "Architecture/GUI.md",
-    "Architecture/Background worker.md",
     "Architecture/Portal.md",
+    "Architecture/GUI.md",
+    "Architecture/Network Service.md",
+    "Architecture/Background worker.md",
     "Bugs/Deleting Blender from UI cause app to crash..md",
     "Bugs/Program cannot discover itself on the same network.md",
     "Bugs/Render not saved to database.md",
