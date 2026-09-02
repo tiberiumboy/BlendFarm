@@ -1,6 +1,7 @@
 use crate::constant::WORKPLACE;
 use crate::models::job::{CreatedJobDto, Output};
 use crate::models::{app_state::AppState, job::{Job, JobAction}};
+use crate::routes::settings;
 use crate::services::tauri_app::UiCommand;
 use blender_rs::blend_file::BlendFile;
 use blender_rs::models::mode::RenderMode;
@@ -99,14 +100,11 @@ pub(crate) fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
                         }
                     }
                 };
-            )
+            ).0
         }
-        None => html!(
-        div {
-                p { "Job do not exist.. How did you get here?" };
-            };
-        ),
-    }.0
+        // In this case, when job does not exist, we will simply redirect user to the setting page as a fallback.
+        None => settings::setting_page()
+    }
 }
 
 // input values are always string type. I need to validate input on backend instead of front end.
