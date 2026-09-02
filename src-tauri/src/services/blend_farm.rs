@@ -1,26 +1,12 @@
-// use std::fmt::Display;
 use std::io::Error as IoError;
 
 use crate::domains::ticket_store::TicketError;
-use crate::network::FileData;
-// use crate::models::behaviour::FileResponse;
 use crate::network::client::Client as NetworkController;
 use crate::network::event::Event;
-use crate::services::file_service::FileService;
-// use crate::network::file_response::FileResponse;
-// use crate::network::event::Event;
-// FileCommand
 use crate::network::message::NetworkError;
-// use crate::services::file_service::FileCommand;
 use async_trait::async_trait;
 use blender_rs::blender::BlenderError;
-use futures::Stream;
-// use futures::Stream;
-// use futures::FutureExt;
 use futures::channel::mpsc::Receiver;
-use futures::channel::oneshot;
-use libp2p_request_response::ResponseChannel;
-// use libp2p_request_response::ResponseChannel;
 
 #[derive(Debug)]
 pub enum BlendFarmError {
@@ -68,8 +54,7 @@ pub trait BlendFarm {
     async fn run(
         mut self,
         client: NetworkController,
-        event_stream: impl Stream<Item = Event>,
-        // event_receiver: Receiver<Event>,
+        event_receiver: Receiver<Event>,
         // TODO: Maybe consider returning the event from calling run()?
     ) -> Result<(), BlendFarmError>;
 

@@ -10,7 +10,7 @@ use super::{
     blend_farm::BlendFarm,
     data_store::{sqlite_job_store::SqliteJobStore, sqlite_worker_store::SqliteWorkerStore},
 };
-// use crate::network::event::Event;
+use crate::network::event::Event;
 use crate::network::client::Client as NetworkController;
 use crate::services::blend_farm::BlendFarmError;
 use crate::services::server::ServerEvent;
@@ -40,9 +40,7 @@ use blender_rs::{
     models::mode::RenderMode,
 };
 use futures::{
-    // Stream,
-    SinkExt, StreamExt,
-    channel::mpsc::{self, Sender},
+    SinkExt, StreamExt, channel::mpsc::{self, Receiver, Sender},
 };
 use libp2p::{PeerId /* , multiaddr::Protocol*/};
 use semver::Version;
@@ -733,8 +731,8 @@ impl BlendFarm for TauriApp {
     /// TODO: Impl mpsc channels to receive UI command enumerations. 
     async fn run(
         mut self,
-        mut client: NetworkController
-        // mut event_receiver: impl Stream<Item = Event>,
+        mut client: NetworkController,
+        mut _event_receiver: Receiver<Event>,
     ) -> Result<(), BlendFarmError> {
         // this channel is used to send command to the network, and receive network notification back.
         let (event, mut command) = mpsc::channel(32);

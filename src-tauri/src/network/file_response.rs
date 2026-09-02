@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 // Is this struct publicitized or localized? Prefer to make this private.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct FileResponse(FileData);
+pub struct FileResponse(FileData);
 
 impl FileResponse {
     pub fn new(data: FileData) -> Self {

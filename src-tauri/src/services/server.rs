@@ -7,16 +7,12 @@ Feature request:
     - receive command to properly reboot computer when possible?
 */
 use super::blend_farm::BlendFarm;
-// use crate::domains::render_store::RenderStore;
 use crate::domains::ticket_store::{TicketError, TicketStore};
 use crate::models::computer_spec::ComputerSpec;
 use crate::models::job::JobId;
 use crate::network::PeerIdString;
-// use crate::network::event::Event;
-// use crate::network::message::NetworkError;
 use crate::services::app_context::AppContext;
 use crate::services::blend_farm::BlendFarmError;
-// use crate::services::data_store::sqlite_renders_store::SqliteRenderStore;
 use crate::services::data_store::sqlite_ticket_store::SqliteTicketStore;
 use crate::{
     models::{server_setting::ServerSetting, ticket::Ticket},
@@ -28,10 +24,9 @@ use async_lock::RwLock;
 use async_trait::async_trait;
 use blender_rs::blender::{Frame, Manager as BlenderManager};
 use blender_rs::models::event::BlenderEvent;
-use futures::Stream;
-// use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use futures::channel::mpsc::{
-    Sender as FutSender, /* Receiver as FutReceiver,*/ channel as FutChannel,
+    Sender as FutSender, Receiver as FutReceiver, channel as FutChannel,
 };
 use libp2p::kad::QueryId;
 use libp2p::{Multiaddr, PeerId, kad};
@@ -39,10 +34,8 @@ use libp2p_request_response::OutboundRequestId;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
 use std::path::PathBuf;
-// use std::sync::mpsc::{Sender, Receiver};
-use std::sync::{Arc /*OnceLock*/};
+use std::sync::Arc;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -481,11 +474,8 @@ impl BlendFarm for Server {
     /// The other process handles network events.
     async fn run(
         mut self,
-        client: NetworkController,
-        // mut event_receiver: Receiver<Event>,
-        // If you came here to change this. Stop here. event_receiver must be generic to accept all traits from application later.
-        // Do not change to Receiver<Event>, as this expose more struct publicly, which is unfavorable.
-        mut event_receiver: impl Stream<Item = Event>,
+        mut client: NetworkController,
+        mut event_receiver: FutReceiver<Event>,
     ) -> Result<(), BlendFarmError> {
         // I need to find a way to safely notify the background to stop in case the job was deleted from host machine.
         // we will have one thread to process blender and queue, but I must have access to database.
@@ -507,7 +497,7 @@ impl BlendFarm for Server {
         // let render_db = SqliteRenderStore::new(self.db_conn.clone());
 
         let _process = tokio::spawn(async move {
-            let ticket_db = SqliteTicketStore::new(ticket_connection.clone());
+            let ticket_db = SqliteTicketStore::new(ticket_connection);
             loop {
                 if let Ok(Some(record)) = ticket_db.poll_ticket().await {
                     let mut ticket = record.item;
@@ -525,6 +515,7 @@ impl BlendFarm for Server {
         loop {
             match event_receiver.next().await {
                 Some(Event::InboundRequest { request, channel }) => {
+                    // File service should be responsible for this kind of operation.
                     // TODO: find a way to provide a lookup table for the file providing
                     if let Some(path) = self.providing_files.get(&request) {
                         if let Ok(file) = std::fs::read(path) {
@@ -654,6 +645,5 @@ impl BlendFarm for Server {
                                      // }
             }
         }
-        Ok(())
     }
 }

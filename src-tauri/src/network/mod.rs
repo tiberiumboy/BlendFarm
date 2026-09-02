@@ -1,10 +1,5 @@
-use crate::{constant::TRANSFER, network::{behaviour::Behaviour, client::Client, event::Event, event_loop::EventLoop, file_response::FileResponse}};
-use futures::{
-    Stream,
-    channel::{mpsc, 
-        // oneshot
-    },
-};
+use crate::{constant::TRANSFER, network::{behaviour::Behaviour, client::Client, event::Event, event_loop::EventLoop}};
+use futures::channel::mpsc::{self, Receiver};
 use libp2p::{StreamProtocol, gossipsub, identity, kad, mdns, noise, tcp, yamux};
 use libp2p_request_response::ProtocolSupport; // cbor, Config
 use std::{error::Error, time::Duration};
@@ -39,7 +34,7 @@ pub type FileResult = Result<FileData, Box<dyn Error + Send>>;
 /// - The network task driving the network itself.
 pub(crate) async fn new(
     secret_key_seed: Option<u8>,
-) -> Result<(Client, impl Stream<Item = Event>, EventLoop), Box<dyn Error>> {
+) -> Result<(Client, Receiver<Event>, EventLoop), Box<dyn Error>> {
     let id_keys = match secret_key_seed {
         Some(seed) => {
             let mut bytes = [0u8; 32];
