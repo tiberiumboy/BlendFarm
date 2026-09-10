@@ -1,12 +1,15 @@
 use crate::constant::WORKPLACE;
 use crate::models::job::{CreatedJobDto, Output};
-use crate::models::{app_state::AppState, job::{Job, JobAction}};
+use crate::models::{
+    app_state::AppState,
+    job::{Job, JobAction},
+};
 use crate::routes::settings;
 use crate::services::tauri_app::UiCommand;
 use blender_rs::blend_file::BlendFile;
 use blender_rs::models::mode::RenderMode;
 use futures::SinkExt;
-use maud::{html, PreEscaped};
+use maud::{PreEscaped, html};
 use semver::Version;
 use serde_json::json;
 use std::{path::PathBuf, str::FromStr};
@@ -16,7 +19,7 @@ use uuid::Uuid;
 
 /// Used to render the job list on teh side of the app.
 pub(crate) fn render_list_job(collection: &Option<Vec<CreatedJobDto>>) -> String {
-    match collection { 
+    match collection {
         Some(list) => {
             html! {
                 @for job in list {
@@ -67,24 +70,24 @@ pub(crate) fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
                 div class="content" {
                     h2 { "Job Detail: " ( project_file.file_name().unwrap().to_string_lossy() ) };
 
-                    div { 
-                        button tauri-invoke="open_dir" hx-vals=(json!({"path": project_file.to_string_lossy()})) { "File path:" }; 
+                    div {
+                        button tauri-invoke="open_dir" hx-vals=(json!({"path": project_file.to_string_lossy()})) { "File path:" };
                         ( project_file.to_string_lossy() )
                     }
-                    
-                    div { 
-                        button tauri-invoke="open_dir" hx-vals=(json!({"path": output})) { "Output:" }; 
+
+                    div {
+                        button tauri-invoke="open_dir" hx-vals=(json!({"path": output})) { "Output:" };
                         ( output )
                     }
-                    
+
                     div { "Target Blender Version: " ( version.to_string() ) };
 
                     div { "Start: " (start) " | End: " (end) }
-                    
+
                     button tauri-invoke="delete_job" hx-vals=(json!({"jobId":job.id})) hx-target="#workplace" { "Delete Job" };
-                    
+
                     p;
-                    
+
                     @if let Some(list) = result {
                         @for img in list {
                             tr {
@@ -93,7 +96,7 @@ pub(crate) fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
                                 }
                             }
                         }
-                    } 
+                    }
                     @else {
                         div {
                             "No image found in output directory..."
@@ -103,7 +106,7 @@ pub(crate) fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
             ).0
         }
         // In this case, when job does not exist, we will simply redirect user to the setting page as a fallback.
-        None => settings::setting_page()
+        None => settings::setting_page(),
     }
 }
 
@@ -119,17 +122,17 @@ pub async fn create_job(
     output: PathBuf,
 ) -> Result<String, String> {
     let mode = RenderMode::try_new(&start, &end).map_err(|e| e.to_string())?;
-    let job = Job::from(mode, path, version, output).map_err(|e| e.to_string())?; 
+    let job = Job::from(mode, path, version, output).map_err(|e| e.to_string())?;
     let mut app_state = state.lock().await;
     let job_created = app_state.create_job(job).await.map_err(|e| e.to_string())?;
     let list = app_state.list_jobs().await.map_err(|e| e.to_string())?;
 
     let list = render_list_job(&list);
     let detail = render_job_detail_page(&Some(job_created));
-    
+
     Ok(html!(
         div hx-target={ "#" (WORKPLACE) }{
-            (PreEscaped(detail))   
+            (PreEscaped(detail))
         }
         div id="joblist" hx-swap-oob="true" {
             (PreEscaped(list))
@@ -158,7 +161,9 @@ fn fetch_img_result(path: &PathBuf) -> Option<Vec<PathBuf>> {
             Some(list)
         }
         Err(e) => {
-            eprintln!("Unable to find any image stored in the directory:\nPath:{path:?}\nError:{e:?}");
+            eprintln!(
+                "Unable to find any image stored in the directory:\nPath:{path:?}\nError:{e:?}"
+            );
             None
         }
     }
@@ -204,8 +209,15 @@ pub async fn get_job_detail(
 #[command(async)]
 pub async fn update_job(state: State<'_, Mutex<AppState>>, job_id: Uuid) -> Result<(), String> {
     let mut app_state = state.lock().await;
-    if let Err(e) = app_state.invoke.send(UiCommand::Job(JobAction::Kill(job_id))).await {
-        return Err(format!("Fail to send command to host! Are you sure this app is responsive? {e:?}").into());
+    if let Err(e) = app_state
+        .invoke
+        .send(UiCommand::Job(JobAction::Kill(job_id)))
+        .await
+    {
+        return Err(format!(
+            "Fail to send command to host! Are you sure this app is responsive? {e:?}"
+        )
+        .into());
     }
 
     // TODO: call list_jobs and perform hx-swap-oob here to trigger job list refresh.
@@ -227,7 +239,7 @@ pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Resu
 
     // now here we need to refresh the list
     let list = list_jobs(state).await?;
-    
+
     // TODO: do not send back Ok() response if there's an error, consider handling this separately.
     // use a match condition to avoid sending error to the list
     Ok(html!(
@@ -248,15 +260,23 @@ mod test {
         TODO: See about how we can get test coverage that handle all possible cases
     */
 
+    use std::path::Path;
+
     use super::*;
-    use crate::{services::tauri_app::TauriApp};
+    use crate::{
+        models::{
+            constant::test::{EXAMPLE_FILE, EXAMPLE_OUTPUT},
+            job::test::mock_job,
+        },
+        services::tauri_app::TauriApp,
+    };
     // use crate::models::constant::test::{EXAMPLE_FILE, EXAMPLE_OUTPUT};
     use anyhow::Error;
     use futures::channel::mpsc::{self, Receiver};
     use ntest::timeout;
     use tauri::{
-        test::{mock_builder, MockRuntime},
-        // webview::InvokeRequest
+        test::{MockRuntime, mock_builder},
+        webview::InvokeRequest,
     };
 
     // TODO: Fix this so that I can get unit test working again
@@ -268,31 +288,37 @@ mod test {
         // TODO: Find a better way to get around this approach. Seems like I may not need to have an actual tauri app builder?
         // error: symbol `_EMBED_INFO_PLIST` is already defined
         let context = tauri::generate_context!("tauri.conf.json");
-        let app = TauriApp::init_tauri_plugins(mock_builder()).build(context).expect("Should be able to build");
+        let app = TauriApp::init_tauri_plugins(mock_builder())
+            .build(context)
+            .expect("Should be able to build");
         Ok((app, receiver))
     }
 
     #[tokio::test]
     #[timeout(5000)]
-    async fn create_job_successfully() {
+    async fn assure_create_job_succeed() {
         // For now I'm going to let this pass, until I figure out how/why mockup tauri app dead-lock on initialization.
-        /*
+
         let (app, mut receiver) = scaffold_app().await.unwrap();
         let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
             .build()
             .unwrap();
-        let start = "1".to_owned();
-        let end = "2".to_owned();
-        let blender_version = Version::new(4, 1, 0);
-        let project_file = PathBuf::from(EXAMPLE_FILE);
-        let output = PathBuf::from(EXAMPLE_OUTPUT);
+        let job = mock_job();
+        // let start = "1".to_owned();
+        // let end = "2".to_owned();
+        // let blender_version = Version::new(4, 1, 0);
+        let project_file = Path::new(EXAMPLE_FILE);
+        let output = Path::new(EXAMPLE_OUTPUT);
+
+        let (start, end) = job.get_range();
+        let blend_file = job.blend_file;
 
         let body = json!({
             "start": start,
             "end": end,
-            "version": blender_version,
-            "path": project_file,
-            "output": output,
+            "version": job.get_blender_version(),
+            "path": blend_file.to_path(),
+            "output": job.into(),
         });
 
         let res = tauri::test::get_ipc_response(
@@ -311,15 +337,9 @@ mod test {
 
         assert!(res.is_ok());
 
-        let expected_mode = RenderMode::Frame(1);
-        let job = Job::from(expected_mode, project_file, blender_version, output).expect("Should not fail");
-
         let event = receiver.select_next_some().await;
         let (mock_sender, _) = mpsc::channel(0);
         assert_eq!(event, UiCommand::Job(JobAction::Create(job, mock_sender)));
-        */
-
-        assert!(true);
     }
 
     #[tokio::test]
@@ -358,6 +378,4 @@ mod test {
         // assert!(res.is_err());
         assert!(true);
     }
-
-    //#endregion
 }

@@ -1,9 +1,8 @@
+use sqlx::{Pool, Sqlite};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use sqlx::{Pool, Sqlite};
 
-
-///
+#[allow(dead_code)]
 /// The File service will be the middleware bridge between communicating SQL connection storage for a list of files we promote to provide on libp2p DHT entries.
 /// When the program restart, we want to retain these records so that they would be available per request.
 /// Things such as Blender softwares, rendered images, blend project files are listed here in this table.
@@ -11,8 +10,9 @@ pub(crate) struct FileService {
     providing_files: HashMap<String, PathBuf>,
 }
 
+#[allow(dead_code)]
 impl FileService {
-    pub fn new(db_conn: Pool<Sqlite>) -> Self {
+    pub fn new(_db_conn: Pool<Sqlite>) -> Self {
         FileService {
             providing_files: HashMap::new(),
         }

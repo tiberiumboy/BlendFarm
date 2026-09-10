@@ -25,9 +25,7 @@ use async_trait::async_trait;
 use blender_rs::blender::{Frame, Manager as BlenderManager};
 use blender_rs::models::event::BlenderEvent;
 use futures::StreamExt;
-use futures::channel::mpsc::{
-    Sender as FutSender, Receiver as FutReceiver, channel as FutChannel,
-};
+use futures::channel::mpsc::{Receiver as FutReceiver, Sender as FutSender, channel as FutChannel};
 use libp2p::kad::QueryId;
 use libp2p::{Multiaddr, PeerId, kad};
 use libp2p_request_response::OutboundRequestId;
@@ -97,10 +95,13 @@ pub struct Server {
     #[allow(dead_code)]
     settings: ServerSetting,
 
+    #[allow(dead_code)]
     pending_start_providing: HashMap<QueryId, oneshot::Sender<()>>,
     // pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
     providing_files: HashMap<String, PathBuf>,
+    #[allow(dead_code)]
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
+    #[allow(dead_code)]
     pending_request_file: HashMap<OutboundRequestId, oneshot::Sender<FileResult>>,
 }
 

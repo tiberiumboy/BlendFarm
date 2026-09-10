@@ -15,7 +15,6 @@
 use super::ticket::Ticket;
 use super::with_id::WithId;
 use crate::domains::job_store::JobError;
-// use crate::network::PeerIdString;
 use blender_rs::blender::Frame;
 use blender_rs::{blend_file::BlendFile, models::mode::RenderMode};
 use futures::channel::mpsc::Sender;
@@ -36,7 +35,7 @@ use uuid::Uuid;
 // This means that if a node was recently assigned to work on this job's task, but was cancel, both job and node should delete the task as no new information is savageable.
 // Any information created or stored will persist to local database for persistent storage and quick lookup. This can be handy in the future if we can get ffmpeg included.
 
-/* 
+/*
 // THIS IS TREATED AS NOTIFICATION UPDATES. DO NOT TAKE THIS AS COMMAND! Acknowledge the packet and run behavior tree decision.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum JobEvent {
@@ -98,7 +97,9 @@ impl PartialEq for JobAction {
 
 pub type JobId = Uuid;
 pub type Output = PathBuf;
+/// Job with missing database record, will create a new database entry
 pub type NewJobDto = Job;
+/// Job with matching record exist in the database.
 pub type CreatedJobDto = WithId<Job, JobId>;
 
 // This job is created by the manager and will be used to help determine the individual task created for the workers
@@ -152,6 +153,8 @@ impl Job {
             .map_err(JobError::Blender)?)
     }
 
+    /// Return the start and end frames to render.
+    /// Animation will provide both start and end, whereas a frame will return the sae value for start and end.
     pub fn get_range(&self) -> (Frame, Frame) {
         match &self.mode {
             RenderMode::Frame(v) => (v.to_owned(), v.to_owned()),
@@ -209,11 +212,13 @@ impl AsRef<RenderMode> for Job {
 
 #[cfg(test)]
 pub(crate) mod test {
+    use std::fs;
+
     use super::*;
     use crate::models::constant::test::{EXAMPLE_FILE, EXAMPLE_OUTPUT};
     use std::path::Path;
 
-    pub fn scaffold_job() -> Job {
+    pub fn mock_job() -> Job {
         let mode = RenderMode::Frame(1);
         let file = Path::new(EXAMPLE_FILE);
         let project_file = BlendFile::try_from(file).expect("expect this to work without issue");
@@ -223,13 +228,12 @@ pub(crate) mod test {
         Job::new(mode, project_file, version, output)
     }
 
-    // we should at least try to test it against public api
     #[test]
     fn assure_new_successful() {
         let file = Path::new(EXAMPLE_FILE);
         let mode = RenderMode::Frame(1);
         let version = Version::new(1, 1, 1);
-        let output = Path::new("./test/");
+        let output = Path::new(EXAMPLE_OUTPUT);
         let job = Job::from(mode.clone(), file, version.clone(), output.to_path_buf());
 
         let project_file = BlendFile::try_from(file).expect("Should be valid project file");
@@ -255,14 +259,14 @@ pub(crate) mod test {
         let file = Path::new(EXAMPLE_FILE);
         let mode = RenderMode::Frame(1);
         let version = Version::new(1, 1, 1);
-        let output = Path::new("./test/");
-        let job = Job::from(mode, file, version, output.to_path_buf());
+        let output = PathBuf::from(EXAMPLE_OUTPUT);
+        let job = Job::from(mode, file, version, output);
         assert!(job.is_ok());
     }
 
     #[test]
     fn assure_get_range_succeed() {
-        let job = scaffold_job();
+        let job = mock_job();
         let (start, end) = job.get_range();
         let expected = match job.mode {
             RenderMode::Frame(frame) => (frame, frame),
@@ -274,5 +278,14 @@ pub(crate) mod test {
     }
 
     #[test]
-    fn invalid_project_file_path_should_fail() {}
+    fn assure_invalid_project_file_path_should_fail() {
+        let file = fs::canonicalize(PathBuf::from("./"))
+            .expect("Should expand to absolute path successfully");
+        let mode = RenderMode::Frame(1);
+        let version = Version::new(1, 1, 1);
+        let output = PathBuf::from(EXAMPLE_OUTPUT);
+        let result = Job::from(mode, file, version, output);
+
+        assert!(result.is_err());
+    }
 }
