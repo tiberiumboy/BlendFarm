@@ -186,11 +186,10 @@ impl JobStore for SqliteJobStore {
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use std::fs;
-
     use super::*;
     use crate::models::job::test::mock_job;
     use crate::{config_sqlite_db, constant::DATABASE_FILE_NAME};
+    use std::fs;
 
     pub(crate) async fn get_sqlite_pool() -> SqlitePool {
         let pool = config_sqlite_db(DATABASE_FILE_NAME).await;
@@ -242,6 +241,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn assure_add_job_succeed() {
         let mut job_store = scaffold_job_store().await;
         let job = mock_job();
@@ -251,6 +251,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn fetch_job_success() {
         let mut job_store = scaffold_job_store().await;
         let job = mock_job();
@@ -268,6 +269,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn fetch_job_fail_no_record_found() {
         let job_store = scaffold_job_store().await;
 

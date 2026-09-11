@@ -525,7 +525,7 @@ impl BlendFarm for Server {
                     }
                     // Self::handle_inbound_request(&mut client, request, channel).await
                 }
-                // Event::Discovered( _, peer_addr ) => {
+                // Some(Event::Discovered( _, peer_addr )) => {
                 //     // Perform a check. If we have exhausted our ticket queue, we should send this discover peer a RequestTicket message.
                 //     // if let Ok(Some(remains)) = ticket_db.list_tickets().await {
                 //     //     if remains.len().eq(&0) {
@@ -540,12 +540,12 @@ impl BlendFarm for Server {
                 //     // We'll say I'm online instead of requesting ticket.
                 //     client.send_peer_message(&peer_addr, ServerEvent::Online(public_addr.clone(), spec.clone())).await;
                 // }
-                // Event::JobUpdate(job_event) => {
+                // Some(Event::JobUpdate(job_event)) => {
                 //     println!("Received Job Event: {job_event:?}")
                 //     // caller
                 //     //self.handle_job_from_network(client, job_event).await,
                 // }
-                // Event::ServerStatus(event) => {
+                // Some(Event::ServerStatus(event)) => {
                 //     match event {
                 //         ServerEvent::Joined(peer_id) => {
                 //             println!("A peer [{:?}] has joined the channel", peer_id);
@@ -614,17 +614,18 @@ impl BlendFarm for Server {
                 //             // We can ignore this, server aren't suppose to care about what other server rendering status looks like.
                 //         }
                 //         ServerEvent::RequestJobInfo(job_id) => {
+                //             todo!("Find job info not yet implemented");
                 //             // we received a job info request. Check our internal data and reply back with job info.
-                //             let render_db = SqliteRenderStore::new(db_connection.clone());
-                //             let result = render_db.find(Some(job_id)).await;
+                //             // let render_db = SqliteRenderStore::new(db_connection.clone());
+                //             // let result = render_db.find(Some(job_id)).await;
 
-                //             if let Ok(jobs) = result {
-                //                 let data = serde_json::to_string(&jobs);
-                //                 let _ = dbg!(data);
-                //                 // TODO: How can I dial back the requestor who ask for this job info?
-                //                 // let server_event = ServerEvent::
-                //                 // client.send_server_status(server_event).await;
-                //             }
+                //             // if let Ok(jobs) = result {
+                //             //     let data = serde_json::to_string(&jobs);
+                //             //     let _ = dbg!(data);
+                //             //     // TODO: How can I dial back the requestor who ask for this job info?
+                //             //     // let server_event = ServerEvent::
+                //             //     // client.send_server_status(server_event).await;
+                //             // }
                 //         }
                 //     }
                 // }
@@ -637,13 +638,14 @@ impl BlendFarm for Server {
                 //         break Ok(())
                 //     },
                 // },
-                e => todo!("{e:?}"), // TODO: Implement this later once we get a working network struct up and running
+                Some(event) => todo!("{event:?}"), // TODO: Implement this later once we get a working network struct up and running
                                      // event = receiver.recv() => match event {
                                      //     Ok(event) => client.send_broadcast_message(event).await,
                                      //     Err(e) => {
                                      //         eprintln!("Unable to send broadcast message? {e:?}");
                                      //     },
                                      // }
+                None => return Ok(()),
             }
         }
     }

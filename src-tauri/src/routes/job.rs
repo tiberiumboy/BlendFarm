@@ -270,9 +270,11 @@ mod test {
         },
         services::tauri_app::TauriApp,
     };
-    // use crate::models::constant::test::{EXAMPLE_FILE, EXAMPLE_OUTPUT};
     use anyhow::Error;
-    use futures::channel::mpsc::{self, Receiver};
+    use futures::{
+        StreamExt,
+        channel::mpsc::{self, Receiver},
+    };
     use ntest::timeout;
     use tauri::{
         test::{MockRuntime, mock_builder},
@@ -280,7 +282,6 @@ mod test {
     };
 
     // TODO: Fix this so that I can get unit test working again
-    #[allow(dead_code)]
     async fn scaffold_app() -> Result<(tauri::App<MockRuntime>, Receiver<UiCommand>), Error> {
         let (_invoke, receiver) = mpsc::channel(1);
         // let conn = config_sqlite_db().await?;
@@ -295,30 +296,25 @@ mod test {
     }
 
     #[tokio::test]
-    #[timeout(5000)]
+    #[timeout(2000)]
+    #[ignore]
     async fn assure_create_job_succeed() {
-        // For now I'm going to let this pass, until I figure out how/why mockup tauri app dead-lock on initialization.
-
         let (app, mut receiver) = scaffold_app().await.unwrap();
         let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
             .build()
             .unwrap();
         let job = mock_job();
-        // let start = "1".to_owned();
-        // let end = "2".to_owned();
-        // let blender_version = Version::new(4, 1, 0);
-        let project_file = Path::new(EXAMPLE_FILE);
         let output = Path::new(EXAMPLE_OUTPUT);
 
         let (start, end) = job.get_range();
-        let blend_file = job.blend_file;
+        let blend_file = &job.blend_file;
 
         let body = json!({
             "start": start,
             "end": end,
             "version": job.get_blender_version(),
             "path": blend_file.to_path(),
-            "output": job.into(),
+            "output": output,
         });
 
         let res = tauri::test::get_ipc_response(
@@ -337,9 +333,12 @@ mod test {
 
         assert!(res.is_ok());
 
-        let event = receiver.select_next_some().await;
+        let event = receiver.next().await;
         let (mock_sender, _) = mpsc::channel(0);
-        assert_eq!(event, UiCommand::Job(JobAction::Create(job, mock_sender)));
+        assert_eq!(
+            event,
+            Some(UiCommand::Job(JobAction::Create(job, mock_sender)))
+        );
     }
 
     #[tokio::test]

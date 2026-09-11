@@ -21,10 +21,7 @@ impl ComputerSpec {
         let sys_info = machine.system_info();
         let memory = &sys_info.memory;
         let host = &sys_info.hostname;
-        let gpu = &sys_info
-            .graphics
-            .first()
-            .map(|v| v.name.to_owned());
+        let gpu = &sys_info.graphics.first().map(|v| v.name.to_owned());
         let cores = &sys_info.total_processors;
 
         Self {
@@ -36,5 +33,26 @@ impl ComputerSpec {
             cpu: sys_info.processor.brand.to_owned(),
             cores: cores.to_owned(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::models::computer_spec::ComputerSpec;
+    use machine_info::Machine;
+
+    #[test]
+    fn ensure_new_succeed() {
+        let specs = ComputerSpec::new();
+        let mut machine = Machine::new();
+        let sys_info = machine.system_info();
+
+        assert_eq!(specs.memory, sys_info.memory);
+        assert_eq!(specs.host, sys_info.hostname);
+        assert_eq!(
+            specs.gpu,
+            sys_info.graphics.first().map(|v| v.name.to_owned())
+        );
+        assert_eq!(specs.cpu, sys_info.processor.brand);
     }
 }

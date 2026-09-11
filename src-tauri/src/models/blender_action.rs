@@ -27,3 +27,18 @@ impl PartialEq for BlenderAction {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::models::blender_action::BlenderAction;
+    use std::path::PathBuf;
+
+    #[test]
+    fn ensure_partial_eq_succeed() {
+        let a = BlenderAction::Add(PathBuf::from("./test"));
+        let b = BlenderAction::Add(PathBuf::from("./test"));
+        assert_eq!(a, b);
+        let c = BlenderAction::Add(PathBuf::from("./t3st"));
+        assert_ne!(a, c);
+    }
+}
