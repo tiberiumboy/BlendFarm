@@ -19,6 +19,7 @@ impl Client {
     pub(crate) fn new(sender: mpsc::Sender<Command>) -> Self {
         Client { sender }
     }
+
     /// Listen for incoming connections on the given address.
     pub(crate) async fn start_listening(
         &mut self,

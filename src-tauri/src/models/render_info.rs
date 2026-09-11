@@ -10,7 +10,7 @@ pub type NewRenderInfoDto = RenderInfo;
 pub struct RenderInfo {
     // what job this render image belongs to
     pub job_id: Uuid,
-    
+
     // which frame
     pub frame: i32,
 
@@ -25,5 +25,22 @@ impl RenderInfo {
             frame,
             render_path: path.as_ref().to_path_buf(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ensure_new_succeed() {
+        let job_id = Uuid::new_v4();
+        let frame = 1i32;
+        let path = Path::new("./test");
+
+        let render_info = RenderInfo::new(job_id, frame, path);
+        assert_eq!(render_info.job_id, job_id);
+        assert_eq!(render_info.frame, frame);
+        assert_eq!(render_info.render_path, path);
     }
 }

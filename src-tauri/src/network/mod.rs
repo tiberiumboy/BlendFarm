@@ -1,4 +1,7 @@
-use crate::{constant::TRANSFER, network::{behaviour::Behaviour, client::Client, event::Event, event_loop::EventLoop}};
+use crate::{
+    constant::TRANSFER,
+    network::{behaviour::Behaviour, client::Client, event::Event, event_loop::EventLoop},
+};
 use futures::channel::mpsc::{self, Receiver};
 use libp2p::{StreamProtocol, gossipsub, identity, kad, mdns, noise, tcp, yamux};
 use libp2p_request_response::ProtocolSupport; // cbor, Config
@@ -212,3 +215,15 @@ pub async fn new(
     Ok((controller, event_receiver, service))
 }
 */
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn ensure_new_network_succeed() -> Result<(), Box<dyn Error>> {
+        let (_client, _receiver, _event) = new(None).await?;
+
+        Ok(())
+    }
+}

@@ -4,7 +4,7 @@ use std::env::consts;
 
 pub type Hostname = String;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ComputerSpec {
     pub host: Hostname,
     pub os: String,

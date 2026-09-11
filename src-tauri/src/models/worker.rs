@@ -20,3 +20,17 @@ impl Worker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ensure_new_worker_succeed() {
+        let spec = ComputerSpec::new();
+        let peer_id = PeerId::random();
+        let worker = Worker::new(peer_id, spec.clone());
+        assert_eq!(worker.peer_id, peer_id);
+        assert_eq!(worker.spec, spec);
+    }
+}

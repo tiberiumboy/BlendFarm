@@ -265,7 +265,7 @@ mod test {
     use super::*;
     use crate::{
         models::{
-            constant::test::{EXAMPLE_FILE, EXAMPLE_OUTPUT},
+            constant::test::EXAMPLE_OUTPUT, // EXAMPLE_FILE,
             job::test::mock_job,
         },
         services::tauri_app::TauriApp,

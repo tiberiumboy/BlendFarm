@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::io::Result as IoResult;
 use std::{fs, path::PathBuf};
 
 /*
@@ -34,19 +35,20 @@ impl Default for ServerSetting {
         // due to the fact that we do not want to store image on the computer once we
         // successfully transfer to the host machine. It would be used as backup archive
         // in case the host machine went abruptly. (Maybe a feature?)
-        let mut render_data = std::env::temp_dir();
-        render_data.push(RENDER_DIR);
+        let base_path = std::env::temp_dir();
+        let mut render_dir = base_path.clone();
+        render_dir.push(RENDER_DIR);
 
-        let mut blend_file = std::env::temp_dir();
-        blend_file.push(BLEND_DIR);
+        let mut blend_dir = base_path.clone();
+        blend_dir.push(BLEND_DIR);
 
         // ensure path exists
-        fs::create_dir_all(&render_data).unwrap();
-        fs::create_dir_all(&blend_file).unwrap();
+        fs::create_dir_all(&render_dir).unwrap();
+        fs::create_dir_all(&blend_dir).unwrap();
 
         Self {
-            render_dir: render_data,
-            blend_dir: blend_file,
+            render_dir,
+            blend_dir,
         }
     }
 }
@@ -64,10 +66,11 @@ impl ServerSetting {
     }
 
     /// Save the configurations to the user's config directory.
-    pub fn save(&self) {
+    pub fn save(&self) -> IoResult<()> {
         let data = serde_json::to_string(&self).expect("Unable to parse ServerSettings into json!");
         let config_path = Self::get_config_path();
-        fs::write(config_path, data).expect("Unable to write file! Permission issue?");
+        fs::write(config_path, data)?;
+        Ok(())
     }
 
     /// Load user configurations from the user's config directory
@@ -91,5 +94,39 @@ impl ServerSetting {
                 data
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ensure_default_succeed() {
+        let default = ServerSetting::default();
+
+        let base_path = std::env::temp_dir();
+        let mut render_dir = base_path.clone();
+        render_dir.push(RENDER_DIR);
+
+        let mut blend_dir = base_path.clone();
+        blend_dir.push(BLEND_DIR);
+
+        assert_eq!(default.blend_dir, blend_dir);
+        assert_eq!(default.render_dir, render_dir);
+        assert!(blend_dir.exists());
+        assert!(render_dir.exists());
+    }
+
+    #[test]
+    fn ensure_get_config_dir_succeed() {
+        let config_path = ServerSetting::get_config_dir();
+        assert!(config_path.exists());
+    }
+
+    #[test]
+    fn ensure_get_config_path_succeed() {
+        let path = ServerSetting::get_config_path();
+        assert!(path.exists());
     }
 }

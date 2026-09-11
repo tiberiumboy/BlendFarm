@@ -55,6 +55,9 @@ impl EventLoop {
 
     async fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
         match event {
+            SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => {
+                todo!("Impl mdns handlers {event:?}");
+            },
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(
                 kad::Event::OutboundQueryProgressed {
                     id,

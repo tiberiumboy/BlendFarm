@@ -199,7 +199,6 @@ pub async fn run() {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use crate::config_sqlite_db;
 
     #[tokio::test]

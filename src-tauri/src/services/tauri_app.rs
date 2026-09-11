@@ -10,8 +10,8 @@ use super::{
     blend_farm::BlendFarm,
     data_store::{sqlite_job_store::SqliteJobStore, sqlite_worker_store::SqliteWorkerStore},
 };
-use crate::network::event::Event;
 use crate::network::client::Client as NetworkController;
+use crate::network::event::Event;
 use crate::services::blend_farm::BlendFarmError;
 use crate::services::server::ServerEvent;
 use crate::{
@@ -23,7 +23,7 @@ use crate::{
         app_state::AppState,
         blender_action::BlenderAction,
         // computer_spec::ComputerSpec,
-        job::{CreatedJobDto, JobAction/* , JobEvent*/},
+        job::{CreatedJobDto, JobAction /* , JobEvent*/},
         server_setting::ServerSetting,
         setting_action::SettingsAction,
         ticket::Ticket,
@@ -40,7 +40,8 @@ use blender_rs::{
     models::mode::RenderMode,
 };
 use futures::{
-    SinkExt, StreamExt, channel::mpsc::{self, Receiver, Sender},
+    SinkExt, StreamExt,
+    channel::mpsc::{self, Receiver, Sender},
 };
 use libp2p::{PeerId /* , multiaddr::Protocol*/};
 use semver::Version;
@@ -439,7 +440,7 @@ impl TauriApp {
             }
             SettingsAction::Update(new_settings) => {
                 self.settings = new_settings;
-                self.settings.save();
+                self.settings.save().expect("Should be able to save!");
             }
         }
     }
@@ -464,7 +465,7 @@ impl TauriApp {
         }
     }
 
-    /* 
+    /*
     // handle job update conditions for tauri_app side
     async fn handle_job_update(&mut self, _client: &mut NetworkController, event: JobEvent) {
         match event {
@@ -728,7 +729,7 @@ impl BlendFarm for TauriApp {
     /// Launch Tauri app.
     /// In this state, we rely on UI events and events that user pressed to invoke backend services.
     /// All of the code here should be front facing only. Do not interface backend services directly!
-    /// TODO: Impl mpsc channels to receive UI command enumerations. 
+    /// TODO: Impl mpsc channels to receive UI command enumerations.
     async fn run(
         mut self,
         mut client: NetworkController,
