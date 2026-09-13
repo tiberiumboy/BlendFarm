@@ -42,7 +42,6 @@ use tracing_subscriber::EnvFilter;
 // const SETTINGS_PATH_TOML: &str = "BlendFarm/BlenderManager.toml";
 // const SETTINGS_PATH_YAML: &str = "BlendFarm/BlenderManager.yaml";
 
-// use crate::constant::NODE_TOPIC;
 use crate::network::client::Client;
 use crate::services::app_context::AppContext;
 
@@ -207,11 +206,4 @@ mod test {
         let conn = config_sqlite_db(database_file_name).await;
         assert!(conn.is_ok());
     }
-
-    // disabling as this doesn't work atm.
-    // #[cfg_attr(mobile, tauri::mobile_entry_point)]
-    // #[tokio::test]
-    // async fn assure_run_succeed() {
-    //     run().await;
-    // }
 }

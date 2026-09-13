@@ -67,7 +67,7 @@ impl JobStore for SqliteJobStore {
         let id_str = id.to_string();
         let mode = serde_json::to_string::<RenderMode>(job.as_ref()).unwrap();
         let blend_file = AsRef::<BlendFile>::as_ref(&job).to_path().to_string_lossy();
-        let blender_version = AsRef::<Version>::as_ref(&job).to_string();
+        let blender_version = serde_json::to_string(AsRef::<Version>::as_ref(&job)).unwrap();
         let output = AsRef::<Output>::as_ref(&job).to_str().unwrap().to_owned();
 
         sqlx::query!(
