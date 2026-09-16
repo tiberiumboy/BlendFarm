@@ -23,10 +23,7 @@ use tokio::sync::Mutex;
 // function is called from available_versions
 async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
     let (sender, mut receiver) = mpsc::channel(1);
-    let event = UiCommand::Blender(BlenderAction::List(
-        sender,
-        QueryMode::ONLINE | QueryMode::LOCAL,
-    ));
+    let event = UiCommand::Blender(BlenderAction::List(sender, QueryMode::Both));
     // Send a request to backend services to fetch the query.
     if let Err(e) = app_state.invoke.send(event).await {
         eprintln!("Fail to send event! {e:?}");

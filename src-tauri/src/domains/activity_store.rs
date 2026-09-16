@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
+// use thiserror::Error;
 use uuid::Uuid;
 
 // here we will store the information of the gpu/cpu/memory usage of the workers
@@ -11,12 +11,12 @@ pub struct Activity {
     mem: f32,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum ActivityError {
-    #[error("Received database error! {0}")]
+    // #[error("Received database error! {0}")]
     Database(String),
-    #[error("An unknown just happen!")]
-    Unknown,    // should not happen and should be identified before compiling this app!
+    // #[error("An unknown just happen!")]
+    Unknown, // should not happen and should be identified before compiling this app!
 }
 
 #[async_trait::async_trait]

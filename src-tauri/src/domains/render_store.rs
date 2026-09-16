@@ -1,15 +1,17 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use crate::models::{job::JobId, render_info::{CreatedRenderInfoDto, NewRenderInfoDto, RenderInfo}};
+use crate::models::{
+    job::JobId,
+    render_info::{CreatedRenderInfoDto, NewRenderInfoDto, RenderInfo},
+};
 use blender_rs::blender::Frame;
-use thiserror::Error;
 use uuid::Uuid;
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum RenderError {
-    #[error("Missing file")]
+    // #[error("Missing file")]
     MissingFileAtPath,
-    #[error("Database Errors")]
+    // #[error("Database Errors")]
     DatabaseError(String),
 }
 

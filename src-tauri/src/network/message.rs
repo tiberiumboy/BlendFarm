@@ -1,25 +1,16 @@
 // use futures::channel::oneshot::{self};
-use libp2p::Multiaddr;
-use thiserror::Error;
 use crate::services::server::ServerEvent;
+use libp2p::Multiaddr;
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum NetworkError {
-    #[error("Unable to listen: {0}")]
     UnableToListen(String),
-    #[error("Not Connected")]
     NotConnected,
-    #[error("Invalid connection")]
     Invalid,
-    #[error("Bad Input")]
     BadInput,
-    #[error("Send Error: {0}")]
     SendError(String),
-    #[error("No peers on network have this file available to download!")]
     NoPeerProviderFound,
-    #[error("Unable to save download file: {0}")]
     UnableToSave(String),
-    #[error("Timeout, unable to connect peer")]
     Timeout,
 }
 

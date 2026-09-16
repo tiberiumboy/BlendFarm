@@ -269,7 +269,6 @@ mod test {
         },
         services::tauri_app::TauriApp,
     };
-    use anyhow::Error;
     use futures::{
         StreamExt,
         channel::mpsc::{self, Receiver},

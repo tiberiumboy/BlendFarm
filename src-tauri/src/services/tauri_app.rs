@@ -32,7 +32,6 @@ use crate::{
     routes::{index::*, job::*, remote_render::*, settings::*, util::*, worker::*},
 };
 use async_trait::async_trait;
-use bitflags;
 use blender_rs::{
     blend_file::BlendFile,
     blender::{Blender, ComputerGraphicsProgram},
@@ -50,12 +49,11 @@ use std::{path::PathBuf /* , collections::HashMap, str::FromStr*/};
 use tauri::{self, Url};
 use tokio::{select, spawn, sync::Mutex};
 
-bitflags::bitflags! {
-    #[derive(Debug, PartialEq)]
-    pub struct QueryMode: u8 {
-        const LOCAL = 0x1;
-        const ONLINE = 0x2;
-    }
+#[derive(Debug, PartialEq)]
+pub enum QueryMode {
+    Local,
+    Online,
+    Both,
 }
 
 #[derive(Debug, PartialEq)]
@@ -345,37 +343,41 @@ impl TauriApp {
             BlenderAction::List(mut sender, flags) => {
                 let mut versions = Vec::new();
 
-                if flags.contains(QueryMode::LOCAL) {
-                    let config = self.manager.get_config();
-                    let mut localblenders = config
-                        .get_blenders()
-                        .iter()
-                        .map(|b| BlenderQuery {
-                            version: b.get_version().to_owned(),
-                            origin: Origin::Local(b.get_executable().into()),
-                        })
-                        .collect::<Vec<BlenderQuery>>();
-                    versions.append(&mut localblenders);
-                }
-
-                // then display the rest of the download list
-                // TODO: Figure out why fetch_download_list() takes awhile to query the data.
-                // I expect the cache should fetch the info and provide that information rather than querying the internet
-                // everytime this function is called.
-                if flags.contains(QueryMode::ONLINE) {
-                    let mut item = self.manager.get_online_version().iter().fold(
-                        Vec::new(),
-                        |mut map, (url, version)| {
-                            let item = BlenderQuery {
-                                version: version.clone(),
-                                origin: Origin::Online(url.clone()),
-                            };
-                            map.push(item);
-                            map
-                        },
-                    );
-                    versions.append(&mut item);
-                }
+                match flags {
+                    QueryMode::Local => {
+                        let config = self.manager.get_config();
+                        let mut localblenders = config
+                            .get_blenders()
+                            .iter()
+                            .map(|b| BlenderQuery {
+                                version: b.get_version().to_owned(),
+                                origin: Origin::Local(b.get_executable().into()),
+                            })
+                            .collect::<Vec<BlenderQuery>>();
+                        versions.append(&mut localblenders);
+                    }
+                    QueryMode::Online => {
+                        // then display the rest of the download list
+                        // TODO: Figure out why fetch_download_list() takes awhile to query the data.
+                        // I expect the cache should fetch the info and provide that information rather than querying the internet
+                        // everytime this function is called.
+                        let mut item = self.manager.get_online_version().iter().fold(
+                            Vec::new(),
+                            |mut map, (url, version)| {
+                                let item = BlenderQuery {
+                                    version: version.clone(),
+                                    origin: Origin::Online(url.clone()),
+                                };
+                                map.push(item);
+                                map
+                            },
+                        );
+                        versions.append(&mut item);
+                    }
+                    QueryMode::Both => {
+                        // TODO: Find a way to recycle the bits of code above instead of duplicating code again.
+                    }
+                };
 
                 // send the collective list result back
                 if let Err(e) = sender.send(Some(versions)).await {

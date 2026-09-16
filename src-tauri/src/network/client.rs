@@ -1,11 +1,12 @@
-use std::{collections::HashSet, error::Error};
+use std::{collections::HashSet, error::Error, path::Path, time::{Duration, Instant}};
 
 use futures::{
     channel::{mpsc, oneshot},
     prelude::*,
 };
-use libp2p::{PeerId, core::Multiaddr};
-use libp2p_request_response::ResponseChannel;
+use iroh::endpoint::presets;
+use iroh::{Endpoint, SecretKey};
+use iroh_blobs::{BlobsProtocol, store::fs::FsStore};
 
 use crate::network::file_response::FileResponse;
 use crate::network::{FileData, command::Command};
@@ -21,35 +22,25 @@ impl Client {
     }
 
     /// Listen for incoming connections on the given address.
-    pub(crate) async fn start_listening(
-        &mut self,
-        addr: Multiaddr,
-    ) -> Result<(), Box<dyn Error + Send>> {
-        let (sender, receiver) = oneshot::channel();
-        self.sender
-            .send(Command::StartListening { addr, sender })
-            .await
-            .expect("Command receiver not to be dropped.");
-        receiver.await.expect("Sender not to be dropped.")
-    }
+    pub(crate) async fn start_listening(&mut self) -> Result<(), std::error::Error> {
+        let secret_key = SecretKey::generate();
+        let mut builder = Endpoint::builder(presets::N0)
+            .alpns(vec![iroh_blobs::protocol::ALPN.to_vec()])
+            .secret_key(secret_key)
+            .relay_mode(iroh::RelayMode::Default);
 
-    /// Dial the given peer at the given address.
-    #[allow(dead_code)]
-    pub(crate) async fn dial(
-        &mut self,
-        peer_id: PeerId,
-        peer_addr: Multiaddr,
-    ) -> Result<(), Box<dyn Error + Send>> {
-        let (sender, receiver) = oneshot::channel();
-        self.sender
-            .send(Command::Dial {
-                peer_id,
-                peer_addr,
-                sender,
-            })
-            .await
-            .expect("Command receiver not to be dropped.");
-        receiver.await.expect("Sender not to be dropped.")
+        let t0 = Instant::now();
+        let endpoint = builder.bind().await?;
+
+        // TODO: change this to load file path from database storage. Or at least what we're providing with.
+        let file_path = Path::new("./../../blender_rs/examples/assets/test.blend");
+        let store  = FsStore::load(file_path).await?;
+        let blobs = BlobsProtocol::new(
+            &store,
+        )
+
+
+        Ok(())
     }
 
     /// Advertise the local node as the provider of the given file on the DHT.

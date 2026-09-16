@@ -21,15 +21,26 @@ Developer blog:
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 // it might be interesting and useful if there's a debug mode enabled?
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use anyhow::Error;
+use crate::network::client::Client;
+use crate::services::app_context::AppContext;
 use blender_rs::manager::Manager as BlenderManager;
 use blender_rs::models::blender_config::BlenderConfig;
 use blender_rs::utils::{get_blend_config_default_location, get_config_folder_path};
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
-use libp2p::Multiaddr;
+use iroh::endpoint::presets;
+use iroh::{Endpoint, RelayMode, SecretKey};
+use iroh_blobs::api::{TempTag, Store};
+use iroh_blobs::format::collection::Collection;
+use iroh_blobs::protocol::ALPN;
+use iroh_blobs::provider::events::{ConnectMode, EventMask, EventSender};
+use iroh_blobs::store::fs::FsStore;
+use iroh_blobs::{BlobsProtocol, provider};
+use rand::RngExt;
 use services::{blend_farm::BlendFarm, server::Server, tauri_app::TauriApp};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
+use std::error::Error;
+use std::fs;
 use std::path::Path;
 use tokio::spawn;
 use tracing_subscriber::EnvFilter;
@@ -41,9 +52,6 @@ use tracing_subscriber::EnvFilter;
 // const SETTINGS_PATH_JSON: &str = "BlendFarm/BlenderManager.json";
 // const SETTINGS_PATH_TOML: &str = "BlendFarm/BlenderManager.toml";
 // const SETTINGS_PATH_YAML: &str = "BlendFarm/BlenderManager.yaml";
-
-use crate::network::client::Client;
-use crate::services::app_context::AppContext;
 
 pub mod constant;
 pub mod domains;
@@ -75,44 +83,83 @@ async fn config_sqlite_db(path: impl AsRef<Path>) -> Result<SqlitePool, sqlx::Er
     SqlitePool::connect_with(options).await
 }
 
+/// Import from a file or directory into the database.
+///
+/// The returned tag always refers to a collection. If the input is a file, this
+/// is a collection with a single blob, named like the file.
+///
+/// If the input is a directory, the collection contains all the files in the
+/// directory.
+async fn import(path: impl AsRef<Path>, db: &Store, jobs: Option<usize>) //-> (TempTag, u64, Collection)
+{
+    let parallelism = jobs.unwrap_or_else(1);
+    let path = path.as_ref().canonicalize().expect("Path must be able to canonicalize. Data must be posioned!");
+
+    let root = path.parent().expect("file path must exist within directory"); //.context("context get parent")?;
+
+    let files = fs::read_dir(root).expect("Root must be a directory"); //WalkDir::new(path.clone()).into_iter();
+    // ()
+}
+
 // design to setup network connection
-async fn setup_connection(controller: &mut Client) -> Result<(), Error> {
-    // Listen on all interfaces and whatever port OS assigns
-    let tcp: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().expect("Shouldn't fail");
-    let udp: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
-        .parse()
-        .expect("Shouldn't fail");
+async fn setup_connection(controller: &mut Client) -> Result<(), Box<dyn Error>> {
+    let key = SecretKey::generate();
+    let relay_mode = RelayMode::Default;
+    let alpns_protocol = vec![ALPN.to_vec()];
 
-    // let's automatically listen to the topics mention above.
-    // all network interference must subscribe to these topics!
-    // controller.subscribe(NODE_TOPIC).await;
+    // TODO: Start providing list of completed rendered image files.
+    // TODO: Start providing list of blender installed as bundle package.
 
-    // TODO: Start providing the list of completed rendered image files.
-    // controller.start_providing(list_of_completed frames).await;
+    let builder = Endpoint::builder(presets::N0)
+        .alpns(alpns_protocol)
+        .secret_key(key)
+        .relay_mode(relay_mode);
 
-    // Also TODO: Start providing the list of blender installed as bundle package here.
-    // controller.start_providing(list_of_blenders).await;
+    // TODO: what is suffix?
+    let suffix = rand::rng().random::<[u8; 16]>();
 
-    if let Err(e) = controller.start_listening(tcp).await {
-        eprintln!("Unable to listen using TCP provided address! {e:?}");
-    }
+    // path to source file?
+    let file_path = Path::new("./todo");
 
-    if let Err(e) = controller.start_listening(udp).await {
-        eprintln!("Unable to listen using UDP provided address! {e:?}");
-    }
+    // In the original code of sendme - this section of code is spawn inside async thread.
+    // TODO: See if we need to refactor this piece? After we get this part working over network.
+    let endpoint = builder.bind().await?;
 
+    let store = FsStore::load(&file_path).await?;
+    let blobs = BlobsProtocol::new(
+        &store,
+        Some(EventSender::new(
+            progress_tx,
+            EventMask {
+                connected: ConnectMode::Notify,
+                get: provider::events::RequestMode::NotifyLog, // TODO: Change this to Notify instead
+                ..EventMask::DEFAULT
+            },
+        )),
+    );
+
+    let import_result = import()
+
+    // if let Err(e) = controller.start_listening(tcp).await {
+    //     eprintln!("Unable to listen using TCP provided address! {e:?}");
+    // }
+
+    // if let Err(e) = controller.start_listening(udp).await {
+    //     eprintln!("Unable to listen using UDP provided address! {e:?}");
+    // }
+
+    // This will return some horrible results...
     Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     // TODO: figure out where/how to access tracing subscribers.
-    let _ = tracing_subscriber::fmt()
+    tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
 
     // Loads local environment variable. (Used for database urls)
-    // Why do I need to load the environment variable?
     dotenv().ok();
 
     // to collect user inputs for custom user preferences
