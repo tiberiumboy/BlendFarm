@@ -82,8 +82,7 @@ pub struct Server {
     // Additionally, they will become important when we need to fetch render image sequences from job or ticket structs.
     #[allow(dead_code)]
     settings: ServerSetting,
-
-    client: NetworkController,
+    // client: NetworkController,
 }
 
 // static COMPUTER_SPEC: OnceLock<ComputerSpec> = OnceLock::new();
@@ -91,12 +90,12 @@ pub struct Server {
 // cli app should really be a stateless machine. A listener would just receive order from the network and proceed the ticket given queued.
 // This program should close after completing the ticket queue, in non-listening mode
 impl Server {
-    pub(crate) fn new(context: AppContext, db: &Pool<Sqlite>, client: NetworkController) -> Self {
+    pub(crate) fn new(context: AppContext, db: &Pool<Sqlite>, _client: NetworkController) -> Self {
         Self {
             settings: context.settings,
             manager: Arc::new(RwLock::new(context.manager)),
             db_conn: db.clone(),
-            client,
+            // client,
         }
     }
 

@@ -23,9 +23,8 @@ use iroh_blobs::{
 };
 use n0_future::{BufferedStreamExt, FuturesUnordered, task::AbortOnDropHandle};
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     io::{Error as IoError, ErrorKind, Result as IoResult},
-    num::NonZero,
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
@@ -35,9 +34,9 @@ use tokio::{select, signal, sync::mpsc, time};
 // TODO: Would prefer to get rid of the clone interface. Either use clone or use arc<mutex<>
 #[derive(Debug, Clone)]
 pub struct Client {
-    files: HashMap<String, PathBuf>,
-    db: FsStore,
-    cpu: NonZero<u64>,
+    // files: HashMap<String, PathBuf>,
+    // db: FsStore,
+    // cpu: NonZero<u64>,
 }
 
 #[derive(Debug)]
@@ -56,9 +55,9 @@ impl PerConnectionProgress {
 }
 
 impl Client {
-    fn new(db: FsStore, cpu: NonZero<u64>, files: HashMap<String, PathBuf>) -> Self {
-        Self { files, db, cpu }
-    }
+    // fn new(db: FsStore, cpu: NonZero<u64>, files: HashMap<String, PathBuf>) -> Self {
+    // Self { files, db, cpu }
+    // }
 
     fn validate_path_component(component: &str) -> IoResult<()> {
         match component.contains('/') {
@@ -131,23 +130,24 @@ impl Client {
         Ok(path_str)
     }
 
-    pub(crate) async fn from(database_path: impl AsRef<Path>) -> IoResult<Self> {
-        let store = match FsStore::load(database_path).await {
-            Ok(db) => db,
-            Err(e) => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::FileTooLarge,
-                    e.to_string(),
-                ));
-            }
-        };
+    pub(crate) async fn from(_database_path: impl AsRef<Path>) -> IoResult<Self> {
+        // let store = match FsStore::load(database_path).await {
+        //     Ok(db) => db,
+        //     Err(e) => {
+        //         return Err(std::io::Error::new(
+        //             std::io::ErrorKind::FileTooLarge,
+        //             e.to_string(),
+        //         ));
+        //     }
+        // };
 
         // TODO: fetch internal cpu cores and see how many cpu in parallelism we could use.
-        Ok(Self::new(
-            store,
-            NonZero::new(1).unwrap(),
-            /*files*/ HashMap::new(),
-        ))
+        // Ok(Self::new(
+        //     store,
+        //     NonZero::new(1).unwrap(),
+        //     HashMap::new(),
+        // ))
+        Ok(Client {})
     }
 
     async fn export(db: &Store, collection: Collection) -> IoResult<()> {
@@ -198,7 +198,7 @@ impl Client {
     /// If the input is a directory, the collection contains all the files in the
     /// directory.
     /// Consider using TempTag::leak() for future projects (E.g. real time blender updates.)
-    async fn import(path: impl AsRef<Path>, db: &Store) -> IoResult<(TempTag, Collection)> {
+    async fn import(db: &Store, path: impl AsRef<Path>) -> IoResult<(TempTag, Collection)> {
         let parallelism = 1usize;
 
         // what is path?
@@ -519,19 +519,27 @@ impl Client {
         }
 
         let blobs_data_dir2 = blobs_data_dir.clone();
+        // Created channels across threads
         let (progress_tx, progress_rx) = mpsc::channel(32);
+
+        // Create handle
         let _progress = AbortOnDropHandle::new(n0_future::task::spawn(
             Client::handle_provder_message(progress_rx),
         ));
+
+        // Create directory?
         tokio::fs::create_dir_all(&blobs_data_dir2).await?;
 
+        // get endpoint from builder's bind() we listen?
         let endpoint = builder
             .bind()
             .await
             .map_err(|e| IoError::new(ErrorKind::AddrNotAvailable, e.to_string()))?;
+        // loaded as FsStore
         let store = FsStore::load(&blobs_data_dir2)
             .await
             .map_err(|e| IoError::new(ErrorKind::Other, e.to_string()))?;
+        // created ref to FsStore as Store?
         let blobs = BlobsProtocol::new(
             &store,
             Some(EventSender::new(
@@ -544,7 +552,8 @@ impl Client {
             )),
         );
 
-        let import_result = Client::import(path, blobs.store()).await?;
+        // extract as Store?
+        let import_result = Client::import(blobs.store(), path).await?;
 
         let router = iroh::protocol::Router::builder(endpoint)
             .accept(iroh_blobs::ALPN, blobs.clone())
