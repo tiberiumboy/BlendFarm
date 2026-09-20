@@ -11,7 +11,6 @@ use super::{
     data_store::{sqlite_job_store::SqliteJobStore, sqlite_worker_store::SqliteWorkerStore},
 };
 use crate::network::client::Client as NetworkController;
-use crate::network::event::Event;
 use crate::services::blend_farm::BlendFarmError;
 use crate::services::server::ServerEvent;
 use crate::{
@@ -22,8 +21,7 @@ use crate::{
     models::{
         app_state::AppState,
         blender_action::BlenderAction,
-        // computer_spec::ComputerSpec,
-        job::{CreatedJobDto, JobAction /* , JobEvent*/},
+        job::{CreatedJobDto, JobAction},
         server_setting::ServerSetting,
         setting_action::SettingsAction,
         ticket::Ticket,
@@ -40,9 +38,8 @@ use blender_rs::{
 };
 use futures::{
     SinkExt, StreamExt,
-    channel::mpsc::{self, Receiver, Sender},
+    channel::mpsc::{self, Sender},
 };
-use libp2p::{PeerId /* , multiaddr::Protocol*/};
 use semver::Version;
 use sqlx::{Pool, Sqlite};
 use std::{path::PathBuf /* , collections::HashMap, str::FromStr*/};
@@ -98,21 +95,22 @@ impl BlenderQuery {
 
 #[derive(Debug)]
 pub enum WorkerAction {
-    Get(PeerId, Sender<Option<Worker>>),
+    Get(Sender<Option<Worker>>),
     List(Sender<Option<Vec<Worker>>>),
 }
 
-impl PartialEq for WorkerAction {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Get(l0, ..), Self::Get(r0, ..)) => l0 == r0,
-            (Self::List(..), Self::List(..)) => true,
-            _ => false,
-        }
-    }
-}
+// impl PartialEq for WorkerAction {
+//     fn eq(&self, other: &Self) -> bool {
+//         match (self, other) {
+//             (Self::Get(l0, ..), Self::Get(r0, ..)) => l0 == r0,
+//             (Self::List(..), Self::List(..)) => true,
+//             _ => false,
+//         }
+//     }
+// }
 
-#[derive(Debug, PartialEq)]
+// TODO: Why do I need partialeq for this?
+#[derive(Debug)] /* PartialEq */
 pub enum UiCommand {
     Job(JobAction),
     UploadFile(PathBuf),
@@ -414,10 +412,9 @@ impl TauriApp {
 
     async fn handle_worker_command(&mut self, worker_action: WorkerAction) {
         match worker_action {
-            WorkerAction::Get(peer_id, mut sender) => {
-                let result = sender
-                    .send(self.worker_store.get_worker(&peer_id).await)
-                    .await;
+            WorkerAction::Get(mut sender) => {
+                // TODO: rework this function a bit?
+                let result = sender.send(self.worker_store.get_worker().await).await;
                 if let Err(e) = result {
                     eprintln!("Unable to get worker!: {e:?}");
                 }
@@ -460,8 +457,11 @@ impl TauriApp {
             UiCommand::Worker(worker_action) => self.handle_worker_command(worker_action).await,
             UiCommand::UploadFile(path) => {
                 // this is design to notify the network controller to start advertise provided file path
-                if let Some(file_name) = path.file_name().and_then(|file| file.to_str()) {
-                    client.start_providing(file_name.to_owned()).await;
+                // if let Some(file_name) = path.file_name().and_then(|file| file.to_str()) {
+                //     client.start_providing(file_name.to_owned()).await;
+                // }
+                if let Err(e) = client.send(&path).await {
+                    eprintln!("Unable to send {:?}! {:?}", path, e);
                 }
             }
         }
@@ -734,8 +734,7 @@ impl BlendFarm for TauriApp {
     /// TODO: Impl mpsc channels to receive UI command enumerations.
     async fn run(
         mut self,
-        mut client: NetworkController,
-        mut _event_receiver: Receiver<Event>,
+        mut client: NetworkController, // mut _event_receiver: Receiver<Event>,
     ) -> Result<(), BlendFarmError> {
         // this channel is used to send command to the network, and receive network notification back.
         let (event, mut command) = mpsc::channel(32);
@@ -765,7 +764,7 @@ impl BlendFarm for TauriApp {
                 available_versions,
                 list_workers,
                 list_jobs,
-                get_worker,
+                // get_worker,
                 update_output_field,
                 add_blender_installation,
                 install_from_internet,

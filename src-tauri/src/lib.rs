@@ -21,28 +21,16 @@ Developer blog:
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 // it might be interesting and useful if there's a debug mode enabled?
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use crate::network::client::Client;
 use crate::services::app_context::AppContext;
+use blender_rs::blender::ComputerGraphicsProgram;
 use blender_rs::manager::Manager as BlenderManager;
 use blender_rs::models::blender_config::BlenderConfig;
 use blender_rs::utils::{get_blend_config_default_location, get_config_folder_path};
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
-use iroh::endpoint::presets;
-use iroh::{Endpoint, RelayMode, SecretKey};
-use iroh_blobs::api::{TempTag, Store};
-use iroh_blobs::format::collection::Collection;
-use iroh_blobs::protocol::ALPN;
-use iroh_blobs::provider::events::{ConnectMode, EventMask, EventSender};
-use iroh_blobs::store::fs::FsStore;
-use iroh_blobs::{BlobsProtocol, provider};
-use rand::RngExt;
 use services::{blend_farm::BlendFarm, server::Server, tauri_app::TauriApp};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
-use std::error::Error;
-use std::fs;
 use std::path::Path;
-use tokio::spawn;
 use tracing_subscriber::EnvFilter;
 
 // use figment::{
@@ -83,79 +71,10 @@ async fn config_sqlite_db(path: impl AsRef<Path>) -> Result<SqlitePool, sqlx::Er
     SqlitePool::connect_with(options).await
 }
 
-/// Import from a file or directory into the database.
-///
-/// The returned tag always refers to a collection. If the input is a file, this
-/// is a collection with a single blob, named like the file.
-///
-/// If the input is a directory, the collection contains all the files in the
-/// directory.
-async fn import(path: impl AsRef<Path>, db: &Store, jobs: Option<usize>) //-> (TempTag, u64, Collection)
-{
-    let parallelism = jobs.unwrap_or_else(1);
-    let path = path.as_ref().canonicalize().expect("Path must be able to canonicalize. Data must be posioned!");
-
-    let root = path.parent().expect("file path must exist within directory"); //.context("context get parent")?;
-
-    let files = fs::read_dir(root).expect("Root must be a directory"); //WalkDir::new(path.clone()).into_iter();
-    // ()
-}
-
-// design to setup network connection
-async fn setup_connection(controller: &mut Client) -> Result<(), Box<dyn Error>> {
-    let key = SecretKey::generate();
-    let relay_mode = RelayMode::Default;
-    let alpns_protocol = vec![ALPN.to_vec()];
-
-    // TODO: Start providing list of completed rendered image files.
-    // TODO: Start providing list of blender installed as bundle package.
-
-    let builder = Endpoint::builder(presets::N0)
-        .alpns(alpns_protocol)
-        .secret_key(key)
-        .relay_mode(relay_mode);
-
-    // TODO: what is suffix?
-    let suffix = rand::rng().random::<[u8; 16]>();
-
-    // path to source file?
-    let file_path = Path::new("./todo");
-
-    // In the original code of sendme - this section of code is spawn inside async thread.
-    // TODO: See if we need to refactor this piece? After we get this part working over network.
-    let endpoint = builder.bind().await?;
-
-    let store = FsStore::load(&file_path).await?;
-    let blobs = BlobsProtocol::new(
-        &store,
-        Some(EventSender::new(
-            progress_tx,
-            EventMask {
-                connected: ConnectMode::Notify,
-                get: provider::events::RequestMode::NotifyLog, // TODO: Change this to Notify instead
-                ..EventMask::DEFAULT
-            },
-        )),
-    );
-
-    let import_result = import()
-
-    // if let Err(e) = controller.start_listening(tcp).await {
-    //     eprintln!("Unable to listen using TCP provided address! {e:?}");
-    // }
-
-    // if let Err(e) = controller.start_listening(udp).await {
-    //     eprintln!("Unable to listen using UDP provided address! {e:?}");
-    // }
-
-    // This will return some horrible results...
-    Ok(())
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     // TODO: figure out where/how to access tracing subscribers.
-    tracing_subscriber::fmt()
+    let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
 
@@ -200,20 +119,23 @@ pub async fn run() {
         .expect("Must have database connection!");
 
     // setup network services
-    let (mut controller, receiver, server) = network::new(cli.secret_key)
+    let /*(*/ mut network_controller /* receiver, server,)*/ = network::new(cli.secret_key)
         .await
         .expect("Fail to start network service");
 
     // Run Network service on separate thread.
-    let network_thread = spawn(async move {
-        server.run().await;
-    });
-
-    if let Err(e) = setup_connection(&mut controller).await {
-        eprintln!("Fail to setup connection! {e:?}");
-    }
-
+    // let network_thread = spawn(async move {
+    //     server.run().await;
+    // });
+    //
     let manager = BlenderManager::load(config).expect("Must have blender configuration to load!");
+
+    let test_blender = manager
+        .get_config()
+        .get_blenders()
+        .first()
+        // TODO: figure out how to resolve this fishy code smell.
+        .map(|v| v.clone().clone());
 
     // This server settings is different than blender config.
     // Server Settings is used for Manager client only, to help organize and arrange file structure for completed render image results.
@@ -223,14 +145,24 @@ pub async fn run() {
     // TODO: Handle Receiver input here.
     let result = match cli.command {
         // run as client mode.
-        Some(Commands::Service) => Server::new(context, &db).run(controller, receiver).await,
+        Some(Commands::Service) => {
+            Server::new(context, &db, network_controller.clone())
+                .run(network_controller)
+                .await
+        }
         // run as GUI mode.
         _ => {
+            // Test run, I wanted to see if it was possible to send files over to another services.
+            if let Some(blender) = test_blender {
+                if let Err(e) = network_controller.send(blender.get_executable()).await {
+                    eprintln!("Unable to send blender executable! {e:?}");
+                }
+            }
             // could spawn in a separate thread?
             TauriApp::new(context.manager, &db)
                 .clear_workers_collection()
                 .await
-                .run(controller, receiver)
+                .run(network_controller)
                 .await
         }
     };
@@ -240,7 +172,7 @@ pub async fn run() {
     }
 
     // abort network thread after closing.
-    network_thread.abort();
+    // network_thread.abort();
 }
 
 #[cfg(test)]

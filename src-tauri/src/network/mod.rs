@@ -1,32 +1,9 @@
-use crate::{
-    constant::TRANSFER,
-    network::{behaviour::Behaviour, client::Client, event::Event, event_loop::EventLoop},
-};
-use futures::channel::mpsc::{self, Receiver};
-use libp2p::{StreamProtocol, gossipsub, identity, kad, mdns, noise, tcp, yamux};
-use libp2p_request_response::ProtocolSupport; // cbor, Config
-use std::{error::Error, time::Duration};
-// use tokio::sync::mpsc;
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+use crate::network::client::Client;
+// use futures::channel::mpsc::{self, Receiver}; // cbor, Config
+use std::io::Result as IoResult;
 
-pub(crate) mod behaviour;
 pub(crate) mod client;
-mod command;
-pub mod controller;
-pub(crate) mod event;
-mod event_loop;
-mod file_request;
-mod file_response;
-pub mod message;
 // pub mod service;
-
-// type is locally contained
-pub type PeerIdString = String;
-
-pub type FileData = Vec<u8>;
-
-// TODO: Find a way to handle errors properly
-pub type FileResult = Result<FileData, Box<dyn Error + Send>>;
 
 /// Creates the network components, namely:
 ///
@@ -36,76 +13,20 @@ pub type FileResult = Result<FileData, Box<dyn Error + Send>>;
 ///
 /// - The network task driving the network itself.
 pub(crate) async fn new(
-    secret_key_seed: Option<u8>,
-) -> Result<(Client, Receiver<Event>, EventLoop), Box<dyn Error>> {
-    let id_keys = match secret_key_seed {
-        Some(seed) => {
-            let mut bytes = [0u8; 32];
-            bytes[0] = seed;
-            identity::Keypair::ed25519_from_bytes(bytes).unwrap()
-        }
-        None => identity::Keypair::generate_ed25519(),
-    };
-
-    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
-        .with_tokio()
-        .with_tcp(
-            tcp::Config::default(),
-            noise::Config::new,
-            yamux::Config::default,
-        )?
-        .with_behaviour(|key| {
-            let gossipsub_config = gossipsub::ConfigBuilder::default()
-                .heartbeat_interval(Duration::from_secs(10))
-                .validation_mode(gossipsub::ValidationMode::Strict)
-                // .message_id_fn(message_id_fn)
-                .build()
-                .map_err(|msg| IoError::new(IoErrorKind::Other, msg))?;
-
-            // p2p communication
-            let gossipsub = gossipsub::Behaviour::new(
-                gossipsub::MessageAuthenticity::Signed(key.clone()),
-                gossipsub_config,
-            )
-            .expect("Fail to create gossipsub behaviour");
-
-            // network discovery usage
-            // TODO: replace expect with error handling
-            let mdns =
-                mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())
-                    .expect("Fail to create mdns behaviour!");
-
-            let kademlia = kad::Behaviour::new(
-                key.public().to_peer_id(),
-                kad::store::MemoryStore::new(key.public().to_peer_id()),
-            );
-            let rr_config = libp2p_request_response::Config::default();
-            // Learn more about this and see if we need the transfer keyword of some sort?
-            let protocol = [(StreamProtocol::new(TRANSFER), ProtocolSupport::Full)];
-            let request_response = libp2p_request_response::Behaviour::new(protocol, rr_config);
-            Ok(Behaviour {
-                request_response,
-                gossipsub,
-                mdns,
-                kademlia,
-            })
-        })?
-        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
-        .build();
-
-    swarm
-        .behaviour_mut()
-        .kademlia
-        .set_mode(Some(kad::Mode::Server));
-
-    let (command_sender, command_receiver) = mpsc::channel(0);
-    let (event_sender, event_receiver) = mpsc::channel(0);
-
-    Ok((
-        Client::new(command_sender),
-        event_receiver,
-        EventLoop::new(swarm, command_receiver, event_sender),
-    ))
+    _secret_key_seed: Option<u8>, // TODO: future implementation, but not for scope of this goal
+) -> IoResult<
+    //(
+    Client, //, Receiver<Event>, EventLoop),
+> {
+    let database_path = blender_rs::utils::get_config_folder_path()?;
+    let client = Client::from(database_path).await?;
+    Ok(
+        // (
+        client,
+        // event_receiver,
+        // EventLoop::new(swarm, command_receiver, event_sender),
+        // )
+    )
 }
 
 /*
@@ -215,15 +136,3 @@ pub async fn new(
     Ok((controller, event_receiver, service))
 }
 */
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn ensure_new_network_succeed() -> Result<(), Box<dyn Error>> {
-        let (_client, _receiver, _event) = new(None).await?;
-
-        Ok(())
-    }
-}

@@ -1,8 +1,5 @@
-use std::str::FromStr;
-
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
-use libp2p::PeerId;
 use maud::html;
 use serde_json::json;
 use tauri::{State, command};
@@ -28,7 +25,8 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
                 _ => html! {
                     @for worker in data {
                         div {
-                            table tauri-invoke="get_worker" hx-vals=(json!({ "machineId": worker.peer_id.to_base58() })) hx-target=(format!("#{WORKPLACE}")) {
+                            // TODO: maybe remove get_worker field until we figure this out somehow?
+                            table tauri-invoke="get_worker" hx-vals=(json!({ "machineId": "???" })) hx-target=(format!("#{WORKPLACE}")) {
                                 tbody {
                                     tr {
                                         td style="width:100%" {
@@ -70,6 +68,7 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
         </div>
 
 */
+/*
 #[command(async)]
 pub async fn get_worker(state: State<'_, Mutex<AppState>>, machine_id: &str) -> Result<String, ()> {
     let mut app_state = state.lock().await;
@@ -149,4 +148,6 @@ pub async fn get_worker(state: State<'_, Mutex<AppState>>, machine_id: &str) -> 
         .0),
         None => Err(()),
     }
+
 }
+    */

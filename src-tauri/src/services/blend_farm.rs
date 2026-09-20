@@ -2,17 +2,14 @@ use std::io::Error as IoError;
 
 use crate::domains::ticket_store::TicketError;
 use crate::network::client::Client as NetworkController;
-use crate::network::event::Event;
-use crate::network::message::NetworkError;
 use async_trait::async_trait;
 use blender_rs::blender::BlenderError;
-use futures::channel::mpsc::Receiver;
 
 #[derive(Debug)]
 pub enum BlendFarmError {
     Ticket(TicketError),
     Blender(BlenderError),
-    Network(NetworkError),
+    Network(String),
     Io(IoError),
 }
 
@@ -54,7 +51,7 @@ pub trait BlendFarm {
     async fn run(
         mut self,
         client: NetworkController,
-        event_receiver: Receiver<Event>,
+        // event_receiver: Receiver<Event>,
         // TODO: Maybe consider returning the event from calling run()?
     ) -> Result<(), BlendFarmError>;
 

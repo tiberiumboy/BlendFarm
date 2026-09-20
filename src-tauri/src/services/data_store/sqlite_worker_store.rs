@@ -1,6 +1,3 @@
-use std::str::FromStr;
-
-use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool, types::Json};
 
@@ -23,7 +20,6 @@ impl WorkerDTO {
     pub fn dto_to_obj(&self) -> Worker {
         Worker {
             // TODO: Should this be multi-address instead?
-            peer_id: PeerId::from_str(&self.peer_id).expect("ID was mutated!"),
             spec: self.spec.0.clone(),
         }
     }
@@ -58,7 +54,7 @@ impl WorkerStore for SqliteWorkerStore {
 
     // Create
     async fn add_worker(&mut self, worker: Worker) -> Result<(), WorkerError> {
-        let id = worker.peer_id.to_base58();
+        let id = "???".to_owned();
         // TODO replace this on using sqlx::json
         let spec = serde_json::to_string(&worker.spec).expect("Fail to parse specs");
         // TODO: Update the record if it exist by marking it status "Active", relearn SQL again?
@@ -80,8 +76,8 @@ impl WorkerStore for SqliteWorkerStore {
     }
 
     // Read
-    async fn get_worker(&self, id: &PeerId) -> Option<Worker> {
-        let peer_id = id.to_base58();
+    async fn get_worker(&self) -> Option<Worker> {
+        let peer_id = "???".to_owned();
         // Is there a way I could do optional instead of result?
         let result: Result<WorkerDTO, sqlx::Error> = sqlx::query_as!(
             WorkerDTO,
@@ -103,8 +99,8 @@ impl WorkerStore for SqliteWorkerStore {
     // no update?
 
     // Delete
-    async fn delete_worker(&mut self, id: &PeerId) -> Result<(), WorkerError> {
-        let peer_id = id.to_base58();
+    async fn delete_worker(&mut self) -> Result<(), WorkerError> {
+        let peer_id = "???";
         // TODO: mark the worker inactive instead.
         let _ = sqlx::query!(r"DELETE FROM workers WHERE peer_id = $1", peer_id)
             // my mind goes on a brainfart moment overcomplicating simplification and data requirement.

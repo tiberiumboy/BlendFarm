@@ -1,31 +1,9 @@
 /*
-use crate::constant::NODE_TOPIC;
-use crate::network::behaviour::Behaviour;
-use crate::network::{
-    behaviour::BehaviourEvent,
-    file_request::FileRequest, 
-    file_response::FileResponse
-};
-use crate::services::file_service::{FileData, FileResult};
 use crate::services::server::ServerEvent;
-use crate::{
-    // models::behaviour::BlendFarmBehaviour,
-    network::event::Event,
-    network::message::Command
-};
 use futures::SinkExt;
 use futures::StreamExt;
 use futures::channel::oneshot;
 use futures::channel::mpsc::{Receiver, Sender};
-use libp2p::core::ConnectedPoint;
-use libp2p::gossipsub::{self, IdentTopic};
-use libp2p::mdns;
-use libp2p::swarm::SwarmEvent;
-use libp2p::{
-    PeerId, Swarm,
-    kad::{self, QueryId},
-};
-use libp2p_request_response::OutboundRequestId;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::PathBuf;
@@ -36,7 +14,7 @@ use tokio::select;
 // as well as handling network event from other peers
 pub struct Service {
     // swarm behaviour - interface to the network
-    swarm: Swarm<Behaviour>, // TODO: Replace this back to BlendFarmBehaviour once we get network stack working again 
+    swarm: Swarm<Behaviour>, // TODO: Replace this back to BlendFarmBehaviour once we get network stack working again
 
     // peers: HashSet<PeerId>,
 
@@ -100,10 +78,10 @@ impl Service {
     */
 
     // here we will deviate handling the file service command.
-    
+
 
     // TODO: Will need to return Result<MessageId, PublishError>... For now let's keep it as-is.
-    /* 
+    /*
     async fn send_job_status(&mut self, event: &JobEvent) {
         let data = serde_json::to_string(&event).unwrap();
         let topic = IdentTopic::new(JOB_TOPIC);
@@ -123,7 +101,7 @@ impl Service {
         // handle the commands via the services implementation given limited power for the network services.
         match cmd {
             // I'm not sure why I need this?
-            /* 
+            /*
             Command::Subscribe { topic } => {
                 let identity = IdentTopic::new(topic);
                 if let Err(e) = self.swarm.behaviour_mut().gossipsub.subscribe(&identity) {
@@ -156,13 +134,13 @@ impl Service {
 
             // received server status. Can invoke commands from this broadcast event.
             Command::Message(Some(multiaddr), status) =>  {
-                
+
 
                 // if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                 //     eprintln!("Fail to publish gossip message: {e:?}");
                 // }
-                
-                // the method goes is that we need the self.swarm to implement the behaviour of communicating 
+
+                // the method goes is that we need the self.swarm to implement the behaviour of communicating
                 // if let Err(e) = self.swarm.dial(peer_addr ) {
                 //     eprintln!("Unable to dial! {e:?}");
                 // }
@@ -234,10 +212,10 @@ impl Service {
                 for (peer_id, address) in peers {
                     // find a way to reveal this information via verbose logs
                     // println!("Discovered [{peer_id:?}] {address:?}");
-                    
+
                     // create a discovery notification to the subscribers
                     // let event = Event::Discovered(peer_id, address.clone());
-                    
+
                     // if this errors out, we should gracefully hang up?
                     // if let Err(e) = self.event_sender.send(event).await {
                     //     eprintln!("sender should not drop! {e:?}");
@@ -458,10 +436,10 @@ impl Service {
             // FEATURE: Display verbose info using argument switch
             /* #region vv verbose events vv */
             SwarmEvent::OutgoingConnectionError { peer_id: None, .. } => {}
-            
+
             // Suppressing logs
             SwarmEvent::Dialing { .. } => {}
-            SwarmEvent::IncomingConnection {..} => {} 
+            SwarmEvent::IncomingConnection {..} => {}
             SwarmEvent::NewListenAddr { /* address, */ .. } => {
                 // println!("[New Listener Address]: {address}");
                 // let local_peer_id = *self.swarm.local_peer_id();
