@@ -1,6 +1,8 @@
+use blender_rs::models::event::BlenderEvent;
 use futures::prelude::*;
 use iroh::address_lookup::DnsAddressLookup;
-use iroh::{Endpoint, SecretKey};
+use anyhow::Error;
+use iroh::SecretKey;
 use iroh::{RelayMode, endpoint::presets};
 use iroh_blobs::{
     ALPN, BlobFormat, BlobsProtocol,
@@ -21,22 +23,88 @@ use iroh_blobs::{
     store::fs::FsStore,
     ticket::BlobTicket,
 };
+use iroh_mdns_address_lookup::MdnsAddressLookup;
+use iroh_quinn::{Connection, Endpoint};
+use tokio::sync::{mpsc, oneshot};
+use irpc::{Service, rpc_requests};
+use n0_future::IterExt;
 use n0_future::{BufferedStreamExt, FuturesUnordered, task::AbortOnDropHandle};
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashSet},
     io::{Error as IoError, ErrorKind, Result as IoResult},
     path::{Component, Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
-use tokio::{select, signal, sync::mpsc, time};
+use tokio::{select, signal, time};
 
-// TODO: Would prefer to get rid of the clone interface. Either use clone or use arc<mutex<>
+type Connections = BTreeMap<u64, PerConnectionProgress>;
+type ConnectionId = u64;
+type RequestId = u64;
+
+pub enum Status {
+    Idle,
+    Rendering(BlenderEvent),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct GetRequest {
+    key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SetRequest {
+    key: String,
+    value: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+enum SetUpdate {
+    Data(String),
+    Done,
+}
+
+#[derive(Debug)]
+enum RequestWithChannels {
+    Get{ request: Request, response: mpsc::Sender<Request> }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct EchoRequest {}
+
+#[rpc_requests(message = RequestWithChannels)]
+#[derive(Debug, Serialize, Deserialize)]
+enum Request {
+    #[rpc(tx=oneshot::Sender<String>)]
+    Get(GetRequest),
+    #[rpc(tx=oneshot::Sender<()>)]
+    Set(SetRequest),
+    #[rpc(rx=mpsc::Receiver<SetUpdate>, tx=oneshot::Sender<()>)]
+    Echo(EchoRequest),
+}
+
+// #[derive(Debug, Clone)]
+// pub enum Client {
+//     Local(mpsc::Sender<FullRequest>),
+//     Remote, // TODO: Find out how I can send in connection type from remote?
+//             // files: HashMap<String, PathBuf>,
+//             // db: FsStore,
+//             // cpu: NonZero<u64>,
+// }
+
+#[derive(Debug, Serialize, Deserialize)]
+struct EchoService {}
+
+impl Service for EchoService {
+    type Message = RequestWithChannels;
+}
+
 #[derive(Debug, Clone)]
-pub struct Client {
-    // files: HashMap<String, PathBuf>,
-    // db: FsStore,
-    // cpu: NonZero<u64>,
+pub enum Client {
+    Local(mpsc::Sender<Request>),
+    Remote(Connection),
 }
 
 #[derive(Debug)]
@@ -55,9 +123,29 @@ impl PerConnectionProgress {
 }
 
 impl Client {
+    async fn get(&self, key: String) -> Result<Option<String>, anyhow::Error> {
+        let request = GetRequest { key };
+        match self {
+            Self::Local(channel) => {
+                let (tx, rx) = oneshot::channel();
+                let request = FullRequest { request, tx };
+                channel.send(request).await?;
+                Ok(rx.await??)
+            },
+            Self::Remote(connection) => {
+                todo!("Finish local first before investigating remote.");
+            }
+        }
+    }
+
     // fn new(db: FsStore, cpu: NonZero<u64>, files: HashMap<String, PathBuf>) -> Self {
     // Self { files, db, cpu }
     // }
+    async fn get_remote(connection: Connection, request: Request ) -> Result<Option<String>, anyhow::Error> {
+        let (send, receive) = connection.open_bi().await?;
+        let request = GetRequest { }
+        send.write_all(GetRequest { key }?).await
+    }
 
     fn validate_path_component(component: &str) -> IoResult<()> {
         match component.contains('/') {
@@ -69,9 +157,10 @@ impl Client {
         }
     }
 
-    fn get_export_path(root: &Path, name: &str) -> IoResult<PathBuf> {
+    // could the name be OS platform independent?
+    fn get_export_path(root: impl AsRef<Path>, name: &str) -> IoResult<PathBuf> {
         let parts = name.split('/');
-        let mut path = root.to_path_buf();
+        let mut path = root.as_ref().to_path_buf();
         for part in parts {
             Client::validate_path_component(part)?;
             path.push(part);
@@ -130,25 +219,9 @@ impl Client {
         Ok(path_str)
     }
 
-    pub(crate) async fn from(_database_path: impl AsRef<Path>) -> IoResult<Self> {
-        // let store = match FsStore::load(database_path).await {
-        //     Ok(db) => db,
-        //     Err(e) => {
-        //         return Err(std::io::Error::new(
-        //             std::io::ErrorKind::FileTooLarge,
-        //             e.to_string(),
-        //         ));
-        //     }
-        // };
-
-        // TODO: fetch internal cpu cores and see how many cpu in parallelism we could use.
-        // Ok(Self::new(
-        //     store,
-        //     NonZero::new(1).unwrap(),
-        //     HashMap::new(),
-        // ))
-        Ok(Client {})
-    }
+    // pub(crate) async fn from(_database_path: impl AsRef<Path>) -> IoResult<Self> {
+    //     Ok(Self::)
+    // }
 
     async fn export(db: &Store, collection: Collection) -> IoResult<()> {
         // TODO: maybe change this?
@@ -182,6 +255,9 @@ impl Client {
                             ErrorKind::BrokenPipe,
                             format!("error exporting {}: {}", name, cause),
                         ));
+                    }
+                    ExportProgressItem::Done => {
+                        break;
                     }
                     _ => {}
                 }
@@ -294,32 +370,32 @@ impl Client {
     }
 
     async fn per_request_progress(
-        connection_id: u64,
-        request_id: u64,
-        connections: Arc<Mutex<BTreeMap<u64, PerConnectionProgress>>>,
+        connection_id: ConnectionId,
+        request_id: RequestId,
+        connections: Arc<Mutex<Connections>>,
         // TODO: Why do I need irpc crate? Requirement: irpc = "0.17.0"
         mut rx: irpc::channel::mpsc::Receiver<RequestUpdate>,
     ) -> Result<(), IoError> {
-        let _endpoint_id =
-            if let Some(connection) = connections.lock().unwrap().get_mut(&connection_id) {
-                // what was I'm inserting here? It was pb so derived from multiprogress?
-                connection.requests.insert(request_id);
-                connection.endpoint_id.clone()
-            } else {
-                return Err(IoError::new(
-                    ErrorKind::ConnectionRefused,
-                    format!("got request for unknown connection {connection_id}"),
-                ));
-            };
+        let _endpoint_id = if let Some(connection) = connections.lock().get_mut(&connection_id) {
+            // what was I'm inserting here? It was pb so derived from multiprogress?
+            connection.requests.insert(request_id);
+            connection.endpoint_id.clone()
+        } else {
+            return Err(IoError::new(
+                ErrorKind::ConnectionRefused,
+                format!("got request for unknown connection {connection_id}"),
+            ));
+        };
+
         while let Ok(Some(msg)) = rx.recv().await {
             match msg {
                 RequestUpdate::Completed(_) => {
-                    if let Some(msg) = connections.lock().unwrap().get_mut(&connection_id) {
+                    if let Some(msg) = connections.lock().get_mut(&connection_id) {
                         msg.requests.remove(&request_id);
                     };
                 }
                 RequestUpdate::Aborted(_) => {
-                    if let Some(msg) = connections.lock().unwrap().get_mut(&connection_id) {
+                    if let Some(msg) = connections.lock().get_mut(&connection_id) {
                         msg.requests.remove(&request_id);
                     };
                 }
@@ -339,7 +415,7 @@ impl Client {
             tokio::select! {
                 biased;
                 item = recv.recv() => {
-                    let Some(item) = item else {
+                    let Ok(Some(item)) = item else {
                         break;
                     };
 
@@ -350,13 +426,13 @@ impl Client {
                             // weird unwrap usage here?
                             let endpoint_id = msg.endpoint_id.map(|id| id.fmt_short().to_string()).unwrap_or_else(|| "?".to_string());
                             let connection_id = msg.connection_id;
-                            connections.lock().unwrap().insert(
+                            connections.lock().insert(
                                 connection_id,
                                 PerConnectionProgress::new(endpoint_id),
                             );
                         }
                         ProviderMessage::ConnectionClosed(msg) => {
-                            connections.lock().unwrap().remove(&msg.connection_id);
+                            connections.lock().remove(&msg.connection_id);
                         }
                         ProviderMessage::GetRequestReceivedNotify(msg) => {
                             // received a provider message. We then create a new task to handle notification.
@@ -375,10 +451,12 @@ impl Client {
         Ok(())
     }
 
-    pub async fn receive(ticket: BlobTicket) -> IoResult<()> {
+    pub async fn receive(ticket: BlobTicket) -> Result<(), Error> {
         let addr = ticket.addr().clone();
         let secret_key = SecretKey::generate();
         let mut builder = Endpoint::builder(presets::N0)
+            // enable network discovery
+            .address_lookup(MdnsAddressLookup::builder())
             .alpns(vec![])
             .secret_key(secret_key)
             .relay_mode(RelayMode::Default);
@@ -392,6 +470,8 @@ impl Client {
             .bind()
             .await
             .map_err(|e| IoError::new(ErrorKind::AddrNotAvailable, e.to_string()))?;
+
+
         let dir_name = format!(".sendme-recv-{}", ticket.hash().to_hex());
         let iroh_data_dir = std::env::current_dir()?.join(dir_name);
         // because this is anyhow errors, intercept it into IoError instead.
@@ -499,7 +579,8 @@ impl Client {
     }
 
     // TODO: Update blobs_data_dir to a specific location for blendFarm
-    pub async fn send(&mut self, path: impl AsRef<Path>) -> IoResult<()> {
+    // TODO: break apart this function into callable structure
+    pub async fn server(&mut self, path: impl AsRef<Path>) -> Result<(), Error> {
         let secret_key = SecretKey::generate();
         let relay_mode = RelayMode::Default;
         let builder = Endpoint::builder(presets::N0)
@@ -555,7 +636,7 @@ impl Client {
         // extract as Store?
         let import_result = Client::import(blobs.store(), path).await?;
 
-        let router = iroh::protocol::Router::builder(endpoint)
+        let router = iroh::protocol::Router::builder(endpoint.clone())
             .accept(iroh_blobs::ALPN, blobs.clone())
             .spawn();
 
@@ -576,8 +657,21 @@ impl Client {
         println!("to get this data, use");
         println!("sendme receive {ticket}");
 
-        // TODO: find a way to stop sharing after complete?
-        signal::ctrl_c().await?;
+        let mut network_handlers = Vec::new();
+
+        while let Some(session) = endpoint.accept().await {
+            let connection = session.await?;
+            let handler = tokio::spawn(async move {
+                while let Ok((_quic_send, _quic_recv)) = connection.accept_bi().await {
+                    // handle connection here.
+
+                }
+
+            });
+            network_handlers.push(handler);
+        }
+
+        network_handlers.join_all().await;
 
         drop(temp_tag);
         time::timeout(Duration::from_secs(2), router.shutdown()).await??;

@@ -1,12 +1,14 @@
-use futures::channel::mpsc::Sender;
 use crate::models::server_setting::ServerSetting;
+use futures::channel::oneshot::Sender;
 
+// This enum seems complete. Provider of Server Settings configuration.
 #[derive(Debug)]
 pub enum SettingsAction {
     Get(Sender<ServerSetting>),
     Update(ServerSetting),
 }
 
+// Ignore Sender type for now.
 impl PartialEq for SettingsAction {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {

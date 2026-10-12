@@ -6,12 +6,14 @@ Get a preview window that show the user current job progress - this includes las
 */
 use super::util::select_directory;
 use crate::models::blender_action::BlenderAction;
+use crate::services::tauri_app::BlenderQuery;
 use crate::{
-    models::app_state::AppState,
+    models::app_service::AppService,
     services::tauri_app::{QueryMode, UiCommand},
 };
 use blender_rs::blend_file::BlendFile;
-use futures::{SinkExt, StreamExt, channel::mpsc};
+use futures::StreamExt;
+use futures::channel::mpsc;
 use maud::html;
 use semver::Version;
 use std::path::PathBuf;
@@ -21,11 +23,12 @@ use tauri_plugin_fs::FilePath;
 use tokio::sync::Mutex;
 
 // function is called from available_versions
-async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
-    let (sender, mut receiver) = mpsc::channel(1);
+async fn list_versions(app_service: &mut AppService) -> Vec<Version> {
+    let (sender, mut receiver) = mpsc::channel::<Option<Vec<BlenderQuery>>>(100);
     let event = UiCommand::Blender(BlenderAction::List(sender, QueryMode::Both));
+
     // Send a request to backend services to fetch the query.
-    if let Err(e) = app_state.invoke.send(event).await {
+    if let Err(e) = app_service.(event).await {
         eprintln!("Fail to send event! {e:?}");
         return Vec::new();
     }
@@ -43,7 +46,7 @@ async fn list_versions(app_state: &mut AppState) -> Vec<Version> {
 
 /// List all of the available blender version.
 #[command(async)]
-pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
+pub async fn available_versions(state: State<'_, Mutex<AppService>>) -> Result<String, String> {
     let mut server = state.lock().await;
     let versions = list_versions(&mut server).await;
 
@@ -65,7 +68,7 @@ pub async fn available_versions(state: State<'_, Mutex<AppState>>) -> Result<Str
 #[command]
 pub async fn open_dialog_for_blend_file(
     app: AppHandle,
-    state: State<'_, Mutex<AppState>>,
+    state: State<'_, Mutex<AppService>>,
 ) -> Result<String, String> {
     let given_path = app
         .dialog()
@@ -96,7 +99,7 @@ pub async fn update_output_field(app: AppHandle) -> Result<String, ()> {
 
 // TODO: Rename this function to "read_blend_file_content" - return info about this file.
 // we can multi-purpose this for drag and drop feature
-pub async fn import_blend(state: &Mutex<AppState>, path: PathBuf) -> Result<String, String> {
+pub async fn import_blend(state: &Mutex<AppService>, path: PathBuf) -> Result<String, String> {
     // for some reason this function takes longer online than it does offline?
     // TODO: set unit test to make sure this function doesn't repetitively call blender.org everytime it's called.
     let mut app_state = state.lock().await;

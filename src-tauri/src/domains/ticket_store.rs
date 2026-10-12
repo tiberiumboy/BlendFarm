@@ -24,7 +24,7 @@ impl Display for TicketError {
                 f.write_str(&format!("Received Blender error: {blender_error:?}"))
             }
             TicketError::CacheError => f.write_str("Received cache error!"),
-            TicketError::IoError(io) => f.write_str(&io.to_string())
+            TicketError::IoError(io) => f.write_str(&io.to_string()),
         }
     }
 }

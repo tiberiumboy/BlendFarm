@@ -22,7 +22,6 @@ Developer blog:
 // it might be interesting and useful if there's a debug mode enabled?
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use crate::services::app_context::AppContext;
-use blender_rs::blender::ComputerGraphicsProgram;
 use blender_rs::manager::Manager as BlenderManager;
 use blender_rs::models::blender_config::BlenderConfig;
 use blender_rs::utils::{get_blend_config_default_location, get_config_folder_path};
@@ -119,7 +118,7 @@ pub async fn run() {
         .expect("Must have database connection!");
 
     // setup network services
-    let /*(*/ mut network_controller /* receiver, server,)*/ = network::new(cli.secret_key)
+    let /*(*/ network_controller /* receiver, server,)*/ = network::new(cli.secret_key)
         .await
         .expect("Fail to start network service");
 
@@ -128,14 +127,15 @@ pub async fn run() {
     //     server.run().await;
     // });
     //
+    // TODO: Find a way to make this sharable across thread and make it mutable? Arc<Mutex<T>>?
     let manager = BlenderManager::load(config).expect("Must have blender configuration to load!");
 
-    let test_blender = manager
-        .get_config()
-        .get_blenders()
-        .first()
-        // TODO: figure out how to resolve this fishy code smell.
-        .map(|v| v.clone().clone());
+    // let test_blender = manager
+    //     .get_config()
+    //     .get_blenders()
+    //     .first()
+    //     // TODO: figure out how to resolve this fishy code smell.
+    //     .map(|v| v.clone().clone());
 
     // This server settings is different than blender config.
     // Server Settings is used for Manager client only, to help organize and arrange file structure for completed render image results.
@@ -143,6 +143,9 @@ pub async fn run() {
 
     // TODO: Restructure this to allow running client from GUI mode.
     // TODO: Handle Receiver input here.
+    // TODO: Refactor this to rely on RAII + TypeState +
+    // https://www.youtube.com/watch?v=5rtUveDkERc  // IPC
+    // https://www.youtube.com/watch?v=1Ql7sQG8snA  // Patterns
     let result = match cli.command {
         // run as client mode.
         Some(Commands::Service) => {
@@ -153,15 +156,13 @@ pub async fn run() {
         // run as GUI mode.
         _ => {
             // Test run, I wanted to see if it was possible to send files over to another services.
-            if let Some(blender) = test_blender {
-                if let Err(e) = network_controller.send(blender.get_executable()).await {
-                    eprintln!("Unable to send blender executable! {e:?}");
-                }
-            }
+            // if let Some(blender) = test_blender {
+            //     if let Err(e) = network_controller.send(blender.get_executable()).await {
+            //         eprintln!("Unable to send blender executable! {e:?}");
+            //     }
+            // }
             // could spawn in a separate thread?
             TauriApp::new(context.manager, &db)
-                .clear_workers_collection()
-                .await
                 .run(network_controller)
                 .await
         }

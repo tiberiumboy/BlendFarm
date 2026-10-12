@@ -1,34 +1,33 @@
-use maud::{PreEscaped, html};
+use crate::constant::WORKPLACE;
+use crate::models::app_service::AppService;
+use crate::routes::job::{render_job_detail_page, render_list_job};
+use maud::html;
 use tauri::{State, command};
 use tokio::sync::Mutex;
-use crate::constant::WORKPLACE;
-use crate::models::app_state::AppState;
-use crate::routes::job::{render_list_job, render_job_detail_page};
 
 // separate this?
 #[command(async)]
-pub async fn index(state: State<'_,Mutex<AppState>>) -> Result<String, String> {
+pub async fn index(state: State<'_, Mutex<AppService>>) -> Result<String, String> {
     // Design to load content and page for the index.
     let mut app_state = state.lock().await;
     let jobs = app_state.list_jobs().await.map_err(|e| e.to_string())?;
     let list_job_render = render_list_job(&jobs);
-    let job_detail = match &jobs {
-        Some(job_list) => {
-            match job_list.first() {
-                Some(job) => app_state.fetch_job(job.id.clone()).await,
-                None => None
-            }
-        },
-        None => None 
+    let job_detail = if jobs.is_empty() {
+        None
+    } else {
+        match jobs.first() {
+            Some(job) => app_state.fetch_job(job.id.clone()).await,
+            None => None,
+        }
     };
     let front_page_render = render_job_detail_page(&job_detail);
-    
+
     Ok(html! (
         div {
             div class="sidebar" {
                 nav {
                     ul class="nav-menu-items" {
-                        
+
                         // li key="manager" class="nav-bar" tauri-invoke="remote_render_page" hx-target=(format!("#{WORKPLACE}")) {
                         //     span { "Remote Render" }
                         // };
@@ -46,7 +45,7 @@ pub async fn index(state: State<'_,Mutex<AppState>>) -> Result<String, String> {
                     };
 
                     div class="group" id="joblist" {
-                        (PreEscaped(list_job_render));
+                        (list_job_render);
                     };
                 }
 
@@ -59,7 +58,7 @@ pub async fn index(state: State<'_,Mutex<AppState>>) -> Result<String, String> {
 
         }
         main id=(WORKPLACE) {
-            (PreEscaped(front_page_render))
+            (front_page_render)
         };
     ).0)
 }

@@ -1,20 +1,21 @@
 use futures::channel::mpsc;
-use futures::{SinkExt, StreamExt};
+use futures::{/*SinkExt,*/ StreamExt};
 use maud::html;
 use serde_json::json;
 use tauri::{State, command};
 use tokio::sync::Mutex;
 
 use crate::constant::WORKPLACE;
-use crate::models::app_state::AppState;
-use crate::services::tauri_app::{UiCommand, WorkerAction};
+use crate::models::app_service::AppService;
+use crate::services::tauri_app::UiCommand;
 
 #[command(async)]
-pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
+pub async fn list_workers(state: State<'_, Mutex<AppService>>) -> Result<String, String> {
     let mut server = state.lock().await;
     let (sender, mut receiver) = mpsc::channel(1);
+    todo!("Figure out how we can handle displaying discovered peer");
     let cmd = UiCommand::Worker(WorkerAction::List(sender));
-    if let Err(e) = server.invoke.send(cmd).await {
+    if let Err(e) = server.send(cmd).await {
         eprintln!("Fail to send command to fetch workers{e:?}");
     }
 
@@ -70,7 +71,7 @@ pub async fn list_workers(state: State<'_, Mutex<AppState>>) -> Result<String, S
 */
 /*
 #[command(async)]
-pub async fn get_worker(state: State<'_, Mutex<AppState>>, machine_id: &str) -> Result<String, ()> {
+pub async fn get_worker(state: State<'_, Mutex<AppService>>, machine_id: &str) -> Result<String, ()> {
     let mut app_state = state.lock().await;
     let (mut sender, mut receiver) = mpsc::channel(0);
     match PeerId::from_str(machine_id) {

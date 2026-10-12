@@ -15,30 +15,30 @@ pub enum BlenderAction {
     Remove(Blender), // deletes local installation of blender, use it as last resort option. (E.g. force cache clear/reinstall/ corrupted copy)
 }
 
-impl PartialEq for BlenderAction {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Add(l0), Self::Add(r0)) => l0 == r0,
-            (Self::List(.., l0), Self::List(.., r0)) => l0 == r0,
-            (Self::Get(l0, ..), Self::Get(r0, ..)) => l0 == r0,
-            (Self::Disconnect(l0), Self::Disconnect(r0)) => l0 == r0,
-            (Self::Remove(l0), Self::Remove(r0)) => l0 == r0,
-            _ => false,
-        }
-    }
-}
+// impl PartialEq for BlenderAction {
+//     fn eq(&self, other: &Self) -> bool {
+//         match (self, other) {
+//             (Self::Add(l0), Self::Add(r0)) => l0 == r0,
+//             (Self::List(.., l0), Self::List(.., r0)) => l0 == r0,
+//             (Self::Get(l0, ..), Self::Get(r0, ..)) => l0 == r0,
+//             (Self::Disconnect(l0), Self::Disconnect(r0)) => l0 == r0,
+//             (Self::Remove(l0), Self::Remove(r0)) => l0 == r0,
+//             _ => false,
+//         }
+//     }
+// }
 
-#[cfg(test)]
-mod tests {
-    use crate::models::blender_action::BlenderAction;
-    use std::path::PathBuf;
+// #[cfg(test)]
+// mod tests {
+//     use crate::models::blender_action::BlenderAction;
+//     use std::path::PathBuf;
 
-    #[test]
-    fn ensure_partial_eq_succeed() {
-        let a = BlenderAction::Add(PathBuf::from("./test"));
-        let b = BlenderAction::Add(PathBuf::from("./test"));
-        assert_eq!(a, b);
-        let c = BlenderAction::Add(PathBuf::from("./t3st"));
-        assert_ne!(a, c);
-    }
-}
+//     #[test]
+//     fn ensure_partial_eq_succeed() {
+//         let a = BlenderAction::Add(PathBuf::from("./test"));
+//         let b = BlenderAction::Add(PathBuf::from("./test"));
+//         assert_eq!(a, b);
+//         let c = BlenderAction::Add(PathBuf::from("./t3st"));
+//         assert_ne!(a, c);
+//     }
+// }

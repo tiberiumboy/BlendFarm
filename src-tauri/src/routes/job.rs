@@ -1,7 +1,7 @@
 use crate::constant::WORKPLACE;
 use crate::models::job::{CreatedJobDto, Output};
 use crate::models::{
-    app_state::AppState,
+    app_service::AppService,
     job::{Job, JobAction},
 };
 use crate::routes::settings;
@@ -18,26 +18,9 @@ use tauri::{State, command};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-/// Used to render the job list on teh side of the app.
-pub(crate) fn render_list_job(collection: &Option<Vec<CreatedJobDto>>) -> String {
+fn render() -> PreEscaped<String> {
     match collection {
-        Some(list) => {
-            html! {
-                @for job in list {
-                    div {
-                        table {
-                            tbody {
-                                tr tauri-invoke="get_job_detail" hx-vals=(json!({"jobId":job.id.to_string()})) hx-target={"#" (WORKPLACE) } {
-                                    td style="width:100%" {
-                                        (job.item.get_file_name_expected().to_string_lossy())
-                                    };
-                                };
-                            };
-                        };
-                    };
-                };
-            }
-        }
+        Some(list) => render_list_job(list),
         None => {
             html! {
                 div {
@@ -45,11 +28,30 @@ pub(crate) fn render_list_job(collection: &Option<Vec<CreatedJobDto>>) -> String
                 }
             }
         }
-    }.0
+    }
+}
+
+/// Used to render the job list on teh side of the app.
+pub(crate) fn render_list_job(collection: &Vec<CreatedJobDto>) -> PreEscaped<String> {
+    html! {
+        @for job in collection {
+            div {
+                table {
+                    tbody {
+                        tr tauri-invoke="get_job_detail" hx-vals=(json!({"jobId":job.id.to_string()})) hx-target={"#" (WORKPLACE) } {
+                            td style="width:100%" {
+                                (job.item.get_file_name_expected().to_string_lossy())
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    }
 }
 
 /// Render the full job description and detail page.
-pub(crate) fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
+pub(crate) fn render_job_detail_page(job: &Option<CreatedJobDto>) -> PreEscaped<String> {
     match job {
         Some(job) => {
             let result = fetch_img_result(&job.item.as_ref());
@@ -104,10 +106,10 @@ pub(crate) fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
                         }
                     }
                 };
-            ).0
+            )
         }
         // In this case, when job does not exist, we will simply redirect user to the setting page as a fallback.
-        None => settings::setting_page(),
+        None => settings::render_setting_page(),
     }
 }
 
@@ -115,7 +117,7 @@ pub(crate) fn render_job_detail_page(job: &Option<CreatedJobDto>) -> String {
 // return invalidation if the value are not accepted.
 #[command(async)]
 pub async fn create_job(
-    state: State<'_, Mutex<AppState>>,
+    state: State<'_, Mutex<AppService>>,
     start: String,
     end: String,
     version: Version,
@@ -131,22 +133,23 @@ pub async fn create_job(
     let list = render_list_job(&list);
     let detail = render_job_detail_page(&Some(job_created));
 
-    Ok(html!(
+    let content = html!(
         div hx-target={ "#" (WORKPLACE) }{
-            (PreEscaped(detail))
+            (detail)
         }
         div id="joblist" hx-swap-oob="true" {
-            (PreEscaped(list))
+            (list)
         }
-    )
-    .0)
+    );
+
+    Ok(content.0)
 }
 
 #[command(async)]
-pub async fn list_jobs(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
+pub async fn list_jobs(state: State<'_, Mutex<AppService>>) -> Result<String, String> {
     let mut server = state.lock().await;
     let content = server.list_jobs().await.map_err(|e| e.to_string())?; //cmd_list_jobs(&mut server).await;
-    Ok(render_list_job(&content))
+    Ok(render_list_job(&content).0)
 }
 
 fn fetch_img_result(path: &PathBuf) -> Option<Vec<PathBuf>> {
@@ -196,18 +199,18 @@ fn convert_file_src(path: &PathBuf) -> String {
 
 #[command(async)]
 pub async fn get_job_detail(
-    state: State<'_, Mutex<AppState>>,
+    state: State<'_, Mutex<AppService>>,
     job_id: &str,
 ) -> Result<String, String> {
     let job_id = Uuid::from_str(job_id).map_err(|e| format!("Unable to parse uuid? \n{e:?}"))?;
     let mut app_state = state.lock().await;
     let result = app_state.fetch_job(job_id).await;
-    Ok(render_job_detail_page(&result))
+    Ok(render_job_detail_page(&result).0)
 }
 
 // TODO: we'll need to figure out more about this? How exactly are we going to update the job?
 #[command(async)]
-pub async fn update_job(state: State<'_, Mutex<AppState>>, job_id: Uuid) -> Result<(), String> {
+pub async fn update_job(state: State<'_, Mutex<AppService>>, job_id: Uuid) -> Result<(), String> {
     let mut app_state = state.lock().await;
     if let Err(e) = app_state
         .invoke
@@ -226,7 +229,10 @@ pub async fn update_job(state: State<'_, Mutex<AppState>>, job_id: Uuid) -> Resu
 
 /// just delete the job from database. Notify peers to abandon task matches job_id
 #[command(async)]
-pub async fn delete_job(state: State<'_, Mutex<AppState>>, job_id: &str) -> Result<String, String> {
+pub async fn delete_job(
+    state: State<'_, Mutex<AppService>>,
+    job_id: &str,
+) -> Result<String, String> {
     // here we're deleting it from the database
     {
         let mut app_state = state.lock().await;

@@ -1,10 +1,11 @@
 use crate::models::blender_action::BlenderAction;
 use crate::models::setting_action::SettingsAction;
-use crate::models::{app_state::AppState, server_setting::ServerSetting};
+use crate::models::{app_service::AppService, server_setting::ServerSetting};
 use crate::services::tauri_app::{BlenderQuery, QueryMode, UiCommand};
 use blender_rs::blender::{Blender, ComputerGraphicsProgram};
-use futures::{SinkExt, StreamExt, channel::mpsc};
-use maud::html;
+use futures::SinkExt;
+use futures::channel::mpsc;
+use maud::{PreEscaped, html};
 use serde_json::json;
 use std::{env, path::PathBuf, process::Command, str::FromStr};
 use tauri::{AppHandle, State, command};
@@ -15,48 +16,62 @@ use tokio::sync::Mutex;
 const SETTING: &str = "settings";
 const BLENDER_LIST: &str = "blender_list";
 
+#[cfg(target_os = "windows")]
+fn dir_program() -> Result<&'static str, ()> {
+    Ok("explorer")
+}
+
+#[cfg(target_os = "macos")]
+fn dir_program() -> Result<&'static str, ()> {
+    Ok("open")
+}
+
+#[cfg(target_os = "linux")]
+fn dir_program() -> Result<&'static str, ()> {
+    Ok("xdg-open")
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+fn dir_program() -> Result<&'static str, ()> {
+    Err(())
+}
+
 #[command] // could this accept PathBuf?
 pub fn open_dir(path: &str) -> Result<(), ()> {
     // macos is special, the path link inside app bundle, but cannot access via file explore/finder
     let path = PathBuf::from_str(path).map_err(|_| ())?;
-    let result = match env::consts::OS {
-        "windows" => Ok("explorer"),
-        "macos" => Ok("open"),
-        "linux" => Ok("xdg-open"),
-        _ => Err(()),
-    };
-    if let Ok(program) = result {
-        Command::new(program).arg(path).spawn().unwrap();
-    }
+    let program = dir_program()?;
+    Command::new(program).arg(path).spawn().unwrap();
     Ok(())
 }
 
 #[command(async)]
-pub async fn list_blender_installed(state: State<'_, Mutex<AppState>>) -> Result<String, ()> {
-    let (sender, mut receiver) = mpsc::channel(0);
+pub async fn list_blender_installed(state: State<'_, Mutex<AppService>>) -> Result<String, ()> {
+    let (sender, mut receiver) = mpsc::channel::<Option<Vec<BlenderQuery>>>(32);
     let mut app_state = state.lock().await;
 
     let event = UiCommand::Blender(BlenderAction::List(sender, QueryMode::Local));
-    if let Err(e) = app_state.invoke.send(event).await {
-        eprintln!("fail to send mpsc to event! {e:?}");
-        return Err(());
-    }
+    app_state.send(event);
+    let result = receiver.recv().await.expect("Should expect data back!");
 
-    let list = receiver
-        .select_next_some()
-        .await
-        .expect("Should expect data back!");
-    Ok(render_list_blenders(list))
+    let content = match result {
+        Some(list) => render_list_blenders(list),
+        None => render_empty_list().0,
+    };
+    Ok(content)
+}
+
+fn render_empty_list() -> PreEscaped<String> {
+    html!(
+        div {
+            "Found no blender installation installed on this machine! Please download or add blender installation!"
+        }
+    )
 }
 
 fn render_list_blenders(list: Vec<BlenderQuery>) -> String {
     if list.len() == 0 {
-        return html!(
-
-            div {
-                "Found no blender installation installed on this machine! Please download or add blender installation!"
-            }
-        ).0;
+        return render_empty_list().0;
     }
 
     html! {
@@ -99,7 +114,7 @@ fn render_list_blenders(list: Vec<BlenderQuery>) -> String {
 #[command(async)]
 pub async fn add_blender_installation(
     handle: AppHandle,
-    state: State<'_, Mutex<AppState>>,
+    state: State<'_, Mutex<AppService>>,
 ) -> Result<(), String> {
     let path = match handle.dialog().file().blocking_pick_file() {
         Some(file_path) => match file_path {
@@ -109,14 +124,8 @@ pub async fn add_blender_installation(
         None => return Err("No file selected!".to_owned()),
     };
     let mut app_state = state.lock().await;
-    if let Err(e) = app_state
-        .invoke
-        .send(UiCommand::Blender(BlenderAction::Add(path)))
-        .await
-    {
-        eprintln!("Fail to send data back! {e:?}");
-    };
-
+    let message = UiCommand::Blender(BlenderAction::Add(path));
+    app_state.send(message);
     Ok(())
 }
 
@@ -124,7 +133,7 @@ pub async fn add_blender_installation(
 #[command(async)]
 pub async fn install_from_internet(
     _handle: State<'_, Mutex<AppHandle>>,
-    _state: State<'_, Mutex<AppState>>,
+    _state: State<'_, Mutex<AppService>>,
 ) -> Result<String, ()> {
     print!("Show me what the internet still have?");
     // in this case, I need to return a maud layout of the dialog pop up using htmx
@@ -143,7 +152,7 @@ pub async fn install_from_internet(
 /*
 #[command(async)]
 pub async fn fetch_blender_installation(
-    state: State<'_, Mutex<AppState>>,
+    state: State<'_, Mutex<AppService>>,
     version: &str,
 ) -> Result<Blender, ()> {
     let version = Version::parse(version).map_err(|_| ())?;
@@ -187,7 +196,7 @@ pub async fn fetch_blender_installation(
 
 /// Permanently delete blender from the system using the file path given
 #[command(async)]
-pub async fn delete_blender(state: State<'_, Mutex<AppState>>, path: &str) -> Result<(), String> {
+pub async fn delete_blender(state: State<'_, Mutex<AppService>>, path: &str) -> Result<(), String> {
     let mut app_state = state.lock().await;
     let blender = match Blender::from_executable(path) {
         Ok(blend) => blend,
@@ -206,7 +215,7 @@ pub async fn delete_blender(state: State<'_, Mutex<AppState>>, path: &str) -> Re
 /// - Severe local path to blender from registry (Orphan on disk/not touched)
 #[command(async)]
 pub async fn disconnect_blender_installation(
-    state: State<'_, Mutex<AppState>>,
+    state: State<'_, Mutex<AppService>>,
     blender: Blender,
 ) -> Result<(), String> {
     let mut app_state = state.lock().await;
@@ -223,7 +232,7 @@ pub async fn disconnect_blender_installation(
 // I am a little confused about this function.
 #[command(async)]
 pub async fn update_settings(
-    state: State<'_, Mutex<AppState>>,
+    state: State<'_, Mutex<AppService>>,
     install_path: String,
     cache_path: String,
     render_path: String,
@@ -247,7 +256,7 @@ pub async fn update_settings(
 
 // change this so that this is returning the html layout to let the client edit the settings.
 #[command(async)]
-pub async fn edit_settings(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
+pub async fn edit_settings(state: State<'_, Mutex<AppService>>) -> Result<String, String> {
     let mut app_state = state.lock().await;
     let settings = app_state.get_settings().await.map_err(|e| e.to_string())?;
     let cache_path = &settings.blend_dir;
@@ -301,15 +310,7 @@ fn render_settings(settings: &ServerSetting) -> String {
     .0
 }
 
-#[command(async)]
-pub async fn get_settings(state: State<'_, Mutex<AppState>>) -> Result<String, String> {
-    let mut app_state = state.lock().await;
-    let settings = app_state.get_settings().await.map_err(|e| e.to_string())?;
-    Ok(render_settings(&settings))
-}
-
-#[command]
-pub fn setting_page() -> String {
+pub(crate) fn render_setting_page() -> PreEscaped<String> {
     html! {
         div class="content"  {
             h1 { "Settings" };
@@ -328,5 +329,17 @@ pub fn setting_page() -> String {
             div class="group" id=(BLENDER_LIST) tauri-invoke="list_blender_installed" hx-trigger="load" hx-targets="this" {
             };
         }
-    }.0
+    }
+}
+
+#[command(async)]
+pub async fn get_settings(state: State<'_, Mutex<AppService>>) -> Result<String, String> {
+    let mut app_state = state.lock().await;
+    let settings = app_state.get_settings().await.map_err(|e| e.to_string())?;
+    Ok(render_settings(&settings))
+}
+
+#[command]
+pub fn setting_page() -> String {
+    render_setting_page().0
 }

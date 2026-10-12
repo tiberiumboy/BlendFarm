@@ -1,6 +1,8 @@
-use crate::models::{app_state::AppState, server_setting::ServerSetting, setting_action::SettingsAction};
+use crate::models::{
+    app_service::AppService, server_setting::ServerSetting, setting_action::SettingsAction,
+};
 use crate::services::tauri_app::UiCommand;
-use futures::SinkExt;
+// use futures::SinkExt;
 use tauri::{State, command};
 use tokio::sync::Mutex;
 
@@ -11,13 +13,11 @@ pub async fn get_server_settings() -> Result<String, String> {
 
 #[command(async)]
 pub async fn set_server_settings(
-    state: State<'_, Mutex<AppState>>,
+    state: State<'_, Mutex<AppService>>,
     new_settings: ServerSetting,
 ) -> Result<(), String> {
     let mut app_state = state.lock().await;
     let event = UiCommand::Settings(SettingsAction::Update(new_settings));
-    if let Err(e) = app_state.invoke.send(event).await {
-        return Err(e.to_string());
-    }
+    app_state.send(event);
     Ok(())
 }

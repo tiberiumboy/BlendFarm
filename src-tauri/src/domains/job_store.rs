@@ -11,6 +11,7 @@ use uuid::Uuid;
 pub enum JobError {
     FailedToRun(String),
     InvalidFile(String),
+    // TODO: create a method to intake errors
     DatabaseError(String),
     TicketError(TicketError),
     Send(String),

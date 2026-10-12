@@ -1,5 +1,6 @@
+use core::str;
 use serde::{Deserialize, Serialize};
-use std::io::Result as IoResult;
+use std::io::{Error as IoError, Result as IoResult};
 use std::{fs, path::PathBuf};
 
 /*
@@ -54,15 +55,27 @@ impl Default for ServerSetting {
 }
 
 impl ServerSetting {
+    fn get_config_path() -> PathBuf {
+        let path = Self::get_config_dir();
+        path.join(SETTINGS_FILE_NAME)
+    }
+
+    fn parse_data(data: &Vec<u8>) -> ServerSetting {
+        serde_json::from_slice(data).unwrap_or_else(|e| {
+            eprintln!("Unable to parse settings, using default value! {e:?}");
+            ServerSetting::default()
+        })
+    }
+
+    fn handle_err(e: IoError) -> ServerSetting {
+        eprintln!("Unable to read config, using default value! {e:?}");
+        ServerSetting::default()
+    }
+
     pub fn get_config_dir() -> PathBuf {
         let path = dirs::config_dir().unwrap().join(SETTINGS_PATH);
         fs::create_dir_all(&path).expect("Unable to create directory!");
         path
-    }
-
-    fn get_config_path() -> PathBuf {
-        let path = Self::get_config_dir();
-        path.join(SETTINGS_FILE_NAME)
     }
 
     /// Save the configurations to the user's config directory.
@@ -75,24 +88,9 @@ impl ServerSetting {
 
     /// Load user configurations from the user's config directory
     pub fn load() -> ServerSetting {
-        let config_path = Self::get_config_path();
-        match fs::read_to_string(config_path) {
-            Ok(data) => {
-                let mut settings: ServerSetting =
-                    serde_json::from_str(&data).expect("Unable to parse settings!");
-
-                if !settings.render_dir.exists() || !settings.blend_dir.exists() {
-                    settings = ServerSetting::default();
-                    let _ = &settings.save();
-                }
-
-                settings
-            }
-            Err(_) => {
-                let data = ServerSetting::default();
-                let _ = &data.save();
-                data
-            }
+        match fs::read(Self::get_config_path()) {
+            Ok(data) => Self::parse_data(&data),
+            Err(e) => Self::handle_err(e),
         }
     }
 }
