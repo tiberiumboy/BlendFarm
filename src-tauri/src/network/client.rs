@@ -1,9 +1,12 @@
-use blender_rs::models::event::BlenderEvent;
-use futures::prelude::*;
-use iroh::address_lookup::DnsAddressLookup;
 use anyhow::Error;
+use blender_rs::blender::Blender;
+use blender_rs::manager::Manager as BlenderManager;
+use blender_rs::models::event::BlenderEvent;
+use blender_rs::utils;
+use futures::prelude::*;
 use iroh::SecretKey;
-use iroh::{RelayMode, endpoint::presets};
+use iroh::address_lookup::DnsAddressLookup;
+use iroh::{RelayMode, Endpoint, endpoint::presets};
 use iroh_blobs::{
     ALPN, BlobFormat, BlobsProtocol,
     api::{
@@ -20,16 +23,20 @@ use iroh_blobs::{
         self,
         events::{ConnectMode, EventMask, EventSender, ProviderMessage, RequestUpdate},
     },
-    store::fs::FsStore,
+    // store::fs::FsStore,
+    store::mem::MemStore,
     ticket::BlobTicket,
 };
+
 use iroh_mdns_address_lookup::MdnsAddressLookup;
-use iroh_quinn::{Connection, Endpoint};
-use tokio::sync::{mpsc, oneshot};
+use iroh_quinn::{Connection};
+use irpc::channel::{mpsc, oneshot};
 use irpc::{Service, rpc_requests};
+
 use n0_future::IterExt;
 use n0_future::{BufferedStreamExt, FuturesUnordered, task::AbortOnDropHandle};
 use parking_lot::Mutex;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashSet},
@@ -44,14 +51,16 @@ type Connections = BTreeMap<u64, PerConnectionProgress>;
 type ConnectionId = u64;
 type RequestId = u64;
 
+// What the status of node machine.
 pub enum Status {
     Idle,
     Rendering(BlenderEvent),
 }
 
+// TODO: how is GetRequest implemented?
 #[derive(Debug, Serialize, Deserialize)]
-struct GetRequest {
-    key: String,
+struct GetFile {
+    key: BlobTicket,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -66,11 +75,6 @@ enum SetUpdate {
     Done,
 }
 
-#[derive(Debug)]
-enum RequestWithChannels {
-    Get{ request: Request, response: mpsc::Sender<Request> }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 struct EchoRequest {}
 
@@ -78,7 +82,7 @@ struct EchoRequest {}
 #[derive(Debug, Serialize, Deserialize)]
 enum Request {
     #[rpc(tx=oneshot::Sender<String>)]
-    Get(GetRequest),
+    Get(GetFile),
     #[rpc(tx=oneshot::Sender<()>)]
     Set(SetRequest),
     #[rpc(rx=mpsc::Receiver<SetUpdate>, tx=oneshot::Sender<()>)]
@@ -101,11 +105,16 @@ impl Service for EchoService {
     type Message = RequestWithChannels;
 }
 
-#[derive(Debug, Clone)]
-pub enum Client {
-    Local(mpsc::Sender<Request>),
-    Remote(Connection),
+pub struct Client {
+    endpoint: Endpoint,
+    blender_manager: Arc<Mutex<BlenderManager>>,
 }
+
+// #[derive(Debug)]
+// pub enum Client {
+//     Local(oneshot::Sender<Request>),
+//     Remote(Connection),
+// }
 
 #[derive(Debug)]
 struct PerConnectionProgress {
@@ -123,16 +132,67 @@ impl PerConnectionProgress {
 }
 
 impl Client {
-    async fn get(&self, key: String) -> Result<Option<String>, anyhow::Error> {
-        let request = GetRequest { key };
+
+    const SIZE_LIMIT: usize = 2048;
+
+    fn new(endpoint: Endpoint, blender_manager: Arc<Mutex<BlenderManager>>) -> Self {
+        Self {endpoint, blender_manager }
+    }
+
+    // public interface to invoke client functions for networking.
+    // Use this implementation to call remotely.
+    pub(crate) async fn init(blender_manager: Arc<Mutex<BlenderManager>>) -> Result<Client, Error> {
+        let endpoint = Endpoint::bind(presets::N0).await?;
+        Ok(Client::new(endpoint, blender_manager))
+    }
+
+    // this machine is calling out to the network requesting blender download from other nodes on the network.
+    // If there are no node active on the network, or none of them have the matching compatible blender version,
+    // this will return Ok(None).
+    // Otherwise, this function will stream download copy of blender to your machine and install.
+    pub async fn get_blender(&self, version: &Version, manager: &BlenderManager) -> Result<Option<PathBuf>, Error> {
+        // Use DHT service to call and initialize a file transfer connection.
+
+        // let filename =
+        let category_folder_name = format!("Blender{}.{}", version.major, version.minor);
+        let abs_path = manager.get_config().get_download_destination(&category_folder_name);
+        let filename = Blender::generate_filename(version);
+
+        if blender == None {
+            // try network here?
+            println!("Do network stuff here to fetch blender from other available node");
+
+            // send a broadcast request asking if anyone on the network that have blender installed.
+            // Once package is available for redistribute, the node will connect to this machine with BlobsTicket
+            // On established, initiate file transfer between this computer and node
+            // once transfer complete, run manager to unpack and install blender
+            // Finally - return Some(Blender) after succeed
+            Client::receive(ticket)
+        }
+        // request.send(blender)?;
+        Ok(blender)
+        }
+    }
+
+    pub async fn get_ticket(&self) -> Result<Option<Ticket>> {
+        let (tx, rx) = oneshot::channel();
+        self.
+        Ok(rx.await??)
+    }
+
+    async fn get(&self, key: BlobTicket) -> Result<Option<String>, anyhow::Error> {
+        let request = GetFile { key:  };
         match self {
             Self::Local(channel) => {
                 let (tx, rx) = oneshot::channel();
                 let request = FullRequest { request, tx };
                 channel.send(request).await?;
                 Ok(rx.await??)
-            },
+            }
             Self::Remote(connection) => {
+                let key = BlobTicket::
+                let request = Request::Get{key};
+                Self::get_remote(connection, request)
                 todo!("Finish local first before investigating remote.");
             }
         }
@@ -141,12 +201,17 @@ impl Client {
     // fn new(db: FsStore, cpu: NonZero<u64>, files: HashMap<String, PathBuf>) -> Self {
     // Self { files, db, cpu }
     // }
-    async fn get_remote(connection: Connection, request: Request ) -> Result<Option<String>, anyhow::Error> {
+    async fn get_remote(
+        connection: Connection,
+        request: Request,
+    ) -> Result<Option<String>, anyhow::Error> {
         let (send, receive) = connection.open_bi().await?;
-        let request = GetRequest { }
-        send.write_all(GetRequest { key }?).await
+        let deserialize = serde_json::to_vec(&request)?;
+        send.write_all(&deserialize.to_vec()).await?;
+        // while let Some(data) = receive.
     }
 
+    // what is this used for?
     fn validate_path_component(component: &str) -> IoResult<()> {
         match component.contains('/') {
             true => Ok(()),
@@ -168,7 +233,7 @@ impl Client {
         Ok(path)
     }
 
-    pub fn canonicalized_path_to_string(
+    fn canonicalized_path_to_string(
         path: impl AsRef<Path>,
         must_be_relative: bool,
     ) -> IoResult<String> {
@@ -223,6 +288,7 @@ impl Client {
     //     Ok(Self::)
     // }
 
+    // TODO: where is this being called from?
     async fn export(db: &Store, collection: Collection) -> IoResult<()> {
         // TODO: maybe change this?
         let root = std::env::current_dir()?;
@@ -451,136 +517,148 @@ impl Client {
         Ok(())
     }
 
-    pub async fn receive(ticket: BlobTicket) -> Result<(), Error> {
+    pub async fn receive(ticket: BlobTicket, abs_path: impl AsRef<Path>) -> Result<(), Error> {
         let addr = ticket.addr().clone();
         let secret_key = SecretKey::generate();
-        let mut builder = Endpoint::builder(presets::N0)
-            // enable network discovery
-            .address_lookup(MdnsAddressLookup::builder())
-            .alpns(vec![])
-            .secret_key(secret_key)
-            .relay_mode(RelayMode::Default);
+        // let mut builder = Endpoint::builder(presets::N0)
+        //     // enable network discovery
+        //     .address_lookup(MdnsAddressLookup::builder())
+        //     .alpns(vec![])
+        //     .secret_key(secret_key)
+        //     .relay_mode(RelayMode::Default)
+        //     .await;
 
-        if ticket.addr().relay_urls().next().is_none() && ticket.addr().ip_addrs().next().is_none()
-        {
-            builder = builder.address_lookup(DnsAddressLookup::n0_dns());
-        }
+        // let endpoint = builder
+        //     .bind()
+        //     .await
+        //     .map_err(|e| IoError::new(ErrorKind::AddrNotAvailable, e.to_string()))?;
 
-        let endpoint = builder
-            .bind()
-            .await
-            .map_err(|e| IoError::new(ErrorKind::AddrNotAvailable, e.to_string()))?;
+        // let dir_name = format!(".sendme-recv-{}", ticket.hash().to_hex());
+        // let iroh_data_dir = std::env::current_dir()?.join(dir_name);
 
-
-        let dir_name = format!(".sendme-recv-{}", ticket.hash().to_hex());
-        let iroh_data_dir = std::env::current_dir()?.join(dir_name);
         // because this is anyhow errors, intercept it into IoError instead.
-        let db = FsStore::load(&iroh_data_dir)
-            .await
-            .map_err(|e| IoError::new(ErrorKind::BrokenPipe, e.to_string()))?;
-        let db2 = db.clone();
+        // let db = FsStore::load(&iroh_data_dir)
+        //     .await
+        //     .map_err(|e| IoError::new(ErrorKind::BrokenPipe, e.to_string()))?;
+        let store = MemStore::new();
+
+        let downloader = store.downloader(&endpoint);
+
+        // download to MemStore
+        // TODO: Change this to use FsStore instead
+        downloader.download(ticket.hash(), Some(ticket.addr().id)).await?;
+
+        // export blobs to storage
+        store.blobs().export(ticket.hash(), abs_path).await?;
+
+        // let db2 = db.clone();
         println!("load done!");
-        let fut = async {
-            // trace!("running");
-            let hash_and_format = ticket.hash_and_format();
-            // trace!("computing local");
-            let local = db
-                .remote()
-                .local(hash_and_format)
-                .await
-                .map_err(|e| IoError::new(ErrorKind::ConnectionAborted, e.to_string()))?;
-            // trace!("local done");
-            let (stats, total_files, payload_size) = if !local.is_complete() {
-                // trace!("{} not complete", hash_and_format.hash);
-                let connection = endpoint.connect(addr, ALPN).await.map_err(|e| {
-                    IoError::new(std::io::ErrorKind::ConnectionRefused, e.to_string())
-                })?;
-                let (_hash_seq, sizes) = get_hash_seq_and_sizes(
-                    &connection,
-                    &hash_and_format.hash,
-                    1024 * 1024 * 32,
-                    None,
-                )
-                .await
-                .map_err(|e| IoError::new(ErrorKind::Interrupted, e.to_string()))?;
-                // let total_size = sizes.iter().copied().sum::<u64>();
-                let payload_size = sizes.iter().skip(2).copied().sum::<u64>();
-                let total_files = (sizes.len().saturating_sub(1)) as u64;
-                // print the details of the collection only in verbose mode
-                // eprintln!("getting {} blobs in total, {}", total_files + 1, total_size);
-                let (tx, _rx) = mpsc::channel(32); // TODO: where was rx used?
-                // let local_size = local.local_bytes();
-                let get = db.remote().execute_get(connection, local.missing());
-                let mut stats = Stats::default();
-                let mut stream = get.stream();
-                while let Some(item) = stream.next().await {
-                    // trace!("got item {item:?}");
-                    match item {
-                        GetProgressItem::Progress(offset) => {
-                            tx.send(offset).await.ok();
-                        }
-                        GetProgressItem::Done(value) => {
-                            stats = value;
-                            break;
-                        }
-                        GetProgressItem::Error(cause) => {
-                            return Err(IoError::new(ErrorKind::Interrupted, cause.to_string()));
-                        }
-                    }
-                }
-                drop(tx);
-                (stats, total_files, payload_size)
-            } else {
-                println!("{} already complete", hash_and_format.hash);
-                let total_files = local.children().unwrap() - 1;
-                let payload_bytes = 0; // todo local.sizes().skip(2).map(Option::unwrap).sum::<u64>();
-                (Stats::default(), total_files, payload_bytes)
-            };
-            let collection = Collection::load(hash_and_format.hash, db.as_ref())
-                .await
-                .map_err(|e| IoError::new(ErrorKind::Other, e.to_string()))?;
+        // let fut = async {
+        //     // trace!("running");
+        //     let hash_and_format = ticket.hash_and_format();
+        //     let local = db.store
+        //     // trace!("computing local");
+        //     // let local = db
+        //     //     .remote()
+        //     //     .local(hash_and_format)
+        //     //     .await
+        //     //     .map_err(|e| IoError::new(ErrorKind::ConnectionAborted, e.to_string()))?;
 
-            // for (name, hash) in collection.iter() {
-            //     println!("    {} HEX", hash);
-            // }
+        //     // trace!("local done");
+        //     let (stats, total_files, payload_size) = if !local.is_complete() {
+        //         // trace!("{} not complete", hash_and_format.hash);
+        //         let connection = endpoint.connect(addr, ALPN).await.map_err(|e| {
+        //             IoError::new(std::io::ErrorKind::ConnectionRefused, e.to_string())
+        //         })?;
+        //         let (_hash_seq, sizes) = get_hash_seq_and_sizes(
+        //             &connection,
+        //             &hash_and_format.hash,
+        //             1024 * 1024 * 32,
+        //             None,
+        //         )
+        //         .await
+        //         .map_err(|e| IoError::new(ErrorKind::Interrupted, e.to_string()))?;
+        //         // let total_size = sizes.iter().copied().sum::<u64>();
+        //         let payload_size = sizes.iter().skip(2).copied().sum::<u64>();
+        //         let total_files = (sizes.len().saturating_sub(1)) as u64;
+        //         // print the details of the collection only in verbose mode
+        //         // eprintln!("getting {} blobs in total, {}", total_files + 1, total_size);
+        //         let (tx, _rx) = mpsc::channel(32); // TODO: where was rx used?
+        //         // let local_size = local.local_bytes();
+        //         let get = db.remote().execute_get(connection, local.missing());
+        //         let mut stats = Stats::default();
+        //         let mut stream = get.stream();
+        //         while let Some(item) = stream.next().await {
+        //             // trace!("got item {item:?}");
+        //             match item {
+        //                 GetProgressItem::Progress(offset) => {
+        //                     tx.send(offset).await.ok();
+        //                 }
+        //                 GetProgressItem::Done(value) => {
+        //                     stats = value;
+        //                     break;
+        //                 }
+        //                 GetProgressItem::Error(cause) => {
+        //                     return Err(IoError::new(ErrorKind::Interrupted, cause.to_string()));
+        //                 }
+        //             }
+        //         }
+        //         drop(tx);
+        //         (stats, total_files, payload_size)
+        //     } else {
+        //         println!("{} already complete", hash_and_format.hash);
+        //         let total_files = local.children().unwrap() - 1;
+        //         let payload_bytes = 0; // todo local.sizes().skip(2).map(Option::unwrap).sum::<u64>();
+        //         (Stats::default(), total_files, payload_bytes)
+        //     };
+        //     let collection = Collection::load(hash_and_format.hash, db.as_ref())
+        //         .await
+        //         .map_err(|e| IoError::new(ErrorKind::Other, e.to_string()))?;
 
-            if let Some((name, _)) = collection.iter().next() {
-                if let Some(first) = name.split('/').next() {
-                    println!("exporting to {first}");
-                }
-            }
-            Client::export(&db, collection).await?;
-            Ok((total_files, payload_size, stats))
-        };
-        let (total_files, payload_size, stats) = select! {
-            x = fut => match x {
-                Ok(x) => {
-                    endpoint.close().await;
-                    x
-                }
-                Err(e) => {
-                    endpoint.close().await;
-                    // make sure we shutdown the db before exiting
-                    db2.shutdown().await?;
-                    eprintln!("error: {e}");
-                    std::process::exit(1);
-                }
-            },
-            _ = signal::ctrl_c() => {
-                endpoint.close().await;
-                db2.shutdown().await?;
-                std::process::exit(130);
-            }
-        };
+        //     // for (name, hash) in collection.iter() {
+        //     //     println!("    {} HEX", hash);
+        //     // }
 
-        println!("{total_files:?} {payload_size:?} {stats:?}");
-        tokio::fs::remove_dir_all(iroh_data_dir).await?;
+        //     if let Some((name, _)) = collection.iter().next() {
+        //         if let Some(first) = name.split('/').next() {
+        //             println!("exporting to {first}");
+        //         }
+        //     }
+        //     Client::export(&db, collection).await?;
+        //     Ok((total_files, payload_size, stats))
+        // };
+
+        // let (total_files, payload_size, stats) = select! {
+        //     x = fut => match x {
+        //         Ok(x) => {
+        //             endpoint.close().await;
+        //             x
+        //         }
+        //         Err(e) => {
+        //             endpoint.close().await;
+        //             // make sure we shutdown the db before exiting
+        //             db2.shutdown().await?;
+        //             eprintln!("error: {e}");
+        //             std::process::exit(1);
+        //         }
+        //     },
+        //     _ = signal::ctrl_c() => {
+        //         endpoint.close().await;
+        //         db2.shutdown().await?;
+        //         std::process::exit(130);
+        //     }
+        // };
+
+        // println!("{total_files:?} {payload_size:?} {stats:?}");
+        // tokio::fs::remove_dir_all(iroh_data_dir).await?;
         Ok(())
     }
 
     // TODO: Update blobs_data_dir to a specific location for blendFarm
     // TODO: break apart this function into callable structure
-    pub async fn server(&mut self, path: impl AsRef<Path>) -> Result<(), Error> {
+    // TODO: Describe what this is intended for.
+    // Start up a network connection to store blobs protocol.
+    pub async fn serve(&mut self, path: impl AsRef<Path>) -> Result<(), Error> {
         let secret_key = SecretKey::generate();
         let relay_mode = RelayMode::Default;
         let builder = Endpoint::builder(presets::N0)
@@ -589,17 +667,18 @@ impl Client {
             .relay_mode(relay_mode);
 
         // use a flat store - todo: use a partial in mem store instead
-        let suffix = "temp";
-        let cwd = std::env::current_dir()?;
-        let blobs_data_dir = cwd.join(format!(".sendme-send-{}", suffix));
+        // let suffix = "temp";
+        // let cwd = std::env::current_dir()?;
+        // let blobs_data_dir = cwd.join(format!(".sendme-send-{}", suffix));
+
         // todo: remove this as soon as we have a mem store that does not require a temp dir,
         // or create a temp dir outside the current directory.
-        if cwd.join(&path) == cwd {
-            println!("can not share from the current directory");
-            std::process::exit(1);
-        }
+        // if cwd.join(&path) == cwd {
+        //     println!("can not share from the current directory");
+        //     std::process::exit(1);
+        // }
 
-        let blobs_data_dir2 = blobs_data_dir.clone();
+        // let blobs_data_dir2 = blobs_data_dir.clone();
         // Created channels across threads
         let (progress_tx, progress_rx) = mpsc::channel(32);
 
@@ -609,53 +688,54 @@ impl Client {
         ));
 
         // Create directory?
-        tokio::fs::create_dir_all(&blobs_data_dir2).await?;
+        // tokio::fs::create_dir_all(&blobs_data_dir2).await?;
 
         // get endpoint from builder's bind() we listen?
         let endpoint = builder
             .bind()
             .await
             .map_err(|e| IoError::new(ErrorKind::AddrNotAvailable, e.to_string()))?;
-        // loaded as FsStore
-        let store = FsStore::load(&blobs_data_dir2)
-            .await
-            .map_err(|e| IoError::new(ErrorKind::Other, e.to_string()))?;
-        // created ref to FsStore as Store?
+
+        let store = MemStore::new();
         let blobs = BlobsProtocol::new(
             &store,
-            Some(EventSender::new(
-                progress_tx,
-                EventMask {
-                    connected: ConnectMode::Notify,
-                    get: provider::events::RequestMode::NotifyLog,
-                    ..EventMask::DEFAULT
-                },
-            )),
+            None
+            // Some(EventSender::new(
+            //     progress_tx,
+            //     EventMask {
+            //         connected: ConnectMode::Notify,
+            //         get: provider::events::RequestMode::NotifyLog,
+            //         ..EventMask::DEFAULT
+            //     },
+            // )),
         );
 
+        let abs_path = std::path::absolute(path.as_ref().to_path_buf())?;
+        let tag = store.blobs().add_path(abs_path).await?;
+
         // extract as Store?
-        let import_result = Client::import(blobs.store(), path).await?;
+        // let import_result = Client::import(blobs.store(), path).await?;
 
         let router = iroh::protocol::Router::builder(endpoint.clone())
-            .accept(iroh_blobs::ALPN, blobs.clone())
+            .accept(iroh_blobs::ALPN, blobs)
             .spawn();
 
-        // wait for the endpoint to figure out its address before making a ticket
-        let ep = router.endpoint();
-        time::timeout(Duration::from_secs(30), async move {
-            ep.online().await;
-        })
-        .await
-        .map_err(|e| IoError::new(ErrorKind::TimedOut, e.to_string()))?;
+        // // wait for the endpoint to figure out its address before making a ticket
+        // let ep = router.endpoint();
+        // time::timeout(Duration::from_secs(30), async move {
+        //     ep.online().await;
+        // })
+        // .await
+        // .map_err(|e| IoError::new(ErrorKind::TimedOut, e.to_string()))?;
 
-        let (temp_tag, ..) = import_result;
-        let hash = temp_tag.hash();
+        // let (temp_tag, ..) = import_result;
+        // let hash = temp_tag.hash();
 
         // make a ticket
-        let addr = router.endpoint().addr();
-        let ticket = BlobTicket::new(addr, hash, BlobFormat::HashSeq);
-        println!("to get this data, use");
-        println!("sendme receive {ticket}");
+        // let endpoint_id = router.endpoint().id();
+        let endpoint_id = endpoint.id();
+        // use this to respond back to the other peers requesting the file.
+        let ticket = BlobTicket::new(endpoint_id.into(), tag.hash, tag.format);
 
         let mut network_handlers = Vec::new();
 
@@ -664,16 +744,12 @@ impl Client {
             let handler = tokio::spawn(async move {
                 while let Ok((_quic_send, _quic_recv)) = connection.accept_bi().await {
                     // handle connection here.
-
                 }
-
             });
             network_handlers.push(handler);
         }
 
         network_handlers.join_all().await;
-
-        drop(temp_tag);
         time::timeout(Duration::from_secs(2), router.shutdown()).await??;
         drop(router);
 
