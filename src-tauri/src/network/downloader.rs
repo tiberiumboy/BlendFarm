@@ -1,0 +1,2 @@
+// Suggested to make a downloader. https://docs.iroh.computer/protocols/blobs#getting-ready-to-send:~:text=Reusing%20the%20same%20downloader%20across%20multiple%20downloads%20can%20be%20more%20efficient%2C%20e%2Eg%2E%20by%20reusing%20existing%20connections%2E%20In%20this%20example%20we%20don%E2%80%99t%20see%20this%2C%20but%20it%20might%20come%20in%20handy%20for%20your%20use%20case
+pub struct Downloader {}
