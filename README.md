@@ -70,7 +70,20 @@ For those who wish to run the tools on headless server and network farm solution
 # Planned
 [ ] Pipe Blender's rendering preview
 [ ] Node version distribution - to reduce internet traffic to download version from source.
-[ ] File distribution for Blender version for other node to reduce INternet download traffic using DHT/Provider service from Kademila/libp2p
+[ ] File distribution for Blender version for other node to reduce Internet download traffic using DHT/Provider service from Kademila/libp2p
+[ ] Implement FFmpeg wrapper with this tool to auto generate gif preview for every new batch received from network renders.
+
+```mermaid
+gantt
+  dateFormat YYYY
+  title Milestone Features
+
+  section Features
+  Distribute File Across Intranet :active, des1, 2026-10-17, 1d
+  Blender Version Distribution :        des2, 2026-10-17, 1d
+  Pipe Blender Rendering Preview   :        des3, 2026-10-17, 1d
+  Impl. FFmpeg for auto preview :       des4, 2026-10-17, 1d
+```
 
 # Limitations
 Blender's limitation applies to this project's scope limitation. If a feature is available, or compatibility to run blender on specific platform - this tool will need to reflect and handle those unique situation. Otherwise, this tool follows Blender's programming guideline to ensure backward compatibility for all version available.
